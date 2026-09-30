@@ -137,7 +137,8 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
   across dates. Tapping a row expands one line per leg ("132 8:10am → 8:24am") with
   its own badge, the timing leg in bold; tap again to collapse. Expanded rows are remembered
   by the timing vehicle's trip id while the page is open.
-- Trip switcher: one button per trip, hidden with a single trip.
+- Trip switcher: two buttons for two trips, a dropdown for three or more, hidden with a
+  single trip.
 - Alerts above the list: only alerts active now whose `informed_entity` matches a
   configured route **and** (stop, or no stop given), with service-impacting effects
   (e.g. `DELAY`, `DETOUR`, `SUSPENSION`, `SHUTTLE`, `STOP_CLOSURE`, `STATION_CLOSURE`,

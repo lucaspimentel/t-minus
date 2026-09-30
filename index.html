@@ -40,6 +40,10 @@
     font: inherit; font-size: 14px; cursor: pointer;
   }
   .toggle button[aria-pressed="true"] { background: var(--accent); color: #1c1f24; font-weight: 600; }
+  .toggle select {
+    flex: 1; min-width: 0; padding: 10px; border: 0; background: var(--card); color: var(--text);
+    font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+  }
   .icon-btn {
     width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 10px;
     background: var(--card); color: var(--text); font-size: 20px; cursor: pointer;
@@ -333,16 +337,35 @@ function badge(source) {
   return el('span', `badge ${source}`, source);
 }
 
+// Two trips: side-by-side buttons. More: a dropdown. Rebuilt only when the trips or the
+// selection change, so a periodic render doesn't close an open dropdown.
+let toggleKey = null;
 function renderToggle() {
   const t = $('toggle');
   const trips = config?.trips ?? [];
+  const key = JSON.stringify([trips.map(x => x.name), tripIdx]);
+  if (key === toggleKey) return;
+  toggleKey = key;
+  t.hidden = trips.length < 2;
+  if (trips.length > 2) {
+    const select = el('select');
+    select.setAttribute('aria-label', 'Trip');
+    select.append(...trips.map((trip, i) => {
+      const o = el('option', null, trip.name);
+      o.value = String(i);
+      o.selected = i === tripIdx;
+      return o;
+    }));
+    select.onchange = () => setTrip(Number(select.value), true);
+    t.replaceChildren(select);
+    return;
+  }
   t.replaceChildren(...trips.map((trip, i) => {
     const b = el('button', null, trip.name);
     b.setAttribute('aria-pressed', String(i === tripIdx));
     b.onclick = () => setTrip(i, true);
     return b;
   }));
-  t.hidden = trips.length < 2;
 }
 
 function renderRow(r, now) {
