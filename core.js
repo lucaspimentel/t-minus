@@ -150,13 +150,22 @@ const hhmm = mins => `${pad(Math.floor(mins / 60))}:${pad(mins % 60)}`;
 
 // MBTA service days run past midnight; before 03:00 the service date is the previous day
 // and times are expressed with hours >= 24.
-export function scheduleWindow(nowMs, backMinutes = 5, aheadMinutes = 240) {
+export function serviceDate(nowMs) {
   const { date, hour, minute } = localParts(nowMs);
-  let mins = hour * 60 + minute;
-  let serviceDate = date;
-  if (hour < 3) { serviceDate = addDays(date, -1); mins += 24 * 60; }
-  const min = Math.max(0, mins - backMinutes);
-  return { date: serviceDate, minTime: hhmm(min), maxTime: hhmm(mins + aheadMinutes) };
+  return hour < 3
+    ? { date: addDays(date, -1), minutes: (hour + 24) * 60 + minute }
+    : { date, minutes: hour * 60 + minute };
+}
+
+export function scheduleWindow(nowMs, backMinutes = 5, aheadMinutes = 240) {
+  const { date, minutes } = serviceDate(nowMs);
+  const min = Math.max(0, minutes - backMinutes);
+  return { date, minTime: hhmm(min), maxTime: hhmm(minutes + aheadMinutes) };
+}
+
+// Morning of the next service day, used to fill rows once today's service has ended.
+export function nextServiceWindow(nowMs) {
+  return { date: addDays(serviceDate(nowMs).date, 1), minTime: '03:00', maxTime: '12:00' };
 }
 
 // ---------- trips ----------
@@ -234,7 +243,8 @@ export function directRows(commute, busTrips, nowMs, stopSlackMinutes, count = 3
 }
 
 // Rows for a commute with a frequent connection before the bottleneck (e.g. office → home).
-// For each reachable bus, picks the latest viable connection trip.
+// For each bus, picks the latest viable connection trip. Buses no known trip can make are
+// skipped; "no connection" is reported only when there is no connection data at all.
 export function connectionRows(commute, busTrips, connTrips, nowMs, count = 3) {
   const { bottleneck, connection, walkBefore, transfer } = analyzeCommute(commute);
   const earliestBoard = nowMs + walkBefore * MIN;
@@ -250,35 +260,38 @@ export function connectionRows(commute, busTrips, connTrips, nowMs, count = 3) {
     trains.push({ tripId, dep, arr, source: from.source === 'live' && to.source === 'live' ? 'live' : 'scheduled' });
   }
 
-  // Shortest known connection ride; buses that cannot be reached even with it are skipped.
-  const minRide = trains.length ? Math.min(...trains.map(t => t.arr - t.dep)) : 0;
-
   const buses = [];
   for (const [tripId, stops] of busTrips) {
     const board = stops.get(bottleneck.stop);
     if (!usable(board)) continue;
     const busDep = depOf(board);
-    if (busDep == null || busDep - transfer * MIN < earliestBoard + minRide) continue;
+    if (busDep == null || busDep - transfer * MIN <= earliestBoard) continue;
     buses.push({ tripId, busDep, source: board.source });
   }
   buses.sort((a, b) => a.busDep - b.busDep);
 
-  return buses.slice(0, count).map(bus => {
+  const rows = [];
+  for (const bus of buses) {
+    if (rows.length >= count) break;
     const latestArr = bus.busDep - transfer * MIN;
     let best = null;
     for (const t of trains) {
       if (t.dep >= earliestBoard && t.arr <= latestArr && (!best || t.dep > best.dep)) best = t;
     }
-    if (!best) return { ...bus, leaveBy: null, train: null, noConnection: true };
-    return {
+    if (!best) {
+      if (trains.length === 0) rows.push({ ...bus, leaveBy: null, train: null, noConnection: true });
+      continue;
+    }
+    rows.push({
       tripId: bus.tripId,
       busDep: bus.busDep,
       leaveBy: best.dep - walkBefore * MIN,
       train: { dep: best.dep, arr: best.arr, source: best.source },
       source: bus.source === 'live' && best.source === 'live' ? 'live' : 'scheduled',
       noConnection: false,
-    };
-  });
+    });
+  }
+  return rows;
 }
 
 export function countdownState(nowMs, leaveBy, busDep) {
@@ -287,6 +300,11 @@ export function countdownState(nowMs, leaveBy, busDep) {
   if (nowMs < leaveBy - 2 * MIN) return 'green';
   if (nowMs < leaveBy) return 'amber';
   return 'red';
+}
+
+// Today's rows first; remaining slots filled from the next service day.
+export function fillRows(todayRows, nextRows, count = 3) {
+  return [...todayRows, ...nextRows.map(r => ({ ...r, nextDay: true }))].slice(0, count);
 }
 
 export function pollIntervalMs(rows, nowMs) {
@@ -326,9 +344,13 @@ export function filterAlerts(alertsDoc, routes, stops, nowMs) {
 // ---------- formatting ----------
 
 const timeFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
+const weekdayFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' });
 
-export function formatTime(ms) {
-  return timeFmt.format(new Date(ms));
+// Prefixes the weekday when `ms` falls on a different local calendar date than `nowMs`.
+export function formatTime(ms, nowMs) {
+  const t = timeFmt.format(new Date(ms));
+  if (nowMs == null || localParts(ms).date === localParts(nowMs).date) return t;
+  return `${weekdayFmt.format(new Date(ms))} ${t}`;
 }
 
 export function formatCountdown(ms) {

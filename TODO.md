@@ -2,9 +2,6 @@
 
 ## Next
 
-- [ ] **Next-day departures after service ends.** After the last bus, the list says
-  "No upcoming departures". Show the first departure of the next service day instead
-  (fetch schedules for the next service date when the current window is empty).
 - [ ] **Separate source badge for the train.** Office → home rows show one badge for
   bus + train combined (weakest wins), so a live bus with a scheduled train reads as
   "scheduled". Show the train's badge next to the train time.

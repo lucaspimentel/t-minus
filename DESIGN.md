@@ -63,6 +63,11 @@ Fallback rules:
   horizon: ~65 min (late evening sample; daytime not measured). Later buses match
   against scheduled trains.
 - A connection is labeled by its weakest input (live bus + scheduled train = scheduled).
+- **Next service day**: when today's data yields fewer than 3 rows (late evening, after the
+  last bus), fetch the next service day's schedules (03:00-12:00) and fill the remaining
+  rows from them. Next-day data is cached separately from today's because GTFS trip IDs
+  repeat across days. Times on a different calendar date than now show the weekday
+  ("Thu 6:03 AM").
 
 ## Leave-by computation
 
@@ -103,10 +108,10 @@ outbound 132 departures at Oak Grove:
    `oak_grove_arrival <= bus_departure - transfer_buffer`.
 3. Pick the **latest** viable train (minimal waiting at Oak Grove).
 4. `leave_by = that_train.state_departure - walk_office_to_state`.
-5. If no viable train exists, mark the bus "no connection".
+5. If no known train can make the bus, skip it (e.g. the first bus of the day, which leaves
+   before the first train arrives). If there is no connection data at all, show the bus as
+   "no connection".
 
-Buses that cannot be reached even with the shortest known train ride
-(`bus_departure - transfer < now + walk + min_ride`) are skipped, not shown as "no connection".
 
 `stop_slack` does not apply at Oak Grove; `transfer_buffer` covers it.
 
@@ -246,6 +251,7 @@ To stay well inside it:
   15 min; cache in memory.
 - Per poll cycle: bottleneck predictions (1) + Orange predictions (1, office → home only).
 - Alerts: every 5 min.
+- Next service day schedules: only when today has fewer than 3 rows; at most once an hour.
 
 Worst case ≈ 4 req/min at 30s polling. A key raises the limit to 1,000 req/min (per MBTA docs,
 not tested).

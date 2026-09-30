@@ -4,6 +4,7 @@ import {
   DEFAULT_CONFIG, validateConfig, analyzeCommute, pickDirection, periodKey, scheduleWindow,
   mergeTrips, directRows, connectionRows, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown,
+  nextServiceWindow, fillRows, formatTime,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -134,14 +135,19 @@ test('connectionRows picks the latest viable train and flags gaps', () => {
   const live = connectionRows(officeToHome, buses2, orange, now);
   assert.equal(live[0].source, 'live');
 
-  // Train must be reachable: at 17:08 o1/o2 departures (17:11, 17:16) are before now + 10 walk,
-  // and o3 arrives too late for the 17:40 bus.
-  const late = connectionRows(officeToHome, buses2, orange, at('17:08'));
-  assert.equal(late[0].noConnection, true);
-  assert.equal(late[0].leaveBy, null);
+  // At 17:08, o1/o2 (17:11, 17:16) depart before now + 10 walk and o3 arrives too late
+  // for the 17:40 bus: no train can make it, so the bus is skipped.
+  assert.deepEqual(connectionRows(officeToHome, buses2, orange, at('17:08')), []);
 
-  // At 17:10, the 17:40 bus needs arrival by 17:35 but boarding is 17:20 + 16 min ride: skipped.
-  assert.deepEqual(connectionRows(officeToHome, buses2, orange, at('17:10')), []);
+  // Without any connection data the bus is shown as "no connection".
+  const noData = connectionRows(officeToHome, buses2, new Map(), at('17:08'));
+  assert.equal(noData[0].noConnection, true);
+  assert.equal(noData[0].leaveBy, null);
+
+  // A first bus that departs before any train can arrive (start of service) is skipped
+  // and the next buses still fill the rows.
+  const early = connectionRows(officeToHome, buses, orange, at('16:30'));
+  assert.deepEqual(early.map(r => r.tripId), ['b1', 'b2', 'b3']);
 });
 
 test('countdownState boundaries', () => {
@@ -183,4 +189,41 @@ test('formatCountdown', () => {
   assert.equal(formatCountdown(65_000), '1:05');
   assert.equal(formatCountdown(3_723_000), '1h 02m');
   assert.equal(formatCountdown(-5), '0:00');
+});
+
+test('nextServiceWindow targets the morning after the current service date', () => {
+  assert.deepEqual(nextServiceWindow(at('23:40')), { date: '2026-10-01', minTime: '03:00', maxTime: '12:00' });
+  // 00:40 on Oct 1 is still the Sep 30 service day, so the next one is Oct 1.
+  assert.deepEqual(nextServiceWindow(Date.parse('2026-10-01T00:40:00-04:00')),
+    { date: '2026-10-01', minTime: '03:00', maxTime: '12:00' });
+  assert.equal(nextServiceWindow(Date.parse('2026-10-01T03:10:00-04:00')).date, '2026-10-02');
+});
+
+test('fillRows tops up from the next service day without trip id collisions', () => {
+  const today = mergeTrips(null, doc([rec('schedule', 'b1', '25996', '23:32', '23:32')]));
+  // GTFS trip ids repeat across days: same id 'b1' tomorrow morning.
+  const tomorrowIso = hhmm => `2026-10-01T${hhmm}:00-04:00`;
+  const nextDoc = doc(['06:03', '06:33', '06:51'].map((t, i) => ({
+    type: 'schedule',
+    attributes: { arrival_time: tomorrowIso(t), departure_time: tomorrowIso(t) },
+    relationships: { trip: { data: { id: i === 0 ? 'b1' : `b${i + 1}` } }, stop: { data: { id: '25996' } } },
+  })));
+  const now = at('23:20');
+  const rows = fillRows(
+    directRows(homeToOffice, today, now, 1),
+    directRows(homeToOffice, mergeTrips(null, nextDoc), now, 1));
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.map(r => r.tripId), ['b1', 'b1', 'b2']);
+  assert.deepEqual(rows.map(r => !!r.nextDay), [false, true, true]);
+  assert.equal(rows[1].busDep, Date.parse(tomorrowIso('06:03')));
+
+  const full = [{ tripId: 'x' }, { tripId: 'y' }, { tripId: 'z' }];
+  assert.deepEqual(fillRows(full, [{ tripId: 'n' }]).map(r => r.tripId), ['x', 'y', 'z']);
+});
+
+test('formatTime adds weekday only across a calendar date change', () => {
+  const now = at('23:20');
+  assert.equal(formatTime(at('23:32'), now), '11:32 PM');
+  assert.equal(formatTime(Date.parse('2026-10-01T06:03:00-04:00'), now), 'Thu 6:03 AM');
+  assert.equal(formatTime(at('23:32')), '11:32 PM');
 });

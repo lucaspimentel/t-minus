@@ -112,7 +112,7 @@
 <script type="module">
 import {
   DEFAULT_CONFIG, validateConfig, analyzeCommute, commuteEntities, pickDirection, periodKey,
-  scheduleWindow, mergeTrips, directRows, connectionRows, countdownState, pollIntervalMs,
+  scheduleWindow, nextServiceWindow, fillRows, mergeTrips, directRows, connectionRows, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown,
 } from './core.js';
 
@@ -121,6 +121,8 @@ const KEY_CONFIG = 'mbta-leave-by:config';
 const KEY_OVERRIDE = 'mbta-leave-by:direction';
 const SCHEDULE_TTL = 15 * 60_000;
 const ALERT_TTL = 5 * 60_000;
+const NEXT_DAY_TTL = 60 * 60_000;
+const ROW_COUNT = 3;
 
 const $ = id => document.getElementById(id);
 const store = {
@@ -136,7 +138,8 @@ function loadConfig() {
 
 let config = loadConfig();
 let direction = pickDirection(Date.now(), config, store.get(KEY_OVERRIDE));
-// Per-direction cache: { schedules: {bus, conn, at}, predictions: {bus, conn}, alerts: {doc, at} }
+// Per-direction cache: { schedules: {bus, conn, at}, predictions: {bus, conn}, alerts: {doc, at},
+//   nextDay: {bus, conn, date, at} (next service day's schedules, fetched once today's run out) }
 let cache = {};
 let lastOk = null;
 let lastError = null;
@@ -168,15 +171,14 @@ function legQuery(leg, stops) {
 
 function busStops(leg) { return [leg.stop, leg.alight].filter(Boolean); }
 
-async function fetchSchedules(commute) {
+async function fetchSchedules(commute, w) {
   const { bottleneck, connection } = analyzeCommute(commute);
-  const w = scheduleWindow(Date.now());
   const win = { 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime };
   const [bus, conn] = await Promise.all([
     api('/schedules', { ...legQuery(bottleneck, busStops(bottleneck)), ...win }),
     connection ? api('/schedules', { ...legQuery(connection, [connection.from, connection.to]), ...win }) : null,
   ]);
-  return { bus, conn, at: Date.now() };
+  return { bus, conn, date: w.date, at: Date.now() };
 }
 
 async function fetchPredictions(commute) {
@@ -209,12 +211,18 @@ async function refresh({ force = false } = {}) {
   try {
     const tasks = [fetchPredictions(commute).then(p => { c.predictions = p; })];
     if (force || !c.schedules || now - c.schedules.at > SCHEDULE_TTL) {
-      tasks.push(fetchSchedules(commute).then(s => { c.schedules = s; }));
+      tasks.push(fetchSchedules(commute, scheduleWindow(now)).then(s => { c.schedules = s; }));
     }
     if (force || !c.alerts || now - c.alerts.at > ALERT_TTL) {
       tasks.push(fetchAlerts(commute).then(a => { c.alerts = a; }));
     }
     await Promise.all(tasks);
+    // Once today's service is running out, fetch the next service day's morning schedule.
+    const next = nextServiceWindow(now);
+    if (rowsFor(commute, c.predictions, c.schedules, now).length < ROW_COUNT &&
+        (!c.nextDay || c.nextDay.date !== next.date || now - c.nextDay.at > NEXT_DAY_TTL)) {
+      c.nextDay = await fetchSchedules(commute, next);
+    }
     lastOk = Date.now();
     lastError = null;
   } catch (e) {
@@ -235,15 +243,24 @@ function schedulePoll() {
 
 // ---------- compute + render ----------
 
+function rowsFor(commute, predictions, schedules, now) {
+  if (!predictions && !schedules) return [];
+  const bus = mergeTrips(predictions?.bus, schedules?.bus);
+  const { connection } = analyzeCommute(commute);
+  if (!connection) return directRows(commute, bus, now, config.stopSlackMinutes, ROW_COUNT);
+  const conn = mergeTrips(predictions?.conn, schedules?.conn);
+  return connectionRows(commute, bus, conn, now, ROW_COUNT);
+}
+
+// Today's rows, topped up from the next service day. Days are computed separately
+// because GTFS trip ids repeat across days.
 function currentRows(now) {
   const commute = config.commutes[direction];
   const c = cache[direction];
-  if (!c?.schedules && !c?.predictions) return [];
-  const bus = mergeTrips(c.predictions?.bus, c.schedules?.bus);
-  const { connection } = analyzeCommute(commute);
-  if (!connection) return directRows(commute, bus, now, config.stopSlackMinutes);
-  const conn = mergeTrips(c.predictions?.conn, c.schedules?.conn);
-  return connectionRows(commute, bus, conn, now);
+  if (!c) return [];
+  const today = rowsFor(commute, c.predictions, c.schedules, now);
+  if (today.length >= ROW_COUNT || !c.nextDay) return today;
+  return fillRows(today, rowsFor(commute, null, c.nextDay, now), ROW_COUNT);
 }
 
 function currentAlerts(now) {
@@ -289,13 +306,13 @@ function renderRow(r, now) {
   li.append(el('div', 'big', big));
 
   const line1 = el('div', 'detail');
-  line1.append(`Bus ${formatTime(r.busDep)}`, badge(r.source));
+  line1.append(`Bus ${formatTime(r.busDep, now)}`, badge(r.source));
   li.append(line1);
 
   const parts = [];
-  if (r.leaveBy != null) parts.push(`leave ${formatTime(r.leaveBy)}`);
-  if (r.train) parts.push(`train ${formatTime(r.train.dep)} → ${formatTime(r.train.arr)}`);
-  if (r.eta != null) parts.push(`arrive ~${formatTime(r.eta)}`);
+  if (r.leaveBy != null) parts.push(`leave ${formatTime(r.leaveBy, now)}`);
+  if (r.train) parts.push(`train ${formatTime(r.train.dep, now)} → ${formatTime(r.train.arr, now)}`);
+  if (r.eta != null) parts.push(`arrive ~${formatTime(r.eta, now)}`);
   if (parts.length) li.append(el('div', 'detail', parts.join(' · ')));
   return li;
 }
@@ -323,7 +340,7 @@ function render() {
 
   const rows = currentRows(now).map(r => renderRow(r, now)).filter(Boolean);
   if (rows.length) $('rows').replaceChildren(...rows);
-  else $('rows').replaceChildren(el('li', 'empty', lastOk ? 'No upcoming departures in the next few hours.' : ''));
+  else $('rows').replaceChildren(el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''));
 }
 
 function setDirection(i, manual) {
