@@ -5,7 +5,6 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 
 ## Conventions
 
-- Commit directly to `main` and push. No PRs unless asked.
 - No build step, no runtime dependencies. Static files served by GitHub Pages from `main` root:
   https://lucaspimentel.github.io/mbta-leave-by/
 - `core.js`: pure logic only (no DOM, no fetch); every change there gets a unit test.
