@@ -42,7 +42,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Departures shown | Next `departureCount` departures (config, 1-8, default 4) |
 | Config editing | Full-screen setup view (gear button) with route/direction/stop pickers; JSON only via Export/Import |
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
-| Deferred | See `TODO.md` (GPS "near me", walk-time estimates, commuter rail/ferry), notifications |
+| Deferred | See `TODO.md` (GPS "near me", default times estimated from stop coordinates, commuter rail/ferry), notifications |
 
 ## Data sources and fallback
 
@@ -193,13 +193,13 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 - Opened from the gear button, and automatically on first run (no valid config). Polling
   pauses while it is open.
 - List screen: one row per saved trip (name, time window, route chain like
-  "132 → Orange Line") with ↑/↓ to reorder, "Add trip", then a Settings card (departures
+  "● Bus 132 → ● Orange") with ↑/↓ to reorder, "Add trip", then a Settings card (departures
   shown, minutes early at the stop, API key), Export/Import, and "Reload app" (reloads the
-  page, e.g. to pick up a new version in the installed PWA). Done saves changed app-wide fields and closes setup;
-  it is disabled until a trip has been saved.
-- Trip screen (tap a row, or "Add trip"): name, optional time window, time to the first stop / from the last stop,
-  transit legs with a transfer time between them, "Add return trip", "Delete trip" (hidden for
-  the only trip). Cancel discards the edits; Save checks and stores the whole config right
+  page, e.g. to pick up a new version in the installed PWA). Done saves changed app-wide
+  fields and closes setup; it is disabled until a trip has been saved.
+- Trip screen (tap a row, or "Add trip"): name, optional time window, time to the first stop
+  and from the last stop, transit legs with a transfer time between them, "Add return trip",
+  "Delete trip" (hidden for the only trip). Cancel discards the edits; Save checks and stores the whole config right
   away, then returns to the list. First run opens an empty trip directly, without Cancel.
 - Reordering and deleting trips also save right away.
 - The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
@@ -218,10 +218,10 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
   app's live choice) or a pinned leg (`timingLeg`). Moving or removing legs keeps the pin on
   the same leg.
 - "Add return trip" (`reverseTrip`): opens a new trip, saved after the original, with legs
-  reversed, directions flipped, board/drop-off and the times to/from the stops swapped, transfers kept between the
-  same legs, no window. A reversed stop not served in the
-  new direction (a bus stop across the street) is replaced by the nearest stop that is, and
-  the replacements are listed for review. For the example commute this reproduces the real
+  reversed, directions flipped, board/drop-off and the times to/from the stops swapped,
+  transfers kept between the same legs, no window. A reversed stop not served in the new
+  direction (a bus stop across the street) is replaced by the nearest stop that is, and the
+  replacements are listed for review. For the example commute this reproduces the real
   return trip (`5991 → 9326`, `25996 → 15982`).
 - Existing legs show stop names from the per-route/direction `/stops` docs, which Save then
   reuses for `checkStops` (only the edited trip's stops are checked).
@@ -291,7 +291,8 @@ To stay well inside it:
   22:00 it is extended to the end of the service day (28:00).
 - Next service day schedules: one request per transit leg, only when today has fewer than
   `departureCount` rows; at most once an hour.
-- Setup: one `/routes` request per session, one `/stops` request per route/direction pair
+- Setup: one `/routes` request per session (also the source of the stored route labels and
+  colors), one `/stops` request per route/direction pair
   (cached for the session, 4 for the example); Save and "Add return trip" reuse them. Adding a
   leg after another costs 2 more (nearby stops, their routes).
 
