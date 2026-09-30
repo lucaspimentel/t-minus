@@ -25,11 +25,11 @@ The 132 runs far less often than the Orange Line (~20-30 min headways vs ~5-10 m
 | Target device | Phone first; installable PWA (add to home screen) |
 | Hosting | GitHub Pages (HTTPS; required for service worker, enables Notifications API later) |
 | API calls | Direct from browser to `api-v3.mbta.com`; local proxy only if CORS blocks |
-| API key | Keyless by default; optional key field in settings, sent as `x-api-key` header |
+| API key | Keyless by default; optional key field in settings, sent as `x-api-key` header. Stored in `localStorage` on the shared `lucaspimentel.github.io` origin; accepted (low-value key) |
 | Persistence | `localStorage` per browser; sharing = app URL + self-serve config |
 | Default config | Author's commute ships as the default (revisit before sharing widely); overridable via JSON panel |
-| Refresh | Auto-fetch every ~30s + local 1s countdown tick + manual refresh button; refetch on `visibilitychange` to visible |
-| Direction | Auto by time of day (default cutoff 12:00, every day) + manual toggle |
+| Refresh | Adaptive: fetch every 30s when next `leave_by` ≤ 15 min away, else every 60s. Local 1s countdown tick. Manual refresh button. Paused while hidden; refetch on `visibilitychange` to visible |
+| Direction | Auto by time of day (default cutoff 12:00, every day) + manual toggle for off days |
 | Departures shown | Next 3 bottleneck-bus departures |
 | Config editing | JSON panel (paste/edit) |
 | v1 extras | Service-impacting alerts; Orange Line connection check (office → home); ETA per bus (home → office); schedule fallback for missing predictions |
@@ -61,7 +61,7 @@ Commute parameters (all per-config; defaults are the author's):
 | Parameter | Example |
 |---|---|
 | Walk home ↔ `Main St @ South St` | 5 min (both directions) |
-| Walk office → State platform | 10 min |
+| Walk office ↔ State platform | 10 min (both directions) |
 | Transfer buffer at Oak Grove | 5 min |
 | Stop slack (arrive before bus) | 1 min |
 | Orange ride Oak Grove → State (ETA only) | ~20 min **[unverified]** |
@@ -70,12 +70,12 @@ Commute parameters (all per-config; defaults are the author's):
 
 ```
 leave_by = bus_departure - walk_home_to_stop - stop_slack
-eta      = bus_arrival_at_oak_grove + transfer_buffer + orange_ride_minutes + ...
+eta      = bus_arrival_at_oak_grove + transfer_buffer + orange_ride_minutes + walk_state_to_office
 ```
 
 For each of the next 3 inbound 132 departures at `Main St @ South St`. `bus_arrival_at_oak_grove`
 comes from the bus trip's prediction/schedule at Oak Grove; the Orange leg uses the
-fixed `orange_ride_minutes`. ETA is shown as "arrive State ~HH:MM" per bus.
+fixed `orange_ride_minutes`. ETA is shown as "at office ~HH:MM" per bus.
 
 ### Office → home
 
@@ -142,7 +142,8 @@ per commute has `role: "bottleneck"`. Shipped default (author's commute):
           "to": "place-state",
           "rideMinutes": 20,
           "role": "filler"
-        }
+        },
+        { "kind": "walk", "minutes": 10 }
       ]
     },
     {
@@ -187,7 +188,7 @@ Base: `https://api-v3.mbta.com` (V3 API, JSON:API format, GTFS/GTFS-Realtime bas
   by effect and stop.
 - Stops (manual setup): `/stops?filter[route]=132`, `/stops/<id>`.
 
-Rate limits: ~6 requests per 30s cycle for one user; keyless should suffice
+Rate limits: ~6 requests per cycle (≤ 12/min) for one user; keyless should suffice
 **[unverified]**. A key raises the limit to 1,000 req/min **[unverified, per docs]**.
 
 ## PWA
@@ -195,8 +196,8 @@ Rate limits: ~6 requests per 30s cycle for one user; keyless should suffice
 - `manifest.json`: name, icons, `display: standalone`, start URL.
 - `sw.js`: cache-first for the app shell (`index.html`, manifest, icons);
   network-only for `api-v3.mbta.com` (never serve cached predictions).
-- Browsers throttle timers in background tabs; the `visibilitychange` refetch
-  covers returning to the app.
+- Polling pauses while the page is hidden (browsers throttle background timers
+  anyway); the `visibilitychange` refetch covers returning to the app.
 
 ## Unverified assumptions (verify at start of build)
 
