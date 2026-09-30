@@ -125,7 +125,7 @@ import {
   DEFAULT_CONFIG, validateConfig, analyzeCommute, commuteEntities, pickDirection, periodKey,
   scheduleWindow, nextServiceWindow, fillRows, departureCount, mergeTrips, directRows, connectionRows, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown,
-} from './core.js?v=e0f2535aa5';
+} from './core.js?v=9b77affbb1';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -323,11 +323,21 @@ function renderRow(r, now) {
   line1.append(`Bus ${formatTime(r.busDep, now)}`, badge(r.source));
   li.append(line1);
 
-  const parts = [];
-  if (r.leaveBy != null) parts.push(`leave ${formatTime(r.leaveBy, now)}`);
-  if (r.train) parts.push(`train ${formatTime(r.train.dep, now)} → ${formatTime(r.train.arr, now)}`);
-  if (r.eta != null) parts.push(`arrive ~${formatTime(r.eta, now)}`);
-  if (parts.length) li.append(el('div', 'detail', parts.join(' · ')));
+  // Segments join with ' · '; the train segment also gets its own badge, since a
+  // scheduled train can follow a live bus (or vice versa).
+  const segments = [];
+  if (r.leaveBy != null) segments.push([`leave ${formatTime(r.leaveBy, now)}`]);
+  if (r.train) segments.push([`train ${formatTime(r.train.dep, now)} → ${formatTime(r.train.arr, now)}`, badge(r.train.source)]);
+  if (r.eta != null) segments.push([`arrive ~${formatTime(r.eta, now)}`]);
+  if (segments.length) {
+    const line2 = el('div', 'detail');
+    segments.forEach(([text, segBadge], i) => {
+      if (i > 0) line2.append(' · ');
+      line2.append(text);
+      if (segBadge) line2.append(segBadge);
+    });
+    li.append(line2);
+  }
   return li;
 }
 

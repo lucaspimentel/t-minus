@@ -62,7 +62,8 @@ Fallback rules:
 - **Orange connection (office → home)**: same per-trip rule. Observed Orange prediction
   horizon: ~65 min (late evening sample; daytime not measured). Later buses match
   against scheduled trains.
-- A connection is labeled by its weakest input (live bus + scheduled train = scheduled).
+- The bus and its matched train carry independent source badges (office → home): a live
+  bus can be matched with a scheduled train, or vice versa, and each is labeled on its own.
 - **Next service day**: when today's schedule window reaches the end of the service day
   and today's data yields fewer than `departureCount` rows (late evening, after the last bus), fetch the next service day's schedules (03:00-12:00) and fill the remaining
   rows from them. Next-day data is cached separately from today's because GTFS trip IDs
@@ -127,6 +128,7 @@ outbound 132 departures at Oak Grove:
 ### Display
 
 - Per departure: bus time, source badge, `leave_by`, countdown/state, ETA (home → office).
+  Office → home rows also show a source badge on the matched train, separate from the bus's.
 - Alerts above the list: only alerts active now whose `informed_entity` matches a
   configured route **and** (stop, or no stop given), with service-impacting effects
   (e.g. `DELAY`, `DETOUR`, `SUSPENSION`, `SHUTTLE`, `STOP_CLOSURE`, `STATION_CLOSURE`,

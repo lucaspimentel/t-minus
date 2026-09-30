@@ -2,9 +2,6 @@
 
 ## Next
 
-- [ ] **Separate source badge for the train.** Office → home rows show one badge for
-  bus + train combined (weakest wins), so a live bus with a scheduled train reads as
-  "scheduled". Show the train's badge next to the train time.
 - [ ] **Config sanity check against the API.** A config with valid shape but wrong stop
   IDs or direction silently yields no departures. After saving, verify each configured
   stop exists and is served by its route/direction (`/stops/<id>`, `/stops?filter[route]=...&filter[direction_id]=...`)

@@ -266,6 +266,7 @@ export function directRows(commute, busTrips, nowMs, stopSlackMinutes, count = D
 // Rows for a commute with a frequent connection before the bottleneck (e.g. office → home).
 // For each bus, picks the latest viable connection trip. Buses no known trip can make are
 // skipped; "no connection" is reported only when there is no connection data at all.
+// Bus and train carry independent source labels (see `source` below).
 export function connectionRows(commute, busTrips, connTrips, nowMs, count = DEFAULT_DEPARTURE_COUNT) {
   const { bottleneck, connection, walkBefore, transfer } = analyzeCommute(commute);
   const earliestBoard = nowMs + walkBefore * MIN;
@@ -307,8 +308,9 @@ export function connectionRows(commute, busTrips, connTrips, nowMs, count = DEFA
       tripId: bus.tripId,
       busDep: bus.busDep,
       leaveBy: best.dep - walkBefore * MIN,
+      // Bus and train each keep their own source so a live bus is not hidden by a scheduled train.
       train: { dep: best.dep, arr: best.arr, source: best.source },
-      source: bus.source === 'live' && best.source === 'live' ? 'live' : 'scheduled',
+      source: bus.source,
       noConnection: false,
     });
   }

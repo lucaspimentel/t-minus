@@ -127,18 +127,31 @@ test('connectionRows picks the latest viable train and flags gaps', () => {
   const rows = connectionRows(officeToHome, buses, orange, now);
   // b0 is unreachable and skipped.
   assert.deepEqual(rows.map(r => r.tripId), ['b1', 'b2', 'b3']);
-  // b1 17:40: latest train arriving by 17:35 is o2 (dep 17:16).
+  // b1 17:40: latest train arriving by 17:35 is o2 (dep 17:16). Bus and train source
+  // are independent: a scheduled bus paired with a live train reports each separately.
   assert.equal(rows[0].train.dep, at('17:16'));
   assert.equal(rows[0].leaveBy, at('17:06'));
   assert.equal(rows[0].source, 'scheduled'); // bus scheduled
+  assert.equal(rows[0].train.source, 'live'); // o2 is a live prediction
   // b2 17:57: o3 (arr 17:37) is latest before 17:52.
   assert.equal(rows[1].train.dep, at('17:21'));
   assert.equal(rows[1].source, 'scheduled');
+  assert.equal(rows[1].train.source, 'scheduled'); // o3 is a schedule only
   // b3 18:39: o9 arr 18:17 <= 18:34.
   assert.equal(rows[2].train.dep, at('18:01'));
 
+  // A live bus keeps its own 'live' source even when paired with a scheduled train:
+  // b4 (live, 17:45) is close enough that only the scheduled o3 (arr 17:37) fits the
+  // transfer window; the live o1/o2 arrive too early to be "latest viable".
+  const buses4 = mergeTrips(doc([rec('prediction', 'b4', '9326', '17:45', '17:45')]), doc([]));
+  const liveBusScheduledTrain = connectionRows(officeToHome, buses4, orange, at('17:05'));
+  assert.equal(liveBusScheduledTrain[0].train.dep, at('17:21')); // o3, the latest viable train
+  assert.equal(liveBusScheduledTrain[0].source, 'live'); // b4 is a live prediction
+  assert.equal(liveBusScheduledTrain[0].train.source, 'scheduled'); // matched to o3
+
   const live = connectionRows(officeToHome, buses2, orange, now);
   assert.equal(live[0].source, 'live');
+  assert.equal(live[0].train.source, 'live');
 
   // At 17:08, o1/o2 (17:11, 17:16) depart before now + 10 walk and o3 arrives too late
   // for the 17:40 bus: no train can make it, so the bus is skipped.
