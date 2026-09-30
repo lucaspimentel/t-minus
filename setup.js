@@ -3,7 +3,8 @@
 import {
   validateConfig, checkStops, stopQueries, stopsKey, tripToForm, formToTrip, routeLabel,
   searchRoutes, searchStops, stopsAfter, defaultTransferMinutes, departureCount, stopSlackMinutes,
-} from './core.js?v=339d830093';
+  reverseTrip, nearestStop,
+} from './core.js?v=6e3b80bb87';
 
 const ROUTE_LIMIT = 60;
 
@@ -28,15 +29,22 @@ function h(tag, props = {}, ...children) {
 const emptyTrip = n => ({ name: n === 0 ? 'My trip' : `Trip ${n + 1}`, window: null, timingLeg: null, walkBefore: 5, walkAfter: 5, transit: [] });
 const numberValue = v => (v === '' ? NaN : Number(v));
 
-export function openSetup({ root, config, api, canCancel, onSave, onCancel }) {
+// Radius for next-leg suggestions, in degrees (~300 m).
+const NEARBY_RADIUS = 0.003;
+
+// `timingFor(i)` returns the timing leg the app currently uses for saved trip i (or null).
+export function openSetup({ root, config, api, canCancel, onSave, onCancel, timingFor = () => null }) {
   const app = {
     departureCount: config ? departureCount(config) : 4,
     stopSlackMinutes: config ? stopSlackMinutes(config) : 1,
     apiKey: config?.apiKey ?? '',
   };
-  let trips = config ? config.trips.map(tripToForm) : [emptyTrip(0)];
+  // `savedIdx` links a form back to its saved trip (for timingFor) across reordering.
+  let trips = config ? config.trips.map((t, i) => ({ ...tripToForm(t), savedIdx: i })) : [emptyTrip(0)];
   let routes = null;
-  let picker = null; // { tripIdx, legIdx (null = new leg), step, route, direction, board }
+  // { tripIdx, legIdx (null = new leg), step, route, direction, board, near }
+  // `near`: { name, lat, lon, routeIds } around the previous leg's drop-off, for suggestions.
+  let picker = null;
   let messages = { global: [], byTrip: new Map() };
   let busy = false;
 
@@ -154,16 +162,36 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel }) {
       value: t.window?.[key] === '24:00' ? '00:00' : (t.window?.[key] ?? ''),
       oninput: e => { t.window = { ...t.window, [key]: e.target.value }; },
     });
+    // Moving or removing legs keeps a pinned timing leg on the same leg (or unpins it).
+    const moveLeg = (j, delta) => {
+      const k = j + delta;
+      if (k < 0 || k >= t.transit.length) return;
+      if (t.timingLeg === j) t.timingLeg = k; else if (t.timingLeg === k) t.timingLeg = j;
+      moveItem(t.transit, j, delta);
+      render();
+    };
+    const removeLeg = j => {
+      if (t.timingLeg === j) t.timingLeg = null; else if (t.timingLeg > j) t.timingLeg--;
+      t.transit.splice(j, 1);
+      render();
+    };
     const legs = t.transit.flatMap((l, j) => [
       j > 0 && numberField('Transfer (min)', l.transferBefore, v => { l.transferBefore = v; }),
       h('div', { class: 'leg-item' },
         h('div', { class: 'leg-text' }, legSummary(l)),
         h('div', { class: 'btns' },
           h('button', { type: 'button', onclick: () => openPicker(i, j) }, 'Edit'),
-          h('button', { type: 'button', 'aria-label': 'Move up', onclick: () => { moveItem(t.transit, j, -1); render(); } }, '↑'),
-          h('button', { type: 'button', 'aria-label': 'Move down', onclick: () => { moveItem(t.transit, j, 1); render(); } }, '↓'),
-          h('button', { type: 'button', 'aria-label': 'Remove leg', onclick: () => { t.transit.splice(j, 1); render(); } }, '✕'))),
+          h('button', { type: 'button', 'aria-label': 'Move up', onclick: () => moveLeg(j, -1) }, '↑'),
+          h('button', { type: 'button', 'aria-label': 'Move down', onclick: () => moveLeg(j, 1) }, '↓'),
+          h('button', { type: 'button', 'aria-label': 'Remove leg', onclick: () => removeLeg(j) }, '✕'))),
     ]);
+    const label = l => (routeById(l.route) ? routeLabel(routeById(l.route)) : l.route);
+    const current = t.savedIdx != null ? timingFor(t.savedIdx) : null;
+    const timing = t.transit.length > 1 && h('label', { class: 'field' }, 'Leave-by time is based on',
+      h('select', { onchange: e => { t.timingLeg = e.target.value === '' ? null : Number(e.target.value); } },
+        h('option', { value: '', selected: t.timingLeg == null },
+          `Automatic${current != null && t.transit[current] ? ` (currently ${label(t.transit[current])})` : ''}`),
+        ...t.transit.map((l, j) => h('option', { value: String(j), selected: t.timingLeg === j }, `${label(l)} (pinned)`))));
     return h('div', { class: 'card' },
       h('label', { class: 'field' }, 'Trip name',
         h('input', { type: 'text', value: t.name, oninput: e => { t.name = e.target.value; } })),
@@ -177,13 +205,43 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel }) {
       ...legs,
       h('button', { type: 'button', class: 'add', onclick: () => openPicker(i, null) }, '+ Add transit leg'),
       numberField('Walk from last stop (min)', t.walkAfter, v => { t.walkAfter = v; }),
+      timing,
       ...(messages.byTrip.get(i) ?? []).map(m => h('div', { class: 'msg err' }, m)),
       h('div', { class: 'btns trip-btns' },
         h('button', { type: 'button', onclick: () => { moveItem(trips, i, -1); render(); } }, '↑ Move up'),
         h('button', { type: 'button', onclick: () => { moveItem(trips, i, 1); render(); } }, '↓ Move down'),
+        t.transit.length > 0 && h('button', { type: 'button', onclick: () => addReturnTrip(i) }, 'Add return trip'),
         h('button', { type: 'button', class: 'danger', onclick: () => {
           if (confirm(`Delete "${t.name}"?`)) { trips.splice(i, 1); render(); }
         } }, 'Delete trip')));
+  }
+
+  // Inserts the reversed trip below the original for review. A reversed bus stop is usually
+  // not served in the other direction (the stop across the street is), so each stop missing
+  // from the new direction's list is replaced by that list's nearest stop.
+  async function addReturnTrip(i) {
+    const back = tripToForm(reverseTrip(formToTrip(trips[i])));
+    const replaced = [];
+    try {
+      for (const leg of back.transit) {
+        const [fromDoc, toDoc] = await Promise.all([loadStops(leg.route, 1 - leg.direction_id), loadStops(leg.route, leg.direction_id)]);
+        const has = id => toDoc.data.some(s => s.id === id || s.relationships?.child_stops?.data?.some(c => c.id === id));
+        for (const field of ['stop', 'alight']) {
+          if (has(leg[field])) continue;
+          const original = fromDoc.data.find(s => s.id === leg[field]);
+          const near = original && nearestStop(toDoc.data, original.attributes.latitude, original.attributes.longitude);
+          if (near) {
+            replaced.push(`${stopName(leg.route, 1 - leg.direction_id, leg[field])} → ${near.attributes.name}`);
+            leg[field] = near.id;
+          }
+        }
+      }
+    } catch { /* offline: keep the reversed ids; Save's stop check reports them */ }
+    trips.splice(i + 1, 0, back);
+    setMessages([`Return trip added below "${trips[i].name}".` +
+      (replaced.length ? ` Matched stops across the street: ${replaced.join('; ')}.` : '') + ' Review it, then Save.']);
+    loadNames();
+    render();
   }
 
   let ioArea = null; // { mode: 'export' | 'import', text }
@@ -220,7 +278,7 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel }) {
         canCancel ? h('button', { type: 'button', onclick: onCancel }, 'Cancel') : h('span'),
         h('b', {}, 'Setup'),
         h('button', { type: 'button', class: 'primary', id: 'setup-save', disabled: busy, onclick: save }, 'Save')),
-      ...messages.global.map(m => h('div', { class: m.endsWith('…') || m.startsWith('Imported') ? 'msg' : 'msg err' }, m)),
+      ...messages.global.map(m => h('div', { class: /…$|^Imported|^Return trip added/.test(m) ? 'msg' : 'msg err' }, m)),
       h('div', { class: 'card' },
         numberField('Departures shown (1-8)', app.departureCount, v => { app.departureCount = v; }, { min: '1', max: '8' }),
         numberField('Minutes early at the stop', app.stopSlackMinutes, v => { app.stopSlackMinutes = v; }),
@@ -242,14 +300,44 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel }) {
 
   function openPicker(tripIdx, legIdx) {
     picker = { tripIdx, legIdx, step: 'route', query: '' };
-    loadRoutes().then(r => { routes = r; render(); }).catch(e => { picker.error = e.message || String(e); render(); });
+    loadRoutes().then(r => { routes = r; render(); }).catch(e => { if (picker) picker.error = e.message || String(e); render(); });
+    const prev = legIdx == null ? trips[tripIdx].transit.at(-1) : null;
+    if (prev) {
+      loadNearby(prev).then(near => {
+        if (picker?.tripIdx === tripIdx && picker.legIdx == null) { picker.near = near; render(); }
+      }).catch(() => {});
+    }
     render();
   }
 
+  // Routes serving stops within NEARBY_RADIUS of the previous leg's drop-off stop. Uses the stop's
+  // location (a street bus stop has no parent station linking it to the nearby subway station).
+  async function loadNearby(prev) {
+    const doc = await loadStops(prev.route, prev.direction_id);
+    const stop = doc.data.find(s => s.id === prev.alight || s.relationships?.child_stops?.data?.some(c => c.id === prev.alight));
+    const { latitude: lat, longitude: lon, name } = stop?.attributes ?? {};
+    if (lat == null || lon == null) return null;
+    const nearby = await api('/stops', {
+      'filter[latitude]': lat, 'filter[longitude]': lon, 'filter[radius]': NEARBY_RADIUS,
+      'filter[route_type]': '0,1,3', 'fields[stop]': 'name',
+    });
+    if (!nearby.data.length) return null;
+    const served = await api('/routes', {
+      'filter[stop]': nearby.data.map(s => s.id).join(','), 'filter[type]': '0,1,3', 'fields[route]': 'short_name',
+    });
+    return { name, lat, lon, routeIds: served.data.map(r => r.id) };
+  }
+
+  // After a direction is chosen for a new leg, board at the stop nearest the previous drop-off
+  // (skipping to the drop-off step); Back still leads to the full board list.
   async function chooseDirection(direction) {
     picker = { ...picker, direction, step: 'board', query: '', loading: true };
     render();
-    try { await loadStops(picker.route.id, direction); } catch (e) { picker.error = e.message || String(e); }
+    try {
+      const doc = await loadStops(picker.route.id, direction);
+      const near = picker.near && nearestStop(doc.data, picker.near.lat, picker.near.lon);
+      if (near && stopsAfter(doc.data, near.id).length) picker = { ...picker, board: near.id, step: 'alight' };
+    } catch (e) { picker.error = e.message || String(e); }
     picker.loading = false;
     render();
   }
@@ -277,11 +365,17 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel }) {
     if (picker.step === 'route') {
       if (!routes) return [h('div', { class: 'muted' }, picker.error ?? 'Loading routes…')];
       const found = searchRoutes(routes, q);
+      const routeButton = r => h('button', { type: 'button', class: 'item', onclick: () => {
+        picker = { ...picker, route: r, step: 'direction', query: '' };
+        render();
+      } }, h('b', {}, routeLabel(r)), r.attributes.type === 3 ? h('span', { class: 'muted' }, ` ${r.attributes.long_name}`) : null);
+      // Without a search, routes near the previous drop-off come first.
+      const nearRoutes = !q.trim() && picker.near ? found.filter(r => picker.near.routeIds.includes(r.id)) : [];
       return [
-        ...found.slice(0, ROUTE_LIMIT).map(r => h('button', { type: 'button', class: 'item', onclick: () => {
-          picker = { ...picker, route: r, step: 'direction', query: '' };
-          render();
-        } }, h('b', {}, routeLabel(r)), r.attributes.type === 3 ? h('span', { class: 'muted' }, ` ${r.attributes.long_name}`) : null)),
+        nearRoutes.length ? h('div', { class: 'muted' }, `Near ${picker.near.name}`) : null,
+        ...nearRoutes.map(routeButton),
+        nearRoutes.length ? h('div', { class: 'muted' }, 'All routes') : null,
+        ...found.slice(0, ROUTE_LIMIT).map(routeButton),
         found.length > ROUTE_LIMIT ? h('div', { class: 'muted' }, `${found.length - ROUTE_LIMIT} more; refine the search.`) : null,
       ].filter(Boolean);
     }

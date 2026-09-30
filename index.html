@@ -68,6 +68,8 @@
   }
   .badge.live { border-color: var(--green); color: var(--green); }
   .leg.timing { color: var(--text); font-weight: 600; }
+  .row { cursor: pointer; }
+  .leg:first-of-type { margin-top: 6px; }
   .empty { color: var(--muted); padding: 16px 0; }
   .empty button { margin-top: 8px; }
   /* Setup view (setup.js) */
@@ -91,7 +93,7 @@
   .check { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 14px; }
   .setup .check input { width: auto; margin: 0; }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .setup input, .setup textarea {
+  .setup input, .setup textarea, .setup select {
     width: 100%; font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text);
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px;
   }
@@ -140,8 +142,8 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, mergeTrips, legVehicles, averageHeadway, pickTimingLeg, tripRows,
   countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown,
-} from './core.js?v=339d830093';
-import { openSetup } from './setup.js?v=5f16ef3018';
+} from './core.js?v=6e3b80bb87';
+import { openSetup } from './setup.js?v=3be5f56a37';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -341,15 +343,32 @@ function renderRow(r, now) {
     none: () => 'No connection',
   }[state]();
   li.append(el('div', 'big', big));
-  li.append(el('div', 'detail', `Leave ${formatTime(r.leaveBy, now)} · arrive ~${formatTime(r.eta, now)}`));
-  // One line per leg, each with its own live/scheduled badge; the timing leg is bold.
-  r.legs.forEach((leg, i) => {
-    const line = el('div', i === r.timingIdx ? 'detail leg timing' : 'detail leg');
-    line.append(`${leg.route} ${formatTime(leg.dep, now)} → ${formatTime(leg.arr, now)}`, badge(leg.source));
-    li.append(line);
-  });
+  // Collapsed: leave time, the timing leg (with its badge), and arrival. Tap to expand.
+  const timing = r.legs[r.timingIdx];
+  const summary = el('div', 'detail');
+  summary.append(`Leave ${formatTime(r.leaveBy, now)} · ${timing.route} ${formatTime(timing.dep, now)}`, badge(timing.source),
+    ` · arrive ~${formatTime(r.eta, now)}`);
+  li.append(summary);
+  const key = rowKey(r);
+  li.setAttribute('aria-expanded', String(expandedRows.has(key)));
+  li.onclick = () => {
+    if (!expandedRows.delete(key)) expandedRows.add(key);
+    render();
+  };
+  // Expanded: one line per leg, each with its own live/scheduled badge; the timing leg is bold.
+  if (expandedRows.has(key)) {
+    r.legs.forEach((leg, i) => {
+      const line = el('div', i === r.timingIdx ? 'detail leg timing' : 'detail leg');
+      line.append(`${leg.route} ${formatTime(leg.dep, now)} → ${formatTime(leg.arr, now)}`, badge(leg.source));
+      li.append(line);
+    });
+  }
   return li;
 }
+
+// Rows expanded by a tap, by row key (the timing vehicle's trip id; next-day ids repeat).
+const expandedRows = new Set();
+const rowKey = r => `${r.key}${r.nextDay ? '@next' : ''}`;
 
 function render() {
   const now = Date.now();
@@ -410,6 +429,7 @@ function showSetup() {
     config,
     api,
     canCancel: !!config,
+    timingFor: i => cache[i]?.timing ?? null,
     onCancel: closeSetup,
     onSave(cfg, warning) {
       config = cfg;

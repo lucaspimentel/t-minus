@@ -1,7 +1,6 @@
 # DESIGN.md — mbta-leave-by
 
-Status: N-leg engine and setup UI implemented; remaining setup extras in `TODO.md`. API
-verified against live data (2026-09-30).
+Status: N-leg engine and setup UI implemented. API verified against live data (2026-09-30).
 
 ## Problem
 
@@ -43,7 +42,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Departures shown | Next `departureCount` departures (config, 1-8, default 4) |
 | Config editing | Full-screen setup view (gear button) with route/direction/stop pickers; JSON only via Export/Import |
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
-| Deferred | Setup extras (see `TODO.md`), notifications |
+| Deferred | See `TODO.md` (GPS "near me", walk-time estimates, commuter rail/ferry), notifications |
 
 ## Data sources and fallback
 
@@ -130,9 +129,10 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 
 ### Display
 
-- Per departure: countdown/state; "Leave 8:04 · arrive ~8:56"; one line per leg
-  ("132 8:10 → 8:24") with its own source badge; the timing leg in bold. (Phase 2 collapses
-  this to one line with tap-to-expand.)
+- Per departure: countdown/state, then collapsed "Leave 8:04 · 132 8:10 · arrive ~8:56" with the
+  timing leg's source badge. Tapping a row expands one line per leg ("132 8:10 → 8:24") with
+  its own badge, the timing leg in bold; tap again to collapse. Expanded rows are remembered
+  by the timing vehicle's trip id while the page is open.
 - Trip switcher: one button per trip, hidden with a single trip.
 - Alerts above the list: only alerts active now whose `informed_entity` matches a
   configured route **and** (stop, or no stop given), with service-impacting effects
@@ -188,6 +188,20 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
   <direction_destinations>") → board stop (trip order, search) → drop-off stop (only stops
   after the board stop, `stopsAfter`). A new leg's transfer time defaults to 3 min within the
   same station, else 5 (`defaultTransferMinutes`).
+- Next-leg suggestions: adding a leg after another lists first the routes serving stops within
+  ~300 m of the previous drop-off (`/stops?filter[latitude]&filter[longitude]&filter[radius]=0.003`,
+  then `/routes?filter[stop]=...`). This uses the stop's location because street bus stops have
+  no parent station (bus stop `5991` at Oak Grove is not linked to `place-ogmnl`). After the
+  direction is chosen, the board stop nearest the previous drop-off (`nearestStop`) is
+  preselected and the picker goes straight to the drop-off step; Back reaches the full list.
+- "Leave-by time is based on": per trip with 2+ legs, "Automatic (currently <route>)" (the
+  app's live choice) or a pinned leg (`timingLeg`). Moving or removing legs keeps the pin on
+  the same leg.
+- "Add return trip" (`reverseTrip`): legs reversed, directions flipped, board/drop-off and walks
+  swapped, transfers kept between the same legs, no window. A reversed stop not served in the
+  new direction (a bus stop across the street) is replaced by the nearest stop that is, and
+  the replacements are listed for review. For the example commute this reproduces the real
+  return trip (`5991 → 9326`, `25996 → 15982`).
 - Existing legs show stop names from the per-route/direction `/stops` docs, which Save then
   reuses for `checkStops`.
 - Save errors appear on the trip they belong to; nothing is saved until they're fixed.
@@ -256,7 +270,8 @@ To stay well inside it:
 - Next service day schedules: one request per transit leg, only when today has fewer than
   `departureCount` rows; at most once an hour.
 - Setup: one `/routes` request per session, one `/stops` request per route/direction pair
-  (cached for the session, 4 for the example); Save reuses them.
+  (cached for the session, 4 for the example); Save and "Add return trip" reuse them. Adding a
+  leg after another costs 2 more (nearby stops, their routes).
 
 A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 requests; a 4-leg trip
 ≤ 4 req/min. Rapid reloads can still hit the limit (seen in testing with ~8 fresh loads in a
@@ -293,7 +308,7 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 
 ## Future extensions
 
-- Setup extras (see `TODO.md`).
+- Deferred items in `TODO.md`.
 - "Leave now" notifications via the Notifications API.
 - Arrive-by target (highlight the latest departure that makes a target time).
 - Possibly a backend later, only if shared profiles or push reminders are wanted.

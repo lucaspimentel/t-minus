@@ -167,6 +167,43 @@ export function stopsAfter(stops, boardId) {
   return i < 0 ? [] : stops.slice(i + 1);
 }
 
+// The trip back: legs in reverse order, opposite directions, board and drop-off swapped,
+// walks swapped, each transfer kept between the same pair of legs. No time window. Reversed
+// bus stops are usually on the other side of the street; the save-time stop check flags them.
+export function reverseTrip(trip) {
+  const form = tripToForm(trip);
+  const n = form.transit.length;
+  const transit = form.transit.map((_, i) => {
+    const t = form.transit[n - 1 - i];
+    return {
+      route: t.route, direction_id: 1 - t.direction_id, stop: t.alight, alight: t.stop,
+      transferBefore: i === 0 ? 0 : form.transit[n - i].transferBefore,
+    };
+  });
+  return formToTrip({
+    name: `${form.name} (return)`,
+    window: null,
+    timingLeg: form.timingLeg == null ? null : n - 1 - form.timingLeg,
+    walkBefore: form.walkAfter,
+    walkAfter: form.walkBefore,
+    transit,
+  });
+}
+
+// The stop (JSON:API resource with latitude/longitude) closest to a point.
+export function nearestStop(stops, lat, lon) {
+  const k = Math.cos((lat * Math.PI) / 180); // shrink longitude degrees at this latitude
+  let best = null;
+  let bestD = Infinity;
+  for (const s of stops) {
+    const a = s.attributes ?? {};
+    if (a.latitude == null || a.longitude == null) continue;
+    const d = (a.latitude - lat) ** 2 + ((a.longitude - lon) * k) ** 2;
+    if (d < bestD) { bestD = d; best = s; }
+  }
+  return best;
+}
+
 // Suggested transfer minutes between two legs: 3 within the same station, else 5.
 export function defaultTransferMinutes(prevAlight, nextBoard, parentOf = new Map()) {
   const station = id => parentOf.get(id) ?? id;

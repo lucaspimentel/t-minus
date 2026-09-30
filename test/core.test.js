@@ -7,6 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey,
   tripToForm, formToTrip, routeLabel, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
+  reverseTrip, nearestStop,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -403,4 +404,33 @@ test('searchStops, stopsAfter, and defaultTransferMinutes', () => {
   assert.equal(defaultTransferMinutes('70036', 'place-ogmnl', parentOf), 3);
   assert.equal(defaultTransferMinutes('5991', 'place-ogmnl', parentOf), 5);
   assert.equal(defaultTransferMinutes(null, 'place-ogmnl', parentOf), 5);
+});
+
+test('reverseTrip flips legs, directions, stops, and walks', () => {
+  const back = reverseTrip(homeToOffice);
+  assert.deepEqual(back, {
+    name: 'Home to office (return)',
+    legs: [
+      { kind: 'walk', minutes: 10 },
+      { kind: 'transit', route: 'Orange', direction_id: 1, stop: 'place-state', alight: 'place-ogmnl' },
+      { kind: 'transfer', minutes: 5 },
+      { kind: 'transit', route: '132', direction_id: 0, stop: '5991', alight: '25996' },
+      { kind: 'walk', minutes: 5 },
+    ],
+  });
+  // Transfers stay between the same pair of legs; a pinned timing leg follows its leg.
+  const route = r => ({ kind: 'transit', route: r, direction_id: 0, stop: `${r}-in`, alight: `${r}-out` });
+  const three = { name: 'T', timingLeg: 0, legs: [route('A'), { kind: 'transfer', minutes: 2 }, route('B'),
+    { kind: 'transfer', minutes: 7 }, route('C')] };
+  const r3 = reverseTrip(three);
+  assert.deepEqual(r3.legs.map(l => (l.kind === 'transit' ? l.route : l.minutes)), ['C', 7, 'B', 2, 'A']);
+  assert.equal(r3.timingLeg, 2);
+});
+
+test('nearestStop picks the closest stop with coordinates', () => {
+  const s = (id, lat, lon) => ({ id, attributes: { latitude: lat, longitude: lon } });
+  // Bus stop 5991 at Oak Grove; the Orange Line station is ~30 m away.
+  const orange = [s('place-mlmnl', 42.426632, -71.07411), s('place-ogmnl', 42.43668, -71.071097), s('nocoords', null, null)];
+  assert.equal(nearestStop(orange, 42.436927, -71.071292).id, 'place-ogmnl');
+  assert.equal(nearestStop([], 42.4, -71.0), null);
 });
