@@ -42,7 +42,7 @@ The bus is the scheduling bottleneck; the Orange Line is frequent enough to appr
 | Departures shown | Next 3 bottleneck-bus departures |
 | Config editing | JSON panel (paste/edit) |
 | v1 extras | Service-impacting alerts; Orange Line connection check (office → home); ETA per bus (home → office); schedule fallback for missing predictions |
-| Deferred | Stop-search typeahead, form-based config editor, notifications |
+| Deferred | Setup UI replacing the JSON editor (see `TODO.md`), notifications |
 
 ## Data sources and fallback
 
@@ -273,7 +273,7 @@ not tested).
 
 ## Future extensions
 
-- Stop-search typeahead and form-based config editor.
+- Setup UI replacing the JSON editor (planned in `TODO.md`).
 - Multiple saved commutes / profiles per user, switchable.
 - "Leave now" notifications via the Notifications API.
 - Arrive-by target (highlight latest bus that makes a target time).
