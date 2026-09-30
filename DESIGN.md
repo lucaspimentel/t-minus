@@ -129,8 +129,9 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 
 ### Display
 
-- Per departure: countdown/state, then collapsed "Leave 8:04 · 132 8:10 · arrive ~8:56" with the
-  timing leg's source badge. Tapping a row expands one line per leg ("132 8:10 → 8:24") with
+- Per departure: countdown/state with the leave-by time right-aligned ("Leave in 12 min   8:04"),
+  then collapsed "132 8:10 → 8:56" (timing leg departure with its source badge, then arrival).
+  Row times omit AM/PM (`formatClock`); the weekday is prefixed across dates. Tapping a row expands one line per leg ("132 8:10 → 8:24") with
   its own badge, the timing leg in bold; tap again to collapse. Expanded rows are remembered
   by the timing vehicle's trip id while the page is open.
 - Trip switcher: one button per trip, hidden with a single trip.

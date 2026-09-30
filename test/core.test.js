@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey,
   tripToForm, formToTrip, routeLabel, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
-  reverseTrip, nearestStop, windowLabel,
+  reverseTrip, nearestStop, windowLabel, formatClock,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -334,6 +334,14 @@ test('formatTime adds weekday only across a calendar date change', () => {
   assert.equal(formatTime(at('23:32'), now), '11:32 PM');
   assert.equal(formatTime(Date.parse('2026-10-01T06:03:00-04:00'), now), 'Thu 6:03 AM');
   assert.equal(formatTime(at('23:32')), '11:32 PM');
+});
+
+test('formatClock drops AM/PM but keeps the weekday across dates', () => {
+  const now = at('23:20');
+  assert.equal(formatClock(at('23:32'), now), '11:32');
+  assert.equal(formatClock(Date.parse('2026-10-01T06:03:00-04:00'), now), 'Thu 6:03');
+  assert.equal(formatClock(at('12:05')), '12:05');
+  assert.equal(formatClock(Date.parse('2026-10-01T00:10:00-04:00')), '12:10');
 });
 
 // ---------- config vs. API ----------

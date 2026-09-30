@@ -547,6 +547,11 @@ export function formatTime(ms, nowMs) {
   return `${weekdayFmt.format(new Date(ms))} ${t}`;
 }
 
+// formatTime without AM/PM, for compact departure rows ("5:48", "Thu 5:12").
+export function formatClock(ms, nowMs) {
+  return formatTime(ms, nowMs).replace(/\s*[AP]M$/, '');
+}
+
 // A trip's time window for the setup list: "Any time", or "6:00 AM–12:00 PM" ("midnight" for
 // 00:00 and 24:00).
 export function windowLabel(window) {

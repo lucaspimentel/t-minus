@@ -58,7 +58,11 @@
   .row.green { border-left-color: var(--green); }
   .row.amber { border-left-color: var(--amber); }
   .row.red { border-left-color: var(--red); }
-  .big { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .big {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .big .at { font-size: 20px; font-weight: 600; white-space: nowrap; }
   .green .big { color: var(--green); }
   .amber .big { color: var(--amber); }
   .red .big { color: var(--red); }
@@ -148,9 +152,9 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, mergeTrips, legVehicles, averageHeadway, pickTimingLeg, tripRows,
-  countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=cc98941ff8';
-import { openSetup } from './setup.js?v=a3c95f3254';
+  countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, formatClock, countdownLabel,
+} from './core.js?v=7cb8837e87';
+import { openSetup } from './setup.js?v=a126b47dbd';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -343,12 +347,13 @@ function renderRow(r, now) {
   const state = countdownState(now, r.leaveBy, r.firstDep);
   if (state === 'hidden') return null;
   const li = el('li', `row ${state}`);
-  li.append(el('div', 'big', countdownLabel(state, r.leaveBy - now)));
-  // Collapsed: leave time, the timing leg (with its badge), and arrival. Tap to expand.
+  const head = el('div', 'big');
+  head.append(el('span', null, countdownLabel(state, r.leaveBy - now)), el('span', 'at', formatClock(r.leaveBy, now)));
+  li.append(head);
+  // Collapsed: the timing leg (with its badge) and arrival. Tap to expand.
   const timing = r.legs[r.timingIdx];
   const summary = el('div', 'detail');
-  summary.append(`Leave ${formatTime(r.leaveBy, now)} · ${timing.route} ${formatTime(timing.dep, now)}`, badge(timing.source),
-    ` · arrive ~${formatTime(r.eta, now)}`);
+  summary.append(`${timing.route} ${formatClock(timing.dep, now)}`, badge(timing.source), ` → ${formatClock(r.eta, now)}`);
   li.append(summary);
   const key = rowKey(r);
   li.setAttribute('aria-expanded', String(expandedRows.has(key)));
@@ -360,7 +365,7 @@ function renderRow(r, now) {
   if (expandedRows.has(key)) {
     r.legs.forEach((leg, i) => {
       const line = el('div', i === r.timingIdx ? 'detail leg timing' : 'detail leg');
-      line.append(`${leg.route} ${formatTime(leg.dep, now)} → ${formatTime(leg.arr, now)}`, badge(leg.source));
+      line.append(`${leg.route} ${formatClock(leg.dep, now)} → ${formatClock(leg.arr, now)}`, badge(leg.source));
       li.append(line);
     });
   }
