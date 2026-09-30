@@ -152,9 +152,9 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, mergeTrips, legVehicles, averageHeadway, pickTimingLeg, tripRows,
-  countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, formatClock, countdownLabel,
-} from './core.js?v=7cb8837e87';
-import { openSetup } from './setup.js?v=a126b47dbd';
+  countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
+} from './core.js?v=c979f18d7e';
+import { openSetup } from './setup.js?v=c139bb20f0';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -348,12 +348,12 @@ function renderRow(r, now) {
   if (state === 'hidden') return null;
   const li = el('li', `row ${state}`);
   const head = el('div', 'big');
-  head.append(el('span', null, countdownLabel(state, r.leaveBy - now)), el('span', 'at', formatClock(r.leaveBy, now)));
+  head.append(el('span', null, countdownLabel(state, r.leaveBy - now)), el('span', 'at', formatTime(r.leaveBy, now)));
   li.append(head);
   // Collapsed: the timing leg (with its badge) and arrival. Tap to expand.
   const timing = r.legs[r.timingIdx];
   const summary = el('div', 'detail');
-  summary.append(`${timing.route} ${formatClock(timing.dep, now)}`, badge(timing.source), ` → ${formatClock(r.eta, now)}`);
+  summary.append(`${timing.route} ${formatTime(timing.dep, now)}`, badge(timing.source), ` → ${formatTime(r.eta, now)}`);
   li.append(summary);
   const key = rowKey(r);
   li.setAttribute('aria-expanded', String(expandedRows.has(key)));
@@ -365,7 +365,7 @@ function renderRow(r, now) {
   if (expandedRows.has(key)) {
     r.legs.forEach((leg, i) => {
       const line = el('div', i === r.timingIdx ? 'detail leg timing' : 'detail leg');
-      line.append(`${leg.route} ${formatClock(leg.dep, now)} → ${formatClock(leg.arr, now)}`, badge(leg.source));
+      line.append(`${leg.route} ${formatTime(leg.dep, now)} → ${formatTime(leg.arr, now)}`, badge(leg.source));
       li.append(line);
     });
   }

@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey,
   tripToForm, formToTrip, routeLabel, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
-  reverseTrip, nearestStop, windowLabel, formatClock,
+  reverseTrip, nearestStop, windowLabel,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -312,10 +312,10 @@ test('countdownLabel text per state', () => {
 
 test('windowLabel formats trip windows for the setup list', () => {
   assert.equal(windowLabel(null), 'Any time');
-  assert.equal(windowLabel({ from: '06:00', to: '12:00' }), '6:00 AM–12:00 PM');
-  assert.equal(windowLabel({ from: '12:00', to: '24:00' }), '12:00 PM–midnight');
-  assert.equal(windowLabel({ from: '22:30', to: '02:15' }), '10:30 PM–2:15 AM');
-  assert.equal(windowLabel({ from: '00:00', to: '09:05' }), 'midnight–9:05 AM');
+  assert.equal(windowLabel({ from: '06:00', to: '12:00' }), '6:00am–12:00pm');
+  assert.equal(windowLabel({ from: '12:00', to: '24:00' }), '12:00pm–midnight');
+  assert.equal(windowLabel({ from: '22:30', to: '02:15' }), '10:30pm–2:15am');
+  assert.equal(windowLabel({ from: '00:00', to: '09:05' }), 'midnight–9:05am');
 });
 
 test('formatCountdown shows whole minutes, rounding down', () => {
@@ -329,19 +329,13 @@ test('formatCountdown shows whole minutes, rounding down', () => {
   assert.equal(formatCountdown(62 * MIN + 3_000), '1h 02m');
 });
 
-test('formatTime adds weekday only across a calendar date change', () => {
+test('formatTime is compact with am/pm, adding the weekday only across a date change', () => {
   const now = at('23:20');
-  assert.equal(formatTime(at('23:32'), now), '11:32 PM');
-  assert.equal(formatTime(Date.parse('2026-10-01T06:03:00-04:00'), now), 'Thu 6:03 AM');
-  assert.equal(formatTime(at('23:32')), '11:32 PM');
-});
-
-test('formatClock drops AM/PM but keeps the weekday across dates', () => {
-  const now = at('23:20');
-  assert.equal(formatClock(at('23:32'), now), '11:32');
-  assert.equal(formatClock(Date.parse('2026-10-01T06:03:00-04:00'), now), 'Thu 6:03');
-  assert.equal(formatClock(at('12:05')), '12:05');
-  assert.equal(formatClock(Date.parse('2026-10-01T00:10:00-04:00')), '12:10');
+  assert.equal(formatTime(at('23:32'), now), '11:32pm');
+  assert.equal(formatTime(Date.parse('2026-10-01T06:03:00-04:00'), now), 'Thu 6:03am');
+  assert.equal(formatTime(at('23:32')), '11:32pm');
+  assert.equal(formatTime(at('12:05')), '12:05pm');
+  assert.equal(formatTime(Date.parse('2026-10-01T00:10:00-04:00')), '12:10am');
 });
 
 // ---------- config vs. API ----------

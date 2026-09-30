@@ -540,26 +540,22 @@ export function filterAlerts(alertsDoc, routes, stops, nowMs) {
 const timeFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
 const weekdayFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' });
 
-// Prefixes the weekday when `ms` falls on a different local calendar date than `nowMs`.
+// Compact clock time ("5:48pm"). Prefixes the weekday when `ms` falls on a different local
+// calendar date than `nowMs` ("Thu 6:03am").
 export function formatTime(ms, nowMs) {
-  const t = timeFmt.format(new Date(ms));
+  const t = timeFmt.format(new Date(ms)).replace(/\s*([AP])M$/, (_, p) => `${p.toLowerCase()}m`);
   if (nowMs == null || localParts(ms).date === localParts(nowMs).date) return t;
   return `${weekdayFmt.format(new Date(ms))} ${t}`;
 }
 
-// formatTime without AM/PM, for compact departure rows ("5:48", "Thu 5:12").
-export function formatClock(ms, nowMs) {
-  return formatTime(ms, nowMs).replace(/\s*[AP]M$/, '');
-}
-
-// A trip's time window for the setup list: "Any time", or "6:00 AM–12:00 PM" ("midnight" for
+// A trip's time window for the setup list: "Any time", or "6:00am–12:00pm" ("midnight" for
 // 00:00 and 24:00).
 export function windowLabel(window) {
   if (!window) return 'Any time';
   const clock = s => {
     const [h, m] = s.split(':').map(Number);
     if (h % 24 === 0 && m === 0) return 'midnight';
-    return `${h % 12 || 12}:${pad(m)} ${h % 24 < 12 ? 'AM' : 'PM'}`;
+    return `${h % 12 || 12}:${pad(m)}${h % 24 < 12 ? 'am' : 'pm'}`;
   };
   return `${clock(window.from)}–${clock(window.to)}`;
 }
