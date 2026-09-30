@@ -6,8 +6,11 @@ import { pathToFileURL } from 'node:url';
 
 export const IMPORT_RE = /from '\.\/core\.js(\?v=[0-9a-f]*)?'/;
 
+// Line endings are normalized to LF first: a Windows checkout (core.autocrlf) has CRLF on
+// disk while CI has LF, and the hash must be identical on both.
 export function coreHash(root = '.') {
-  return createHash('sha256').update(readFileSync(`${root}/core.js`)).digest('hex').slice(0, 10);
+  const source = readFileSync(`${root}/core.js`, 'utf8').replace(/\r\n/g, '\n');
+  return createHash('sha256').update(source).digest('hex').slice(0, 10);
 }
 
 // pathToFileURL (not a bare `file://` template) so this comparison also works on Windows,
