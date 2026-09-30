@@ -21,6 +21,13 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - Local run: `python3 -m http.server 8765`, open `http://localhost:8765/`.
 - Icons: `icons/icon.svg` is the source; re-render the PNGs (192, 512) from it with Playwright.
 
+## Local testing with an MBTA API key
+
+- The author's key (1,000 req/min instead of 20) is in 1Password:
+  `op item get ai4cbcfsnlhcflmjczne6wipey --fields label=api-key --reveal`.
+- Read it at runtime and inject it into the test page's saved config (`apiKey`); never write
+  the key to the repo, a file, or command output.
+
 ## Browser testing in the Claude Code cloud sandbox
 
 - Playwright is global (`/opt/node22/lib/node_modules/playwright`); launch with `{ channel: 'chromium' }`.
