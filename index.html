@@ -92,6 +92,8 @@
     <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh">&#x21bb;</button>
   </header>
   <p class="status" id="status">Loading…</p>
+  <p class="status stale" id="loadfail" hidden>The app failed to start, probably a partial update.
+    <button id="reload" type="button">Reload</button></p>
   <ul class="alerts" id="alerts"></ul>
   <ul class="rows" id="rows"></ul>
 
@@ -109,12 +111,21 @@
   </details>
 </main>
 
+<script>
+  // Shown if the module below never starts (e.g. a stale cached core.js after a deploy).
+  setTimeout(() => {
+    if (window.appStarted) return;
+    document.getElementById('status').hidden = true;
+    document.getElementById('loadfail').hidden = false;
+    document.getElementById('reload').onclick = () => location.reload();
+  }, 5000);
+</script>
 <script type="module">
 import {
   DEFAULT_CONFIG, validateConfig, analyzeCommute, commuteEntities, pickDirection, periodKey,
   scheduleWindow, nextServiceWindow, fillRows, departureCount, mergeTrips, directRows, connectionRows, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown,
-} from './core.js';
+} from './core.js?v=e0f2535aa5';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -417,6 +428,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
+window.appStarted = true;
 fillSettings();
 render();
 refresh({ force: true });

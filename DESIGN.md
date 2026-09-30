@@ -263,8 +263,14 @@ not tested).
 ## PWA
 
 - `manifest.json`: name, icons, `display: standalone`, start URL.
-- `sw.js`: network-first for same-origin files (new deploys show immediately), cache as
+- `sw.js`: network-first for same-origin files, revalidating with the server
+  (`cache: 'no-cache'`) rather than trusting GitHub Pages' 10-minute HTTP cache; cache as
   offline fallback; precaches the app shell. `api-v3.mbta.com` is never cached.
+- `index.html` imports `core.js?v=<content hash>` (`npm run stamp`; a unit test enforces it),
+  so a new page can never run against a stale cached `core.js`. Mixing the two once left the
+  app stuck on "Loading…" (missing export → module never ran).
+- If the module has not started within 5 s, the page shows "The app failed to start" with a
+  Reload button instead of staying on "Loading…".
 - Polling pauses while the page is hidden (browsers throttle background timers
   anyway); the `visibilitychange` refetch covers returning to the app.
 

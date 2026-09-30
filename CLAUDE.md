@@ -9,6 +9,8 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - No build step, no runtime dependencies. Static files served by GitHub Pages from `main` root:
   https://lucaspimentel.github.io/mbta-leave-by/
 - `core.js`: pure logic only (no DOM, no fetch); every change there gets a unit test.
+- After changing `core.js`, run `npm run stamp` (updates the `core.js?v=<hash>` import in
+  `index.html`; a test fails otherwise). Bump `CACHE` in `sw.js` when the shell file list changes.
 - `index.html`: UI, fetch, timers. Keep the request budget in `DESIGN.md` (keyless limit is 20 req/min).
 - Update `DESIGN.md` when behavior changes; move finished items out of `TODO.md`.
 
