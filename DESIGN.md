@@ -39,7 +39,7 @@ The bus is the scheduling bottleneck; the Orange Line is frequent enough to appr
 | Default config | Author's commute ships as the default (revisit before sharing widely); overridable via JSON panel |
 | Refresh | Adaptive: fetch every 30s when next `leave_by` ≤ 15 min away, else every 60s. Local 1s countdown tick. Manual refresh button. Paused while hidden; refetch on `visibilitychange` to visible |
 | Direction | Auto by time of day (default cutoff 12:00, every day) + manual toggle for off days |
-| Departures shown | Next 3 bottleneck-bus departures |
+| Departures shown | Next N bottleneck-bus departures; `departureCount` in config (1-8, default 4) |
 | Config editing | JSON panel (paste/edit) |
 | v1 extras | Service-impacting alerts; Orange Line connection check (office → home); ETA per bus (home → office); schedule fallback for missing predictions |
 | Deferred | Setup UI replacing the JSON editor (see `TODO.md`), notifications |
@@ -56,15 +56,15 @@ Each time shown carries a source badge:
 Fallback rules:
 
 - **Bottleneck bus**: merge predictions and schedules per `trip` id; use the prediction
-  if present, else the schedule. Take the next 3. Bus predictions exist only for trips
+  if present, else the schedule. Take the next `departureCount`. Bus predictions exist only for trips
   already in progress or about to start, so with 30-60 min headways the 2nd and 3rd
   buses are usually scheduled.
 - **Orange connection (office → home)**: same per-trip rule. Observed Orange prediction
   horizon: ~65 min (late evening sample; daytime not measured). Later buses match
   against scheduled trains.
 - A connection is labeled by its weakest input (live bus + scheduled train = scheduled).
-- **Next service day**: when today's data yields fewer than 3 rows (late evening, after the
-  last bus), fetch the next service day's schedules (03:00-12:00) and fill the remaining
+- **Next service day**: when today's schedule window reaches the end of the service day
+  and today's data yields fewer than `departureCount` rows (late evening, after the last bus), fetch the next service day's schedules (03:00-12:00) and fill the remaining
   rows from them. Next-day data is cached separately from today's because GTFS trip IDs
   repeat across days. Times on a different calendar date than now show the weekday
   ("Thu 6:03 AM").
@@ -92,13 +92,13 @@ leave_by = bus_departure - walk_home_to_stop - stop_slack
 eta      = bus_arrival_at_oak_grove + transfer_buffer + orange_ride_minutes + walk_state_to_office
 ```
 
-For each of the next 3 inbound 132 departures at `Main St @ South St`. `bus_arrival_at_oak_grove`
+For each of the next `departureCount` inbound 132 departures at `Main St @ South St`. `bus_arrival_at_oak_grove`
 comes from the same trip's prediction/schedule at the Oak Grove stop; the Orange leg uses
 the fixed `rideMinutes`. ETA is shown as "arrive ~HH:MM" per bus.
 
 ### Office → home
 
-The binding constraint is the outbound 132 at Oak Grove. For each of the next 3
+The binding constraint is the outbound 132 at Oak Grove. For each of the next `departureCount`
 outbound 132 departures at Oak Grove:
 
 1. Take Orange Line trips toward Oak Grove (live or scheduled per the fallback rules),
@@ -144,6 +144,7 @@ per commute has `role: "bottleneck"`. Shipped default (author's commute):
 {
   "directionCutoff": "12:00",
   "stopSlackMinutes": 1,
+  "departureCount": 4,
   "apiKey": "",
   "commutes": [
     {
@@ -251,7 +252,10 @@ To stay well inside it:
   15 min; cache in memory.
 - Per poll cycle: bottleneck predictions (1) + Orange predictions (1, office → home only).
 - Alerts: every 5 min.
-- Next service day schedules: only when today has fewer than 3 rows; at most once an hour.
+- Schedule window: from now to max(6 h, 90 min × `departureCount`) ahead; once it reaches
+  22:00 it is extended to the end of the service day (28:00).
+- Next service day schedules: only when today has fewer than `departureCount` rows; at most
+  once an hour.
 
 Worst case ≈ 4 req/min at 30s polling. A key raises the limit to 1,000 req/min (per MBTA docs,
 not tested).

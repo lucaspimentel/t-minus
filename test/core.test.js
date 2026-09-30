@@ -4,7 +4,7 @@ import {
   DEFAULT_CONFIG, validateConfig, analyzeCommute, pickDirection, periodKey, scheduleWindow,
   mergeTrips, directRows, connectionRows, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown,
-  nextServiceWindow, fillRows, formatTime,
+  nextServiceWindow, fillRows, formatTime, departureCount,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -57,9 +57,14 @@ test('pickDirection uses cutoff and period-scoped override', () => {
 });
 
 test('scheduleWindow handles service day past midnight', () => {
-  assert.deepEqual(scheduleWindow(at('17:30')), { date: '2026-09-30', minTime: '17:25', maxTime: '21:30' });
+  assert.deepEqual(scheduleWindow(at('10:00')),
+    { date: '2026-09-30', minTime: '09:55', maxTime: '16:00', coversEndOfService: false });
+  // Windows reaching 22:00 extend to the end of the service day (28:00).
+  assert.deepEqual(scheduleWindow(at('17:30')),
+    { date: '2026-09-30', minTime: '17:25', maxTime: '28:00', coversEndOfService: true });
   const lateNight = Date.parse('2026-10-01T00:40:00-04:00');
-  assert.deepEqual(scheduleWindow(lateNight), { date: '2026-09-30', minTime: '24:35', maxTime: '28:40' });
+  assert.deepEqual(scheduleWindow(lateNight),
+    { date: '2026-09-30', minTime: '24:35', maxTime: '30:40', coversEndOfService: true });
 });
 
 test('mergeTrips: prediction beats schedule; parent ids mapped; skipped stops dropped', () => {
@@ -90,7 +95,7 @@ test('directRows: leave-by, ETA, ordering, past buses excluded', () => {
       rec('schedule', 'b4', '25996', '08:44', '08:44'),
       rec('schedule', 'b5', '25996', '09:23', '09:23'),
     ]));
-  const rows = directRows(homeToOffice, trips, at('07:15'), 1);
+  const rows = directRows(homeToOffice, trips, at('07:15'), 1, 3);
   assert.deepEqual(rows.map(r => r.tripId), ['b2', 'b3', 'b4']);
   assert.equal(rows[0].source, 'live');
   assert.equal(rows[0].leaveBy, at('07:34'));
@@ -212,13 +217,13 @@ test('fillRows tops up from the next service day without trip id collisions', ()
   const rows = fillRows(
     directRows(homeToOffice, today, now, 1),
     directRows(homeToOffice, mergeTrips(null, nextDoc), now, 1));
-  assert.equal(rows.length, 3);
-  assert.deepEqual(rows.map(r => r.tripId), ['b1', 'b1', 'b2']);
-  assert.deepEqual(rows.map(r => !!r.nextDay), [false, true, true]);
+  assert.equal(rows.length, 4);
+  assert.deepEqual(rows.map(r => r.tripId), ['b1', 'b1', 'b2', 'b3']);
+  assert.deepEqual(rows.map(r => !!r.nextDay), [false, true, true, true]);
   assert.equal(rows[1].busDep, Date.parse(tomorrowIso('06:03')));
 
   const full = [{ tripId: 'x' }, { tripId: 'y' }, { tripId: 'z' }];
-  assert.deepEqual(fillRows(full, [{ tripId: 'n' }]).map(r => r.tripId), ['x', 'y', 'z']);
+  assert.deepEqual(fillRows(full, [{ tripId: 'n' }], 3).map(r => r.tripId), ['x', 'y', 'z']);
 });
 
 test('formatTime adds weekday only across a calendar date change', () => {
@@ -226,4 +231,15 @@ test('formatTime adds weekday only across a calendar date change', () => {
   assert.equal(formatTime(at('23:32'), now), '11:32 PM');
   assert.equal(formatTime(Date.parse('2026-10-01T06:03:00-04:00'), now), 'Thu 6:03 AM');
   assert.equal(formatTime(at('23:32')), '11:32 PM');
+});
+
+test('departureCount defaults to 4 and is validated', () => {
+  assert.equal(departureCount(DEFAULT_CONFIG), 4);
+  const { departureCount: _, ...legacy } = DEFAULT_CONFIG;
+  assert.equal(departureCount(legacy), 4);
+  assert.deepEqual(validateConfig(legacy), []);
+  assert.deepEqual(validateConfig({ ...DEFAULT_CONFIG, departureCount: 6 }), []);
+  for (const bad of [0, 9, 2.5, '4']) {
+    assert.ok(validateConfig({ ...DEFAULT_CONFIG, departureCount: bad }).some(e => e.startsWith('departureCount')));
+  }
 });

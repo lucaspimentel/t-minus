@@ -2,10 +2,13 @@
 
 export const TZ = 'America/New_York';
 const MIN = 60_000;
+export const DEFAULT_DEPARTURE_COUNT = 4;
+export const MAX_DEPARTURE_COUNT = 8;
 
 export const DEFAULT_CONFIG = {
   directionCutoff: '12:00',
   stopSlackMinutes: 1,
+  departureCount: DEFAULT_DEPARTURE_COUNT,
   apiKey: '',
   commutes: [
     {
@@ -44,6 +47,10 @@ export function validateConfig(cfg) {
   if (!cfg || typeof cfg !== 'object') return ['Config must be a JSON object.'];
   if (!/^\d{1,2}:\d{2}$/.test(cfg.directionCutoff ?? '')) errors.push('directionCutoff must be "HH:MM".');
   if (typeof cfg.stopSlackMinutes !== 'number') errors.push('stopSlackMinutes must be a number.');
+  if (cfg.departureCount !== undefined &&
+      !(Number.isInteger(cfg.departureCount) && cfg.departureCount >= 1 && cfg.departureCount <= MAX_DEPARTURE_COUNT)) {
+    errors.push(`departureCount must be an integer from 1 to ${MAX_DEPARTURE_COUNT}.`);
+  }
   if (!Array.isArray(cfg.commutes) || cfg.commutes.length < 1 || cfg.commutes.length > 2) {
     errors.push('commutes must be an array of 1 or 2 commutes.');
     return errors;
@@ -74,6 +81,11 @@ export function validateConfig(cfg) {
     });
   });
   return errors;
+}
+
+// Number of departures to show; optional in saved configs.
+export function departureCount(cfg) {
+  return cfg.departureCount ?? DEFAULT_DEPARTURE_COUNT;
 }
 
 // Splits a commute around its bottleneck (and optional connection) leg.
@@ -157,10 +169,19 @@ export function serviceDate(nowMs) {
     : { date, minutes: hour * 60 + minute };
 }
 
-export function scheduleWindow(nowMs, backMinutes = 5, aheadMinutes = 240) {
+// Service days end by 04:00 the next morning (28:00).
+const SERVICE_DAY_END = 28 * 60;
+// Windows reaching past this point are extended to the end of the service day.
+const LATE_EXTEND_FROM = 22 * 60;
+
+// Schedule query window for the current service day. Late windows are extended to the end
+// of the service day so `coversEndOfService` tells whether "few rows" means service is ending.
+export function scheduleWindow(nowMs, backMinutes = 5, aheadMinutes = 360) {
   const { date, minutes } = serviceDate(nowMs);
   const min = Math.max(0, minutes - backMinutes);
-  return { date, minTime: hhmm(min), maxTime: hhmm(minutes + aheadMinutes) };
+  let max = minutes + aheadMinutes;
+  if (max >= LATE_EXTEND_FROM) max = Math.max(max, SERVICE_DAY_END);
+  return { date, minTime: hhmm(min), maxTime: hhmm(max), coversEndOfService: max >= SERVICE_DAY_END };
 }
 
 // Morning of the next service day, used to fill rows once today's service has ended.
@@ -221,7 +242,7 @@ const usable = e => e && !e.cancelled;
 // ---------- leave-by ----------
 
 // Rows for a commute whose first transit leg is the bottleneck (e.g. home → office).
-export function directRows(commute, busTrips, nowMs, stopSlackMinutes, count = 3) {
+export function directRows(commute, busTrips, nowMs, stopSlackMinutes, count = DEFAULT_DEPARTURE_COUNT) {
   const { bottleneck, walkBefore, after } = analyzeCommute(commute);
   const rows = [];
   for (const [tripId, stops] of busTrips) {
@@ -245,7 +266,7 @@ export function directRows(commute, busTrips, nowMs, stopSlackMinutes, count = 3
 // Rows for a commute with a frequent connection before the bottleneck (e.g. office → home).
 // For each bus, picks the latest viable connection trip. Buses no known trip can make are
 // skipped; "no connection" is reported only when there is no connection data at all.
-export function connectionRows(commute, busTrips, connTrips, nowMs, count = 3) {
+export function connectionRows(commute, busTrips, connTrips, nowMs, count = DEFAULT_DEPARTURE_COUNT) {
   const { bottleneck, connection, walkBefore, transfer } = analyzeCommute(commute);
   const earliestBoard = nowMs + walkBefore * MIN;
 
@@ -303,7 +324,7 @@ export function countdownState(nowMs, leaveBy, busDep) {
 }
 
 // Today's rows first; remaining slots filled from the next service day.
-export function fillRows(todayRows, nextRows, count = 3) {
+export function fillRows(todayRows, nextRows, count = DEFAULT_DEPARTURE_COUNT) {
   return [...todayRows, ...nextRows.map(r => ({ ...r, nextDay: true }))].slice(0, count);
 }
 
