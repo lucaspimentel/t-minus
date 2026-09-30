@@ -11,8 +11,8 @@ It is answering one question at any moment:
 
 The motivating commute:
 
-- **Home → office**: 132 bus inbound at the home stop → Oak Grove → Orange Line → State
-- **Office → home**: Orange Line from State → Oak Grove → 132 bus outbound → home stop
+- **Home → office**: 132 bus inbound at `Main St @ South St` → Oak Grove → Orange Line → State
+- **Office → home**: Orange Line from State → Oak Grove → 132 bus outbound → `Main St @ South St`
 
 The 132 runs far less often than the Orange Line (~20-30 min headways vs ~5-10 min,
 **[unverified]**). The bus is therefore the scheduling bottleneck.
@@ -27,19 +27,13 @@ The 132 runs far less often than the Orange Line (~20-30 min headways vs ~5-10 m
 | API calls | Direct from browser to `api-v3.mbta.com`; local proxy only if CORS blocks |
 | API key | Keyless by default; optional key field in settings, sent as `x-api-key` header |
 | Persistence | `localStorage` per browser; sharing = app URL + self-serve config |
-| Default config | None personal. First run shows the JSON panel with a placeholder template |
+| Default config | Author's commute ships as the default (revisit before sharing widely); overridable via JSON panel |
 | Refresh | Auto-fetch every ~30s + local 1s countdown tick + manual refresh button; refetch on `visibilitychange` to visible |
 | Direction | Auto by time of day (default cutoff 12:00, every day) + manual toggle |
 | Departures shown | Next 3 bottleneck-bus departures |
 | Config editing | JSON panel (paste/edit) |
 | v1 extras | Service-impacting alerts; Orange Line connection check (office → home); ETA per bus (home → office); schedule fallback for missing predictions |
 | Deferred | Stop-search typeahead, form-based config editor, notifications |
-
-## Privacy
-
-The repo and the Pages site are public. No personal stop IDs, stop names, or walk
-times ship in `index.html` or this doc. Personal config lives only in each browser's
-`localStorage`; the author keeps a private copy of their JSON outside the repo.
 
 ## Data sources and fallback
 
@@ -62,11 +56,11 @@ Fallback rules:
 
 ## Leave-by computation
 
-Commute parameters (all per-config; example values are the author's, not shipped):
+Commute parameters (all per-config; defaults are the author's):
 
 | Parameter | Example |
 |---|---|
-| Walk home ↔ home stop | 5 min (both directions) |
+| Walk home ↔ `Main St @ South St` | 5 min (both directions) |
 | Walk office → State platform | 10 min |
 | Transfer buffer at Oak Grove | 5 min |
 | Stop slack (arrive before bus) | 1 min |
@@ -79,7 +73,7 @@ leave_by = bus_departure - walk_home_to_stop - stop_slack
 eta      = bus_arrival_at_oak_grove + transfer_buffer + orange_ride_minutes + ...
 ```
 
-For each of the next 3 inbound 132 departures at the home stop. `bus_arrival_at_oak_grove`
+For each of the next 3 inbound 132 departures at `Main St @ South St`. `bus_arrival_at_oak_grove`
 comes from the bus trip's prediction/schedule at Oak Grove; the Orange leg uses the
 fixed `orange_ride_minutes`. ETA is shown as "arrive State ~HH:MM" per bus.
 
@@ -120,7 +114,7 @@ outbound 132 departures from Oak Grove:
 ## Configuration schema
 
 Routes are data, not hardcoded constants. One commute per direction; exactly one leg
-per commute has `role: "bottleneck"`. Template shipped with placeholders:
+per commute has `role: "bottleneck"`. Shipped default (author's commute):
 
 ```json
 {
@@ -135,7 +129,7 @@ per commute has `role: "bottleneck"`. Template shipped with placeholders:
         {
           "kind": "transit",
           "route": "132",
-          "stop": "<home-stop-id>",
+          "stop": "<stop-id: Main St @ South St>",
           "alight": "<oak-grove-busway-stop-id>",
           "direction_id": 0,
           "role": "bottleneck"
@@ -208,11 +202,11 @@ Rate limits: ~6 requests per 30s cycle for one user; keyless should suffice
 
 No network access was available during design; none of these are confirmed.
 
-1. Stop IDs for the home stop and the Oak Grove 132 busway stop.
+1. Stop IDs for `Main St @ South St` and the Oak Grove 132 busway stop.
 2. Orange Line ids `place-ogmnl` (Oak Grove), `place-state` (State), and which
    `direction_id` is toward Oak Grove.
 3. 132 direction ids: inbound (toward Oak Grove) = 0?
-4. Whether every outbound 132 trip serves the home stop, or short-turns need a
+4. Whether every outbound 132 trip serves `Main St @ South St`, or short-turns need a
    headsign filter.
 5. Whether first-stop predictions at Oak Grove are missing until bus assignment.
 6. Orange prediction horizon.
@@ -226,7 +220,7 @@ No network access was available during design; none of these are confirmed.
 1. Verify API assumptions above with curl; update this doc to remove `[unverified]` marks.
 2. Build v1 `index.html`, `manifest.json`, `sw.js` per this design.
 3. Enable GitHub Pages on `main`.
-4. User pastes personal config and smoke-tests against live data.
+4. User smoke-tests against live data.
 
 ## Future extensions
 
