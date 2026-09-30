@@ -4,35 +4,10 @@ export const TZ = 'America/New_York';
 const MIN = 60_000;
 export const DEFAULT_DEPARTURE_COUNT = 4;
 export const MAX_DEPARTURE_COUNT = 8;
-
-export const DEFAULT_CONFIG = {
-  directionCutoff: '12:00',
-  stopSlackMinutes: 1,
-  departureCount: DEFAULT_DEPARTURE_COUNT,
-  apiKey: '',
-  commutes: [
-    {
-      name: 'Home to office',
-      legs: [
-        { kind: 'walk', minutes: 5 },
-        { kind: 'transit', route: '132', direction_id: 1, stop: '25996', alight: '5991', role: 'bottleneck' },
-        { kind: 'transfer', minutes: 5 },
-        { kind: 'transit', route: 'Orange', direction_id: 0, from: 'place-ogmnl', to: 'place-state', rideMinutes: 15, role: 'filler' },
-        { kind: 'walk', minutes: 10 },
-      ],
-    },
-    {
-      name: 'Office to home',
-      legs: [
-        { kind: 'walk', minutes: 10 },
-        { kind: 'transit', route: 'Orange', direction_id: 1, from: 'place-state', to: 'place-ogmnl', role: 'connection' },
-        { kind: 'transfer', minutes: 5 },
-        { kind: 'transit', route: '132', direction_id: 0, stop: '9326', role: 'bottleneck' },
-        { kind: 'walk', minutes: 5 },
-      ],
-    },
-  ],
-};
+export const DEFAULT_STOP_SLACK_MINUTES = 1;
+// A leg becomes the timing leg only when its headway is this much longer than the current one's,
+// so the choice doesn't flip back and forth between refreshes.
+export const TIMING_HYSTERESIS = 1.5;
 
 // Effects that affect whether/when a trip runs. Facility and station-amenity alerts are excluded.
 export const ALERT_EFFECTS = new Set([
@@ -42,43 +17,58 @@ export const ALERT_EFFECTS = new Set([
 
 // ---------- config ----------
 
+const HHMM_RE = /^\d{1,2}:\d{2}$/;
+
+function parseHHMM(s) {
+  const [h, m] = s.split(':').map(Number);
+  return h * 60 + m;
+}
+
 export function validateConfig(cfg) {
   const errors = [];
   if (!cfg || typeof cfg !== 'object') return ['Config must be a JSON object.'];
-  if (!/^\d{1,2}:\d{2}$/.test(cfg.directionCutoff ?? '')) errors.push('directionCutoff must be "HH:MM".');
-  if (typeof cfg.stopSlackMinutes !== 'number') errors.push('stopSlackMinutes must be a number.');
+  if (cfg.stopSlackMinutes !== undefined && typeof cfg.stopSlackMinutes !== 'number') {
+    errors.push('stopSlackMinutes must be a number.');
+  }
   if (cfg.departureCount !== undefined &&
       !(Number.isInteger(cfg.departureCount) && cfg.departureCount >= 1 && cfg.departureCount <= MAX_DEPARTURE_COUNT)) {
     errors.push(`departureCount must be an integer from 1 to ${MAX_DEPARTURE_COUNT}.`);
   }
-  if (!Array.isArray(cfg.commutes) || cfg.commutes.length < 1 || cfg.commutes.length > 2) {
-    errors.push('commutes must be an array of 1 or 2 commutes.');
+  if (!Array.isArray(cfg.trips) || cfg.trips.length < 1) {
+    errors.push(cfg.commutes
+      ? 'This is the old config format (commutes); rebuild it as trips (see examples/bus-orange.json).'
+      : 'trips must be a non-empty array.');
     return errors;
   }
-  cfg.commutes.forEach((c, i) => {
-    const p = `commutes[${i}]`;
-    if (!c?.name) errors.push(`${p}.name is required.`);
-    if (!Array.isArray(c?.legs)) { errors.push(`${p}.legs must be an array.`); return; }
-    const bottlenecks = c.legs.filter(l => l.role === 'bottleneck');
-    const connections = c.legs.filter(l => l.role === 'connection');
-    if (bottlenecks.length !== 1) errors.push(`${p} needs exactly one bottleneck leg.`);
-    if (connections.length > 1) errors.push(`${p} supports at most one connection leg.`);
-    if (connections.length === 1 && c.legs.indexOf(connections[0]) > c.legs.indexOf(bottlenecks[0])) {
-      errors.push(`${p}: the connection leg must come before the bottleneck.`);
-    }
-    c.legs.forEach((l, j) => {
+  cfg.trips.forEach((t, i) => {
+    const p = `trips[${i}]`;
+    if (!t?.name) errors.push(`${p}.name is required.`);
+    if (!Array.isArray(t?.legs)) { errors.push(`${p}.legs must be an array.`); return; }
+    const transitCount = t.legs.filter(l => l?.kind === 'transit').length;
+    if (transitCount < 1) errors.push(`${p} needs at least one transit leg.`);
+    t.legs.forEach((l, j) => {
       const q = `${p}.legs[${j}]`;
-      if (l.kind === 'walk' || l.kind === 'transfer') {
-        if (typeof l.minutes !== 'number') errors.push(`${q}.minutes must be a number.`);
-      } else if (l.kind === 'transit') {
+      if (l?.kind === 'walk' || l?.kind === 'transfer') {
+        if (typeof l.minutes !== 'number' || l.minutes < 0) errors.push(`${q}.minutes must be a number >= 0.`);
+      } else if (l?.kind === 'transit') {
         if (!l.route) errors.push(`${q}.route is required.`);
         if (l.direction_id !== 0 && l.direction_id !== 1) errors.push(`${q}.direction_id must be 0 or 1.`);
-        if (l.role === 'bottleneck' && !l.stop) errors.push(`${q}.stop is required for the bottleneck.`);
-        if (l.role === 'connection' && (!l.from || !l.to)) errors.push(`${q}.from and .to are required for a connection.`);
+        if (!l.stop || !l.alight) errors.push(`${q}.stop and .alight are required.`);
+        else if (l.stop === l.alight) errors.push(`${q}.stop and .alight must differ.`);
       } else {
         errors.push(`${q}.kind must be walk, transfer, or transit.`);
       }
     });
+    if (t.window !== undefined) {
+      const w = t.window;
+      const ok = w && HHMM_RE.test(w.from ?? '') && HHMM_RE.test(w.to ?? '') &&
+        parseHHMM(w.from) < 24 * 60 && parseHHMM(w.to) <= 24 * 60;
+      if (!ok) errors.push(`${p}.window must be { "from": "HH:MM", "to": "HH:MM" } (to may be 24:00).`);
+    }
+    if (t.timingLeg !== undefined && t.timingLeg !== null &&
+        !(Number.isInteger(t.timingLeg) && t.timingLeg >= 0 && t.timingLeg < transitCount)) {
+      errors.push(`${p}.timingLeg must be a transit leg index from 0 to ${transitCount - 1}.`);
+    }
   });
   return errors;
 }
@@ -88,34 +78,29 @@ export function departureCount(cfg) {
   return cfg.departureCount ?? DEFAULT_DEPARTURE_COUNT;
 }
 
-// Splits a commute around its bottleneck (and optional connection) leg.
-export function analyzeCommute(commute) {
-  const legs = commute.legs;
-  const bIdx = legs.findIndex(l => l.role === 'bottleneck');
-  const cIdx = legs.findIndex(l => l.role === 'connection');
-  const minutes = l => (l.kind === 'transit' ? l.rideMinutes : l.minutes);
-  const sum = arr => arr.reduce((acc, l) => (acc == null || minutes(l) == null ? null : acc + minutes(l)), 0);
-  const firstTransit = legs.findIndex(l => l.kind === 'transit');
-  return {
-    bottleneck: legs[bIdx],
-    connection: cIdx >= 0 ? legs[cIdx] : null,
-    // Walk time before the first transit leg.
-    walkBefore: sum(legs.slice(0, firstTransit)) ?? 0,
-    // Transfer time between connection and bottleneck.
-    transfer: cIdx >= 0 ? (sum(legs.slice(cIdx + 1, bIdx)) ?? 0) : 0,
-    // Time from alighting the bottleneck to the destination; null if any leg lacks a duration.
-    after: sum(legs.slice(bIdx + 1)),
-  };
+export function stopSlackMinutes(cfg) {
+  return cfg.stopSlackMinutes ?? DEFAULT_STOP_SLACK_MINUTES;
 }
 
-// Stops and routes worth fetching/alerting for a commute.
-export function commuteEntities(commute) {
+// Transit legs plus the minutes around them: walking before the first transit leg, after the
+// last one, and the transfer time between each consecutive pair (missing transfer = 0).
+export function tripShape(trip) {
+  const transit = [];
+  const gaps = [0];
+  for (const l of trip.legs) {
+    if (l.kind === 'transit') { transit.push(l); gaps.push(0); } else gaps[gaps.length - 1] += l.minutes;
+  }
+  return { transit, walkBefore: gaps[0], walkAfter: gaps[gaps.length - 1], transfers: gaps.slice(1, -1) };
+}
+
+// Stops and routes worth fetching/alerting for a trip.
+export function commuteEntities(trip) {
   const routes = new Set();
   const stops = new Set();
-  for (const l of commute.legs) {
+  for (const l of trip.legs) {
     if (l.kind !== 'transit') continue;
     routes.add(l.route);
-    for (const s of [l.stop, l.alight, l.from, l.to]) if (s) stops.add(s);
+    for (const s of [l.stop, l.alight]) if (s) stops.add(s);
   }
   return { routes, stops };
 }
@@ -127,8 +112,8 @@ export const stopsKey = (route, directionId) => `${route}/${directionId}`;
 // Unique route/direction pairs whose stop lists are needed to check a config.
 export function stopQueries(cfg) {
   const pairs = new Map();
-  for (const c of cfg.commutes) {
-    for (const l of c.legs) {
+  for (const t of cfg.trips) {
+    for (const l of t.legs) {
       if (l.kind === 'transit') pairs.set(stopsKey(l.route, l.direction_id), { route: l.route, direction_id: l.direction_id });
     }
   }
@@ -140,10 +125,10 @@ export function stopQueries(cfg) {
 // errors reveal a wrong direction_id even when both stops are served both ways.
 export function checkStops(cfg, stopsByKey) {
   const errors = [];
-  cfg.commutes.forEach((c, i) => {
-    for (const l of c.legs) {
+  cfg.trips.forEach((t, i) => {
+    for (const l of t.legs) {
       if (l.kind !== 'transit') continue;
-      const p = `commutes[${i}] ${l.route}`;
+      const p = `trips[${i}] ${l.route}`;
       const listed = stopsByKey.get(stopsKey(l.route, l.direction_id))?.data ?? [];
       if (listed.length === 0) {
         errors.push(`${p}: no stops for route "${l.route}" in direction ${l.direction_id}; check route and direction_id.`);
@@ -155,18 +140,14 @@ export function checkStops(cfg, stopsByKey) {
         position.set(s.id, idx);
         for (const child of s.relationships?.child_stops?.data ?? []) position.set(child.id, idx);
       });
-      const pairs = [['stop', 'alight'], ['from', 'to']];
-      for (const field of ['stop', 'alight', 'from', 'to']) {
+      for (const field of ['stop', 'alight']) {
         const id = l[field];
         if (id && !position.has(id)) {
           errors.push(`${p}: ${field} "${id}" is not served by route ${l.route} in direction ${l.direction_id}.`);
         }
       }
-      for (const [a, b] of pairs) {
-        if (!l[a] || !l[b] || !position.has(l[a]) || !position.has(l[b])) continue;
-        if (position.get(l[a]) >= position.get(l[b])) {
-          errors.push(`${p}: ${a} "${l[a]}" comes after ${b} "${l[b]}" in direction ${l.direction_id}; direction_id is probably wrong.`);
-        }
+      if (position.has(l.stop) && position.has(l.alight) && position.get(l.stop) >= position.get(l.alight)) {
+        errors.push(`${p}: stop "${l.stop}" comes after alight "${l.alight}" in direction ${l.direction_id}; direction_id is probably wrong.`);
       }
     }
   });
@@ -183,25 +164,6 @@ const partsFmt = new Intl.DateTimeFormat('en-US', {
 export function localParts(nowMs) {
   const p = Object.fromEntries(partsFmt.formatToParts(new Date(nowMs)).map(x => [x.type, x.value]));
   return { date: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour), minute: Number(p.minute) };
-}
-
-function parseHHMM(s) {
-  const [h, m] = s.split(':').map(Number);
-  return h * 60 + m;
-}
-
-// Identifies the half of the day (before/after cutoff) so a manual override expires at the cutoff.
-export function periodKey(nowMs, cutoff) {
-  const { date, hour, minute } = localParts(nowMs);
-  return `${date}/${hour * 60 + minute < parseHHMM(cutoff) ? 'am' : 'pm'}`;
-}
-
-// Commute index: 0 before cutoff, 1 after. A manual override applies only within the period it was set.
-export function pickDirection(nowMs, cfg, override) {
-  if (cfg.commutes.length < 2) return 0;
-  if (override && override.period === periodKey(nowMs, cfg.directionCutoff)) return override.index;
-  const { hour, minute } = localParts(nowMs);
-  return hour * 60 + minute < parseHHMM(cfg.directionCutoff) ? 0 : 1;
 }
 
 function addDays(dateStr, days) {
@@ -240,6 +202,49 @@ export function scheduleWindow(nowMs, backMinutes = 5, aheadMinutes = 360) {
 // Morning of the next service day, used to fill rows once today's service has ended.
 export function nextServiceWindow(nowMs) {
   return { date: addDays(serviceDate(nowMs).date, 1), minTime: '03:00', maxTime: '12:00' };
+}
+
+// ---------- trip selection ----------
+
+const DAY_MIN = 24 * 60;
+
+function minuteOfDay(nowMs) {
+  const { hour, minute } = localParts(nowMs);
+  return hour * 60 + minute;
+}
+
+// Whether a local minute-of-day falls in a window; `to < from` crosses midnight and
+// `from == to` covers the whole day.
+export function inWindow(minute, window) {
+  const from = parseHHMM(window.from);
+  const to = parseHHMM(window.to);
+  if (from === to) return true;
+  return from < to ? minute >= from && minute < to : minute >= from || minute < to;
+}
+
+// Next time (ms) any trip's window starts strictly after `ms`; Infinity if no trip has a window.
+function nextWindowStart(ms, trips) {
+  const m = minuteOfDay(ms);
+  let best = Infinity;
+  for (const t of trips) {
+    if (!t.window) continue;
+    const delta = ((parseHHMM(t.window.from) - m + DAY_MIN) % DAY_MIN) || DAY_MIN;
+    best = Math.min(best, ms - (ms % MIN) + delta * MIN);
+  }
+  return best;
+}
+
+// Trip index to show: a manual override `{ index, setAt }` holds until the next window start
+// after it was set; otherwise the first trip whose window contains now; otherwise the last used.
+export function pickTrip(nowMs, cfg, override, lastUsed) {
+  const n = cfg.trips.length;
+  if (override && override.index >= 0 && override.index < n && nowMs < nextWindowStart(override.setAt, cfg.trips)) {
+    return override.index;
+  }
+  const m = minuteOfDay(nowMs);
+  const inside = cfg.trips.findIndex(t => t.window && inWindow(m, t.window));
+  if (inside >= 0) return inside;
+  return Number.isInteger(lastUsed) && lastUsed >= 0 && lastUsed < n ? lastUsed : 0;
 }
 
 // ---------- trips ----------
@@ -292,86 +297,94 @@ const depOf = e => e?.dep ?? e?.arr ?? null;
 const arrOf = e => e?.arr ?? e?.dep ?? null;
 const usable = e => e && !e.cancelled;
 
-// ---------- leave-by ----------
-
-// Rows for a commute whose first transit leg is the bottleneck (e.g. home → office).
-export function directRows(commute, busTrips, nowMs, stopSlackMinutes, count = DEFAULT_DEPARTURE_COUNT) {
-  const { bottleneck, walkBefore, after } = analyzeCommute(commute);
-  const rows = [];
-  for (const [tripId, stops] of busTrips) {
-    const board = stops.get(bottleneck.stop);
-    if (!usable(board)) continue;
-    const busDep = depOf(board);
-    if (busDep == null || busDep <= nowMs) continue;
-    const alight = bottleneck.alight ? stops.get(bottleneck.alight) : null;
-    const eta = usable(alight) && after != null && arrOf(alight) != null ? arrOf(alight) + after * MIN : null;
-    rows.push({
-      tripId,
-      busDep,
-      leaveBy: busDep - (walkBefore + stopSlackMinutes) * MIN,
-      eta,
-      source: board.source,
-    });
+// Vehicles for one transit leg, sorted by departure: `{ tripId, dep, arr, source }` where
+// `dep` is at the leg's board stop and `arr` at its alight stop. The source is the board
+// stop's: that's the time the rider has to catch.
+export function legVehicles(tripsMap, leg) {
+  const out = [];
+  for (const [tripId, stops] of tripsMap) {
+    const board = stops.get(leg.stop);
+    const alight = stops.get(leg.alight);
+    if (!usable(board) || !usable(alight)) continue;
+    const dep = depOf(board);
+    const arr = arrOf(alight);
+    if (dep == null || arr == null || arr <= dep) continue;
+    out.push({ tripId, dep, arr, source: board.source });
   }
-  return rows.sort((a, b) => a.busDep - b.busDep).slice(0, count);
+  return out.sort((a, b) => a.dep - b.dep);
 }
 
-// Rows for a commute with a frequent connection before the bottleneck (e.g. office → home).
-// For each bus, picks the latest viable connection trip. Buses no known trip can make are
-// skipped; "no connection" is reported only when there is no connection data at all.
-// Bus and train carry independent source labels (see `source` below).
-export function connectionRows(commute, busTrips, connTrips, nowMs, count = DEFAULT_DEPARTURE_COUNT) {
-  const { bottleneck, connection, walkBefore, transfer } = analyzeCommute(commute);
-  const earliestBoard = nowMs + walkBefore * MIN;
+// Mean gap between consecutive departures; Infinity with fewer than 2 (a leg that barely
+// runs is the constraint).
+export function averageHeadway(vehicles) {
+  if (vehicles.length < 2) return Infinity;
+  const deps = vehicles.map(v => v.dep).sort((a, b) => a - b);
+  return (deps[deps.length - 1] - deps[0]) / (deps.length - 1);
+}
 
-  const trains = [];
-  for (const [tripId, stops] of connTrips) {
-    const from = stops.get(connection.from);
-    const to = stops.get(connection.to);
-    if (!usable(from) || !usable(to)) continue;
-    const dep = depOf(from);
-    const arr = arrOf(to);
-    if (dep == null || arr == null || arr <= dep) continue;
-    trains.push({ tripId, dep, arr, source: from.source === 'live' && to.source === 'live' ? 'live' : 'scheduled' });
+// Index of the transit leg the leave-by time is based on: the pinned override, else the leg
+// with the longest headway. The previous choice is kept unless the new candidate's headway is
+// at least TIMING_HYSTERESIS times longer.
+export function pickTimingLeg(headways, previous, override) {
+  const n = headways.length;
+  if (Number.isInteger(override) && override >= 0 && override < n) return override;
+  if (n === 0) return 0;
+  let best = 0;
+  for (let i = 1; i < n; i++) if (headways[i] > headways[best]) best = i;
+  if (Number.isInteger(previous) && previous >= 0 && previous < n && previous !== best &&
+      !(headways[best] >= TIMING_HYSTERESIS * headways[previous])) {
+    return previous;
   }
+  return best;
+}
 
-  const buses = [];
-  for (const [tripId, stops] of busTrips) {
-    const board = stops.get(bottleneck.stop);
-    if (!usable(board)) continue;
-    const busDep = depOf(board);
-    if (busDep == null || busDep - transfer * MIN <= earliestBoard) continue;
-    buses.push({ tripId, busDep, source: board.source });
-  }
-  buses.sort((a, b) => a.busDep - b.busDep);
+// ---------- leave-by ----------
 
+// Departure rows for a trip. For each timing-leg vehicle, earlier legs take the latest vehicle
+// that still makes the next one (minimal waiting), later legs the earliest one after arrival.
+// A departure is skipped if any leg has no feasible vehicle.
+export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, count = DEFAULT_DEPARTURE_COUNT) {
+  const { transit, walkBefore, walkAfter, transfers } = tripShape(trip);
+  const n = transit.length;
   const rows = [];
-  for (const bus of buses) {
+  for (const v of vehiclesByLeg[timingIdx] ?? []) {
     if (rows.length >= count) break;
-    const latestArr = bus.busDep - transfer * MIN;
-    let best = null;
-    for (const t of trains) {
-      if (t.dep >= earliestBoard && t.arr <= latestArr && (!best || t.dep > best.dep)) best = t;
+    if (v.dep <= nowMs) continue;
+    const chain = new Array(n);
+    chain[timingIdx] = v;
+    let ok = true;
+
+    for (let i = timingIdx - 1; i >= 0 && ok; i--) {
+      const latestArr = chain[i + 1].dep - transfers[i] * MIN;
+      let best = null;
+      for (const c of vehiclesByLeg[i] ?? []) if (c.arr <= latestArr && (!best || c.dep > best.dep)) best = c;
+      if (best) chain[i] = best; else ok = false;
     }
-    if (!best) {
-      if (trains.length === 0) rows.push({ ...bus, leaveBy: null, train: null, noConnection: true });
-      continue;
+    // Timing leg first: show it until it leaves ("Hurry"); otherwise the first vehicle must be
+    // reachable on foot from now.
+    if (!ok || (timingIdx > 0 && chain[0].dep < nowMs + walkBefore * MIN)) continue;
+
+    for (let i = timingIdx + 1; i < n && ok; i++) {
+      const earliestDep = chain[i - 1].arr + transfers[i - 1] * MIN;
+      const next = (vehiclesByLeg[i] ?? []).find(c => c.dep >= earliestDep);
+      if (next) chain[i] = next; else ok = false;
     }
+    if (!ok) continue;
+
     rows.push({
-      tripId: bus.tripId,
-      busDep: bus.busDep,
-      leaveBy: best.dep - walkBefore * MIN,
-      // Bus and train each keep their own source so a live bus is not hidden by a scheduled train.
-      train: { dep: best.dep, arr: best.arr, source: best.source },
-      source: bus.source,
-      noConnection: false,
+      key: v.tripId,
+      leaveBy: chain[0].dep - (walkBefore + (timingIdx === 0 ? slackMinutes : 0)) * MIN,
+      firstDep: chain[0].dep,
+      eta: chain[n - 1].arr + walkAfter * MIN,
+      timingIdx,
+      legs: chain.map((c, i) => ({ route: transit[i].route, dep: c.dep, arr: c.arr, source: c.source })),
     });
   }
   return rows;
 }
 
-export function countdownState(nowMs, leaveBy, busDep) {
-  if (nowMs >= busDep) return 'hidden';
+export function countdownState(nowMs, leaveBy, firstDep) {
+  if (nowMs >= firstDep) return 'hidden';
   if (leaveBy == null) return 'none';
   if (nowMs < leaveBy - 2 * MIN) return 'green';
   if (nowMs < leaveBy) return 'amber';
@@ -384,8 +397,8 @@ export function fillRows(todayRows, nextRows, count = DEFAULT_DEPARTURE_COUNT) {
 }
 
 export function pollIntervalMs(rows, nowMs) {
-  const soon = rows.some(r => r.leaveBy != null && r.busDep > nowMs && r.leaveBy - nowMs <= 15 * MIN);
-  return soon ? 30_000 : 60_000;
+  const soon = rows.some(r => r.leaveBy != null && r.firstDep > nowMs && r.leaveBy - nowMs <= 15 * MIN);
+  return soon ? 60_000 : 120_000;
 }
 
 // ---------- alerts ----------

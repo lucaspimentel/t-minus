@@ -30,9 +30,9 @@
   }
   main { max-width: 480px; margin: 0 auto; }
   header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-  .toggle { display: flex; flex: 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .toggle { display: flex; flex-wrap: wrap; flex: 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   .toggle button {
-    flex: 1; padding: 10px 6px; border: 0; background: var(--card); color: var(--muted);
+    flex: 1 1 auto; padding: 10px 6px; border: 0; background: var(--card); color: var(--muted);
     font: inherit; font-size: 14px; cursor: pointer;
   }
   .toggle button[aria-pressed="true"] { background: var(--accent); color: #1c1f24; font-weight: 600; }
@@ -67,6 +67,8 @@
     padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); margin-left: 6px; vertical-align: 2px;
   }
   .badge.live { border-color: var(--green); color: var(--green); }
+  .leg.timing { color: var(--text); font-weight: 600; }
+  label a { color: var(--muted); }
   .empty { color: var(--muted); padding: 16px 0; }
   details { margin-top: 24px; }
   summary { cursor: pointer; color: var(--muted); }
@@ -88,7 +90,7 @@
 <body>
 <main>
   <header>
-    <div class="toggle" id="toggle" role="group" aria-label="Direction"></div>
+    <div class="toggle" id="toggle" role="group" aria-label="Trip"></div>
     <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh">&#x21bb;</button>
   </header>
   <p class="status" id="status">Loading…</p>
@@ -101,11 +103,10 @@
     <summary>Settings</summary>
     <label for="apikey">MBTA API key (optional)</label>
     <input id="apikey" type="text" autocomplete="off" spellcheck="false" placeholder="Keyless: 20 requests/min">
-    <label for="config">Commute config (JSON)</label>
+    <label for="config">Trips config (JSON) · <a href="https://github.com/lucaspimentel/mbta-leave-by/blob/main/examples/bus-orange.json" target="_blank" rel="noopener">example</a></label>
     <textarea id="config" spellcheck="false"></textarea>
     <div class="actions">
       <button id="save">Save</button>
-      <button id="reset">Reset to default</button>
     </div>
     <div class="msg" id="msg"></div>
   </details>
@@ -122,15 +123,16 @@
 </script>
 <script type="module">
 import {
-  DEFAULT_CONFIG, validateConfig, analyzeCommute, commuteEntities, pickDirection, periodKey,
-  scheduleWindow, nextServiceWindow, fillRows, departureCount, mergeTrips, directRows, connectionRows, countdownState, pollIntervalMs,
-  filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown,
+  validateConfig, tripShape, commuteEntities, pickTrip, scheduleWindow, nextServiceWindow, fillRows,
+  departureCount, stopSlackMinutes, mergeTrips, legVehicles, averageHeadway, pickTimingLeg, tripRows,
+  countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown,
   stopQueries, checkStops, stopsKey,
-} from './core.js?v=ba9b53bcb0';
+} from './core.js?v=d815713568';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
-const KEY_OVERRIDE = 'mbta-leave-by:direction';
+const KEY_OVERRIDE = 'mbta-leave-by:trip-override';
+const KEY_LAST_TRIP = 'mbta-leave-by:last-trip';
 const SCHEDULE_TTL = 15 * 60_000;
 const ALERT_TTL = 5 * 60_000;
 const NEXT_DAY_TTL = 60 * 60_000;
@@ -142,16 +144,22 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch {} },
 };
 
+// Saved configs in the old two-commute format fail validation and are ignored.
 function loadConfig() {
   const saved = store.get(KEY_CONFIG);
-  return saved && validateConfig(saved).length === 0 ? saved : structuredClone(DEFAULT_CONFIG);
+  return saved && validateConfig(saved).length === 0 ? saved : null;
 }
 
+store.del('mbta-leave-by:direction'); // override key from the old format
 let config = loadConfig();
-let direction = pickDirection(Date.now(), config, store.get(KEY_OVERRIDE));
-// Per-direction cache: { schedules: {bus, conn, at}, predictions: {bus, conn}, alerts: {doc, at},
-//   nextDay: {bus, conn, date, at} (next service day's schedules, fetched once today's run out) }
+let tripIdx = config ? pickTrip(Date.now(), config, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP)) : 0;
+// Per-trip cache, one doc per transit leg:
+// { predictions: [doc], schedules: {docs, date, coversEndOfService, at}, alerts: {doc, at},
+//   nextDay: {docs, date, at} (next service day's schedules, fetched once today's run out),
+//   timing: index of the transit leg leave-by is based on }
 let cache = {};
+// Previous timing leg per trip, for the hysteresis in pickTimingLeg.
+const lastTiming = new Map();
 let lastOk = null;
 let lastError = null;
 let pollTimer = null;
@@ -162,7 +170,7 @@ let pending = false;
 
 async function api(path, params) {
   const qs = new URLSearchParams(params);
-  if (config.apiKey) qs.set('api_key', config.apiKey);
+  if (config?.apiKey) qs.set('api_key', config.apiKey);
   const res = await fetch(`${API}${path}?${qs}`, { headers: { Accept: 'application/vnd.api+json' } });
   if (res.status === 429) throw new Error('Rate limited (429)');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -176,33 +184,22 @@ const tripFields = {
   'fields[stop]': 'parent_station',
 };
 
-function legQuery(leg, stops) {
-  return { 'filter[route]': leg.route, 'filter[direction_id]': leg.direction_id, 'filter[stop]': stops.join(','), ...tripFields };
+function legQuery(leg) {
+  return { 'filter[route]': leg.route, 'filter[direction_id]': leg.direction_id, 'filter[stop]': `${leg.stop},${leg.alight}`, ...tripFields };
 }
 
-function busStops(leg) { return [leg.stop, leg.alight].filter(Boolean); }
-
-async function fetchSchedules(commute, w) {
-  const { bottleneck, connection } = analyzeCommute(commute);
+async function fetchSchedules(trip, w) {
   const win = { 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime };
-  const [bus, conn] = await Promise.all([
-    api('/schedules', { ...legQuery(bottleneck, busStops(bottleneck)), ...win }),
-    connection ? api('/schedules', { ...legQuery(connection, [connection.from, connection.to]), ...win }) : null,
-  ]);
-  return { bus, conn, date: w.date, coversEndOfService: !!w.coversEndOfService, at: Date.now() };
+  const docs = await Promise.all(tripShape(trip).transit.map(l => api('/schedules', { ...legQuery(l), ...win })));
+  return { docs, date: w.date, coversEndOfService: !!w.coversEndOfService, at: Date.now() };
 }
 
-async function fetchPredictions(commute) {
-  const { bottleneck, connection } = analyzeCommute(commute);
-  const [bus, conn] = await Promise.all([
-    api('/predictions', legQuery(bottleneck, busStops(bottleneck))),
-    connection ? api('/predictions', legQuery(connection, [connection.from, connection.to])) : null,
-  ]);
-  return { bus, conn };
+function fetchPredictions(trip) {
+  return Promise.all(tripShape(trip).transit.map(l => api('/predictions', legQuery(l))));
 }
 
-async function fetchAlerts(commute) {
-  const { routes } = commuteEntities(commute);
+async function fetchAlerts(trip) {
+  const { routes } = commuteEntities(trip);
   const doc = await api('/alerts', {
     'filter[route]': [...routes].join(','),
     'filter[datetime]': 'NOW',
@@ -211,31 +208,40 @@ async function fetchAlerts(commute) {
   return { doc, at: Date.now() };
 }
 
+// Timing leg from schedules only (predictions would make it flicker), with hysteresis.
+function updateTiming(idx, trip, c) {
+  const { transit } = tripShape(trip);
+  const headways = transit.map((l, i) => averageHeadway(legVehicles(mergeTrips(null, c.schedules?.docs[i]), l)));
+  c.timing = pickTimingLeg(headways, lastTiming.get(idx), trip.timingLeg);
+  lastTiming.set(idx, c.timing);
+}
+
 async function refresh({ force = false } = {}) {
+  if (!config) { render(); return; }
   if (inFlight) { pending = true; return; }
   inFlight = true;
   clearTimeout(pollTimer);
-  const dir = direction;
-  const commute = config.commutes[dir];
-  const c = (cache[dir] ??= {});
+  const idx = tripIdx;
+  const trip = config.trips[idx];
+  const c = (cache[idx] ??= {});
   const now = Date.now();
   try {
-    const tasks = [fetchPredictions(commute).then(p => { c.predictions = p; })];
+    const tasks = [fetchPredictions(trip).then(p => { c.predictions = p; })];
     if (force || !c.schedules || now - c.schedules.at > SCHEDULE_TTL) {
       // Look further ahead when more departures are shown (60-min midday headways).
       const w = scheduleWindow(now, 5, Math.max(360, 90 * departureCount(config)));
-      tasks.push(fetchSchedules(commute, w).then(s => { c.schedules = s; }));
+      tasks.push(fetchSchedules(trip, w).then(s => { c.schedules = s; updateTiming(idx, trip, c); }));
     }
     if (force || !c.alerts || now - c.alerts.at > ALERT_TTL) {
-      tasks.push(fetchAlerts(commute).then(a => { c.alerts = a; }));
+      tasks.push(fetchAlerts(trip).then(a => { c.alerts = a; }));
     }
     await Promise.all(tasks);
     // Once today's service is running out, fetch the next service day's morning schedule.
     const next = nextServiceWindow(now);
     if (c.schedules?.coversEndOfService &&
-        rowsFor(commute, c.predictions, c.schedules, now).length < departureCount(config) &&
+        rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now).length < departureCount(config) &&
         (!c.nextDay || c.nextDay.date !== next.date || now - c.nextDay.at > NEXT_DAY_TTL)) {
-      c.nextDay = await fetchSchedules(commute, next);
+      c.nextDay = await fetchSchedules(trip, next);
     }
     lastOk = Date.now();
     lastError = null;
@@ -251,38 +257,36 @@ async function refresh({ force = false } = {}) {
 
 function schedulePoll() {
   clearTimeout(pollTimer);
-  if (document.hidden) return;
+  if (document.hidden || !config) return;
   pollTimer = setTimeout(() => refresh(), pollIntervalMs(currentRows(Date.now()), Date.now()));
 }
 
 // ---------- compute + render ----------
 
-function rowsFor(commute, predictions, schedules, now) {
-  if (!predictions && !schedules) return [];
-  const bus = mergeTrips(predictions?.bus, schedules?.bus);
-  const { connection } = analyzeCommute(commute);
-  if (!connection) return directRows(commute, bus, now, config.stopSlackMinutes, departureCount(config));
-  const conn = mergeTrips(predictions?.conn, schedules?.conn);
-  return connectionRows(commute, bus, conn, now, departureCount(config));
+function rowsFor(trip, timing, predictionDocs, scheduleDocs, now) {
+  if (!predictionDocs && !scheduleDocs) return [];
+  const vehicles = tripShape(trip).transit.map((l, i) => legVehicles(mergeTrips(predictionDocs?.[i], scheduleDocs?.[i]), l));
+  return tripRows(trip, vehicles, timing ?? 0, now, stopSlackMinutes(config), departureCount(config));
 }
 
 // Today's rows, topped up from the next service day. Days are computed separately
 // because GTFS trip ids repeat across days.
 function currentRows(now) {
-  const commute = config.commutes[direction];
-  const c = cache[direction];
+  if (!config) return [];
+  const trip = config.trips[tripIdx];
+  const c = cache[tripIdx];
   if (!c) return [];
   const count = departureCount(config);
-  const today = rowsFor(commute, c.predictions, c.schedules, now);
+  const today = rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now);
   if (today.length >= count || !c.nextDay || !c.schedules?.coversEndOfService) return today;
-  return fillRows(today, rowsFor(commute, null, c.nextDay, now), count);
+  return fillRows(today, rowsFor(trip, c.timing, null, c.nextDay.docs, now), count);
 }
 
 function currentAlerts(now) {
-  const c = cache[direction];
-  if (!c?.alerts) return [];
-  const { routes, stops } = commuteEntities(config.commutes[direction]);
-  const parents = childToParentMap(c.predictions?.bus, c.predictions?.conn, c.schedules?.bus, c.schedules?.conn);
+  const c = cache[tripIdx];
+  if (!config || !c?.alerts) return [];
+  const { routes, stops } = commuteEntities(config.trips[tripIdx]);
+  const parents = childToParentMap(...(c.predictions ?? []), ...(c.schedules?.docs ?? []));
   return filterAlerts(c.alerts.doc, routes, expandStops(stops, parents), now);
 }
 
@@ -299,17 +303,18 @@ function badge(source) {
 
 function renderToggle() {
   const t = $('toggle');
-  t.replaceChildren(...config.commutes.map((c, i) => {
-    const b = el('button', null, c.name);
-    b.setAttribute('aria-pressed', String(i === direction));
-    b.onclick = () => setDirection(i, true);
+  const trips = config?.trips ?? [];
+  t.replaceChildren(...trips.map((trip, i) => {
+    const b = el('button', null, trip.name);
+    b.setAttribute('aria-pressed', String(i === tripIdx));
+    b.onclick = () => setTrip(i, true);
     return b;
   }));
-  t.hidden = config.commutes.length < 2;
+  t.hidden = trips.length < 2;
 }
 
 function renderRow(r, now) {
-  const state = countdownState(now, r.leaveBy, r.busDep);
+  const state = countdownState(now, r.leaveBy, r.firstDep);
   if (state === 'hidden') return null;
   const li = el('li', `row ${state}`);
   const big = {
@@ -319,26 +324,13 @@ function renderRow(r, now) {
     none: () => 'No connection',
   }[state]();
   li.append(el('div', 'big', big));
-
-  const line1 = el('div', 'detail');
-  line1.append(`Bus ${formatTime(r.busDep, now)}`, badge(r.source));
-  li.append(line1);
-
-  // Segments join with ' · '; the train segment also gets its own badge, since a
-  // scheduled train can follow a live bus (or vice versa).
-  const segments = [];
-  if (r.leaveBy != null) segments.push([`leave ${formatTime(r.leaveBy, now)}`]);
-  if (r.train) segments.push([`train ${formatTime(r.train.dep, now)} → ${formatTime(r.train.arr, now)}`, badge(r.train.source)]);
-  if (r.eta != null) segments.push([`arrive ~${formatTime(r.eta, now)}`]);
-  if (segments.length) {
-    const line2 = el('div', 'detail');
-    segments.forEach(([text, segBadge], i) => {
-      if (i > 0) line2.append(' · ');
-      line2.append(text);
-      if (segBadge) line2.append(segBadge);
-    });
-    li.append(line2);
-  }
+  li.append(el('div', 'detail', `Leave ${formatTime(r.leaveBy, now)} · arrive ~${formatTime(r.eta, now)}`));
+  // One line per leg, each with its own live/scheduled badge; the timing leg is bold.
+  r.legs.forEach((leg, i) => {
+    const line = el('div', i === r.timingIdx ? 'detail leg timing' : 'detail leg');
+    line.append(`${leg.route} ${formatTime(leg.dep, now)} → ${formatTime(leg.arr, now)}`, badge(leg.source));
+    li.append(line);
+  });
   return li;
 }
 
@@ -347,6 +339,14 @@ function render() {
   renderToggle();
 
   const status = $('status');
+  if (!config) {
+    status.className = 'status';
+    status.textContent = 'No trips configured. Paste a config in Settings (see the example).';
+    $('alerts').replaceChildren();
+    $('rows').replaceChildren();
+    $('settings').open = true;
+    return;
+  }
   if (lastError) {
     status.className = 'status stale';
     status.textContent = lastOk
@@ -368,10 +368,12 @@ function render() {
   else $('rows').replaceChildren(el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''));
 }
 
-function setDirection(i, manual) {
-  if (manual) store.set(KEY_OVERRIDE, { index: i, period: periodKey(Date.now(), config.directionCutoff) });
-  if (i === direction) return;
-  direction = i;
+// A manual choice holds until the next trip window starts (see pickTrip).
+function setTrip(i, manual) {
+  if (manual) store.set(KEY_OVERRIDE, { index: i, setAt: Date.now() });
+  if (i === tripIdx) return;
+  tripIdx = i;
+  store.set(KEY_LAST_TRIP, i);
   render();
   refresh();
 }
@@ -379,7 +381,8 @@ function setDirection(i, manual) {
 // ---------- settings ----------
 
 function fillSettings() {
-  $('apikey').value = config.apiKey ?? '';
+  $('apikey').value = config?.apiKey ?? '';
+  if (!config) { $('config').value = ''; return; }
   const { apiKey, ...rest } = config;
   $('config').value = JSON.stringify(rest, null, 2);
 }
@@ -425,21 +428,10 @@ $('save').onclick = async () => {
   store.set(KEY_CONFIG, config);
   store.del(KEY_OVERRIDE);
   cache = {};
-  direction = pickDirection(Date.now(), config, null);
+  lastTiming.clear();
+  lastOk = null;
+  tripIdx = pickTrip(Date.now(), config, null, store.get(KEY_LAST_TRIP));
   showMsg(warning ?? 'Saved.', !!warning);
-  render();
-  refresh({ force: true });
-};
-
-$('reset').onclick = () => {
-  const apiKey = $('apikey').value.trim();
-  config = { ...structuredClone(DEFAULT_CONFIG), apiKey };
-  store.set(KEY_CONFIG, config);
-  store.del(KEY_OVERRIDE);
-  cache = {};
-  direction = pickDirection(Date.now(), config, null);
-  fillSettings();
-  showMsg('Reset to default.');
   render();
   refresh({ force: true });
 };
@@ -450,9 +442,9 @@ $('refresh').onclick = () => refresh({ force: true });
 
 setInterval(() => {
   if (document.hidden) return;
-  // Auto-switch direction when the cutoff is crossed (override expires with its period).
-  const d = pickDirection(Date.now(), config, store.get(KEY_OVERRIDE));
-  if (d !== direction) setDirection(d, false);
+  // Switch trips when a trip window starts (a manual override expires at that point).
+  const t = config ? pickTrip(Date.now(), config, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP)) : tripIdx;
+  if (t !== tripIdx) setTrip(t, false);
   else render();
 }, 1000);
 

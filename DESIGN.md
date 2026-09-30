@@ -1,15 +1,16 @@
 # DESIGN.md — mbta-leave-by
 
-Status: v1 implemented. API verified against live data (2026-09-30).
+Status: N-leg engine implemented (phase 1 of `TODO.md`); setup UI pending. API verified
+against live data (2026-09-30).
 
 ## Problem
 
-For a recurring multi-leg MBTA commute (bus + subway), the pain is not route planning.
+For a recurring multi-leg MBTA trip (bus + subway), the pain is not route planning.
 It is answering one question at any moment:
 
 > "When do I need to leave to catch the next viable transit departure, with minimal waiting?"
 
-The motivating commute:
+The motivating commute (`examples/bus-orange.json`):
 
 - **Home → office**: 132 bus inbound at `Main St @ South St` → Oak Grove → Orange Line → State
 - **Office → home**: Orange Line from State → Oak Grove → 132 bus outbound → `Main St @ South St`
@@ -24,7 +25,7 @@ Washington St; Oak Grove is not a terminal or busway stop for it. Weekday headwa
 | 132 outbound at Oak Grove | 30-49 min AM, ~60 min midday, 28-42 min PM; first 05:32, last 23:03 |
 | Orange Line (peak) | 3-5 min (avg ~4.6) |
 
-The bus is the scheduling bottleneck; the Orange Line is frequent enough to approximate.
+The infrequent leg (here the bus) constrains the trip; the app detects it automatically.
 
 ## Decisions
 
@@ -36,85 +37,87 @@ The bus is the scheduling bottleneck; the Orange Line is frequent enough to appr
 | API calls | Direct from browser to `api-v3.mbta.com` (CORS verified: `access-control-allow-origin: *`) |
 | API key | Keyless by default; optional key field in settings, sent as the `api_key` query parameter (a custom header would add a CORS preflight). Stored in `localStorage` on the shared `lucaspimentel.github.io` origin; accepted (low-value key) |
 | Persistence | `localStorage` per browser; sharing = app URL + self-serve config |
-| Default config | Author's commute ships as the default (revisit before sharing widely); overridable via JSON panel |
-| Refresh | Adaptive: fetch every 30s when next `leave_by` ≤ 15 min away, else every 60s. Local 1s countdown tick. Manual refresh button. Paused while hidden; refetch on `visibilitychange` to visible |
-| Direction | Auto by time of day (default cutoff 12:00, every day) + manual toggle for off days |
-| Departures shown | Next N bottleneck-bus departures; `departureCount` in config (1-8, default 4) |
-| Config editing | JSON panel (paste/edit) |
-| v1 extras | Service-impacting alerts; Orange Line connection check (office → home); ETA per bus (home → office); schedule fallback for missing predictions |
-| Deferred | Setup UI replacing the JSON editor (see `TODO.md`), notifications |
+| Default config | None: first run shows "No trips configured" and opens Settings. The author's commute is `examples/bus-orange.json` |
+| Trips | Any number of named trips, each with any number of transit legs; optional time window per trip picks the trip shown |
+| Refresh | Adaptive: fetch every 60s when the next `leave_by` is ≤ 15 min away, else every 120s. Local 1s countdown tick. Manual refresh button. Paused while hidden; refetch on `visibilitychange` to visible |
+| Departures shown | Next `departureCount` departures (config, 1-8, default 4) |
+| Config editing | JSON panel (paste/edit); a form-based setup UI is phase 2 in `TODO.md` |
+| Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
+| Deferred | Setup UI (see `TODO.md`), notifications |
 
 ## Data sources and fallback
 
-Each time shown carries a source badge:
+Each leg time shown carries a source badge:
 
 | Badge | Meaning |
 |---|---|
 | live | From `/predictions` |
 | scheduled | From `/schedules`; no prediction exists for that trip yet |
 
-Fallback rules:
-
-- **Bottleneck bus**: merge predictions and schedules per `trip` id; use the prediction
-  if present, else the schedule. Take the next `departureCount`. Bus predictions exist only for trips
-  already in progress or about to start, so with 30-60 min headways the 2nd and 3rd
-  buses are usually scheduled.
-- **Orange connection (office → home)**: same per-trip rule. Observed Orange prediction
-  horizon: ~65 min (late evening sample; daytime not measured). Later buses match
-  against scheduled trains.
-- The bus and its matched train carry independent source badges (office → home): a live
-  bus can be matched with a scheduled train, or vice versa, and each is labeled on its own.
+- **Per leg**: merge predictions and schedules per vehicle `trip` id; the prediction wins
+  when present. A leg's badge is its board stop's source (the time the rider must catch).
+  Bus predictions exist only for trips in progress or about to start, so with 30-60 min
+  headways later buses are usually scheduled. Observed Orange prediction horizon: ~65 min
+  (late evening sample).
 - **Next service day**: when today's schedule window reaches the end of the service day
-  and today's data yields fewer than `departureCount` rows (late evening, after the last bus), fetch the next service day's schedules (03:00-12:00) and fill the remaining
-  rows from them. Next-day data is cached separately from today's because GTFS trip IDs
-  repeat across days. Times on a different calendar date than now show the weekday
+  and today's data yields fewer than `departureCount` rows (late evening, after the last
+  vehicle), fetch the next service day's schedules (03:00-12:00) for every leg and fill the
+  remaining rows from them. Next-day data is cached separately from today's because GTFS
+  trip IDs repeat across days. Times on a different calendar date than now show the weekday
   ("Thu 6:03 AM").
 
 ## Leave-by computation
 
-Commute parameters (all per-config; defaults are the author's):
+A trip is walk/transfer minutes around one or more transit legs (`tripShape`):
+`walkBefore` (before the first transit leg), `transfers[i]` (between transit legs `i` and
+`i+1`; a missing transfer leg counts as 0), `walkAfter` (after the last transit leg).
 
-| Parameter | Default |
-|---|---|
-| Walk home ↔ `Main St @ South St` | 5 min (both directions) |
-| Walk office ↔ State platform | 10 min (both directions) |
-| Transfer buffer at Oak Grove | 5 min (platform ↔ Washington St bus stop) |
-| Stop slack (arrive before bus) | 1 min |
-| Orange ride Oak Grove → State (ETA only) | 15 min (scheduled; State → Oak Grove is 16 min) |
+### Timing leg
 
-Observed ride times on the 132 (schedule, for reference): `Main St @ South St` → Oak Grove
-7-14 min; Oak Grove → `Main St @ South St` 7-11 min. The app uses per-trip times from the
-API, not these ranges.
+The transit leg leave-by is based on (`pickTimingLeg`), recomputed whenever schedules are
+fetched:
 
-### Home → office
+1. A per-trip `timingLeg` override wins.
+2. Otherwise the leg with the longest average headway in the loaded schedule window
+   (`averageHeadway`; fewer than 2 departures = Infinity, i.e. the leg barely runs).
+3. Hysteresis: the previous choice is kept unless the new candidate's headway is at least
+   1.5× the previous leg's, so the timing leg doesn't flip between refreshes.
+
+Schedules only (not predictions) feed this, so live data can't make it flicker. For the
+example commute the 132 is the timing leg in both directions.
+
+### Chaining (`tripRows`)
+
+For each timing-leg vehicle in departure order (up to `departureCount` rows):
+
+1. **Legs before it**, working backwards: the **latest** vehicle whose arrival is at or
+   before the next leg's departure minus the transfer time (minimal waiting).
+2. **First leg reachability**: if the timing leg is the first leg, the row stays until the
+   vehicle leaves (red "Hurry" state); otherwise the first vehicle must depart at or after
+   `now + walkBefore`.
+3. **Legs after it**, working forwards: the **earliest** vehicle departing at or after the
+   previous leg's arrival plus the transfer time.
+4. If any leg has no feasible vehicle, the departure is skipped (e.g. the first bus of the
+   day, which leaves before the first train arrives).
 
 ```
-leave_by = bus_departure - walk_home_to_stop - stop_slack
-eta      = bus_arrival_at_oak_grove + transfer_buffer + orange_ride_minutes + walk_state_to_office
+leave_by = first_leg.departure - walkBefore - (stop_slack if the timing leg is the first leg)
+eta      = last_leg.arrival + walkAfter
 ```
 
-For each of the next `departureCount` inbound 132 departures at `Main St @ South St`. `bus_arrival_at_oak_grove`
-comes from the same trip's prediction/schedule at the Oak Grove stop; the Orange leg uses
-the fixed `rideMinutes`. ETA is shown as "arrive ~HH:MM" per bus.
+Stop slack (`stopSlackMinutes`, default 1) applies only when the first leg is the timing
+leg, as in the original bus-first rule; transfer times cover the waiting otherwise.
 
-### Office → home
+Example (office → home, 17:00, walk 10, transfer 5): for the 17:40 bus, the latest train
+arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 
-The binding constraint is the outbound 132 at Oak Grove. For each of the next `departureCount`
-outbound 132 departures at Oak Grove:
+### Trip selection (`pickTrip`)
 
-1. Take Orange Line trips toward Oak Grove (live or scheduled per the fallback rules),
-   pairing each trip's State departure with its Oak Grove arrival by `trip` id.
-2. A train is **viable** if
-   `state_departure >= now + walk_office_to_state` and
-   `oak_grove_arrival <= bus_departure - transfer_buffer`.
-3. Pick the **latest** viable train (minimal waiting at Oak Grove).
-4. `leave_by = that_train.state_departure - walk_office_to_state`.
-5. If no known train can make the bus, skip it (e.g. the first bus of the day, which leaves
-   before the first train arrives). If there is no connection data at all, show the bus as
-   "no connection".
-
-
-`stop_slack` does not apply at Oak Grove; `transfer_buffer` covers it.
+1. A manual switch (`{ index, setAt }` in `localStorage`) holds until the next time any
+   trip's window starts after it was set (forever if no trip has a window).
+2. Otherwise the first trip whose `window` contains now (`to < from` crosses midnight;
+   `from == to` is the whole day; overlapping windows: first in the list wins).
+3. Otherwise the last trip used.
 
 ### Countdown states
 
@@ -122,13 +125,15 @@ outbound 132 departures at Oak Grove:
 |---|---|---|
 | Green | `now < leave_by - 2 min` | Countdown to `leave_by` |
 | Amber | `leave_by - 2 min <= now < leave_by` | "Leave now" + countdown |
-| Red | `leave_by <= now < bus_departure` | "Hurry" (stop slack may still save it) |
-| Hidden | `now >= bus_departure` | Row removed; next bus promoted |
+| Red | `leave_by <= now < first_leg.departure` | "Hurry" (stop slack may still save it) |
+| Hidden | `now >= first_leg.departure` | Row removed; next departure promoted |
 
 ### Display
 
-- Per departure: bus time, source badge, `leave_by`, countdown/state, ETA (home → office).
-  Office → home rows also show a source badge on the matched train, separate from the bus's.
+- Per departure: countdown/state; "Leave 8:04 · arrive ~8:56"; one line per leg
+  ("132 8:10 → 8:24") with its own source badge; the timing leg in bold. (Phase 2 collapses
+  this to one line with tap-to-expand.)
+- Trip switcher: one button per trip, hidden with a single trip.
 - Alerts above the list: only alerts active now whose `informed_entity` matches a
   configured route **and** (stop, or no stop given), with service-impacting effects
   (e.g. `DELAY`, `DETOUR`, `SUSPENSION`, `SHUTTLE`, `STOP_CLOSURE`, `STATION_CLOSURE`,
@@ -139,73 +144,36 @@ outbound 132 departures at Oak Grove:
 
 ## Configuration schema
 
-Routes are data, not hardcoded constants. One commute per direction; exactly one leg
-per commute has `role: "bottleneck"`. Shipped default (author's commute):
-
 ```json
 {
-  "directionCutoff": "12:00",
-  "stopSlackMinutes": 1,
   "departureCount": 4,
+  "stopSlackMinutes": 1,
   "apiKey": "",
-  "commutes": [
+  "trips": [
     {
       "name": "Home to office",
+      "window": { "from": "00:00", "to": "12:00" },
+      "timingLeg": 0,
       "legs": [
         { "kind": "walk", "minutes": 5 },
-        {
-          "kind": "transit",
-          "route": "132",
-          "direction_id": 1,
-          "stop": "25996",
-          "alight": "5991",
-          "role": "bottleneck"
-        },
+        { "kind": "transit", "route": "132", "direction_id": 1, "stop": "25996", "alight": "5991" },
         { "kind": "transfer", "minutes": 5 },
-        {
-          "kind": "transit",
-          "route": "Orange",
-          "direction_id": 0,
-          "from": "place-ogmnl",
-          "to": "place-state",
-          "rideMinutes": 15,
-          "role": "filler"
-        },
+        { "kind": "transit", "route": "Orange", "direction_id": 0, "stop": "place-ogmnl", "alight": "place-state" },
         { "kind": "walk", "minutes": 10 }
-      ]
-    },
-    {
-      "name": "Office to home",
-      "legs": [
-        { "kind": "walk", "minutes": 10 },
-        {
-          "kind": "transit",
-          "route": "Orange",
-          "direction_id": 1,
-          "from": "place-state",
-          "to": "place-ogmnl",
-          "role": "connection"
-        },
-        { "kind": "transfer", "minutes": 5 },
-        {
-          "kind": "transit",
-          "route": "132",
-          "direction_id": 0,
-          "stop": "9326",
-          "role": "bottleneck"
-        },
-        { "kind": "walk", "minutes": 5 }
       ]
     }
   ]
 }
 ```
 
-Leg roles:
-
-- `bottleneck`: drives `leave_by`; predictions + schedules fetched.
-- `connection`: predictions + schedules fetched and matched against the bottleneck.
-- `filler`: not fetched; fixed `rideMinutes` used for ETA only.
+- `departureCount`, `stopSlackMinutes`, `apiKey`: optional, app-wide.
+- `trips[].window`: optional `HH:MM` range; `to` may be `24:00`.
+- `trips[].timingLeg`: optional, 0-based index among the trip's **transit** legs; pins the
+  timing leg.
+- Transit legs: `route`, `direction_id` (0/1), board `stop`, `alight` stop (both required;
+  parent station IDs such as `place-state` or child platform IDs both work).
+- Old configs (two `commutes` with `bottleneck`/`connection`/`filler` roles and
+  `directionCutoff`) fail validation and are ignored; they must be rebuilt.
 
 ### Save-time check against the API
 
@@ -214,11 +182,11 @@ API (`checkStops`). For each route/direction pair, `/stops?filter[route]&filter[
 returns the stops in trip order. The check fails when:
 
 - the pair has no stops (unknown route or invalid `direction_id`);
-- a `stop`, `alight`, `from` or `to` ID is neither a listed stop nor a child platform of one;
-- `stop` is not before `alight`, or `from` is not before `to` (usually a wrong `direction_id`).
+- a `stop` or `alight` ID is neither a listed stop nor a child platform of one;
+- `stop` is not before `alight` (usually a wrong `direction_id`).
 
 Failures block the save. If the API can't be reached, the config is saved with a
-"couldn't verify stops" warning. Reset to default skips the check.
+"couldn't verify stops" warning.
 
 ### Verified IDs
 
@@ -243,19 +211,17 @@ every stop, so no headsign or short-turn filter is needed.
 
 Base: `https://api-v3.mbta.com` (V3 API, JSON:API format, GTFS/GTFS-Realtime based).
 
-- Bus predictions / schedules:
-  `/predictions?filter[route]=132&filter[direction_id]=<0|1>&filter[stop]=<stop>[,<alight>]`
-  `/schedules?filter[route]=132&filter[direction_id]=<0|1>&filter[stop]=<stop>[,<alight>]&filter[date]=YYYY-MM-DD&filter[min_time]=HH:MM`
+- Per transit leg, predictions / schedules for its board and alight stops:
+  `/predictions?filter[route]=R&filter[direction_id]=D&filter[stop]=<stop>,<alight>&include=stop`
+  `/schedules?...same...&filter[date]=YYYY-MM-DD&filter[min_time]=HH:MM&filter[max_time]=HH:MM`
   Pair rows by `relationships.trip.data.id`.
-- Orange predictions / schedules (connection check):
-  same endpoints with `filter[route]=Orange&filter[direction_id]=1&filter[stop]=place-state,place-ogmnl&include=stop`.
-  Parent-station filters work, but rows come back with **child** stop IDs; map them
+- Parent-station filters work, but rows come back with **child** stop IDs; map them
   via `include=stop` → `relationships.parent_station`.
-- At Oak Grove (Orange terminal) predictions carry `arrival_time` only;
-  `departure_time` is null. Use arrival there, departure at State.
-- Alerts: `/alerts?filter[route]=132,Orange&filter[datetime]=NOW`, then filter
+- At a terminal (e.g. Oak Grove for the Orange Line) predictions carry `arrival_time` only;
+  `departure_time` is null. Arrival is used at the alight stop, departure at the board stop.
+- Alerts: `/alerts?filter[route]=<trip routes>&filter[datetime]=NOW`, then filter
   client-side by effect and `informed_entity` stop.
-- Stops (manual setup): `/stops?filter[route]=132&filter[direction_id]=<0|1>`, `/stops/<id>`.
+- Stops (save-time check): `/stops?filter[route]=R&filter[direction_id]=D&include=child_stops`.
 - Query strings contain literal `[` `]`; `curl` needs `-g` to test them.
 
 ### Rate limits and request budget
@@ -263,18 +229,18 @@ Base: `https://api-v3.mbta.com` (V3 API, JSON:API format, GTFS/GTFS-Realtime bas
 Keyless limit is **20 requests/minute** (`x-ratelimit-limit: 20`, reset window 60s).
 To stay well inside it:
 
-- Schedules are static per service day: fetch on load, on direction change, and every
-  15 min; cache in memory.
-- Per poll cycle: bottleneck predictions (1) + Orange predictions (1, office → home only).
-- Alerts: every 5 min.
+- Per poll: one `/predictions` request per transit leg of the shown trip.
+- Schedules: one request per transit leg on load, on trip change, and every 15 min.
+- Alerts: one request every 5 min.
 - Schedule window: from now to max(6 h, 90 min × `departureCount`) ahead; once it reaches
   22:00 it is extended to the end of the service day (28:00).
-- Next service day schedules: only when today has fewer than `departureCount` rows; at most
-  once an hour.
-- Saving the config: one `/stops` request per route/direction pair (4 for the default config).
+- Next service day schedules: one request per transit leg, only when today has fewer than
+  `departureCount` rows; at most once an hour.
+- Saving the config: one `/stops` request per route/direction pair (4 for the example).
 
-Worst case ≈ 4 req/min at 30s polling. A key raises the limit to 1,000 req/min (per MBTA docs,
-not tested).
+A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 requests; a 4-leg trip
+≤ 4 req/min. Rapid reloads can still hit the limit (seen in testing with ~8 fresh loads in a
+minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 
 ## PWA
 
@@ -284,7 +250,8 @@ not tested).
   offline fallback; precaches the app shell. `api-v3.mbta.com` is never cached.
 - `index.html` imports `core.js?v=<content hash>` (`npm run stamp`; a unit test enforces it),
   so a new page can never run against a stale cached `core.js`. Mixing the two once left the
-  app stuck on "Loading…" (missing export → module never ran).
+  app stuck on "Loading…" (missing export → module never ran). The hash is computed with
+  LF line endings so Windows checkouts and CI agree.
 - If the module has not started within 5 s, the page shows "The app failed to start" with a
   Reload button instead of staying on "Loading…".
 - Polling pauses while the page is hidden (browsers throttle background timers
@@ -293,7 +260,7 @@ not tested).
 ## Remaining unknowns
 
 - Daytime Orange prediction horizon (only a late-evening sample was taken). The schedule
-  fallback covers any gap, so this does not block the build.
+  fallback covers any gap.
 - Weekend/holiday 132 schedules were not inspected; the app reads them from the API.
 
 ## Development
@@ -305,9 +272,7 @@ not tested).
 
 ## Future extensions
 
-- Setup UI replacing the JSON editor (planned in `TODO.md`).
-- Multiple saved commutes / profiles per user, switchable.
+- Setup UI replacing the JSON editor (phase 2 in `TODO.md`).
 - "Leave now" notifications via the Notifications API.
-- Arrive-by target (highlight latest bus that makes a target time).
-- Weekday-aware direction switching.
+- Arrive-by target (highlight the latest departure that makes a target time).
 - Possibly a backend later, only if shared profiles or push reminders are wanted.

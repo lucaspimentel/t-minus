@@ -1,0 +1,28 @@
+{
+  "departureCount": 4,
+  "stopSlackMinutes": 1,
+  "trips": [
+    {
+      "name": "Home to office",
+      "window": { "from": "00:00", "to": "12:00" },
+      "legs": [
+        { "kind": "walk", "minutes": 5 },
+        { "kind": "transit", "route": "132", "direction_id": 1, "stop": "25996", "alight": "5991" },
+        { "kind": "transfer", "minutes": 5 },
+        { "kind": "transit", "route": "Orange", "direction_id": 0, "stop": "place-ogmnl", "alight": "place-state" },
+        { "kind": "walk", "minutes": 10 }
+      ]
+    },
+    {
+      "name": "Office to home",
+      "window": { "from": "12:00", "to": "24:00" },
+      "legs": [
+        { "kind": "walk", "minutes": 10 },
+        { "kind": "transit", "route": "Orange", "direction_id": 1, "stop": "place-state", "alight": "place-ogmnl" },
+        { "kind": "transfer", "minutes": 5 },
+        { "kind": "transit", "route": "132", "direction_id": 0, "stop": "9326", "alight": "15982" },
+        { "kind": "walk", "minutes": 5 }
+      ]
+    }
+  ]
+}
