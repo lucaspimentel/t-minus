@@ -27,8 +27,8 @@ function parseHHMM(s) {
 export function validateConfig(cfg) {
   const errors = [];
   if (!cfg || typeof cfg !== 'object') return ['Config must be a JSON object.'];
-  if (cfg.stopSlackMinutes !== undefined && typeof cfg.stopSlackMinutes !== 'number') {
-    errors.push('stopSlackMinutes must be a number.');
+  if (cfg.stopSlackMinutes !== undefined && !(Number.isFinite(cfg.stopSlackMinutes) && cfg.stopSlackMinutes >= 0)) {
+    errors.push('stopSlackMinutes must be a number >= 0.');
   }
   if (cfg.departureCount !== undefined &&
       !(Number.isInteger(cfg.departureCount) && cfg.departureCount >= 1 && cfg.departureCount <= MAX_DEPARTURE_COUNT)) {
@@ -49,7 +49,7 @@ export function validateConfig(cfg) {
     t.legs.forEach((l, j) => {
       const q = `${p}.legs[${j}]`;
       if (l?.kind === 'walk' || l?.kind === 'transfer') {
-        if (typeof l.minutes !== 'number' || l.minutes < 0) errors.push(`${q}.minutes must be a number >= 0.`);
+        if (!Number.isFinite(l.minutes) || l.minutes < 0) errors.push(`${q}.minutes must be a number >= 0.`);
       } else if (l?.kind === 'transit') {
         if (!l.route) errors.push(`${q}.route is required.`);
         if (l.direction_id !== 0 && l.direction_id !== 1) errors.push(`${q}.direction_id must be 0 or 1.`);
@@ -103,6 +103,74 @@ export function commuteEntities(trip) {
     for (const s of [l.stop, l.alight]) if (s) stops.add(s);
   }
   return { routes, stops };
+}
+
+// ---------- setup form model ----------
+
+// Editor model for one trip: walk/transfer minutes as fields around the transit legs instead
+// of separate legs. `formToTrip` writes the canonical legs back (walk, transit, transfer,
+// transit, ..., walk), omitting zero-minute walks and transfers.
+export function tripToForm(trip) {
+  const { transit, walkBefore, walkAfter, transfers } = tripShape(trip);
+  return {
+    name: trip.name ?? '',
+    window: trip.window ? { ...trip.window } : null,
+    timingLeg: Number.isInteger(trip.timingLeg) ? trip.timingLeg : null,
+    walkBefore,
+    walkAfter,
+    transit: transit.map((l, i) => ({
+      route: l.route, direction_id: l.direction_id, stop: l.stop, alight: l.alight,
+      transferBefore: i === 0 ? 0 : transfers[i - 1],
+    })),
+  };
+}
+
+export function formToTrip(form) {
+  const legs = [];
+  if (form.walkBefore > 0) legs.push({ kind: 'walk', minutes: form.walkBefore });
+  form.transit.forEach((t, i) => {
+    if (i > 0 && t.transferBefore > 0) legs.push({ kind: 'transfer', minutes: t.transferBefore });
+    legs.push({ kind: 'transit', route: t.route, direction_id: t.direction_id, stop: t.stop, alight: t.alight });
+  });
+  if (form.walkAfter > 0) legs.push({ kind: 'walk', minutes: form.walkAfter });
+  const trip = { name: form.name };
+  if (form.window) trip.window = { ...form.window };
+  if (Number.isInteger(form.timingLeg)) trip.timingLeg = form.timingLeg;
+  trip.legs = legs;
+  return trip;
+}
+
+// Buses are known by number ("132"); rail by name ("Orange Line", "Green Line B").
+export function routeLabel(route) {
+  const a = route.attributes ?? {};
+  return (a.type === 3 ? a.short_name : a.long_name) || a.short_name || a.long_name || route.id;
+}
+
+// Routes whose label, number, or long name contains the query, in MBTA sort order.
+export function searchRoutes(routes, query = '') {
+  const q = query.trim().toLowerCase();
+  return routes
+    .filter(r => !q || [routeLabel(r), r.attributes?.short_name, r.attributes?.long_name, r.id]
+      .some(s => s && String(s).toLowerCase().includes(q)))
+    .sort((a, b) => (a.attributes?.sort_order ?? 0) - (b.attributes?.sort_order ?? 0));
+}
+
+// Stops (JSON:API stop resources) whose name contains the query, keeping trip order.
+export function searchStops(stops, query = '') {
+  const q = query.trim().toLowerCase();
+  return q ? stops.filter(s => (s.attributes?.name ?? s.id).toLowerCase().includes(q)) : stops;
+}
+
+// Drop-off candidates: the stops after the board stop in this direction's trip order.
+export function stopsAfter(stops, boardId) {
+  const i = stops.findIndex(s => s.id === boardId);
+  return i < 0 ? [] : stops.slice(i + 1);
+}
+
+// Suggested transfer minutes between two legs: 3 within the same station, else 5.
+export function defaultTransferMinutes(prevAlight, nextBoard, parentOf = new Map()) {
+  const station = id => parentOf.get(id) ?? id;
+  return prevAlight && nextBoard && station(prevAlight) === station(nextBoard) ? 3 : 5;
 }
 
 // ---------- config vs. API ----------

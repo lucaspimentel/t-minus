@@ -1,10 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { IMPORT_RE, coreHash } from '../scripts/stamp.mjs';
+import { IMPORTS, importRe, fileHash } from '../scripts/stamp.mjs';
 
-test('index.html imports core.js stamped with its current content hash', () => {
-  const match = readFileSync('index.html', 'utf8').match(IMPORT_RE);
-  assert.ok(match, 'core.js import not found in index.html');
-  assert.equal(match[1], `?v=${coreHash()}`, 'core.js changed: run `npm run stamp`');
-});
+for (const { file, dep } of IMPORTS) {
+  test(`${file} imports ${dep} stamped with its current content hash`, () => {
+    const match = readFileSync(file, 'utf8').match(importRe(dep));
+    assert.ok(match, `${dep} import not found in ${file}`);
+    assert.equal(match[1], `?v=${fileHash(dep)}`, `${dep} changed: run \`npm run stamp\``);
+  });
+}

@@ -1,7 +1,7 @@
 # DESIGN.md — mbta-leave-by
 
-Status: N-leg engine implemented (phase 1 of `TODO.md`); setup UI pending. API verified
-against live data (2026-09-30).
+Status: N-leg engine and setup UI implemented; remaining setup extras in `TODO.md`. API
+verified against live data (2026-09-30).
 
 ## Problem
 
@@ -31,19 +31,19 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 
 | Topic | Decision |
 |---|---|
-| Form factor | Static files, no build step, no backend, no dependencies: `index.html` (markup, CSS, UI/fetch/timers), `core.js` (pure logic ES module, unit tested), PWA `manifest.json` + `sw.js` |
+| Form factor | Static files, no build step, no backend, no dependencies: `index.html` (markup, CSS, UI/fetch/timers), `setup.js` (setup view), `core.js` (pure logic ES module, unit tested), PWA `manifest.json` + `sw.js` |
 | Target device | Phone first; installable PWA (add to home screen) |
 | Hosting | GitHub Pages (HTTPS; required for service worker, enables Notifications API later) |
 | API calls | Direct from browser to `api-v3.mbta.com` (CORS verified: `access-control-allow-origin: *`) |
 | API key | Keyless by default; optional key field in settings, sent as the `api_key` query parameter (a custom header would add a CORS preflight). Stored in `localStorage` on the shared `lucaspimentel.github.io` origin; accepted (low-value key) |
 | Persistence | `localStorage` per browser; sharing = app URL + self-serve config |
-| Default config | None: first run shows "No trips configured" and opens Settings. The author's commute is `examples/bus-orange.json` |
+| Default config | None: first run opens the setup view. The author's commute is `examples/bus-orange.json` (importable) |
 | Trips | Any number of named trips, each with any number of transit legs; optional time window per trip picks the trip shown |
 | Refresh | Adaptive: fetch every 60s when the next `leave_by` is ≤ 15 min away, else every 120s. Local 1s countdown tick. Manual refresh button. Paused while hidden; refetch on `visibilitychange` to visible |
 | Departures shown | Next `departureCount` departures (config, 1-8, default 4) |
-| Config editing | JSON panel (paste/edit); a form-based setup UI is phase 2 in `TODO.md` |
+| Config editing | Full-screen setup view (gear button) with route/direction/stop pickers; JSON only via Export/Import |
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
-| Deferred | Setup UI (see `TODO.md`), notifications |
+| Deferred | Setup extras (see `TODO.md`), notifications |
 
 ## Data sources and fallback
 
@@ -175,9 +175,28 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 - Old configs (two `commutes` with `bottleneck`/`connection`/`filler` roles and
   `directionCutoff`) fail validation and are ignored; they must be rebuilt.
 
+### Setup view (`setup.js`)
+
+- Opened from the gear button, and automatically on first run (no valid config; Cancel is
+  hidden then). Polling pauses while it is open.
+- App-wide fields (departures shown, minutes early at the stop, API key); one card per trip
+  (name, optional time window, walk before/after, transit legs with a transfer time between
+  them, move/delete); "Add trip".
+- The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
+  canonical legs back, omitting zero-minute walks and transfers.
+- Transit leg picker: route (search over bus, subway, light rail) → direction ("toward
+  <direction_destinations>") → board stop (trip order, search) → drop-off stop (only stops
+  after the board stop, `stopsAfter`). A new leg's transfer time defaults to 3 min within the
+  same station, else 5 (`defaultTransferMinutes`).
+- Existing legs show stop names from the per-route/direction `/stops` docs, which Save then
+  reuses for `checkStops`.
+- Save errors appear on the trip they belong to; nothing is saved until they're fixed.
+- Export copies the config JSON to the clipboard (falls back to a read-only textarea);
+  Import loads pasted JSON into the form after `validateConfig` (saved only on Save).
+
 ### Save-time check against the API
 
-Saving the JSON config first checks its shape (`validateConfig`), then its stops against the
+Saving the config first checks its shape (`validateConfig`), then its stops against the
 API (`checkStops`). For each route/direction pair, `/stops?filter[route]&filter[direction_id]&include=child_stops`
 returns the stops in trip order. The check fails when:
 
@@ -236,7 +255,8 @@ To stay well inside it:
   22:00 it is extended to the end of the service day (28:00).
 - Next service day schedules: one request per transit leg, only when today has fewer than
   `departureCount` rows; at most once an hour.
-- Saving the config: one `/stops` request per route/direction pair (4 for the example).
+- Setup: one `/routes` request per session, one `/stops` request per route/direction pair
+  (cached for the session, 4 for the example); Save reuses them.
 
 A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 requests; a 4-leg trip
 ≤ 4 req/min. Rapid reloads can still hit the limit (seen in testing with ~8 fresh loads in a
@@ -248,8 +268,9 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 - `sw.js`: network-first for same-origin files, revalidating with the server
   (`cache: 'no-cache'`) rather than trusting GitHub Pages' 10-minute HTTP cache; cache as
   offline fallback; precaches the app shell. `api-v3.mbta.com` is never cached.
-- `index.html` imports `core.js?v=<content hash>` (`npm run stamp`; a unit test enforces it),
-  so a new page can never run against a stale cached `core.js`. Mixing the two once left the
+- `index.html` imports `core.js?v=<content hash>` and `setup.js?v=<content hash>`, and
+  `setup.js` imports `core.js?v=<content hash>` (`npm run stamp`; a unit test enforces all
+  three), so a new page can never run against a stale cached module. Mixing the two once left the
   app stuck on "Loading…" (missing export → module never ran). The hash is computed with
   LF line endings so Windows checkouts and CI agree.
 - If the module has not started within 5 s, the page shows "The app failed to start" with a
@@ -272,7 +293,7 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 
 ## Future extensions
 
-- Setup UI replacing the JSON editor (phase 2 in `TODO.md`).
+- Setup extras (see `TODO.md`).
 - "Leave now" notifications via the Notifications API.
 - Arrive-by target (highlight the latest departure that makes a target time).
 - Possibly a backend later, only if shared profiles or push reminders are wanted.

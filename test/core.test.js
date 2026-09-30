@@ -6,6 +6,7 @@ import {
   tripRows, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey,
+  tripToForm, formToTrip, routeLabel, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -358,4 +359,48 @@ test('checkStops reports unknown stops, wrong direction, and unknown routes', ()
   badRoute.trips[0].legs[1].route = '999x';
   const errors = checkStops(badRoute, new Map([...liveStops(), [stopsKey('999x', 1), stopsDoc([])]]));
   assert.deepEqual(errors, ['trips[0] 999x: no stops for route "999x" in direction 1; check route and direction_id.']);
+});
+
+// ---------- setup form model ----------
+
+test('tripToForm / formToTrip round-trip the example and simpler shapes', () => {
+  for (const trip of EXAMPLE.trips) assert.deepEqual(formToTrip(tripToForm(trip)), trip);
+  const form = tripToForm(officeToHome);
+  assert.equal(form.walkBefore, 10);
+  assert.equal(form.walkAfter, 5);
+  assert.deepEqual(form.transit.map(t => [t.route, t.transferBefore]), [['Orange', 0], ['132', 5]]);
+
+  const single = { name: 'Bus', legs: [homeToOffice.legs[1]] };
+  assert.deepEqual(formToTrip(tripToForm(single)), single);
+  // A missing transfer stays missing; a pinned timing leg survives.
+  const route = r => ({ kind: 'transit', route: r, direction_id: 0, stop: `${r}-in`, alight: `${r}-out` });
+  const three = { name: 'Three', timingLeg: 2, legs: [{ kind: 'walk', minutes: 2 }, route('A'), route('B'),
+    { kind: 'transfer', minutes: 4 }, route('C')] };
+  assert.deepEqual(formToTrip(tripToForm(three)), three);
+});
+
+test('routeLabel and searchRoutes', () => {
+  const r = (id, type, short, long, order) => ({ id, attributes: { type, short_name: short, long_name: long, sort_order: order } });
+  const routes = [r('132', 3, '132', 'Redstone Shopping Center - Malden Center Station', 51320),
+    r('Orange', 1, '', 'Orange Line', 10020), r('Green-B', 0, 'B', 'Green Line B', 10032)];
+  assert.deepEqual(routes.map(routeLabel), ['132', 'Orange Line', 'Green Line B']);
+  assert.deepEqual(searchRoutes(routes).map(x => x.id), ['Orange', 'Green-B', '132']);
+  assert.deepEqual(searchRoutes(routes, 'orange').map(x => x.id), ['Orange']);
+  assert.deepEqual(searchRoutes(routes, ' MALDEN ').map(x => x.id), ['132']);
+  assert.deepEqual(searchRoutes(routes, '13').map(x => x.id), ['132']);
+});
+
+test('searchStops, stopsAfter, and defaultTransferMinutes', () => {
+  const s = (id, name) => ({ id, attributes: { name } });
+  const stops = [s('25989', 'Redstone Shopping Center Access Rd'), s('25996', 'Main St @ South St'),
+    s('5991', 'Washington St opp Oak Grove Sta'), s('place-mlmnl', 'Malden Center')];
+  assert.deepEqual(searchStops(stops, 'main st').map(x => x.id), ['25996']);
+  assert.equal(searchStops(stops, '').length, 4);
+  assert.deepEqual(stopsAfter(stops, '25996').map(x => x.id), ['5991', 'place-mlmnl']);
+  assert.deepEqual(stopsAfter(stops, 'nope'), []);
+
+  const parentOf = new Map([['70036', 'place-ogmnl'], ['70023', 'place-state']]);
+  assert.equal(defaultTransferMinutes('70036', 'place-ogmnl', parentOf), 3);
+  assert.equal(defaultTransferMinutes('5991', 'place-ogmnl', parentOf), 5);
+  assert.equal(defaultTransferMinutes(null, 'place-ogmnl', parentOf), 5);
 });
