@@ -70,6 +70,8 @@ Each leg time shown carries a source badge:
 A trip is walk/transfer minutes around one or more transit legs (`tripShape`):
 `walkBefore` (before the first transit leg), `transfers[i]` (between transit legs `i` and
 `i+1`; a missing transfer leg counts as 0), `walkAfter` (after the last transit leg).
+Despite the name, a `walk` leg is any time spent getting to or from the stops (walking, a
+ride, etc.); setup labels them "Time to first stop" and "Time from last stop".
 
 ### Timing leg
 
@@ -186,7 +188,7 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
   shown, minutes early at the stop, API key), Export/Import, and "Reload app" (reloads the
   page, e.g. to pick up a new version in the installed PWA). Done saves changed app-wide fields and closes setup;
   it is disabled until a trip has been saved.
-- Trip screen (tap a row, or "Add trip"): name, optional time window, walk before/after,
+- Trip screen (tap a row, or "Add trip"): name, optional time window, time to the first stop / from the last stop,
   transit legs with a transfer time between them, "Add return trip", "Delete trip" (hidden for
   the only trip). Cancel discards the edits; Save checks and stores the whole config right
   away, then returns to the list. First run opens an empty trip directly, without Cancel.
@@ -207,7 +209,7 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
   app's live choice) or a pinned leg (`timingLeg`). Moving or removing legs keeps the pin on
   the same leg.
 - "Add return trip" (`reverseTrip`): opens a new trip, saved after the original, with legs
-  reversed, directions flipped, board/drop-off and walks swapped, transfers kept between the
+  reversed, directions flipped, board/drop-off and the times to/from the stops swapped, transfers kept between the
   same legs, no window. A reversed stop not served in the
   new direction (a bus stop across the street) is replaced by the nearest stop that is, and
   the replacements are listed for review. For the example commute this reproduces the real
