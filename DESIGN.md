@@ -1,6 +1,6 @@
 # DESIGN.md — mbta-leave-by
 
-Status: design settled, API verified against live data (2026-09-30), pre-implementation.
+Status: v1 implemented. API verified against live data (2026-09-30).
 
 ## Problem
 
@@ -30,11 +30,11 @@ The bus is the scheduling bottleneck; the Orange Line is frequent enough to appr
 
 | Topic | Decision |
 |---|---|
-| Form factor | Single `index.html`, inline JS/CSS, no build step, no backend; plus PWA `manifest.json` + `sw.js` |
+| Form factor | Static files, no build step, no backend, no dependencies: `index.html` (markup, CSS, UI/fetch/timers), `core.js` (pure logic ES module, unit tested), PWA `manifest.json` + `sw.js` |
 | Target device | Phone first; installable PWA (add to home screen) |
 | Hosting | GitHub Pages (HTTPS; required for service worker, enables Notifications API later) |
 | API calls | Direct from browser to `api-v3.mbta.com` (CORS verified: `access-control-allow-origin: *`) |
-| API key | Keyless by default; optional key field in settings, sent as `x-api-key` header. Stored in `localStorage` on the shared `lucaspimentel.github.io` origin; accepted (low-value key) |
+| API key | Keyless by default; optional key field in settings, sent as the `api_key` query parameter (a custom header would add a CORS preflight). Stored in `localStorage` on the shared `lucaspimentel.github.io` origin; accepted (low-value key) |
 | Persistence | `localStorage` per browser; sharing = app URL + self-serve config |
 | Default config | Author's commute ships as the default (revisit before sharing widely); overridable via JSON panel |
 | Refresh | Adaptive: fetch every 30s when next `leave_by` ≤ 15 min away, else every 60s. Local 1s countdown tick. Manual refresh button. Paused while hidden; refetch on `visibilitychange` to visible |
@@ -89,7 +89,7 @@ eta      = bus_arrival_at_oak_grove + transfer_buffer + orange_ride_minutes + wa
 
 For each of the next 3 inbound 132 departures at `Main St @ South St`. `bus_arrival_at_oak_grove`
 comes from the same trip's prediction/schedule at the Oak Grove stop; the Orange leg uses
-the fixed `rideMinutes`. ETA is shown as "at office ~HH:MM" per bus.
+the fixed `rideMinutes`. ETA is shown as "arrive ~HH:MM" per bus.
 
 ### Office → home
 
@@ -104,6 +104,9 @@ outbound 132 departures at Oak Grove:
 3. Pick the **latest** viable train (minimal waiting at Oak Grove).
 4. `leave_by = that_train.state_departure - walk_office_to_state`.
 5. If no viable train exists, mark the bus "no connection".
+
+Buses that cannot be reached even with the shortest known train ride
+(`bus_departure - transfer < now + walk + min_ride`) are skipped, not shown as "no connection".
 
 `stop_slack` does not apply at Oak Grove; `transfer_buffer` covers it.
 
@@ -250,8 +253,8 @@ not tested).
 ## PWA
 
 - `manifest.json`: name, icons, `display: standalone`, start URL.
-- `sw.js`: cache-first for the app shell (`index.html`, manifest, icons);
-  network-only for `api-v3.mbta.com` (never serve cached predictions).
+- `sw.js`: network-first for same-origin files (new deploys show immediately), cache as
+  offline fallback; precaches the app shell. `api-v3.mbta.com` is never cached.
 - Polling pauses while the page is hidden (browsers throttle background timers
   anyway); the `visibilitychange` refetch covers returning to the app.
 
@@ -261,11 +264,12 @@ not tested).
   fallback covers any gap, so this does not block the build.
 - Weekend/holiday 132 schedules were not inspected; the app reads them from the API.
 
-## Build plan
+## Development
 
-1. Build v1 `index.html`, `manifest.json`, `sw.js` per this design.
-2. Enable GitHub Pages on `main`.
-3. User smoke-tests against live data.
+- Unit tests: `npm test` (runs `node --test`; Node 22+, no dependencies).
+- Local run: `python3 -m http.server` in the repo root, open `http://localhost:8000/`.
+- Deploy: GitHub Pages from `main`, repository root.
+- Icons: `icons/icon.svg` is the source; PNGs are rendered from it.
 
 ## Future extensions
 

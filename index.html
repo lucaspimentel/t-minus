@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Leave By</title>
+<meta name="theme-color" content="#1c1f24">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+  :root {
+    --bg: #f5f5f3; --card: #ffffff; --text: #1c1f24; --muted: #6b7078; --border: #dcdde0;
+    --green: #1f8a4c; --amber: #b86e00; --red: #c62828; --accent: #ed8b00;
+    --alert-bg: #fff4e0; --alert-border: #f0c070;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121417; --card: #1c1f24; --text: #eceef1; --muted: #9aa0a8; --border: #2e333a;
+      --green: #4cc47f; --amber: #f0a830; --red: #ff6b6b; --accent: #ed8b00;
+      --alert-bg: #2e2515; --alert-border: #6b5220;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: max(12px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  }
+  main { max-width: 480px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .toggle { display: flex; flex: 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .toggle button {
+    flex: 1; padding: 10px 6px; border: 0; background: var(--card); color: var(--muted);
+    font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .toggle button[aria-pressed="true"] { background: var(--accent); color: #1c1f24; font-weight: 600; }
+  .icon-btn {
+    width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); color: var(--text); font-size: 20px; cursor: pointer;
+  }
+  .status { font-size: 13px; color: var(--muted); margin: 0 0 12px; min-height: 18px; }
+  .status.stale { color: var(--red); }
+  .alerts { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
+  .alerts li {
+    background: var(--alert-bg); border: 1px solid var(--alert-border); border-radius: 10px;
+    padding: 8px 12px; font-size: 14px;
+  }
+  .alerts b { font-size: 12px; letter-spacing: .03em; }
+  .rows { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  .row {
+    background: var(--card); border: 1px solid var(--border); border-left: 6px solid var(--border);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  .row.green { border-left-color: var(--green); }
+  .row.amber { border-left-color: var(--amber); }
+  .row.red { border-left-color: var(--red); }
+  .big { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .green .big { color: var(--green); }
+  .amber .big { color: var(--amber); }
+  .red .big { color: var(--red); }
+  .none .big { color: var(--muted); font-size: 20px; }
+  .detail { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); margin-left: 6px; vertical-align: 2px;
+  }
+  .badge.live { border-color: var(--green); color: var(--green); }
+  .empty { color: var(--muted); padding: 16px 0; }
+  details { margin-top: 24px; }
+  summary { cursor: pointer; color: var(--muted); }
+  label { display: block; margin: 12px 0 4px; font-size: 14px; }
+  input, textarea {
+    width: 100%; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--text);
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+  }
+  textarea { height: 320px; }
+  .actions { display: flex; gap: 8px; margin-top: 8px; }
+  .actions button {
+    padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font: inherit; cursor: pointer;
+  }
+  .msg { font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
+  .msg.err { color: var(--red); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="toggle" id="toggle" role="group" aria-label="Direction"></div>
+    <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh">&#x21bb;</button>
+  </header>
+  <p class="status" id="status">Loading…</p>
+  <ul class="alerts" id="alerts"></ul>
+  <ul class="rows" id="rows"></ul>
+
+  <details id="settings">
+    <summary>Settings</summary>
+    <label for="apikey">MBTA API key (optional)</label>
+    <input id="apikey" type="text" autocomplete="off" spellcheck="false" placeholder="Keyless: 20 requests/min">
+    <label for="config">Commute config (JSON)</label>
+    <textarea id="config" spellcheck="false"></textarea>
+    <div class="actions">
+      <button id="save">Save</button>
+      <button id="reset">Reset to default</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </details>
+</main>
+
+<script type="module">
+import {
+  DEFAULT_CONFIG, validateConfig, analyzeCommute, commuteEntities, pickDirection, periodKey,
+  scheduleWindow, mergeTrips, directRows, connectionRows, countdownState, pollIntervalMs,
+  filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown,
+} from './core.js';
+
+const API = 'https://api-v3.mbta.com';
+const KEY_CONFIG = 'mbta-leave-by:config';
+const KEY_OVERRIDE = 'mbta-leave-by:direction';
+const SCHEDULE_TTL = 15 * 60_000;
+const ALERT_TTL = 5 * 60_000;
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+
+function loadConfig() {
+  const saved = store.get(KEY_CONFIG);
+  return saved && validateConfig(saved).length === 0 ? saved : structuredClone(DEFAULT_CONFIG);
+}
+
+let config = loadConfig();
+let direction = pickDirection(Date.now(), config, store.get(KEY_OVERRIDE));
+// Per-direction cache: { schedules: {bus, conn, at}, predictions: {bus, conn}, alerts: {doc, at} }
+let cache = {};
+let lastOk = null;
+let lastError = null;
+let pollTimer = null;
+let inFlight = false;
+let pending = false;
+
+// ---------- API ----------
+
+async function api(path, params) {
+  const qs = new URLSearchParams(params);
+  if (config.apiKey) qs.set('api_key', config.apiKey);
+  const res = await fetch(`${API}${path}?${qs}`, { headers: { Accept: 'application/vnd.api+json' } });
+  if (res.status === 429) throw new Error('Rate limited (429)');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+const tripFields = {
+  'fields[prediction]': 'arrival_time,departure_time,schedule_relationship',
+  'fields[schedule]': 'arrival_time,departure_time',
+  include: 'stop',
+  'fields[stop]': 'parent_station',
+};
+
+function legQuery(leg, stops) {
+  return { 'filter[route]': leg.route, 'filter[direction_id]': leg.direction_id, 'filter[stop]': stops.join(','), ...tripFields };
+}
+
+function busStops(leg) { return [leg.stop, leg.alight].filter(Boolean); }
+
+async function fetchSchedules(commute) {
+  const { bottleneck, connection } = analyzeCommute(commute);
+  const w = scheduleWindow(Date.now());
+  const win = { 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime };
+  const [bus, conn] = await Promise.all([
+    api('/schedules', { ...legQuery(bottleneck, busStops(bottleneck)), ...win }),
+    connection ? api('/schedules', { ...legQuery(connection, [connection.from, connection.to]), ...win }) : null,
+  ]);
+  return { bus, conn, at: Date.now() };
+}
+
+async function fetchPredictions(commute) {
+  const { bottleneck, connection } = analyzeCommute(commute);
+  const [bus, conn] = await Promise.all([
+    api('/predictions', legQuery(bottleneck, busStops(bottleneck))),
+    connection ? api('/predictions', legQuery(connection, [connection.from, connection.to])) : null,
+  ]);
+  return { bus, conn };
+}
+
+async function fetchAlerts(commute) {
+  const { routes } = commuteEntities(commute);
+  const doc = await api('/alerts', {
+    'filter[route]': [...routes].join(','),
+    'filter[datetime]': 'NOW',
+    'fields[alert]': 'effect,header,short_header,severity,active_period,informed_entity',
+  });
+  return { doc, at: Date.now() };
+}
+
+async function refresh({ force = false } = {}) {
+  if (inFlight) { pending = true; return; }
+  inFlight = true;
+  clearTimeout(pollTimer);
+  const dir = direction;
+  const commute = config.commutes[dir];
+  const c = (cache[dir] ??= {});
+  const now = Date.now();
+  try {
+    const tasks = [fetchPredictions(commute).then(p => { c.predictions = p; })];
+    if (force || !c.schedules || now - c.schedules.at > SCHEDULE_TTL) {
+      tasks.push(fetchSchedules(commute).then(s => { c.schedules = s; }));
+    }
+    if (force || !c.alerts || now - c.alerts.at > ALERT_TTL) {
+      tasks.push(fetchAlerts(commute).then(a => { c.alerts = a; }));
+    }
+    await Promise.all(tasks);
+    lastOk = Date.now();
+    lastError = null;
+  } catch (e) {
+    lastError = e.message || String(e);
+  } finally {
+    inFlight = false;
+  }
+  render();
+  if (pending) { pending = false; return refresh(); }
+  schedulePoll();
+}
+
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  if (document.hidden) return;
+  pollTimer = setTimeout(() => refresh(), pollIntervalMs(currentRows(Date.now()), Date.now()));
+}
+
+// ---------- compute + render ----------
+
+function currentRows(now) {
+  const commute = config.commutes[direction];
+  const c = cache[direction];
+  if (!c?.schedules && !c?.predictions) return [];
+  const bus = mergeTrips(c.predictions?.bus, c.schedules?.bus);
+  const { connection } = analyzeCommute(commute);
+  if (!connection) return directRows(commute, bus, now, config.stopSlackMinutes);
+  const conn = mergeTrips(c.predictions?.conn, c.schedules?.conn);
+  return connectionRows(commute, bus, conn, now);
+}
+
+function currentAlerts(now) {
+  const c = cache[direction];
+  if (!c?.alerts) return [];
+  const { routes, stops } = commuteEntities(config.commutes[direction]);
+  const parents = childToParentMap(c.predictions?.bus, c.predictions?.conn, c.schedules?.bus, c.schedules?.conn);
+  return filterAlerts(c.alerts.doc, routes, expandStops(stops, parents), now);
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function badge(source) {
+  return el('span', `badge ${source}`, source);
+}
+
+function renderToggle() {
+  const t = $('toggle');
+  t.replaceChildren(...config.commutes.map((c, i) => {
+    const b = el('button', null, c.name);
+    b.setAttribute('aria-pressed', String(i === direction));
+    b.onclick = () => setDirection(i, true);
+    return b;
+  }));
+  t.hidden = config.commutes.length < 2;
+}
+
+function renderRow(r, now) {
+  const state = countdownState(now, r.leaveBy, r.busDep);
+  if (state === 'hidden') return null;
+  const li = el('li', `row ${state}`);
+  const big = {
+    green: () => `Leave in ${formatCountdown(r.leaveBy - now)}`,
+    amber: () => `Leave now · ${formatCountdown(r.leaveBy - now)}`,
+    red: () => 'Hurry',
+    none: () => 'No connection',
+  }[state]();
+  li.append(el('div', 'big', big));
+
+  const line1 = el('div', 'detail');
+  line1.append(`Bus ${formatTime(r.busDep)}`, badge(r.source));
+  li.append(line1);
+
+  const parts = [];
+  if (r.leaveBy != null) parts.push(`leave ${formatTime(r.leaveBy)}`);
+  if (r.train) parts.push(`train ${formatTime(r.train.dep)} → ${formatTime(r.train.arr)}`);
+  if (r.eta != null) parts.push(`arrive ~${formatTime(r.eta)}`);
+  if (parts.length) li.append(el('div', 'detail', parts.join(' · ')));
+  return li;
+}
+
+function render() {
+  const now = Date.now();
+  renderToggle();
+
+  const status = $('status');
+  if (lastError) {
+    status.className = 'status stale';
+    status.textContent = lastOk
+      ? `Stale (${lastError}) · last updated ${formatTime(lastOk)}`
+      : `Error: ${lastError}`;
+  } else {
+    status.className = 'status';
+    status.textContent = lastOk ? `Updated ${formatTime(lastOk)}` : 'Loading…';
+  }
+
+  $('alerts').replaceChildren(...currentAlerts(now).map(a => {
+    const li = el('li');
+    li.append(el('b', null, a.effect.replaceAll('_', ' ')), el('div', null, a.header));
+    return li;
+  }));
+
+  const rows = currentRows(now).map(r => renderRow(r, now)).filter(Boolean);
+  if (rows.length) $('rows').replaceChildren(...rows);
+  else $('rows').replaceChildren(el('li', 'empty', lastOk ? 'No upcoming departures in the next few hours.' : ''));
+}
+
+function setDirection(i, manual) {
+  if (manual) store.set(KEY_OVERRIDE, { index: i, period: periodKey(Date.now(), config.directionCutoff) });
+  if (i === direction) return;
+  direction = i;
+  render();
+  refresh();
+}
+
+// ---------- settings ----------
+
+function fillSettings() {
+  $('apikey').value = config.apiKey ?? '';
+  const { apiKey, ...rest } = config;
+  $('config').value = JSON.stringify(rest, null, 2);
+}
+
+function showMsg(text, err) {
+  $('msg').textContent = text;
+  $('msg').className = err ? 'msg err' : 'msg';
+}
+
+$('save').onclick = () => {
+  let parsed;
+  try { parsed = JSON.parse($('config').value); } catch (e) { return showMsg(`Invalid JSON: ${e.message}`, true); }
+  parsed.apiKey = $('apikey').value.trim();
+  const errors = validateConfig(parsed);
+  if (errors.length) return showMsg(errors.join('\n'), true);
+  config = parsed;
+  store.set(KEY_CONFIG, config);
+  store.del(KEY_OVERRIDE);
+  cache = {};
+  direction = pickDirection(Date.now(), config, null);
+  showMsg('Saved.');
+  render();
+  refresh({ force: true });
+};
+
+$('reset').onclick = () => {
+  const apiKey = $('apikey').value.trim();
+  config = { ...structuredClone(DEFAULT_CONFIG), apiKey };
+  store.set(KEY_CONFIG, config);
+  store.del(KEY_OVERRIDE);
+  cache = {};
+  direction = pickDirection(Date.now(), config, null);
+  fillSettings();
+  showMsg('Reset to default.');
+  render();
+  refresh({ force: true });
+};
+
+// ---------- timers ----------
+
+$('refresh').onclick = () => refresh({ force: true });
+
+setInterval(() => {
+  if (document.hidden) return;
+  // Auto-switch direction when the cutoff is crossed (override expires with its period).
+  const d = pickDirection(Date.now(), config, store.get(KEY_OVERRIDE));
+  if (d !== direction) setDirection(d, false);
+  else render();
+}, 1000);
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) clearTimeout(pollTimer);
+  else refresh();
+});
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+fillSettings();
+render();
+refresh({ force: true });
+</script>
+</body>
+</html>
