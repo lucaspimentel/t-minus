@@ -2,10 +2,10 @@
 // pickers. Each trip is saved on its own. Pure helpers live in core.js; this module owns the DOM
 // and the setup-time requests.
 import {
-  validateConfig, checkStops, stopQueries, stopsKey, tripToForm, formToTrip, routeLabel,
+  validateConfig, checkStops, stopQueries, stopsKey, tripToForm, formToTrip, routeLabel, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, stopsAfter, defaultTransferMinutes, departureCount, stopSlackMinutes,
   reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=bdaded74cc';
+} from './core.js?v=2fe6aad5d1';
 
 const ROUTE_LIMIT = 60;
 
@@ -57,7 +57,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   const loadRoutes = () => (routesPromise ??= api('/routes', {
     'filter[type]': '0,1,3',
-    'fields[route]': 'short_name,long_name,type,direction_names,direction_destinations,sort_order',
+    'fields[route]': 'short_name,long_name,type,color,direction_names,direction_destinations,sort_order',
   }).then(doc => doc.data).catch(e => { routesPromise = null; throw e; }));
 
   async function loadStops(route, direction) {
@@ -88,6 +88,12 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   const routeById = id => routes?.find(r => r.id === id);
   const routeName = id => (routeById(id) ? routeLabel(routeById(id)) : id);
+  // Colored dot plus short label ("● Bus 132"), from the route list or the leg's stored look.
+  const dot = color => color && h('span', { class: 'dot', style: `background:#${color}` });
+  const routeTag = l => {
+    const r = routeById(l.route);
+    return [h('span', { class: 'tag' }, dot(r?.attributes?.color ?? l.color), r ? shortRouteLabel(r) : (l.label ?? l.route))];
+  };
   const destination = (routeId, dir) => routeById(routeId)?.attributes?.direction_destinations?.[dir] ?? `direction ${dir}`;
 
   // Name of a stop id (or of the station a child platform belongs to).
@@ -120,11 +126,14 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       // Wrong stops block the save; an unreachable API does not.
       warning = `Saved, but couldn't verify stops: ${e.message || e}`;
     }
+    routes ??= await loadRoutes().catch(() => null);
     persist(cfg, warning);
     return [];
   }
 
+  // Every save refreshes the legs' stored labels and colors when the route list is loaded.
   function persist(cfg, warning = null) {
+    if (routes) cfg = labelLegs(cfg, routes);
     saved = cfg;
     onSave(cfg, warning);
     listMessages = warning ? [info(warning)] : [];
@@ -208,11 +217,12 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   }
 
   function tripRow(t, i, n) {
-    const chain = t.legs.filter(l => l.kind === 'transit').map(l => routeName(l.route)).join(' → ') || 'No transit legs';
+    const transit = t.legs.filter(l => l.kind === 'transit');
+    const chain = transit.length ? transit.flatMap((l, j) => [j > 0 && ' → ', ...routeTag(l)]) : ['No transit legs'];
     return h('div', { class: 'trip-row' },
       h('button', { type: 'button', class: 'item', onclick: () => openTrip(i) },
         h('b', {}, t.name),
-        h('div', { class: 'muted' }, `${windowLabel(t.window)} · ${chain}`)),
+        h('div', { class: 'muted' }, `${windowLabel(t.window)} · `, ...chain)),
       h('button', { type: 'button', 'aria-label': `Move ${t.name} up`, disabled: i === 0, onclick: () => moveTrip(i, -1) }, '↑'),
       h('button', { type: 'button', 'aria-label': `Move ${t.name} down`, disabled: i === n - 1, onclick: () => moveTrip(i, 1) }, '↓'));
   }
@@ -314,7 +324,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   }
 
   function legSummary(l) {
-    return `${routeName(l.route)} toward ${destination(l.route, l.direction_id)} · ${stopName(l.route, l.direction_id, l.stop)} → ${stopName(l.route, l.direction_id, l.alight)}`;
+    return [...routeTag(l), ` toward ${destination(l.route, l.direction_id)} · ${stopName(l.route, l.direction_id, l.stop)} → ${stopName(l.route, l.direction_id, l.alight)}`];
   }
 
   function tripScreen() {
@@ -453,7 +463,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const routeButton = r => h('button', { type: 'button', class: 'item', onclick: () => {
         picker = { ...picker, route: r, step: 'direction', query: '' };
         render();
-      } }, h('b', {}, routeLabel(r)), r.attributes.type === 3 ? h('span', { class: 'muted' }, ` ${r.attributes.long_name}`) : null);
+      } }, dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), r.attributes.type === 3 ? h('span', { class: 'muted' }, ` ${r.attributes.long_name}`) : null);
       // Without a search, routes near the previous drop-off come first.
       const nearRoutes = !q.trim() && picker.near ? found.filter(r => picker.near.routeIds.includes(r.id)) : [];
       return [

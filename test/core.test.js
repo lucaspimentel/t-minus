@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey,
   tripToForm, formToTrip, routeLabel, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
-  reverseTrip, nearestStop, windowLabel,
+  reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -191,7 +191,7 @@ test('tripRows: single leg with stop slack, "Hurry" window, and ETA', () => {
   assert.equal(rows[0].leaveBy, at('07:34')); // 07:40 - 5 walk - 1 slack
   assert.equal(rows[0].firstDep, at('07:40'));
   assert.equal(rows[0].eta, at('07:52'));
-  assert.deepEqual(rows[0].legs, [{ route: '132', dep: at('07:40'), arr: at('07:50'), source: 'live' }]);
+  assert.deepEqual(rows[0].legs, [{ route: '132', label: '132', color: null, dep: at('07:40'), arr: at('07:50'), source: 'live' }]);
   // Past leave-by but before the bus leaves: the row stays ("Hurry").
   assert.deepEqual(tripRows(trip, [buses], 0, at('07:38'), 1).map(r => r.key), ['b2', 'b3']);
   assert.equal(countdownState(at('07:38'), rows[0].leaveBy, rows[0].firstDep), 'red');
@@ -412,6 +412,33 @@ test('routeLabel and searchRoutes', () => {
   assert.deepEqual(searchRoutes(routes, 'orange').map(x => x.id), ['Orange']);
   assert.deepEqual(searchRoutes(routes, ' MALDEN ').map(x => x.id), ['132']);
   assert.deepEqual(searchRoutes(routes, '13').map(x => x.id), ['132']);
+  assert.deepEqual(searchRoutes(routes, 'bus').map(x => x.id), ['132']);
+});
+
+test('shortRouteLabel and labelLegs', () => {
+  const r = (id, type, short, long, color) => ({ id, attributes: { type, short_name: short, long_name: long, color } });
+  const routes = [r('132', 3, '132', 'Redstone Shopping Center - Malden Center Station', 'FFC72C'),
+    r('741', 3, 'SL1', 'Logan Airport Terminals - South Station', '7C878E'),
+    r('708', 3, 'CT3', 'Beth Israel Deaconess Hospital - Andrew Station', 'FFC72C'),
+    r('Orange', 1, '', 'Orange Line', 'ED8B00'), r('Green-B', 0, 'B', 'Green Line B', '00843D'),
+    r('Mattapan', 0, '', 'Mattapan Line', 'DA291C')];
+  assert.deepEqual(routes.map(shortRouteLabel), ['Bus 132', 'Silver SL1', 'Bus CT3', 'Orange', 'Green B', 'Mattapan']);
+
+  const labeled = labelLegs(EXAMPLE, routes);
+  assert.deepEqual(labeled.trips[0].legs.filter(l => l.kind === 'transit').map(l => [l.label, l.color]),
+    [['Bus 132', 'FFC72C'], ['Orange', 'ED8B00']]);
+  assert.deepEqual(validateConfig(labeled), []);
+  // Unknown routes keep their stored look; stale labels are refreshed.
+  const stale = structuredClone(labeled);
+  stale.trips[0].legs[1].label = 'old';
+  assert.equal(labelLegs(stale, routes).trips[0].legs[1].label, 'Bus 132');
+  assert.equal(labelLegs(stale, []).trips[0].legs[1].label, 'old');
+  // Labels and colors survive the setup form and reversing.
+  for (const trip of labeled.trips) assert.deepEqual(formToTrip(tripToForm(trip)), trip);
+  assert.deepEqual(reverseTrip(labeled.trips[0]).legs.filter(l => l.kind === 'transit').map(l => l.label), ['Orange', 'Bus 132']);
+  const bad = structuredClone(labeled);
+  bad.trips[0].legs[1].color = 'orange';
+  assert.ok(validateConfig(bad).some(e => e.includes('.color')));
 });
 
 test('searchStops, stopsAfter, and defaultTransferMinutes', () => {

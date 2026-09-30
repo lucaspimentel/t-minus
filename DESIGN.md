@@ -132,11 +132,15 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 ### Display
 
 - Per departure: countdown/state with the leave-by time right-aligned ("Leave in 12 min   8:04am"),
-  then collapsed "132 8:10am → 8:56am" (timing leg departure with its source badge, then
+  then collapsed "● Bus 132 8:10am → 8:56am" (timing leg departure with its source badge, then
   arrival). All times use the compact "8:04am" form (`formatTime`), with the weekday prefixed
-  across dates. Tapping a row expands one line per leg ("132 8:10am → 8:24am") with
+  across dates. Tapping a row expands one line per leg ("● Orange 8:30am → 8:45am") with
   its own badge, the timing leg in bold; tap again to collapse. Expanded rows are remembered
   by the timing vehicle's trip id while the page is open.
+- Route labels are short: rail by line ("Orange", "Green B", "Mattapan"), Silver Line as
+  "Silver SL1", other buses as "Bus 132" / "Bus CT3". The dot is the route's MBTA color
+  (yellow for buses, gray for the Silver Line). Setup uses the same labels and dots in the
+  trip list, leg summaries, and route picker; the timing dropdown keeps full names.
 - Trip switcher: two buttons for two trips, a dropdown for three or more, hidden with a
   single trip.
 - Alerts above the list: only alerts active now whose `informed_entity` matches a
@@ -161,9 +165,11 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
       "timingLeg": 0,
       "legs": [
         { "kind": "walk", "minutes": 5 },
-        { "kind": "transit", "route": "132", "direction_id": 1, "stop": "25996", "alight": "5991" },
+        { "kind": "transit", "route": "132", "direction_id": 1, "stop": "25996", "alight": "5991",
+          "label": "Bus 132", "color": "FFC72C" },
         { "kind": "transfer", "minutes": 5 },
-        { "kind": "transit", "route": "Orange", "direction_id": 0, "stop": "place-ogmnl", "alight": "place-state" },
+        { "kind": "transit", "route": "Orange", "direction_id": 0, "stop": "place-ogmnl", "alight": "place-state",
+          "label": "Orange", "color": "ED8B00" },
         { "kind": "walk", "minutes": 10 }
       ]
     }
@@ -176,7 +182,9 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 - `trips[].timingLeg`: optional, 0-based index among the trip's **transit** legs; pins the
   timing leg.
 - Transit legs: `route`, `direction_id` (0/1), board `stop`, `alight` stop (both required;
-  parent station IDs such as `place-state` or child platform IDs both work).
+  parent station IDs such as `place-state` or child platform IDs both work). Optional `label`
+  and `color` (6-digit hex) are written by setup on every save from `/routes`
+  (`labelLegs`/`shortRouteLabel`); without them rows show the route ID and no dot.
 - Old configs (two `commutes` with `bottleneck`/`connection`/`filler` roles and
   `directionCutoff`) fail validation and are ignored; they must be rebuilt.
 

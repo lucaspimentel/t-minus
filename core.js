@@ -18,6 +18,7 @@ export const ALERT_EFFECTS = new Set([
 // ---------- config ----------
 
 const HHMM_RE = /^\d{1,2}:\d{2}$/;
+const COLOR_RE = /^[0-9A-Fa-f]{6}$/;
 
 function parseHHMM(s) {
   const [h, m] = s.split(':').map(Number);
@@ -55,6 +56,8 @@ export function validateConfig(cfg) {
         if (l.direction_id !== 0 && l.direction_id !== 1) errors.push(`${q}.direction_id must be 0 or 1.`);
         if (!l.stop || !l.alight) errors.push(`${q}.stop and .alight are required.`);
         else if (l.stop === l.alight) errors.push(`${q}.stop and .alight must differ.`);
+        if (l.label !== undefined && typeof l.label !== 'string') errors.push(`${q}.label must be a string.`);
+        if (l.color !== undefined && !COLOR_RE.test(l.color)) errors.push(`${q}.color must be a 6-digit hex color like "ED8B00".`);
       } else {
         errors.push(`${q}.kind must be walk, transfer, or transit.`);
       }
@@ -120,17 +123,24 @@ export function tripToForm(trip) {
     walkAfter,
     transit: transit.map((l, i) => ({
       route: l.route, direction_id: l.direction_id, stop: l.stop, alight: l.alight,
+      ...routeLook(l),
       transferBefore: i === 0 ? 0 : transfers[i - 1],
     })),
   };
 }
+
+// A transit leg's stored label and color, when present.
+const routeLook = l => ({
+  ...(l.label !== undefined && { label: l.label }),
+  ...(l.color !== undefined && { color: l.color }),
+});
 
 export function formToTrip(form) {
   const legs = [];
   if (form.walkBefore > 0) legs.push({ kind: 'walk', minutes: form.walkBefore });
   form.transit.forEach((t, i) => {
     if (i > 0 && t.transferBefore > 0) legs.push({ kind: 'transfer', minutes: t.transferBefore });
-    legs.push({ kind: 'transit', route: t.route, direction_id: t.direction_id, stop: t.stop, alight: t.alight });
+    legs.push({ kind: 'transit', route: t.route, direction_id: t.direction_id, stop: t.stop, alight: t.alight, ...routeLook(t) });
   });
   if (form.walkAfter > 0) legs.push({ kind: 'walk', minutes: form.walkAfter });
   const trip = { name: form.name };
@@ -146,11 +156,37 @@ export function routeLabel(route) {
   return (a.type === 3 ? a.short_name : a.long_name) || a.short_name || a.long_name || route.id;
 }
 
+// Compact label for rows and setup summaries: "Orange", "Green B", "Mattapan" for rail,
+// "Silver SL1" for the Silver Line, "Bus 132" / "Bus CT3" for other buses.
+export function shortRouteLabel(route) {
+  const a = route.attributes ?? {};
+  if (a.type === 3 && a.short_name) return `${a.short_name.startsWith('SL') ? 'Silver' : 'Bus'} ${a.short_name}`;
+  return (a.long_name || routeLabel(route)).replace(/ Line\b/, '');
+}
+
+// Refreshes each transit leg's `label` and `color` from `/routes` resources; legs whose route
+// isn't listed keep what they have.
+export function labelLegs(cfg, routes) {
+  const byId = new Map(routes.map(r => [r.id, r]));
+  return {
+    ...cfg,
+    trips: cfg.trips.map(t => ({
+      ...t,
+      legs: t.legs.map(l => {
+        const r = l.kind === 'transit' && byId.get(l.route);
+        if (!r) return l;
+        const color = r.attributes?.color;
+        return { ...l, label: shortRouteLabel(r), ...(COLOR_RE.test(color ?? '') && { color }) };
+      }),
+    })),
+  };
+}
+
 // Routes whose label, number, or long name contains the query, in MBTA sort order.
 export function searchRoutes(routes, query = '') {
   const q = query.trim().toLowerCase();
   return routes
-    .filter(r => !q || [routeLabel(r), r.attributes?.short_name, r.attributes?.long_name, r.id]
+    .filter(r => !q || [routeLabel(r), shortRouteLabel(r), r.attributes?.short_name, r.attributes?.long_name, r.id]
       .some(s => s && String(s).toLowerCase().includes(q)))
     .sort((a, b) => (a.attributes?.sort_order ?? 0) - (b.attributes?.sort_order ?? 0));
 }
@@ -176,7 +212,7 @@ export function reverseTrip(trip) {
   const transit = form.transit.map((_, i) => {
     const t = form.transit[n - 1 - i];
     return {
-      route: t.route, direction_id: 1 - t.direction_id, stop: t.alight, alight: t.stop,
+      route: t.route, direction_id: 1 - t.direction_id, stop: t.alight, alight: t.stop, ...routeLook(t),
       transferBefore: i === 0 ? 0 : form.transit[n - i].transferBefore,
     };
   });
@@ -482,7 +518,10 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
       firstDep: chain[0].dep,
       eta: chain[n - 1].arr + walkAfter * MIN,
       timingIdx,
-      legs: chain.map((c, i) => ({ route: transit[i].route, dep: c.dep, arr: c.arr, source: c.source })),
+      legs: chain.map((c, i) => ({
+        route: transit[i].route, label: transit[i].label ?? transit[i].route, color: transit[i].color ?? null,
+        dep: c.dep, arr: c.arr, source: c.source,
+      })),
     });
   }
   return rows;
