@@ -177,11 +177,17 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 
 ### Setup view (`setup.js`)
 
-- Opened from the gear button, and automatically on first run (no valid config; Cancel is
-  hidden then). Polling pauses while it is open.
-- App-wide fields (departures shown, minutes early at the stop, API key); one card per trip
-  (name, optional time window, walk before/after, transit legs with a transfer time between
-  them, move/delete); "Add trip".
+- Opened from the gear button, and automatically on first run (no valid config). Polling
+  pauses while it is open.
+- List screen: app-wide fields (departures shown, minutes early at the stop, API key), then
+  one row per saved trip (name, time window, route chain like "132 → Orange Line") with ↑/↓
+  to reorder, "Add trip", Export/Import. Done saves changed app-wide fields and closes setup;
+  it is disabled until a trip has been saved.
+- Trip screen (tap a row, or "Add trip"): name, optional time window, walk before/after,
+  transit legs with a transfer time between them, "Add return trip", "Delete trip" (hidden for
+  the only trip). Cancel discards the edits; Save checks and stores the whole config right
+  away, then returns to the list. First run opens an empty trip directly, without Cancel.
+- Reordering and deleting trips also save right away.
 - The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
   canonical legs back, omitting zero-minute walks and transfers.
 - Transit leg picker: route (search over bus, subway, light rail) → direction ("toward
@@ -197,16 +203,18 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 - "Leave-by time is based on": per trip with 2+ legs, "Automatic (currently <route>)" (the
   app's live choice) or a pinned leg (`timingLeg`). Moving or removing legs keeps the pin on
   the same leg.
-- "Add return trip" (`reverseTrip`): legs reversed, directions flipped, board/drop-off and walks
-  swapped, transfers kept between the same legs, no window. A reversed stop not served in the
+- "Add return trip" (`reverseTrip`): opens a new trip, saved after the original, with legs
+  reversed, directions flipped, board/drop-off and walks swapped, transfers kept between the
+  same legs, no window. A reversed stop not served in the
   new direction (a bus stop across the street) is replaced by the nearest stop that is, and
   the replacements are listed for review. For the example commute this reproduces the real
   return trip (`5991 → 9326`, `25996 → 15982`).
 - Existing legs show stop names from the per-route/direction `/stops` docs, which Save then
-  reuses for `checkStops`.
-- Save errors appear on the trip they belong to; nothing is saved until they're fixed.
-- Export copies the config JSON to the clipboard (falls back to a read-only textarea);
-  Import loads pasted JSON into the form after `validateConfig` (saved only on Save).
+  reuses for `checkStops` (only the edited trip's stops are checked).
+- Save errors appear on the trip screen; nothing is saved until they're fixed.
+- Export copies the saved config JSON to the clipboard (falls back to a read-only textarea);
+  Import replaces all trips after the same checks as Save (`validateConfig`, `checkStops`),
+  keeping the typed API key when the pasted JSON has none.
 
 ### Save-time check against the API
 

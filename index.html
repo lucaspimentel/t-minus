@@ -108,6 +108,10 @@
   .setup .list { display: grid; gap: 6px; margin-top: 10px; }
   .setup button.item { text-align: left; width: 100%; }
   .setup .item + .item { margin-top: 0; }
+  .setup .list.trips { margin: 0 0 2px; }
+  .trip-row { display: flex; gap: 6px; }
+  .trip-row .item { flex: 1; min-width: 0; padding: 10px 12px; }
+  .trip-row .item .muted { margin: 2px 0 0; overflow-wrap: anywhere; }
   .muted { color: var(--muted); font-size: 14px; margin: 4px 0 8px; }
   .msg { font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
   .msg.err { color: var(--red); }
@@ -144,8 +148,8 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, mergeTrips, legVehicles, averageHeadway, pickTimingLeg, tripRows,
   countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=9f82f81222';
-import { openSetup } from './setup.js?v=2351412aa7';
+} from './core.js?v=cc98941ff8';
+import { openSetup } from './setup.js?v=30fa2635bf';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -424,9 +428,9 @@ function showSetup() {
     root: $('setup'),
     config,
     api,
-    canCancel: !!config,
     timingFor: i => cache[i]?.timing ?? null,
-    onCancel: closeSetup,
+    onClose: closeSetup,
+    // Each trip saves on its own while setup stays open.
     onSave(cfg, warning) {
       config = cfg;
       store.set(KEY_CONFIG, config);
@@ -436,7 +440,6 @@ function showSetup() {
       lastOk = null;
       notice = warning;
       tripIdx = pickTrip(Date.now(), config, null, store.get(KEY_LAST_TRIP));
-      closeSetup();
     },
   });
 }

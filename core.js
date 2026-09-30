@@ -547,6 +547,18 @@ export function formatTime(ms, nowMs) {
   return `${weekdayFmt.format(new Date(ms))} ${t}`;
 }
 
+// A trip's time window for the setup list: "Any time", or "6:00 AM–12:00 PM" ("midnight" for
+// 00:00 and 24:00).
+export function windowLabel(window) {
+  if (!window) return 'Any time';
+  const clock = s => {
+    const [h, m] = s.split(':').map(Number);
+    if (h % 24 === 0 && m === 0) return 'midnight';
+    return `${h % 12 || 12}:${pad(m)} ${h % 24 < 12 ? 'AM' : 'PM'}`;
+  };
+  return `${clock(window.from)}–${clock(window.to)}`;
+}
+
 // Headline for a departure row, given its countdownState and the time left until leave-by.
 export function countdownLabel(state, msLeft) {
   switch (state) {

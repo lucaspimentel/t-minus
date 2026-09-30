@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey,
   tripToForm, formToTrip, routeLabel, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
-  reverseTrip, nearestStop,
+  reverseTrip, nearestStop, windowLabel,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -308,6 +308,14 @@ test('countdownLabel text per state', () => {
   assert.equal(countdownLabel('amber', 59_000), 'Leave now!');
   assert.equal(countdownLabel('red', -30_000), 'Hurry');
   assert.equal(countdownLabel('none', 0), 'No connection');
+});
+
+test('windowLabel formats trip windows for the setup list', () => {
+  assert.equal(windowLabel(null), 'Any time');
+  assert.equal(windowLabel({ from: '06:00', to: '12:00' }), '6:00 AM–12:00 PM');
+  assert.equal(windowLabel({ from: '12:00', to: '24:00' }), '12:00 PM–midnight');
+  assert.equal(windowLabel({ from: '22:30', to: '02:15' }), '10:30 PM–2:15 AM');
+  assert.equal(windowLabel({ from: '00:00', to: '09:05' }), 'midnight–9:05 AM');
 });
 
 test('formatCountdown shows whole minutes, rounding down', () => {

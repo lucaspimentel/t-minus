@@ -1,10 +1,11 @@
-// Full-screen setup view: trips, legs, and route/direction/stop pickers. Replaces the JSON
-// editor. Pure helpers live in core.js; this module owns the DOM and the setup-time requests.
+// Full-screen setup view: a list of trips, one trip's editor at a time, and route/direction/stop
+// pickers. Each trip is saved on its own. Pure helpers live in core.js; this module owns the DOM
+// and the setup-time requests.
 import {
   validateConfig, checkStops, stopQueries, stopsKey, tripToForm, formToTrip, routeLabel,
   searchRoutes, searchStops, stopsAfter, defaultTransferMinutes, departureCount, stopSlackMinutes,
-  reverseTrip, nearestStop,
-} from './core.js?v=9f82f81222';
+  reverseTrip, nearestStop, windowLabel,
+} from './core.js?v=cc98941ff8';
 
 const ROUTE_LIMIT = 60;
 
@@ -28,24 +29,30 @@ function h(tag, props = {}, ...children) {
 
 const emptyTrip = n => ({ name: n === 0 ? 'My trip' : `Trip ${n + 1}`, window: null, timingLeg: null, walkBefore: 5, walkAfter: 5, transit: [] });
 const numberValue = v => (v === '' ? NaN : Number(v));
+const info = text => ({ text, err: false });
+const errs = list => list.map(text => ({ text, err: true }));
 
 // Radius for next-leg suggestions, in degrees (~300 m).
 const NEARBY_RADIUS = 0.003;
 
+// `onSave(config, warning)` stores a config and keeps setup open; `onClose()` leaves setup.
 // `timingFor(i)` returns the timing leg the app currently uses for saved trip i (or null).
-export function openSetup({ root, config, api, canCancel, onSave, onCancel, timingFor = () => null }) {
-  const app = {
-    departureCount: config ? departureCount(config) : 4,
-    stopSlackMinutes: config ? stopSlackMinutes(config) : 1,
-    apiKey: config?.apiKey ?? '',
-  };
-  // `savedIdx` links a form back to its saved trip (for timingFor) across reordering.
-  let trips = config ? config.trips.map((t, i) => ({ ...tripToForm(t), savedIdx: i })) : [emptyTrip(0)];
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null }) {
+  let saved = config ?? null;
+  const appFields = cfg => ({
+    departureCount: cfg ? departureCount(cfg) : 4,
+    stopSlackMinutes: cfg ? stopSlackMinutes(cfg) : 1,
+    apiKey: cfg?.apiKey ?? '',
+  });
+  const app = appFields(saved); // list-screen fields, saved by Done
+  const savedTrips = () => saved?.trips ?? [];
+  // The trip being edited: `idx` is its saved index (null for a new trip, inserted at `insertAt`).
+  let editing = saved ? null : { idx: null, insertAt: 0, form: emptyTrip(0), messages: [] };
   let routes = null;
-  // { tripIdx, legIdx (null = new leg), step, route, direction, board, near }
+  // { legIdx (null = new leg), step, route, direction, board, near }
   // `near`: { name, lat, lon, routeIds } around the previous leg's drop-off, for suggestions.
   let picker = null;
-  let messages = { global: [], byTrip: new Map() };
+  let listMessages = [];
   let busy = false;
 
   const loadRoutes = () => (routesPromise ??= api('/routes', {
@@ -66,10 +73,13 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel, timi
     return stopDocs.get(key);
   }
 
-  // Loads names for the legs already in the form (and the route list) in the background.
+  // Loads names for the legs in the saved trips and the form (and the route list) in the background.
   function loadNames() {
     loadRoutes().then(r => { routes = r; render(); }).catch(() => {});
-    const pairs = new Set(trips.flatMap(t => t.transit.map(l => stopsKey(l.route, l.direction_id))));
+    const pairs = new Set([
+      ...savedTrips().flatMap(t => t.legs.filter(l => l.kind === 'transit').map(l => stopsKey(l.route, l.direction_id))),
+      ...(editing?.form.transit ?? []).map(l => stopsKey(l.route, l.direction_id)),
+    ]);
     for (const key of pairs) {
       const [route, dir] = key.split('/');
       loadStops(route, Number(dir)).then(render).catch(() => {});
@@ -77,6 +87,7 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel, timi
   }
 
   const routeById = id => routes?.find(r => r.id === id);
+  const routeName = id => (routeById(id) ? routeLabel(routeById(id)) : id);
   const destination = (routeId, dir) => routeById(routeId)?.attributes?.direction_destinations?.[dir] ?? `direction ${dir}`;
 
   // Name of a stop id (or of the station a child platform belongs to).
@@ -94,50 +105,30 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel, timi
     return map;
   }
 
-  function buildConfig() {
-    return {
-      departureCount: app.departureCount,
-      stopSlackMinutes: app.stopSlackMinutes,
-      apiKey: app.apiKey.trim(),
-      trips: trips.map(formToTrip),
-    };
-  }
-
-  // Errors prefixed with trips[i] go to that trip's card; the rest to the top.
-  function setMessages(list) {
-    messages = { global: [], byTrip: new Map() };
-    for (const m of list) {
-      const match = /^trips\[(\d+)\]/.exec(m);
-      if (match) {
-        const i = Number(match[1]);
-        messages.byTrip.set(i, [...(messages.byTrip.get(i) ?? []), m.replace(/^trips\[\d+\](\.)?\s*/, '')]);
-      } else {
-        messages.global.push(m);
-      }
-    }
-  }
-
-  async function save() {
-    const cfg = buildConfig();
+  // Validates and stop-checks `cfg` (only `checkTrips` for stops), then saves it.
+  // Returns the error list (empty on success).
+  async function checkAndPersist(cfg, checkTrips = cfg.trips) {
     const errors = validateConfig(cfg);
-    if (errors.length) { setMessages(errors); return render(); }
-    busy = true;
-    setMessages(['Checking stops…']);
-    render();
+    if (errors.length) return errors;
     let warning = null;
     try {
-      await Promise.all(stopQueries(cfg).map(q => loadStops(q.route, q.direction_id)));
-      const stopErrors = checkStops(cfg, stopDocs);
-      if (stopErrors.length) { busy = false; setMessages(stopErrors); return render(); }
+      const sub = { ...cfg, trips: checkTrips };
+      await Promise.all(stopQueries(sub).map(q => loadStops(q.route, q.direction_id)));
+      const stopErrors = checkStops(sub, stopDocs);
+      if (stopErrors.length) return stopErrors;
     } catch (e) {
       // Wrong stops block the save; an unreachable API does not.
       warning = `Saved, but couldn't verify stops: ${e.message || e}`;
     }
-    busy = false;
-    onSave(cfg, warning);
+    persist(cfg, warning);
+    return [];
   }
 
-  // ---------- main screen ----------
+  function persist(cfg, warning = null) {
+    saved = cfg;
+    onSave(cfg, warning);
+    listMessages = warning ? [info(warning)] : [];
+  }
 
   function numberField(label, value, set, attrs = {}) {
     return h('label', { class: 'field' }, label,
@@ -146,16 +137,185 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel, timi
 
   function moveItem(list, i, delta) {
     const j = i + delta;
-    if (j < 0 || j >= list.length) return;
+    if (j < 0 || j >= list.length) return false;
     [list[i], list[j]] = [list[j], list[i]];
+    return true;
+  }
+
+  // ---------- list screen ----------
+
+  function openTrip(idx) {
+    editing = { idx, insertAt: idx, form: tripToForm(savedTrips()[idx]), messages: [] };
+    listMessages = [];
+    render();
+  }
+
+  function addTrip() {
+    const n = savedTrips().length;
+    editing = { idx: null, insertAt: n, form: emptyTrip(n), messages: [] };
+    listMessages = [];
+    render();
+  }
+
+  function moveTrip(i, delta) {
+    const trips = [...savedTrips()];
+    if (!moveItem(trips, i, delta)) return;
+    persist({ ...saved, trips });
+    render();
+  }
+
+  // Saves the app-wide fields (if changed) and leaves setup.
+  function done() {
+    const cfg = { ...saved, ...app, apiKey: app.apiKey.trim() };
+    const errors = validateConfig(cfg);
+    if (errors.length) { listMessages = errs(errors); return render(); }
+    const before = appFields(saved);
+    if (cfg.departureCount !== before.departureCount || cfg.stopSlackMinutes !== before.stopSlackMinutes || cfg.apiKey !== before.apiKey) {
+      persist(cfg);
+    }
+    onClose();
+  }
+
+  let ioArea = null; // { mode: 'export' | 'import', text }
+
+  async function exportConfig() {
+    const text = JSON.stringify(saved, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      ioArea = { mode: 'export', text, note: 'Copied to the clipboard.' };
+    } catch {
+      ioArea = { mode: 'export', text, note: 'Copy the JSON below.' };
+    }
+    render();
+  }
+
+  // Replaces every trip (and the app-wide fields it sets) after the same checks as Save.
+  async function importConfig(text) {
+    let cfg;
+    try { cfg = JSON.parse(text); } catch (e) { listMessages = errs([`Invalid JSON: ${e.message}`]); return render(); }
+    if (cfg && typeof cfg === 'object' && !cfg.apiKey && app.apiKey.trim()) cfg = { ...cfg, apiKey: app.apiKey.trim() };
+    busy = true;
+    listMessages = [info('Checking stops…')];
+    render();
+    const errors = await checkAndPersist(cfg);
+    busy = false;
+    if (errors.length) { listMessages = errs(errors); return render(); }
+    Object.assign(app, appFields(cfg));
+    ioArea = null;
+    listMessages = [info(`Imported ${cfg.trips.length} trip${cfg.trips.length === 1 ? '' : 's'}.`), ...listMessages];
+    loadNames();
+    render();
+  }
+
+  function tripRow(t, i, n) {
+    const chain = t.legs.filter(l => l.kind === 'transit').map(l => routeName(l.route)).join(' → ') || 'No transit legs';
+    return h('div', { class: 'trip-row' },
+      h('button', { type: 'button', class: 'item', onclick: () => openTrip(i) },
+        h('b', {}, t.name),
+        h('div', { class: 'muted' }, `${windowLabel(t.window)} · ${chain}`)),
+      h('button', { type: 'button', 'aria-label': `Move ${t.name} up`, disabled: i === 0, onclick: () => moveTrip(i, -1) }, '↑'),
+      h('button', { type: 'button', 'aria-label': `Move ${t.name} down`, disabled: i === n - 1, onclick: () => moveTrip(i, 1) }, '↓'));
+  }
+
+  function listScreen() {
+    const trips = savedTrips();
+    return [
+      h('div', { class: 'setup-head' },
+        h('span'),
+        h('b', {}, 'Setup'),
+        h('button', { type: 'button', class: 'primary', id: 'setup-done', disabled: busy || !saved, onclick: done }, 'Done')),
+      ...listMessages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)),
+      h('div', { class: 'card' },
+        numberField('Departures shown (1-8)', app.departureCount, v => { app.departureCount = v; }, { min: '1', max: '8' }),
+        numberField('Minutes early at the stop', app.stopSlackMinutes, v => { app.stopSlackMinutes = v; }),
+        h('label', { class: 'field' }, 'MBTA API key (optional)',
+          // Masked so the key isn't exposed on screen (or in screenshots).
+          h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Keyless: 20 requests/min', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),
+      h('div', { class: 'list trips' }, trips.map((t, i) => tripRow(t, i, trips.length))),
+      h('button', { type: 'button', class: 'add', onclick: addTrip }, '+ Add trip'),
+      h('div', { class: 'btns io' },
+        saved && h('button', { type: 'button', onclick: exportConfig }, 'Export'),
+        h('button', { type: 'button', onclick: () => { ioArea = { mode: 'import', text: '' }; render(); } }, 'Import')),
+      ioArea && h('div', { class: 'card' },
+        ioArea.note && h('div', { class: 'msg' }, ioArea.note),
+        h('textarea', { id: 'setup-io', readOnly: ioArea.mode === 'export', value: ioArea.text, placeholder: 'Paste a trips config (JSON)', oninput: e => { ioArea.text = e.target.value; } }),
+        ioArea.mode === 'import' && h('button', { type: 'button', disabled: busy, onclick: () => importConfig(ioArea.text) }, 'Load')),
+    ];
+  }
+
+  // ---------- trip screen ----------
+
+  async function saveTrip() {
+    const pos = editing.idx ?? editing.insertAt;
+    const trip = formToTrip(editing.form);
+    const trips = [...savedTrips()];
+    if (editing.idx != null) trips[pos] = trip; else trips.splice(pos, 0, trip);
+    const base = saved ?? { ...app, apiKey: app.apiKey.trim() };
+    busy = true;
+    editing.messages = [info('Checking stops…')];
+    render();
+    // Only this trip's stops are checked (as trips[0]); the others were checked when saved.
+    let errors = validateConfig({ ...base, trips });
+    if (!errors.length) {
+      errors = (await checkAndPersist({ ...base, trips }, [trip])).map(m => m.replace(/^trips\[0\]/, `trips[${pos}]`));
+    }
+    busy = false;
+    if (errors.length) {
+      const prefix = new RegExp(`^trips\\[${pos}\\](\\.)?\\s*`);
+      editing.messages = errs(errors.map(m => m.replace(prefix, '')));
+      return render();
+    }
+    editing = null;
+    render();
+  }
+
+  function deleteTrip() {
+    const { idx, form } = editing;
+    if (!confirm(`Delete "${form.name}"?`)) return;
+    const trips = savedTrips().filter((_, i) => i !== idx);
+    persist({ ...saved, trips });
+    editing = null;
+    render();
+  }
+
+  // Opens the reversed trip as a new trip after this one. A reversed bus stop is usually not
+  // served in the other direction (the stop across the street is), so each stop missing from
+  // the new direction's list is replaced by that list's nearest stop.
+  async function addReturnTrip() {
+    const { idx, form } = editing;
+    const back = tripToForm(reverseTrip(formToTrip(form)));
+    const replaced = [];
+    try {
+      for (const leg of back.transit) {
+        const [fromDoc, toDoc] = await Promise.all([loadStops(leg.route, 1 - leg.direction_id), loadStops(leg.route, leg.direction_id)]);
+        const has = id => toDoc.data.some(s => s.id === id || s.relationships?.child_stops?.data?.some(c => c.id === id));
+        for (const field of ['stop', 'alight']) {
+          if (has(leg[field])) continue;
+          const original = fromDoc.data.find(s => s.id === leg[field]);
+          const near = original && nearestStop(toDoc.data, original.attributes.latitude, original.attributes.longitude);
+          if (near) {
+            replaced.push(`${stopName(leg.route, 1 - leg.direction_id, leg[field])} → ${near.attributes.name}`);
+            leg[field] = near.id;
+          }
+        }
+      }
+    } catch { /* offline: keep the reversed ids; Save's stop check reports them */ }
+    editing = {
+      idx: null, insertAt: idx + 1, form: back,
+      messages: [info(`Return trip for "${form.name}".` +
+        (replaced.length ? ` Matched stops across the street: ${replaced.join('; ')}.` : '') + ' Review it, then Save.')],
+    };
+    shown = null; // a different trip: start at the top
+    loadNames();
+    render();
   }
 
   function legSummary(l) {
-    const label = routeById(l.route) ? routeLabel(routeById(l.route)) : l.route;
-    return `${label} toward ${destination(l.route, l.direction_id)} · ${stopName(l.route, l.direction_id, l.stop)} → ${stopName(l.route, l.direction_id, l.alight)}`;
+    return `${routeName(l.route)} toward ${destination(l.route, l.direction_id)} · ${stopName(l.route, l.direction_id, l.stop)} → ${stopName(l.route, l.direction_id, l.alight)}`;
   }
 
-  function tripCard(t, i) {
+  function tripScreen() {
+    const t = editing.form;
     const anyTime = !t.window;
     const timeInput = key => h('input', {
       type: 'time',
@@ -180,132 +340,53 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel, timi
       h('div', { class: 'leg-item' },
         h('div', { class: 'leg-text' }, legSummary(l)),
         h('div', { class: 'btns' },
-          h('button', { type: 'button', onclick: () => openPicker(i, j) }, 'Edit'),
+          h('button', { type: 'button', onclick: () => openPicker(j) }, 'Edit'),
           h('button', { type: 'button', 'aria-label': 'Move up', onclick: () => moveLeg(j, -1) }, '↑'),
           h('button', { type: 'button', 'aria-label': 'Move down', onclick: () => moveLeg(j, 1) }, '↓'),
           h('button', { type: 'button', 'aria-label': 'Remove leg', onclick: () => removeLeg(j) }, '✕'))),
     ]);
-    const label = l => (routeById(l.route) ? routeLabel(routeById(l.route)) : l.route);
-    const current = t.savedIdx != null ? timingFor(t.savedIdx) : null;
+    const current = editing.idx != null ? timingFor(editing.idx) : null;
     const timing = t.transit.length > 1 && h('label', { class: 'field' }, 'Leave-by time is based on',
       h('select', { onchange: e => { t.timingLeg = e.target.value === '' ? null : Number(e.target.value); } },
         h('option', { value: '', selected: t.timingLeg == null },
-          `Automatic${current != null && t.transit[current] ? ` (currently ${label(t.transit[current])})` : ''}`),
-        ...t.transit.map((l, j) => h('option', { value: String(j), selected: t.timingLeg === j }, `${label(l)} (pinned)`))));
-    return h('div', { class: 'card' },
-      h('label', { class: 'field' }, 'Trip name',
-        h('input', { type: 'text', value: t.name, oninput: e => { t.name = e.target.value; } })),
-      h('label', { class: 'check' },
-        h('input', { type: 'checkbox', checked: anyTime, onchange: e => { t.window = e.target.checked ? null : { from: '06:00', to: '12:00' }; render(); } }),
-        'Any time (show only when chosen)'),
-      !anyTime && h('div', { class: 'row2' },
-        h('label', { class: 'field' }, 'Shown from', timeInput('from')),
-        h('label', { class: 'field' }, 'until', timeInput('to'))),
-      numberField('Walk to first stop (min)', t.walkBefore, v => { t.walkBefore = v; }),
-      ...legs,
-      h('button', { type: 'button', class: 'add', onclick: () => openPicker(i, null) }, '+ Add transit leg'),
-      numberField('Walk from last stop (min)', t.walkAfter, v => { t.walkAfter = v; }),
-      timing,
-      ...(messages.byTrip.get(i) ?? []).map(m => h('div', { class: 'msg err' }, m)),
-      h('div', { class: 'btns trip-btns' },
-        h('button', { type: 'button', onclick: () => { moveItem(trips, i, -1); render(); } }, '↑ Move up'),
-        h('button', { type: 'button', onclick: () => { moveItem(trips, i, 1); render(); } }, '↓ Move down'),
-        t.transit.length > 0 && h('button', { type: 'button', onclick: () => addReturnTrip(i) }, 'Add return trip'),
-        h('button', { type: 'button', class: 'danger', onclick: () => {
-          if (confirm(`Delete "${t.name}"?`)) { trips.splice(i, 1); render(); }
-        } }, 'Delete trip')));
-  }
-
-  // Inserts the reversed trip below the original for review. A reversed bus stop is usually
-  // not served in the other direction (the stop across the street is), so each stop missing
-  // from the new direction's list is replaced by that list's nearest stop.
-  async function addReturnTrip(i) {
-    const back = tripToForm(reverseTrip(formToTrip(trips[i])));
-    const replaced = [];
-    try {
-      for (const leg of back.transit) {
-        const [fromDoc, toDoc] = await Promise.all([loadStops(leg.route, 1 - leg.direction_id), loadStops(leg.route, leg.direction_id)]);
-        const has = id => toDoc.data.some(s => s.id === id || s.relationships?.child_stops?.data?.some(c => c.id === id));
-        for (const field of ['stop', 'alight']) {
-          if (has(leg[field])) continue;
-          const original = fromDoc.data.find(s => s.id === leg[field]);
-          const near = original && nearestStop(toDoc.data, original.attributes.latitude, original.attributes.longitude);
-          if (near) {
-            replaced.push(`${stopName(leg.route, 1 - leg.direction_id, leg[field])} → ${near.attributes.name}`);
-            leg[field] = near.id;
-          }
-        }
-      }
-    } catch { /* offline: keep the reversed ids; Save's stop check reports them */ }
-    trips.splice(i + 1, 0, back);
-    setMessages([`Return trip added below "${trips[i].name}".` +
-      (replaced.length ? ` Matched stops across the street: ${replaced.join('; ')}.` : '') + ' Review it, then Save.']);
-    loadNames();
-    render();
-  }
-
-  let ioArea = null; // { mode: 'export' | 'import', text }
-
-  async function exportConfig() {
-    const text = JSON.stringify(buildConfig(), null, 2);
-    try {
-      await navigator.clipboard.writeText(text);
-      ioArea = { mode: 'export', text, note: 'Copied to the clipboard.' };
-    } catch {
-      ioArea = { mode: 'export', text, note: 'Copy the JSON below.' };
-    }
-    render();
-  }
-
-  function importConfig(text) {
-    let cfg;
-    try { cfg = JSON.parse(text); } catch (e) { setMessages([`Invalid JSON: ${e.message}`]); return render(); }
-    const errors = validateConfig(cfg);
-    if (errors.length) { setMessages(errors); return render(); }
-    app.departureCount = departureCount(cfg);
-    app.stopSlackMinutes = stopSlackMinutes(cfg);
-    if (cfg.apiKey) app.apiKey = cfg.apiKey;
-    trips = cfg.trips.map(tripToForm);
-    ioArea = null;
-    setMessages(['Imported. Review, then Save.']);
-    loadNames();
-    render();
-  }
-
-  function mainScreen() {
+          `Automatic${current != null && t.transit[current] ? ` (currently ${routeName(t.transit[current].route)})` : ''}`),
+        ...t.transit.map((l, j) => h('option', { value: String(j), selected: t.timingLeg === j }, `${routeName(l.route)} (pinned)`))));
+    const isSaved = editing.idx != null;
     return [
       h('div', { class: 'setup-head' },
-        canCancel ? h('button', { type: 'button', onclick: onCancel }, 'Cancel') : h('span'),
-        h('b', {}, 'Setup'),
-        h('button', { type: 'button', class: 'primary', id: 'setup-save', disabled: busy, onclick: save }, 'Save')),
-      ...messages.global.map(m => h('div', { class: /…$|^Imported|^Return trip added/.test(m) ? 'msg' : 'msg err' }, m)),
+        savedTrips().length ? h('button', { type: 'button', onclick: () => { editing = null; render(); } }, 'Cancel') : h('span'),
+        h('b', {}, isSaved ? 'Edit trip' : 'New trip'),
+        h('button', { type: 'button', class: 'primary', id: 'setup-save', disabled: busy, onclick: saveTrip }, 'Save')),
+      ...editing.messages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)),
       h('div', { class: 'card' },
-        numberField('Departures shown (1-8)', app.departureCount, v => { app.departureCount = v; }, { min: '1', max: '8' }),
-        numberField('Minutes early at the stop', app.stopSlackMinutes, v => { app.stopSlackMinutes = v; }),
-        h('label', { class: 'field' }, 'MBTA API key (optional)',
-          // Masked so the key isn't exposed on screen (or in screenshots).
-          h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Keyless: 20 requests/min', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),
-      ...trips.map(tripCard),
-      h('button', { type: 'button', class: 'add', onclick: () => { trips.push(emptyTrip(trips.length)); render(); } }, '+ Add trip'),
-      h('div', { class: 'btns io' },
-        h('button', { type: 'button', onclick: exportConfig }, 'Export'),
-        h('button', { type: 'button', onclick: () => { ioArea = { mode: 'import', text: '' }; render(); } }, 'Import')),
-      ioArea && h('div', { class: 'card' },
-        ioArea.note && h('div', { class: 'msg' }, ioArea.note),
-        h('textarea', { id: 'setup-io', readOnly: ioArea.mode === 'export', value: ioArea.text, placeholder: 'Paste a trips config (JSON)', oninput: e => { ioArea.text = e.target.value; } }),
-        ioArea.mode === 'import' && h('button', { type: 'button', onclick: () => importConfig(ioArea.text) }, 'Load')),
+        h('label', { class: 'field' }, 'Trip name',
+          h('input', { type: 'text', value: t.name, oninput: e => { t.name = e.target.value; } })),
+        h('label', { class: 'check' },
+          h('input', { type: 'checkbox', checked: anyTime, onchange: e => { t.window = e.target.checked ? null : { from: '06:00', to: '12:00' }; render(); } }),
+          'Any time (show only when chosen)'),
+        !anyTime && h('div', { class: 'row2' },
+          h('label', { class: 'field' }, 'Shown from', timeInput('from')),
+          h('label', { class: 'field' }, 'until', timeInput('to'))),
+        numberField('Walk to first stop (min)', t.walkBefore, v => { t.walkBefore = v; }),
+        ...legs,
+        h('button', { type: 'button', class: 'add', onclick: () => openPicker(null) }, '+ Add transit leg'),
+        numberField('Walk from last stop (min)', t.walkAfter, v => { t.walkAfter = v; }),
+        timing),
+      isSaved && h('div', { class: 'btns trip-btns' },
+        t.transit.length > 0 && h('button', { type: 'button', onclick: addReturnTrip }, 'Add return trip'),
+        savedTrips().length > 1 && h('button', { type: 'button', class: 'danger', onclick: deleteTrip }, 'Delete trip')),
     ];
   }
 
   // ---------- picker ----------
 
-  function openPicker(tripIdx, legIdx) {
-    picker = { tripIdx, legIdx, step: 'route', query: '' };
+  function openPicker(legIdx) {
+    picker = { legIdx, step: 'route', query: '' };
     loadRoutes().then(r => { routes = r; render(); }).catch(e => { if (picker) picker.error = e.message || String(e); render(); });
-    const prev = legIdx == null ? trips[tripIdx].transit.at(-1) : null;
+    const prev = legIdx == null ? editing.form.transit.at(-1) : null;
     if (prev) {
       loadNearby(prev).then(near => {
-        if (picker?.tripIdx === tripIdx && picker.legIdx == null) { picker.near = near; render(); }
+        if (picker && picker.legIdx == null) { picker.near = near; render(); }
       }).catch(() => {});
     }
     render();
@@ -344,7 +425,7 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel, timi
   }
 
   function finishLeg(alight) {
-    const trip = trips[picker.tripIdx];
+    const trip = editing.form;
     const leg = { route: picker.route.id, direction_id: picker.direction, stop: picker.board, alight, transferBefore: 0 };
     if (picker.legIdx == null) {
       const prev = trip.transit[trip.transit.length - 1];
@@ -414,14 +495,18 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel, timi
     return [head, context, search, list];
   }
 
-  // Each picker step starts at the top; returning to the main screen restores its scroll position.
+  // The list keeps its scroll position while a trip is open, and a trip keeps its own while a
+  // picker is open; opening a trip and each picker step start at the top.
   let shown = null;
-  let mainScrollY = 0;
+  const scrollY = { list: 0, trip: 0 };
   function render() {
-    const screen = picker ? `picker:${picker.step}` : 'main';
-    if (screen !== shown && shown === 'main') mainScrollY = window.scrollY;
-    root.replaceChildren(...(picker ? pickerScreen() : mainScreen()).filter(Boolean));
-    if (screen !== shown) window.scrollTo(0, screen === 'main' ? mainScrollY : 0);
+    const screen = picker ? `picker:${picker.step}` : editing ? 'trip' : 'list';
+    if (screen !== shown && (shown === 'list' || shown === 'trip')) scrollY[shown] = window.scrollY;
+    root.replaceChildren(...(picker ? pickerScreen() : editing ? tripScreen() : listScreen()).filter(Boolean));
+    if (screen !== shown) {
+      const restore = screen === 'list' || (screen === 'trip' && shown?.startsWith('picker:'));
+      window.scrollTo(0, restore ? scrollY[screen] : 0);
+    }
     shown = screen;
     if (picker && picker.step !== 'direction') root.querySelector('#picker-search')?.focus({ preventScroll: true });
   }
