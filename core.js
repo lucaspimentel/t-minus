@@ -547,6 +547,16 @@ export function formatTime(ms, nowMs) {
   return `${weekdayFmt.format(new Date(ms))} ${t}`;
 }
 
+// Headline for a departure row, given its countdownState and the time left until leave-by.
+export function countdownLabel(state, msLeft) {
+  switch (state) {
+    case 'green': return `Leave in ${formatCountdown(msLeft)}`;
+    case 'amber': return msLeft < MIN ? 'Leave now!' : `Leave now · ${formatCountdown(msLeft)}`;
+    case 'red': return 'Hurry';
+    default: return 'No connection';
+  }
+}
+
 // Whole minutes, rounded down (7:10 left shows "7 min") so the countdown never overstates the
 // time left and agrees with the leave-by time, whose seconds are dropped too.
 export function formatCountdown(ms) {

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
   tripRows, pickTrip, inWindow, countdownState, pollIntervalMs,
-  filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown,
+  filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey,
   tripToForm, formToTrip, routeLabel, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
   reverseTrip, nearestStop,
@@ -301,6 +301,14 @@ test('filterAlerts keeps service-impacting alerts on configured stops only', () 
 });
 
 // ---------- formatting ----------
+
+test('countdownLabel text per state', () => {
+  assert.equal(countdownLabel('green', 12 * MIN + 30_000), 'Leave in 12 min');
+  assert.equal(countdownLabel('amber', 90_000), 'Leave now · 1 min');
+  assert.equal(countdownLabel('amber', 59_000), 'Leave now!');
+  assert.equal(countdownLabel('red', -30_000), 'Hurry');
+  assert.equal(countdownLabel('none', 0), 'No connection');
+});
 
 test('formatCountdown shows whole minutes, rounding down', () => {
   assert.equal(formatCountdown(7 * MIN + 10_000), '7 min'); // 7:10 left → 7

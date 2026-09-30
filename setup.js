@@ -4,7 +4,7 @@ import {
   validateConfig, checkStops, stopQueries, stopsKey, tripToForm, formToTrip, routeLabel,
   searchRoutes, searchStops, stopsAfter, defaultTransferMinutes, departureCount, stopSlackMinutes,
   reverseTrip, nearestStop,
-} from './core.js?v=859db274cb';
+} from './core.js?v=9f82f81222';
 
 const ROUTE_LIMIT = 60;
 
