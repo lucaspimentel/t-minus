@@ -9,7 +9,7 @@ It is answering one question at any moment:
 
 > "When do I need to leave to catch the next viable transit departure, with minimal waiting?"
 
-The motivating commute (`examples/bus-orange.json`):
+The motivating commute (also the unit tests' fixture, `test/fixtures/bus-orange.json`):
 
 - **Home → office**: 132 bus inbound at `Main St @ South St` → Oak Grove → Orange Line → State
 - **Office → home**: Orange Line from State → Oak Grove → 132 bus outbound → `Main St @ South St`
@@ -36,7 +36,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | API calls | Direct from browser to `api-v3.mbta.com` (CORS verified: `access-control-allow-origin: *`) |
 | API key | Keyless by default; optional key field in settings, sent as the `api_key` query parameter (a custom header would add a CORS preflight). Stored in `localStorage` on the shared `lucaspimentel.github.io` origin; accepted (low-value key) |
 | Persistence | `localStorage` per browser; sharing = app URL + self-serve config |
-| Default config | None: first run opens the setup view. The author's commute is `examples/bus-orange.json` (importable) |
+| Default config | None: first run opens the setup view |
 | Trips | Any number of named trips, each with any number of transit legs; optional time window per trip picks the trip shown |
 | Refresh | Adaptive: fetch every 60s when the next `leave_by` is ≤ 15 min away, else every 120s. Local 1s countdown tick. Manual refresh button. Paused while hidden; refetch on `visibilitychange` to visible |
 | Departures shown | Next `departureCount` departures (config, 1-8, default 4) |

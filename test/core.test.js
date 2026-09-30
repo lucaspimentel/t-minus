@@ -27,7 +27,7 @@ const stopInc = (id, parent) => ({ type: 'stop', id, relationships: { parent_sta
 // Vehicle fixture: [tripId, dep HH:MM, arr HH:MM, source].
 const veh = (tripId, dep, arr, source = 'scheduled') => ({ tripId, dep: at(dep), arr: at(arr), source });
 
-const EXAMPLE = JSON.parse(readFileSync('examples/bus-orange.json', 'utf8'));
+const EXAMPLE = JSON.parse(readFileSync('test/fixtures/bus-orange.json', 'utf8'));
 const [homeToOffice, officeToHome] = EXAMPLE.trips;
 
 // ---------- config ----------
@@ -38,7 +38,7 @@ test('example config is valid', () => {
 
 test('validateConfig rejects the old format and bad legs, windows, timingLeg', () => {
   assert.deepEqual(validateConfig({ commutes: [] }),
-    ['This is the old config format (commutes); rebuild it as trips (see examples/bus-orange.json).']);
+    ['This is the old config format (commutes); rebuild it as trips in setup.']);
   const cfg = structuredClone(EXAMPLE);
   delete cfg.trips[0].legs[1].alight;
   cfg.trips[0].window = { from: '25:00', to: '12:00' };

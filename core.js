@@ -36,7 +36,7 @@ export function validateConfig(cfg) {
   }
   if (!Array.isArray(cfg.trips) || cfg.trips.length < 1) {
     errors.push(cfg.commutes
-      ? 'This is the old config format (commutes); rebuild it as trips (see examples/bus-orange.json).'
+      ? 'This is the old config format (commutes); rebuild it as trips in setup.'
       : 'trips must be a non-empty array.');
     return errors;
   }
