@@ -302,10 +302,15 @@ test('filterAlerts keeps service-impacting alerts on configured stops only', () 
 
 // ---------- formatting ----------
 
-test('formatCountdown', () => {
-  assert.equal(formatCountdown(65_000), '1:05');
-  assert.equal(formatCountdown(3_723_000), '1h 02m');
-  assert.equal(formatCountdown(-5), '0:00');
+test('formatCountdown shows whole minutes, rounding down', () => {
+  assert.equal(formatCountdown(7 * MIN + 10_000), '7 min'); // 7:10 left → 7
+  assert.equal(formatCountdown(8 * MIN - 1_000), '7 min');
+  assert.equal(formatCountdown(8 * MIN), '8 min');
+  assert.equal(formatCountdown(59_000), '<1 min');
+  assert.equal(formatCountdown(0), '0 min');
+  assert.equal(formatCountdown(-5), '0 min');
+  assert.equal(formatCountdown(60 * MIN + 59_000), '1h 00m');
+  assert.equal(formatCountdown(62 * MIN + 3_000), '1h 02m');
 });
 
 test('formatTime adds weekday only across a calendar date change', () => {

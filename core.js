@@ -547,10 +547,13 @@ export function formatTime(ms, nowMs) {
   return `${weekdayFmt.format(new Date(ms))} ${t}`;
 }
 
+// Whole minutes, rounded down (7:10 left shows "7 min") so the countdown never overstates the
+// time left and agrees with the leave-by time, whose seconds are dropped too.
 export function formatCountdown(ms) {
-  const s = Math.max(0, Math.round(ms / 1000));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
+  if (ms > 0 && ms < MIN) return '<1 min';
+  const total = Math.max(0, Math.floor(ms / MIN));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   if (h > 0) return `${h}h ${pad(m)}m`;
-  return `${m}:${pad(s % 60)}`;
+  return `${m} min`;
 }
