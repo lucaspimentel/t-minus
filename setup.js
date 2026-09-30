@@ -236,7 +236,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
           h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Keyless: 20 requests/min', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),
       h('div', { class: 'btns io' },
         saved && h('button', { type: 'button', onclick: exportConfig }, 'Export'),
-        h('button', { type: 'button', onclick: () => { ioArea = { mode: 'import', text: '' }; render(); } }, 'Import')),
+        h('button', { type: 'button', onclick: () => { ioArea = { mode: 'import', text: '' }; render(); } }, 'Import'),
+        // Reloads the page (the service worker is network-first, so this picks up a new version).
+        h('button', { type: 'button', onclick: () => location.reload() }, 'Reload app')),
       ioArea && h('div', { class: 'card' },
         ioArea.note && h('div', { class: 'msg' }, ioArea.note),
         h('textarea', { id: 'setup-io', readOnly: ioArea.mode === 'export', value: ioArea.text, placeholder: 'Paste a trips config (JSON)', oninput: e => { ioArea.text = e.target.value; } }),

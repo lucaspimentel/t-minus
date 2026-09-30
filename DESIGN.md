@@ -183,7 +183,8 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
   pauses while it is open.
 - List screen: one row per saved trip (name, time window, route chain like
   "132 → Orange Line") with ↑/↓ to reorder, "Add trip", then a Settings card (departures
-  shown, minutes early at the stop, API key), Export/Import. Done saves changed app-wide fields and closes setup;
+  shown, minutes early at the stop, API key), Export/Import, and "Reload app" (reloads the
+  page, e.g. to pick up a new version in the installed PWA). Done saves changed app-wide fields and closes setup;
   it is disabled until a trip has been saved.
 - Trip screen (tap a row, or "Add trip"): name, optional time window, walk before/after,
   transit legs with a transfer time between them, "Add return trip", "Delete trip" (hidden for
