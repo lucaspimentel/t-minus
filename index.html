@@ -4,13 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Leave By</title>
-<meta name="theme-color" content="#1c1f24">
+<meta name="theme-color" content="#f5f5f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121417" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <style>
   :root {
+    color-scheme: light dark; /* native controls (time pickers, checkboxes) follow the theme */
     --bg: #f5f5f3; --card: #ffffff; --text: #1c1f24; --muted: #6b7078; --border: #dcdde0;
     --green: #1f8a4c; --amber: #b86e00; --red: #c62828; --accent: #ed8b00;
     --alert-bg: #fff4e0; --alert-border: #f0c070;
@@ -143,7 +145,7 @@ import {
   departureCount, stopSlackMinutes, mergeTrips, legVehicles, averageHeadway, pickTimingLeg, tripRows,
   countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown,
 } from './core.js?v=6e3b80bb87';
-import { openSetup } from './setup.js?v=3be5f56a37';
+import { openSetup } from './setup.js?v=6472795ee6';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';

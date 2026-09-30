@@ -283,7 +283,8 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel, timi
         numberField('Departures shown (1-8)', app.departureCount, v => { app.departureCount = v; }, { min: '1', max: '8' }),
         numberField('Minutes early at the stop', app.stopSlackMinutes, v => { app.stopSlackMinutes = v; }),
         h('label', { class: 'field' }, 'MBTA API key (optional)',
-          h('input', { type: 'text', autocomplete: 'off', spellcheck: false, placeholder: 'Keyless: 20 requests/min', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),
+          // Masked so the key isn't exposed on screen (or in screenshots).
+          h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Keyless: 20 requests/min', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),
       ...trips.map(tripCard),
       h('button', { type: 'button', class: 'add', onclick: () => { trips.push(emptyTrip(trips.length)); render(); } }, '+ Add trip'),
       h('div', { class: 'btns io' },
@@ -413,8 +414,15 @@ export function openSetup({ root, config, api, canCancel, onSave, onCancel, timi
     return [head, context, search, list];
   }
 
+  // Each picker step starts at the top; returning to the main screen restores its scroll position.
+  let shown = null;
+  let mainScrollY = 0;
   function render() {
+    const screen = picker ? `picker:${picker.step}` : 'main';
+    if (screen !== shown && shown === 'main') mainScrollY = window.scrollY;
     root.replaceChildren(...(picker ? pickerScreen() : mainScreen()).filter(Boolean));
+    if (screen !== shown) window.scrollTo(0, screen === 'main' ? mainScrollY : 0);
+    shown = screen;
     if (picker && picker.step !== 'direction') root.querySelector('#picker-search')?.focus({ preventScroll: true });
   }
 
