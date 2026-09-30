@@ -125,7 +125,8 @@ import {
   DEFAULT_CONFIG, validateConfig, analyzeCommute, commuteEntities, pickDirection, periodKey,
   scheduleWindow, nextServiceWindow, fillRows, departureCount, mergeTrips, directRows, connectionRows, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown,
-} from './core.js?v=9b77affbb1';
+  stopQueries, checkStops, stopsKey,
+} from './core.js?v=6414dcce37';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -388,18 +389,44 @@ function showMsg(text, err) {
   $('msg').className = err ? 'msg err' : 'msg';
 }
 
-$('save').onclick = () => {
+// Fetches each route/direction's ordered stop list and checks the config's stops against it.
+// Returns error strings; throws if the API can't be reached.
+async function verifyStops(cfg) {
+  const docs = await Promise.all(stopQueries(cfg).map(q => api('/stops', {
+    'filter[route]': q.route,
+    'filter[direction_id]': q.direction_id,
+    'fields[stop]': 'name',
+    include: 'child_stops',
+  }).then(doc => [stopsKey(q.route, q.direction_id), doc])));
+  return checkStops(cfg, new Map(docs));
+}
+
+$('save').onclick = async () => {
   let parsed;
   try { parsed = JSON.parse($('config').value); } catch (e) { return showMsg(`Invalid JSON: ${e.message}`, true); }
   parsed.apiKey = $('apikey').value.trim();
   const errors = validateConfig(parsed);
   if (errors.length) return showMsg(errors.join('\n'), true);
+
+  // Wrong stops block the save; an unreachable API does not (offline editing still works).
+  let warning = null;
+  $('save').disabled = true;
+  showMsg('Checking stops…');
+  try {
+    const stopErrors = await verifyStops(parsed);
+    if (stopErrors.length) return showMsg(stopErrors.join('\n'), true);
+  } catch (e) {
+    warning = `Saved, but couldn't verify stops: ${e.message || e}`;
+  } finally {
+    $('save').disabled = false;
+  }
+
   config = parsed;
   store.set(KEY_CONFIG, config);
   store.del(KEY_OVERRIDE);
   cache = {};
   direction = pickDirection(Date.now(), config, null);
-  showMsg('Saved.');
+  showMsg(warning ?? 'Saved.', !!warning);
   render();
   refresh({ force: true });
 };

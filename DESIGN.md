@@ -207,6 +207,19 @@ Leg roles:
 - `connection`: predictions + schedules fetched and matched against the bottleneck.
 - `filler`: not fetched; fixed `rideMinutes` used for ETA only.
 
+### Save-time check against the API
+
+Saving the JSON config first checks its shape (`validateConfig`), then its stops against the
+API (`checkStops`). For each route/direction pair, `/stops?filter[route]&filter[direction_id]&include=child_stops`
+returns the stops in trip order. The check fails when:
+
+- the pair has no stops (unknown route or invalid `direction_id`);
+- a `stop`, `alight`, `from` or `to` ID is neither a listed stop nor a child platform of one;
+- `stop` is not before `alight`, or `from` is not before `to` (usually a wrong `direction_id`).
+
+Failures block the save. If the API can't be reached, the config is saved with a
+"couldn't verify stops" warning. Reset to default skips the check.
+
 ### Verified IDs
 
 | Entity | ID | Notes |
@@ -258,6 +271,7 @@ To stay well inside it:
   22:00 it is extended to the end of the service day (28:00).
 - Next service day schedules: only when today has fewer than `departureCount` rows; at most
   once an hour.
+- Saving the config: one `/stops` request per route/direction pair (4 for the default config).
 
 Worst case ≈ 4 req/min at 30s polling. A key raises the limit to 1,000 req/min (per MBTA docs,
 not tested).

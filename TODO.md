@@ -1,12 +1,5 @@
 # TODO
 
-## Next
-
-- [ ] **Config sanity check against the API.** A config with valid shape but wrong stop
-  IDs or direction silently yields no departures. After saving, verify each configured
-  stop exists and is served by its route/direction (`/stops/<id>`, `/stops?filter[route]=...&filter[direction_id]=...`)
-  and show an error for mismatches.
-
 ## Setup UI (replaces the raw JSON editor)
 
 Form-based commute setup so other people can configure the app without knowing GTFS IDs.
@@ -18,6 +11,6 @@ Form-based commute setup so other people can configure the app without knowing G
 - [ ] Role selection: exactly one bottleneck per commute; optional connection before it;
   filler legs ask for ride minutes.
 - [ ] Global fields: direction cutoff, stop slack, API key.
-- [ ] Validate with `validateConfig` and the API sanity check before saving.
+- [ ] Validate with `validateConfig` and `checkStops` (see `verifyStops` in `index.html`) before saving.
 - [ ] Keep JSON import/export as an advanced option (backup and sharing).
 - [ ] Unit-test any new pure helpers in `core.js`.

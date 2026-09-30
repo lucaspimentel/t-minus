@@ -120,6 +120,59 @@ export function commuteEntities(commute) {
   return { routes, stops };
 }
 
+// ---------- config vs. API ----------
+
+export const stopsKey = (route, directionId) => `${route}/${directionId}`;
+
+// Unique route/direction pairs whose stop lists are needed to check a config.
+export function stopQueries(cfg) {
+  const pairs = new Map();
+  for (const c of cfg.commutes) {
+    for (const l of c.legs) {
+      if (l.kind === 'transit') pairs.set(stopsKey(l.route, l.direction_id), { route: l.route, direction_id: l.direction_id });
+    }
+  }
+  return [...pairs.values()];
+}
+
+// Checks configured stops against `/stops?filter[route]&filter[direction_id]&include=child_stops`
+// docs (keyed by `stopsKey`). The API lists stops in trip order for the direction, so order
+// errors reveal a wrong direction_id even when both stops are served both ways.
+export function checkStops(cfg, stopsByKey) {
+  const errors = [];
+  cfg.commutes.forEach((c, i) => {
+    for (const l of c.legs) {
+      if (l.kind !== 'transit') continue;
+      const p = `commutes[${i}] ${l.route}`;
+      const listed = stopsByKey.get(stopsKey(l.route, l.direction_id))?.data ?? [];
+      if (listed.length === 0) {
+        errors.push(`${p}: no stops for route "${l.route}" in direction ${l.direction_id}; check route and direction_id.`);
+        continue;
+      }
+      // Stop id (or child platform id) → position in trip order.
+      const position = new Map();
+      listed.forEach((s, idx) => {
+        position.set(s.id, idx);
+        for (const child of s.relationships?.child_stops?.data ?? []) position.set(child.id, idx);
+      });
+      const pairs = [['stop', 'alight'], ['from', 'to']];
+      for (const field of ['stop', 'alight', 'from', 'to']) {
+        const id = l[field];
+        if (id && !position.has(id)) {
+          errors.push(`${p}: ${field} "${id}" is not served by route ${l.route} in direction ${l.direction_id}.`);
+        }
+      }
+      for (const [a, b] of pairs) {
+        if (!l[a] || !l[b] || !position.has(l[a]) || !position.has(l[b])) continue;
+        if (position.get(l[a]) >= position.get(l[b])) {
+          errors.push(`${p}: ${a} "${l[a]}" comes after ${b} "${l[b]}" in direction ${l.direction_id}; direction_id is probably wrong.`);
+        }
+      }
+    }
+  });
+  return errors;
+}
+
 // ---------- time ----------
 
 const partsFmt = new Intl.DateTimeFormat('en-US', {

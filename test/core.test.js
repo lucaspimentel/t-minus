@@ -4,7 +4,7 @@ import {
   DEFAULT_CONFIG, validateConfig, analyzeCommute, pickDirection, periodKey, scheduleWindow,
   mergeTrips, directRows, connectionRows, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown,
-  nextServiceWindow, fillRows, formatTime, departureCount,
+  nextServiceWindow, fillRows, formatTime, departureCount, stopQueries, checkStops, stopsKey,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -255,4 +255,49 @@ test('departureCount defaults to 4 and is validated', () => {
   for (const bad of [0, 9, 2.5, '4']) {
     assert.ok(validateConfig({ ...DEFAULT_CONFIG, departureCount: bad }).some(e => e.startsWith('departureCount')));
   }
+});
+
+// /stops?filter[route]&filter[direction_id]&include=child_stops fixtures, in trip order,
+// modeled on live responses (132 lists child street stops, Orange lists parent stations).
+const stopsDoc = stops => ({
+  data: stops.map(s => (typeof s === 'string' ? { id: s } : {
+    id: s.id, relationships: { child_stops: { data: s.children.map(id => ({ id })) } },
+  })),
+});
+const liveStops = () => new Map([
+  [stopsKey('132', 1), stopsDoc(['25989', '25996', '5991', 'place-mlmnl'])],
+  [stopsKey('132', 0), stopsDoc(['place-mlmnl', '9326', '15982', '15989'])],
+  [stopsKey('Orange', 0), stopsDoc([
+    { id: 'place-ogmnl', children: ['70036'] }, { id: 'place-state', children: ['70022', '70023'] }, 'place-forhl'])],
+  [stopsKey('Orange', 1), stopsDoc([
+    'place-forhl', { id: 'place-state', children: ['70022', '70023'] }, { id: 'place-ogmnl', children: ['70036'] }])],
+]);
+
+test('stopQueries lists unique route/direction pairs', () => {
+  assert.deepEqual(stopQueries(DEFAULT_CONFIG).map(q => stopsKey(q.route, q.direction_id)).sort(),
+    ['132/0', '132/1', 'Orange/0', 'Orange/1']);
+});
+
+test('checkStops accepts the default config and child platform ids', () => {
+  assert.deepEqual(checkStops(DEFAULT_CONFIG, liveStops()), []);
+  const cfg = structuredClone(DEFAULT_CONFIG);
+  cfg.commutes[1].legs[1].from = '70023';
+  assert.deepEqual(checkStops(cfg, liveStops()), []);
+});
+
+test('checkStops reports unknown stops, wrong direction, and unknown routes', () => {
+  const badStop = structuredClone(DEFAULT_CONFIG);
+  badStop.commutes[1].legs[3].stop = '99999';
+  assert.deepEqual(checkStops(badStop, liveStops()),
+    ['commutes[1] 132: stop "99999" is not served by route 132 in direction 0.']);
+
+  const swapped = structuredClone(DEFAULT_CONFIG);
+  swapped.commutes[1].legs[1].direction_id = 0;
+  assert.deepEqual(checkStops(swapped, liveStops()),
+    ['commutes[1] Orange: from "place-state" comes after to "place-ogmnl" in direction 0; direction_id is probably wrong.']);
+
+  const badRoute = structuredClone(DEFAULT_CONFIG);
+  badRoute.commutes[0].legs[1].route = '999x';
+  const errors = checkStops(badRoute, new Map([...liveStops(), [stopsKey('999x', 1), stopsDoc([])]]));
+  assert.deepEqual(errors, ['commutes[0] 999x: no stops for route "999x" in direction 1; check route and direction_id.']);
 });
