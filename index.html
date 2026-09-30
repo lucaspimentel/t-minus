@@ -65,10 +65,13 @@
   .row.amber { border-left-color: var(--amber); }
   .row.red { border-left-color: var(--red); }
   .big {
-    display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px;
     font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums;
   }
-  .big .at { font-size: 20px; font-weight: 600; white-space: nowrap; }
+  /* The countdown never breaks; if a long leave-by time ("Thu 5:31am") doesn't fit beside it,
+     the time drops to the next line, still right-aligned. */
+  .big > span { white-space: nowrap; }
+  .big .at { font-size: 20px; font-weight: 600; margin-left: auto; }
   .green .big { color: var(--green); }
   .amber .big { color: var(--amber); }
   .red .big { color: var(--red); }
