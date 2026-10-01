@@ -15,6 +15,8 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - `setup.js`: the setup view (DOM + setup-time requests); pure helpers belong in `core.js`.
 - `index.html`: UI, fetch, timers. Keep the request budget in `DESIGN.md` (keyless limit is 20 req/min).
 - Update `DESIGN.md` when behavior changes; move finished items out of `TODO.md`.
+- After pushing to `main`, tell the user the footer version (`Version <date> · <hash>` in
+  `index.html`) so they can check that the installed app has updated.
 
 ## Commands
 
