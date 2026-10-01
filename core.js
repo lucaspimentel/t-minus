@@ -642,7 +642,7 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
       timingIdx,
       legs: chain.map((c, i) => ({
         route: transit[i].route, label: transit[i].label ?? transit[i].route, color: transit[i].color ?? null,
-        dep: c.dep, arr: c.arr, source: c.source,
+        dep: c.dep, arr: c.arr, source: c.source, tripId: c.tripId,
       })),
     };
     if (isMissed) missed = { ...row, missed: true }; else rows.push(row);
@@ -686,19 +686,98 @@ export function startEnRoute(kind, nowMs, walkBefore, prev = null) {
   return { kind, at: prev?.at ?? nowMs, atStop: kind === 'leaving' ? nowMs + walkBefore * MIN : nowMs };
 }
 
-// The ride being headed for: the first reachable en-route row.
-export function withTarget(state, rows) {
+// Before boarding: the target is the first reachable en-route row, re-taken every tick. Once
+// the target's first vehicle departs while it was reachable, boarding is assumed and its legs
+// become the ride ({ legs, boardedAt }).
+export function advanceEnRoute(state, rows, nowMs) {
+  if (state.ride) return state;
+  const t = state.target;
+  if (t) {
+    const row = rows.find(r => r.key === t.key);
+    const dep = row?.firstDep ?? t.legs[0].dep;
+    if (nowMs >= dep && state.atStop <= dep) {
+      const { target: _, ...rest } = state;
+      return { ...rest, ride: { legs: row?.legs ?? t.legs, boardedAt: dep } };
+    }
+  }
   const r = rows.find(x => x.enRoute && !x.missed);
-  return r ? { ...state, key: r.key, dep: r.firstDep } : { ...state, key: null, dep: null };
+  return r ? { ...state, target: { key: r.key, legs: r.legs } } : { ...state, target: null };
 }
 
-// Active until the target ride (following its current departure) left 10 min ago, or 30 min
-// after the first tap.
-export function enRouteActive(state, rows, nowMs) {
-  if (!state || nowMs >= state.at + 30 * MIN) return false;
-  if (state.key == null) return true;
-  const dep = rows.find(r => r.key === state.key)?.firstDep ?? state.dep;
-  return nowMs < dep + MISSED_MINUTES * MIN;
+// Refreshes a ride's legs from the merged per-leg trip maps (mergeTrips) by trip id: live
+// times first, then remembered live times (rememberLive), then schedules, else what's stored.
+// A departed vehicle has no board entry; an arrived one no drop-off entry.
+export function trackLegs(legs, transit, tripsMaps, memory = null) {
+  return legs.map((leg, i) => {
+    const stops = tripsMaps[i]?.get(leg.tripId);
+    const board = stops?.get(transit[i].stop);
+    const alight = stops?.get(transit[i].alight);
+    const mem = memory?.[i]?.get(leg.tripId);
+    const pick = (entry, remembered, of) => {
+      if (usable(entry) && entry.source === 'live' && of(entry) != null) return [of(entry), 'live'];
+      if (remembered != null) return [remembered, 'live'];
+      if (usable(entry) && of(entry) != null) return [of(entry), entry.source];
+      return null;
+    };
+    const d = pick(board, mem?.dep, depOf);
+    const a = pick(alight, mem?.arr, arrOf);
+    return {
+      ...leg,
+      ...(d && { dep: d[0], source: d[1] }),
+      ...(a && { arr: a[0], arrSource: a[1] }),
+    };
+  });
+}
+
+// Phase of a ride: riding leg i (boarded, before its arrival), transfer before leg i (before
+// its departure), walking (after the last arrival, before the ETA), arrived (5 min), done.
+export function ridePhase(ride, walkAfter, nowMs) {
+  const legs = ride.legs;
+  const eta = legs[legs.length - 1].arr + walkAfter * MIN;
+  for (let i = 0; i < legs.length; i++) {
+    if (i > 0 && nowMs < legs[i].dep) return { kind: 'transfer', leg: i, eta };
+    if (nowMs < legs[i].arr) return { kind: 'riding', leg: i, eta };
+  }
+  if (nowMs < eta) return { kind: 'walking', leg: legs.length, eta };
+  return { kind: nowMs < eta + 5 * MIN ? 'arrived' : 'done', leg: legs.length, eta };
+}
+
+// "Missed it" is offered for 2 min after each boarding.
+export function canUndoBoarding(ride, phase, nowMs) {
+  if (phase.kind !== 'riding') return false;
+  const boarded = phase.leg === 0 ? ride.boardedAt : ride.legs[phase.leg].dep;
+  return nowMs < boarded + 2 * MIN;
+}
+
+// After missing leg `from`: its next vehicle departing at or after now (other than the missed
+// one), then the earliest feasible later legs. Vehicles, or null if there's no connection.
+export function replanFrom(vehiclesByLeg, from, nowMs, transfers, skipTripId = null) {
+  const chain = [];
+  let earliest = nowMs;
+  for (let i = from; i < vehiclesByLeg.length; i++) {
+    const next = (vehiclesByLeg[i] ?? []).find(v => v.dep >= earliest && v.tripId !== skipTripId);
+    if (!next) return null;
+    chain.push(next);
+    earliest = next.arr + (transfers[i] ?? 0) * MIN;
+  }
+  return chain;
+}
+
+export function rideHeadline(phase, ride, nowMs) {
+  const leg = ride.legs[phase.leg];
+  switch (phase.kind) {
+    case 'riding': return `On ${leg.label} · off at ${formatTime(leg.arr, nowMs)}`;
+    case 'transfer': return `Transfer · ${leg.label} ${formatTime(leg.dep, nowMs)}`;
+    case 'walking': return `Walking · arrive ${formatTime(phase.eta, nowMs)}`;
+    default: return `Arrived ~${formatTime(phase.eta, nowMs)}`;
+  }
+}
+
+// Before boarding: 30 min after the first tap. With a ride: until it's done.
+export function enRouteActive(state, walkAfter, nowMs) {
+  if (!state) return false;
+  if (state.ride) return ridePhase(state.ride, walkAfter, nowMs).kind !== 'done';
+  return nowMs < state.at + 30 * MIN;
 }
 
 export function enRouteStatus(state, nowMs) {
@@ -722,7 +801,8 @@ export function fillRows(todayRows, nextRows, count = DEFAULT_DEPARTURE_COUNT) {
   return [...todayRows, ...nextRows.map(r => ({ ...r, nextDay: true }))].slice(0, count);
 }
 
-export function pollIntervalMs(rows, nowMs) {
+export function pollIntervalMs(rows, nowMs, riding = false) {
+  if (riding) return 60_000;
   const soon = rows.some(r => r.lastChance > nowMs && (r.enRoute || (r.leaveBy != null && r.leaveBy - nowMs <= 15 * MIN)));
   return soon ? 60_000 : 120_000;
 }

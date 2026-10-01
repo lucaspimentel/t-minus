@@ -26,7 +26,7 @@ walking → at stop → riding leg 1 → transfer → riding leg 2 → … → w
   stops (passed ones drop out) with times, plus the vehicle's `current_status` and
   `current_stop_sequence`: one extra request per poll. Bus trip ids can change mid-route:
   fall back to the leg's predictions/schedule.
-- Phases: (1) state machine + trip card + live arrival + "Missed it"/Cancel/persistence;
+- Phases: (1) done: state machine, trip card, live arrival, "Missed it"/Cancel, persistence;
   (2) remaining-stops list; (3) transfer outlook + auto re-plan, "I'm on a later one";
   (4) "Track this trip" on rows, screen-on near events.
 

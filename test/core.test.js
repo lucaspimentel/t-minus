@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, withTarget, enRouteActive, enRouteStatus, pickTrip, inWindow, countdownState, pollIntervalMs,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -266,7 +266,7 @@ test('tripRows: single leg with stop slack, "Hurry" window, and ETA', () => {
   assert.equal(rows[0].lastChance, at('07:35')); // 07:40 - 5 walk
   assert.equal(rows[0].firstDep, at('07:40'));
   assert.equal(rows[0].eta, at('07:52'));
-  assert.deepEqual(rows[0].legs, [{ route: '132', label: '132', color: null, dep: at('07:40'), arr: at('07:50'), source: 'live' }]);
+  assert.deepEqual(rows[0].legs, [{ route: '132', label: '132', color: null, dep: at('07:40'), arr: at('07:50'), source: 'live', tripId: 'b2' }]);
   // Past leave-by but before the last chance: the row stays ("Hurry").
   assert.deepEqual(tripRows(trip, [buses], 0, at('07:34'), 1).map(r => r.key), ['b2', 'b3']);
   assert.equal(countdownState(at('07:34'), rows[0].leaveBy, rows[0].lastChance, rows[0].firstDep), 'red');
@@ -353,15 +353,9 @@ test('en route: reachability from the at-stop time, no leave-by', () => {
   assert.deepEqual(stop, { kind: 'stop', at: at('07:30'), atStop: at('07:38') });
   assert.deepEqual(states('07:38', stop), [['b2', 'enroute'], ['b3', 'enroute']]);
 
-  // Target and end of the mode.
-  const s = withTarget(leaving, rowsAt('07:30', leaving));
-  assert.deepEqual([s.key, s.dep], ['b2', at('07:40')]);
-  assert.equal(enRouteActive(s, [], at('07:49')), true);
-  assert.equal(enRouteActive(s, [], at('07:50')), false); // left 10 min ago
-  assert.equal(enRouteActive(s, [{ key: 'b2', firstDep: at('07:45') }], at('07:50')), true); // delayed
-  assert.equal(enRouteActive({ ...s, key: null }, [], at('07:59')), true);
-  assert.equal(enRouteActive({ ...s, key: null }, [], at('08:00')), false); // 30 min after the tap
-  assert.deepEqual(withTarget(leaving, []), { ...leaving, key: null, dep: null });
+  // Before boarding the mode lasts 30 min from the first tap.
+  assert.equal(enRouteActive(leaving, 0, at('07:59')), true);
+  assert.equal(enRouteActive(leaving, 0, at('08:00')), false);
 
   // Labels, status, polling, wake lock.
   assert.equal(countdownLabel('enroute', 6 * MIN, 'Bus 132'), 'Bus 132 in 6 min');
@@ -370,6 +364,65 @@ test('en route: reachability from the at-stop time, no leave-by', () => {
   assert.equal(enRouteStatus(stop, at('07:39')), 'At the stop since 7:38am');
   assert.equal(pollIntervalMs(rowsAt('07:00', leaving), at('07:00')), 60_000);
   assert.equal(keepAwake(rowsAt('07:30', leaving), at('07:30'), 10), false);
+});
+
+test('tracking: boarding, live leg times, phases, Missed it re-plan', () => {
+  const trip = homeToOffice; // walk 5, 132, transfer 5, Orange, walk 10
+  const { transit, transfers } = tripShape(trip);
+  const buses = [veh('b1', '07:12', '07:26'), veh('b2', '07:40', '07:54')];
+  const trains = [veh('o1', '07:31', '07:46'), veh('o2', '07:36', '07:51'), veh('o3', '08:00', '08:15')];
+  const stop = startEnRoute('stop', at('07:10'), 5);
+  const rowsAt = (t, en) => tripRows(trip, [buses, trains], 0, at(t), 1, 4, en);
+  assert.deepEqual(rowsAt('07:10', stop)[0].legs.map(l => l.tripId), ['b1', 'o1']);
+
+  // Target re-taken while reachable; boarding when it departs.
+  let s = advanceEnRoute(stop, rowsAt('07:10', stop), at('07:10'));
+  assert.equal(s.target.key, 'b1');
+  assert.equal(s.ride, undefined);
+  s = advanceEnRoute(s, rowsAt('07:12', s), at('07:12'));
+  assert.deepEqual([s.ride.boardedAt, s.ride.legs.map(l => l.tripId), s.target], [at('07:12'), ['b1', 'o1'], undefined]);
+  assert.equal(advanceEnRoute(s, [], at('07:20')), s);
+  // No boarding if the target was unreachable (at the stop after it left).
+  const late = { kind: 'leaving', at: at('07:05'), atStop: at('07:13'), target: { key: 'b1', legs: s.ride.legs } };
+  assert.equal(advanceEnRoute(late, rowsAt('07:12', late), at('07:12')).ride, undefined);
+
+  // Phases and headlines (walk after 10 min: ETA 07:56).
+  const ride = s.ride;
+  const at_ = t => ridePhase(ride, 10, at(t));
+  assert.deepEqual(at_('07:20'), { kind: 'riding', leg: 0, eta: at('07:56') });
+  assert.equal(at_('07:27').kind, 'transfer');
+  assert.deepEqual([at_('07:32').kind, at_('07:32').leg], ['riding', 1]);
+  assert.equal(at_('07:50').kind, 'walking');
+  assert.equal(at_('07:58').kind, 'arrived');
+  assert.equal(at_('08:01').kind, 'done');
+  assert.equal(rideHeadline(at_('07:20'), ride, at('07:20')), 'On 132 · off at 7:26am');
+  assert.equal(rideHeadline(at_('07:27'), ride, at('07:27')), 'Transfer · Orange 7:31am');
+  assert.equal(rideHeadline(at_('07:50'), ride, at('07:50')), 'Walking · arrive 7:56am');
+  assert.equal(rideHeadline(at_('07:58'), ride, at('07:58')), 'Arrived ~7:56am');
+  assert.equal(enRouteActive(s, 10, at('08:00')), true);
+  assert.equal(enRouteActive(s, 10, at('08:01')), false);
+
+  // Missed it: 2 min after each boarding.
+  assert.equal(canUndoBoarding(ride, at_('07:13'), at('07:13')), true);
+  assert.equal(canUndoBoarding(ride, at_('07:14'), at('07:14')), false);
+  assert.equal(canUndoBoarding(ride, at_('07:32'), at('07:32')), true);
+  assert.equal(canUndoBoarding(ride, at_('07:27'), at('07:27')), false);
+
+  // Live times by trip id; a departed vehicle keeps its dep; memory before schedules.
+  const live = mergeTrips(
+    { data: [{ attributes: { arrival_time: iso('07:29'), departure_time: null }, relationships: { trip: { data: { id: 'b1' } }, stop: { data: { id: transit[0].alight } } } }] },
+    null);
+  const sched = mergeTrips(null, { data: [{ attributes: { arrival_time: iso('07:31'), departure_time: iso('07:31') }, relationships: { trip: { data: { id: 'o1' } }, stop: { data: { id: transit[1].stop } } } }] });
+  const memory = [new Map(), new Map([['o1', { dep: at('07:33'), arr: at('07:48') }]])];
+  const legs = trackLegs(ride.legs, transit, [live, sched], memory);
+  assert.deepEqual(legs.map(l => [l.dep, l.arr, l.source, l.arrSource]), [
+    [at('07:12'), at('07:29'), 'scheduled', 'live'], [at('07:33'), at('07:48'), 'live', 'live']]);
+  assert.deepEqual(trackLegs(ride.legs, transit, [], null), ride.legs);
+
+  // Re-plan after missing leg 1 at 07:32: o2 (07:36) skipping o1; nothing after 08:00.
+  assert.deepEqual(replanFrom([buses, trains], 1, at('07:32'), transfers, 'o1').map(v => v.tripId), ['o2']);
+  assert.deepEqual(replanFrom([buses, trains], 0, at('07:13'), transfers, 'b1').map(v => v.tripId), ['b2', 'o3']);
+  assert.equal(replanFrom([buses, trains], 1, at('08:01'), transfers), null);
 });
 
 test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {

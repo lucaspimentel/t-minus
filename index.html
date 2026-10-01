@@ -97,6 +97,12 @@
   .strip .seg:first-child, .strip .seg:last-child { flex-basis: 10px; }
   .strip .stop { margin-right: 6px; }
   .strip .dot { margin-right: 4px; vertical-align: -1px; }
+  .row.ride { cursor: default; border-left-color: var(--green); }
+  .row.ride.arrived { border-left-color: var(--border); }
+  .ride-head { font-size: 20px; font-weight: 700; color: var(--green); }
+  .row.ride.arrived .ride-head { color: var(--text); }
+  .step.current { color: var(--text); font-weight: 600; }
+  .ride-btns { margin: 10px 0 0; }
   .summary { display: flex; justify-content: space-between; align-items: center; gap: 0 8px; }
   .summary .badge { margin-left: 0; }
   .arrive { margin-left: auto; white-space: nowrap; }
@@ -180,7 +186,7 @@
       <button id="reload" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · 56808103b5</footer>
+    <footer class="version">Version 2026-10-01 · b2f0997c88</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -198,10 +204,11 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
-  rowState, timelineSteps, startEnRoute, withTarget, enRouteActive, enRouteStatus, pollIntervalMs,
+  rowState, timelineSteps, startEnRoute, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs,
+  trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=80db90acfa';
-import { openSetup } from './setup.js?v=f904492846';
+} from './core.js?v=ff601313d9';
+import { openSetup } from './setup.js?v=9de9929309';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -342,7 +349,7 @@ async function refresh({ force = false } = {}) {
 function schedulePoll() {
   clearTimeout(pollTimer);
   if (document.hidden || !config) return;
-  pollTimer = setTimeout(() => refresh(), pollIntervalMs(currentRows(Date.now()), Date.now()));
+  pollTimer = setTimeout(() => refresh(), pollIntervalMs(currentRows(Date.now()), Date.now(), !!enRouteState()?.ride));
 }
 
 // ---------- compute + render ----------
@@ -354,8 +361,6 @@ function rowsFor(trip, timing, predictionDocs, scheduleDocs, now, lastLive = nul
   return tripRows(trip, vehicles, timing ?? 0, now, stopSlackMinutes(config), departureCount(config), enRoute);
 }
 
-// Today's rows, topped up from the next service day. Days are computed separately
-// because GTFS trip ids repeat across days.
 // En route state of the shown trip (dropped if the trip at that index was renamed/replaced).
 function enRouteState() {
   const s = (store.get(KEY_EN_ROUTE) ?? {})[tripIdx];
@@ -368,17 +373,38 @@ function setEnRoute(state) {
   store.set(KEY_EN_ROUTE, all);
 }
 
+// Today's rows, topped up from the next service day. Days are computed separately
+// because GTFS trip ids repeat across days. En route (before boarding), rows follow the
+// at-stop time.
 function currentRows(now, enRoute = enRouteState()) {
   if (!config) return [];
   const trip = config.trips[tripIdx];
   const c = cache[tripIdx];
   if (!c) return [];
   const count = departureCount(config);
-  const today = rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now, c.lastLive, enRoute);
-  // The mode ends once its ride left 10 min ago (or 30 min after the tap).
-  if (enRoute && !enRouteActive(enRoute, today, now)) { setEnRoute(null); return currentRows(now, null); }
+  const en = enRoute?.ride ? null : enRoute;
+  const today = rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now, c.lastLive, en);
   if (today.length >= count || !c.nextDay || !c.schedules?.coversEndOfService) return today;
   return fillRows(today, rowsFor(trip, c.timing, null, c.nextDay.docs, now), count);
+}
+
+// Advances the en-route state (boarding, live leg times) and ends it when it's over. Returns
+// the active state, or null.
+function syncEnRoute(now) {
+  let s = enRouteState();
+  if (!s || !config) return null;
+  const before = JSON.stringify(s);
+  const trip = config.trips[tripIdx];
+  const { transit, walkAfter } = tripShape(trip);
+  const c = cache[tripIdx];
+  if (!s.ride) s = advanceEnRoute(s, currentRows(now, s), now);
+  if (s.ride && c) {
+    const maps = transit.map((l, i) => mergeTrips(c.predictions?.[i], c.schedules?.docs[i]));
+    s = { ...s, ride: { ...s.ride, legs: trackLegs(s.ride.legs, transit, maps, c.lastLive) } };
+  }
+  if (!enRouteActive(s, walkAfter, now)) { setEnRoute(null); return null; }
+  if (JSON.stringify(s) !== before) setEnRoute(s);
+  return s;
 }
 
 function currentAlerts(now) {
@@ -525,6 +551,12 @@ function render() {
     return li;
   }));
 
+  const en = syncEnRoute(now);
+  if (en?.ride) {
+    renderEnRoute(now, false, true);
+    $('rows').replaceChildren(renderRideCard(en, now));
+    return;
+  }
   const current = currentRows(now);
   renderEnRoute(now, current.length > 0);
   // En route, the first reachable ride is the one being headed for.
@@ -536,14 +568,15 @@ function render() {
 
 // "Leaving now" / "At the stop" bar, rebuilt only when its content changes.
 let enRouteKey = null;
-function renderEnRoute(now, hasRows) {
+function renderEnRoute(now, hasRows, riding = false) {
   const s = enRouteState();
-  const text = s ? enRouteStatus(s, now) : '';
-  const key = JSON.stringify([tripIdx, hasRows, s?.kind, text]);
+  const text = s && !riding ? enRouteStatus(s, now) : '';
+  const key = JSON.stringify([tripIdx, hasRows, s?.kind, text, riding]);
   if (key === enRouteKey) return;
   enRouteKey = key;
   const bar = $('enroute');
-  bar.hidden = !hasRows && !s;
+  bar.hidden = riding || (!hasRows && !s);
+  if (riding) return bar.replaceChildren();
   const btn = (label, onclick) => {
     const b = el('button', null, label);
     b.type = 'button';
@@ -559,9 +592,84 @@ function renderEnRoute(now, hasRows) {
 function goEnRoute(kind) {
   const now = Date.now();
   const s = startEnRoute(kind, now, tripShape(config.trips[tripIdx]).walkBefore, enRouteState());
-  setEnRoute(withTarget(s, currentRows(now, s)));
+  setEnRoute(advanceEnRoute(s, currentRows(now, s), now));
   render();
   schedulePoll(); // polls every 60 s while en route
+}
+
+// Trip card while riding: phase and live arrival, the timeline with the current step, and
+// Missed it / Cancel.
+let rideNote = null; // e.g. "No later connection" after Missed it
+function renderRideCard(s, now) {
+  const trip = config.trips[tripIdx];
+  const { walkAfter } = tripShape(trip);
+  const ride = s.ride;
+  const phase = ridePhase(ride, walkAfter, now);
+  const li = el('li', `row ride ${phase.kind === 'arrived' ? 'arrived' : ''}`);
+  li.append(el('div', 'ride-head', rideHeadline(phase, ride, now)));
+  const last = ride.legs[ride.legs.length - 1];
+  const summary = el('div', 'detail summary');
+  summary.append(badge(last.arrSource ?? last.source), el('span', 'arrive', `arrive ${formatTime(phase.eta, now)}`));
+  li.append(summary);
+  // Timeline with the current step: the leg being ridden, the transfer before a leg, or the
+  // final walk.
+  const steps = timelineSteps({ legs: ride.legs, eta: phase.eta, enRoute: true }, trip, 0, now);
+  const timeline = el('div', 'timeline');
+  let legNo = -1;
+  steps.forEach((st, k) => {
+    if (st.kind === 'leg') legNo++;
+    const current = st.kind === 'leg'
+      ? phase.kind === 'riding' && phase.leg === legNo
+      : k === steps.length - 1 ? phase.kind === 'walking' || phase.kind === 'arrived'
+        : phase.kind === 'transfer' && phase.leg === legNo + 1;
+    const line = el('div', `step ${st.kind}${current ? ' current' : ''}`, st.kind === 'walk' ? st.text : null);
+    if (st.kind === 'leg') {
+      line.append(dot(st.leg.color), `${st.leg.label} ${formatTime(st.leg.dep, now)} → ${formatTime(st.leg.arr, now)}`, badge(st.leg.source));
+    }
+    timeline.append(line);
+  });
+  li.append(timeline);
+  if (rideNote) li.append(el('div', 'msg', rideNote));
+  const btns = el('div', 'enroute-bar ride-btns');
+  const btn = (label, onclick) => {
+    const b = el('button', null, label);
+    b.type = 'button';
+    b.onclick = e => { e.stopPropagation(); onclick(); };
+    return b;
+  };
+  if (canUndoBoarding(ride, phase, now)) btns.append(btn('Missed it', () => missedIt(phase)));
+  btns.append(btn(phase.kind === 'arrived' ? 'Done' : 'Cancel', () => { rideNote = null; setEnRoute(null); render(); schedulePoll(); }));
+  li.append(btns);
+  return li;
+}
+
+// "Missed it": on the first leg, back to waiting at the stop; on a later leg, the next vehicle
+// of that leg and the earliest connections after it.
+function missedIt(phase) {
+  const now = Date.now();
+  const s = enRouteState();
+  if (!s?.ride) return;
+  rideNote = null;
+  if (phase.leg === 0) {
+    setEnRoute({ kind: 'stop', at: now, atStop: now });
+  } else {
+    const trip = config.trips[tripIdx];
+    const { transit, transfers } = tripShape(trip);
+    const c = cache[tripIdx];
+    const vehicles = withRemembered(transit.map((l, i) => legVehicles(mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i]), l)), c?.lastLive);
+    const missed = s.ride.legs[phase.leg];
+    const chain = replanFrom(vehicles, phase.leg, now, transfers, missed.tripId);
+    if (!chain) rideNote = 'No later connection.';
+    else {
+      const legs = s.ride.legs.map((l, i) => {
+        const v = chain[i - phase.leg];
+        return v ? { ...l, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined } : l;
+      });
+      setEnRoute({ ...s, ride: { ...s.ride, legs } });
+    }
+  }
+  render();
+  schedulePoll();
 }
 
 // Screen Wake Lock: keeps the screen on near leave-by (keepAwake). The OS drops the lock while

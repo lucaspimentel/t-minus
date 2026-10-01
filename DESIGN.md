@@ -163,8 +163,23 @@ For leaving earlier or later than leave-by. A bar under the status line always o
   shown on the right, collapsed line shows the first leg); the first is highlighted green
   (the one being headed for), later ones neutral. No leave-by. Unreachable rides follow the
   missed rules (one gray row, missed immediately if the at-stop time is after it leaves).
-- Ends 10 min after the target ride (first reachable at the tap) departs, following its live
-  time, or 30 min after the first tap, or on Cancel.
+- The highlighted ride is the target, re-taken every tick while it's reachable
+  (`advanceEnRoute`). Before boarding the mode ends 30 min after the first tap, or on Cancel.
+- Boarding is assumed when the target's first vehicle departs (live or scheduled time) while
+  it was reachable: its legs (trip id + times) become the ride, and a trip card replaces the
+  list and the bar:
+  - Headline by phase (`ridePhase`, `rideHeadline`): "On Bus 132 · off at 7:26am", "Transfer ·
+    Orange 7:31am" (before leg i departs), "Walking · arrive 7:56am" (after the last arrival),
+    "Arrived ~7:56am" (5 min, with Done), then back to the list.
+  - Badge (the last leg's arrival source) and "arrive 7:56am"; the timeline (no first walk)
+    with the current step bold.
+  - Leg times refresh every tick by trip id from the per-leg predictions already polled
+    (`trackLegs`): live entry, then remembered live times, then schedules, then the stored
+    plan. A departed vehicle has no board entry and keeps its stored departure. No extra
+    requests.
+  - "Missed it" for 2 min after each boarding: on the first leg, back to "At the stop" now; on
+    a later leg, that leg's next vehicle (not the missed one) and the earliest connections
+    after it (`replanFrom`), or "No later connection." Cancel ends tracking.
 - Stored per trip index in `localStorage` (`mbta-leave-by:en-route`, with the trip name; a
   renamed trip drops it; cleared when setup saves). Polls every 60 s while active; no wake lock.
 
