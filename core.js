@@ -763,6 +763,42 @@ export function replanFrom(vehiclesByLeg, from, nowMs, transfers, skipTripId = n
   return chain;
 }
 
+// Remaining stops of the ridden vehicle from `/predictions?filter[trip]=…&include=stop,vehicle`:
+// `{ vehicle: { status, name } | null, stops: [{ id, name, time, dropOff }] }` up to the drop-off
+// (`alightId`, or a child platform of it), or null if the drop-off isn't listed.
+export function rideStops(doc, alightId, nowMs) {
+  const inc = new Map((doc?.included ?? []).map(x => [`${x.type}/${x.id}`, x]));
+  const stopOf = id => inc.get(`stop/${id}`);
+  const preds = (doc?.data ?? [])
+    .map(p => ({
+      id: p.relationships?.stop?.data?.id,
+      seq: p.attributes?.stop_sequence,
+      time: toMs(p.attributes?.arrival_time) ?? toMs(p.attributes?.departure_time),
+      last: Math.max(toMs(p.attributes?.arrival_time) ?? 0, toMs(p.attributes?.departure_time) ?? 0),
+      vehicleId: p.relationships?.vehicle?.data?.id,
+    }))
+    .filter(p => p.id && p.time != null)
+    .sort((a, b) => a.seq - b.seq);
+  const isDropOff = id => id === alightId || stopOf(id)?.relationships?.parent_station?.data?.id === alightId;
+  const end = preds.findIndex(p => isDropOff(p.id));
+  if (end < 0) return null;
+  const vid = preds.find(p => p.vehicleId)?.vehicleId;
+  const v = vid && inc.get(`vehicle/${vid}`)?.attributes;
+  // Not listed: stops already left (stale doc), and the stop the vehicle is stopped at (named
+  // by `vehicle` instead), unless it's the drop-off.
+  const stops = preds.slice(0, end + 1)
+    .filter(p => p.last >= nowMs - 30_000)
+    .filter(p => !(v?.current_status === 'STOPPED_AT' && p.seq === v.current_stop_sequence && !isDropOff(p.id)))
+    .map(p => ({ id: p.id, name: stopOf(p.id)?.attributes?.name ?? p.id, time: p.time, dropOff: isDropOff(p.id) }));
+  let vehicle = null;
+  if (v) {
+    const at = preds.find(p => p.seq === v.current_stop_sequence);
+    const name = at ? stopOf(at.id)?.attributes?.name : null;
+    if (name) vehicle = { status: v.current_status, name };
+  }
+  return { vehicle, stops };
+}
+
 export function rideHeadline(phase, ride, nowMs) {
   const leg = ride.legs[phase.leg];
   switch (phase.kind) {

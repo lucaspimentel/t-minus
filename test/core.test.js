@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, pickTrip, inWindow, countdownState, pollIntervalMs,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -423,6 +423,39 @@ test('tracking: boarding, live leg times, phases, Missed it re-plan', () => {
   assert.deepEqual(replanFrom([buses, trains], 1, at('07:32'), transfers, 'o1').map(v => v.tripId), ['o2']);
   assert.deepEqual(replanFrom([buses, trains], 0, at('07:13'), transfers, 'b1').map(v => v.tripId), ['b2', 'o3']);
   assert.equal(replanFrom([buses, trains], 1, at('08:01'), transfers), null);
+});
+
+test('rideStops: remaining stops to the drop-off and the vehicle', () => {
+  const pred = (stop, seq, t) => ({ attributes: { arrival_time: iso(t), departure_time: iso(t), stop_sequence: seq },
+    relationships: { stop: { data: { id: stop } }, vehicle: { data: { id: 'v1' } } } });
+  const stop = (id, name, parent) => ({ type: 'stop', id, attributes: { name },
+    relationships: { parent_station: { data: parent ? { id: parent } : null } } });
+  const vehicle = (status, seq) => ({ type: 'vehicle', id: 'v1', attributes: { current_status: status, current_stop_sequence: seq } });
+  const doc = (v, ...extra) => ({
+    data: [pred('70030', 120, '07:40'), pred('70026', 100, '07:35'), pred('70028', 110, '07:37'), pred('70036', 130, '07:44'), ...extra],
+    included: [stop('70026', 'Sullivan Square', 'place-sull'), stop('70028', 'Malden Center', 'place-mlmnl'),
+      stop('70030', 'Wellington', 'place-welln'), stop('70036', 'Oak Grove', 'place-ogmnl'), ...(v ? [v] : [])],
+  });
+  const r = rideStops(doc(vehicle('IN_TRANSIT_TO', 100)), 'place-ogmnl', at('07:30'));
+  assert.deepEqual(r.vehicle, { status: 'IN_TRANSIT_TO', name: 'Sullivan Square' });
+  assert.deepEqual(r.stops.map(x => [x.name, x.dropOff]), [
+    ['Sullivan Square', false], ['Malden Center', false], ['Wellington', false], ['Oak Grove', true]]);
+  assert.equal(r.stops[3].time, at('07:44'));
+  // Drop-off by child id; stops after it are cut; stale entries skipped; no vehicle.
+  const after = pred('70099', 140, '07:47');
+  const r2 = rideStops(doc(null, after), '70030', at('07:36'));
+  assert.deepEqual(r2.stops.map(x => x.name), ['Malden Center', 'Wellington']);
+  assert.equal(r2.vehicle, null);
+  // Stopped at a stop: named by the vehicle, not listed (kept while its departure is ahead).
+  const stopped = rideStops(doc(vehicle('STOPPED_AT', 110)), 'place-ogmnl', at('07:30'));
+  assert.equal(stopped.vehicle.name, 'Malden Center');
+  assert.deepEqual(stopped.stops.map(x => x.name), ['Sullivan Square', 'Wellington', 'Oak Grove']);
+  const dwell = { ...pred('70026', 100, '07:35'), attributes: { arrival_time: iso('07:35'), departure_time: iso('07:38'), stop_sequence: 100 } };
+  const d = doc(null);
+  d.data[1] = dwell;
+  assert.equal(rideStops(d, 'place-ogmnl', at('07:37')).stops[0].name, 'Sullivan Square');
+  assert.equal(rideStops(doc(null), 'place-state', at('07:30')), null);
+  assert.equal(rideStops(null, 'place-ogmnl', at('07:30')), null);
 });
 
 test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {

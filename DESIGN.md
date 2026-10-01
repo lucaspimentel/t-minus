@@ -173,6 +173,12 @@ For leaving earlier or later than leave-by. A bar under the status line always o
     "Arrived ~7:56am" (5 min, with Done), then back to the list.
   - Badge (the last leg's arrival source) and "arrive 7:56am"; the timeline (no first walk)
     with the current step bold.
+  - Riding: "Next: State · 9 stops to go" (or "At Downtown Crossing", when stopped there), then
+    the stops left to the drop-off with predicted times: the next 4, "… N more", and the
+    drop-off in bold (`rideStops`). From `/predictions?filter[trip]=<id>&include=stop,vehicle`
+    (only remaining stops are returned; the drop-off matches the leg's `alight` or a child
+    platform of it). Fetched on every poll while riding, and right away when a ride starts; no
+    data (trip id changed, request failed) just hides the section.
   - Leg times refresh every tick by trip id from the per-leg predictions already polled
     (`trackLegs`): live entry, then remembered live times, then schedules, then the stored
     plan. A departed vehicle has no board entry and keeps its stored departure. No extra
@@ -365,6 +371,7 @@ To stay well inside it:
 - Per poll: one `/predictions` request per transit leg of the shown trip.
 - Schedules: one request per transit leg on load, on trip change, and every 15 min.
 - Alerts: one request every 5 min.
+- While riding a tracked trip: one `/predictions?filter[trip]=…` request per poll (60 s).
 - Schedule window: from 30 min ago (for missed rows, with the 15-min refresh) to
   max(6 h, 90 min × `departureCount`) ahead; once it reaches
   22:00 it is extended to the end of the service day (28:00).

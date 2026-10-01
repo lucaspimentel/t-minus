@@ -102,6 +102,11 @@
   .ride-head { font-size: 20px; font-weight: 700; color: var(--green); }
   .row.ride.arrived .ride-head { color: var(--text); }
   .step.current { color: var(--text); font-weight: 600; }
+  .ride-stops { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .ride-where { color: var(--muted); font-size: 13px; margin-bottom: 2px; }
+  .ride-stop { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
+  .ride-stop.drop { font-weight: 600; }
+  .ride-stop.more { color: var(--muted); font-size: 13px; }
   .ride-btns { margin: 10px 0 0; }
   .summary { display: flex; justify-content: space-between; align-items: center; gap: 0 8px; }
   .summary .badge { margin-left: 0; }
@@ -186,7 +191,7 @@
       <button id="reload" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · b2f0997c88</footer>
+    <footer class="version">Version 2026-10-01 · a089f43ed4</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -205,10 +210,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, startEnRoute, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs,
-  trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline,
+  trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=ff601313d9';
-import { openSetup } from './setup.js?v=9de9929309';
+} from './core.js?v=2d0fde533c';
+import { openSetup } from './setup.js?v=52dc1f95e3';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -284,6 +289,25 @@ function fetchPredictions(trip) {
   return Promise.all(tripShape(trip).transit.map(l => api('/predictions', legQuery(l))));
 }
 
+// The ridden vehicle's remaining stops (predictions for its trip) and position.
+function fetchRideStops(tripId) {
+  return api('/predictions', {
+    'filter[trip]': tripId,
+    include: 'stop,vehicle',
+    'fields[prediction]': 'arrival_time,departure_time,stop_sequence',
+    'fields[stop]': 'name,parent_station',
+    'fields[vehicle]': 'current_status,current_stop_sequence',
+  });
+}
+
+// The leg being ridden on the shown trip, if any: { leg, idx }.
+function ridingLeg(now) {
+  const s = enRouteState();
+  if (!s?.ride || !config) return null;
+  const phase = ridePhase(s.ride, tripShape(config.trips[tripIdx]).walkAfter, now);
+  return phase.kind === 'riding' ? { leg: s.ride.legs[phase.leg], idx: phase.leg } : null;
+}
+
 async function fetchAlerts(trip) {
   const { routes } = commuteEntities(trip);
   const doc = await api('/alerts', {
@@ -325,6 +349,14 @@ async function refresh({ force = false } = {}) {
     }
     if (force || !c.alerts || now - c.alerts.at > ALERT_TTL) {
       tasks.push(fetchAlerts(trip).then(a => { c.alerts = a; }));
+    }
+    // While riding: one more request for the vehicle's remaining stops (a failure only hides them).
+    const riding = ridingLeg(now);
+    if (riding) {
+      const tripId = riding.leg.tripId;
+      tasks.push(fetchRideStops(tripId)
+        .then(doc => { c.rideStops = { tripId, doc, at: Date.now() }; })
+        .catch(() => { c.rideStops = { tripId, doc: null, at: Date.now() }; }));
     }
     await Promise.all(tasks);
     // Once today's service is running out, fetch the next service day's morning schedule.
@@ -552,6 +584,12 @@ function render() {
   }));
 
   const en = syncEnRoute(now);
+  // A new leg being ridden: fetch its stops now rather than at the next poll.
+  const riding = en?.ride && ridingLeg(now);
+  if (riding && cache[tripIdx]?.rideStops?.tripId !== riding.leg.tripId && rideFetchFor !== riding.leg.tripId && !inFlight) {
+    rideFetchFor = riding.leg.tripId;
+    setTimeout(() => refresh());
+  }
   if (en?.ride) {
     renderEnRoute(now, false, true);
     $('rows').replaceChildren(renderRideCard(en, now));
@@ -600,6 +638,7 @@ function goEnRoute(kind) {
 // Trip card while riding: phase and live arrival, the timeline with the current step, and
 // Missed it / Cancel.
 let rideNote = null; // e.g. "No later connection" after Missed it
+let rideFetchFor = null; // trip id whose stops were last requested outside the poll
 function renderRideCard(s, now) {
   const trip = config.trips[tripIdx];
   const { walkAfter } = tripShape(trip);
@@ -611,6 +650,24 @@ function renderRideCard(s, now) {
   const summary = el('div', 'detail summary');
   summary.append(badge(last.arrSource ?? last.source), el('span', 'arrive', `arrive ${formatTime(phase.eta, now)}`));
   li.append(summary);
+  // Riding: where the vehicle is and the stops left to the drop-off (next 4, "… N more", drop-off).
+  const rs = cache[tripIdx]?.rideStops;
+  const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
+  const stops = leg && rs?.tripId === leg.tripId && rideStops(rs.doc, tripShape(trip).transit[phase.leg].alight, now);
+  if (stops && stops.stops.length) {
+    const box = el('div', 'ride-stops');
+    const n = stops.stops.length;
+    const where = stops.vehicle ? `${stops.vehicle.status === 'STOPPED_AT' ? 'At' : 'Next:'} ${stops.vehicle.name} · ` : '';
+    box.append(el('div', 'ride-where', `${where}${n} stop${n === 1 ? '' : 's'} to go`));
+    const shown = n > 5 ? [...stops.stops.slice(0, 4), null, stops.stops[n - 1]] : stops.stops;
+    for (const st of shown) {
+      if (!st) { box.append(el('div', 'ride-stop more', `… ${n - 5} more`)); continue; }
+      const line = el('div', `ride-stop${st.dropOff ? ' drop' : ''}`);
+      line.append(el('span', null, st.name), el('span', null, formatTime(st.time, now)));
+      box.append(line);
+    }
+    li.append(box);
+  }
   // Timeline with the current step: the leg being ridden, the transfer before a leg, or the
   // final walk.
   const steps = timelineSteps({ legs: ride.legs, eta: phase.eta, enRoute: true }, trip, 0, now);
