@@ -92,6 +92,11 @@
   }
   .badge.live { border-color: var(--green); color: var(--green); }
   .row { cursor: pointer; }
+  .strip { display: flex; align-items: center; margin: 4px 0 2px; font-size: 14px; white-space: nowrap; overflow: hidden; }
+  .strip .seg { flex: 0 0 16px; height: 2px; background: var(--border); }
+  .strip .seg:first-child, .strip .seg:last-child { flex-basis: 10px; }
+  .strip .stop { margin-right: 6px; }
+  .strip .dot { margin-right: 4px; vertical-align: -1px; }
   .summary { display: flex; justify-content: space-between; align-items: center; gap: 0 8px; }
   .summary .badge { margin-left: 0; }
   .arrive { margin-left: auto; white-space: nowrap; }
@@ -175,7 +180,7 @@
       <button id="reload" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · bc9a276ff1</footer>
+    <footer class="version">Version 2026-10-01 · 56808103b5</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -456,6 +461,15 @@ function renderRow(r, now, isCatch) {
     // Collapsed: the live/scheduled badge of the timing leg (the first leg on missed and
     // en-route rows), and the arrival under the leave time. Tap to expand for the legs.
     const shown = r.legs[firstLeg ? 0 : r.timingIdx];
+    // Leg strip: the timeline's rail and dots, laid out horizontally.
+    const strip = el('div', 'strip');
+    for (const leg of r.legs) {
+      const stop = el('span', 'stop');
+      stop.append(dot(leg.color), leg.label);
+      strip.append(el('span', 'seg'), stop);
+    }
+    strip.append(el('span', 'seg'));
+    li.append(strip);
     const summary = el('div', 'detail summary');
     summary.append(badge(shown.source), el('span', 'arrive', `arrive ${formatTime(r.eta, now)}`));
     li.append(summary);
