@@ -63,6 +63,9 @@ export function validateConfig(cfg) {
         else if (l.stop === l.alight) errors.push(`${q}.stop and .alight must differ.`);
         if (l.label !== undefined && typeof l.label !== 'string') errors.push(`${q}.label must be a string.`);
         if (l.color !== undefined && !COLOR_RE.test(l.color)) errors.push(`${q}.color must be a 6-digit hex color like "ED8B00".`);
+        for (const k of ['lat', 'lon']) {
+          if (l[k] !== undefined && !Number.isFinite(l[k])) errors.push(`${q}.${k} must be a number.`);
+        }
       } else {
         errors.push(`${q}.kind must be walk, transfer, or transit.`);
       }
@@ -73,6 +76,8 @@ export function validateConfig(cfg) {
         parseHHMM(w.from) < 24 * 60 && parseHHMM(w.to) <= 24 * 60;
       if (!ok) errors.push(`${p} window must be { "from": "HH:MM", "to": "HH:MM" } (to may be 24:00).`);
     }
+    if (t.near !== undefined && t.near !== true) errors.push(`${p} near must be true if present.`);
+    if (t.near === true && t.window != null) errors.push(`${p} can't have both near and window.`);
     if (t.timingLeg !== undefined && t.timingLeg !== null &&
         !(Number.isInteger(t.timingLeg) && t.timingLeg >= 0 && t.timingLeg < transitCount)) {
       errors.push(`${p} timingLeg must be a transit leg index from 0 to ${transitCount - 1}.`);
@@ -127,6 +132,7 @@ export function tripToForm(trip) {
   return {
     name: trip.name ?? '',
     window: trip.window ? { ...trip.window } : null,
+    near: trip.near === true,
     timingLeg: Number.isInteger(trip.timingLeg) ? trip.timingLeg : null,
     walkBefore,
     walkAfter,
@@ -138,10 +144,11 @@ export function tripToForm(trip) {
   };
 }
 
-// A transit leg's stored label and color, when present.
+// A transit leg's stored label, color, and board stop coordinates, when present.
 const routeLook = l => ({
   ...(l.label !== undefined && { label: l.label }),
   ...(l.color !== undefined && { color: l.color }),
+  ...(l.lat !== undefined && { lat: l.lat, lon: l.lon }),
 });
 
 export function formToTrip(form) {
@@ -154,6 +161,7 @@ export function formToTrip(form) {
   if (form.walkAfter > 0) legs.push({ kind: 'walk', minutes: form.walkAfter });
   const trip = { name: form.name };
   if (form.window) trip.window = { ...form.window };
+  else if (form.near) trip.near = true;
   if (Number.isInteger(form.timingLeg)) trip.timingLeg = form.timingLeg;
   trip.legs = legs;
   return trip;
@@ -242,6 +250,52 @@ export function reverseTrip(trip) {
     walkAfter: form.walkBefore,
     transit,
   });
+}
+
+// Sets each transit leg's board stop coordinates (`lat`, `lon`) from loaded /stops docs (a child
+// platform id takes its listed parent's); legs whose docs aren't loaded keep what they have.
+export function locateLegs(cfg, stopsByKey) {
+  return {
+    ...cfg,
+    trips: cfg.trips.map(t => ({
+      ...t,
+      legs: t.legs.map(l => {
+        if (l.kind !== 'transit') return l;
+        const listed = stopsByKey.get(stopsKey(l.route, l.direction_id))?.data ?? [];
+        const s = listed.find(x => x.id === l.stop || (x.relationships?.child_stops?.data ?? []).some(c => c.id === l.stop));
+        const { latitude: lat, longitude: lon } = s?.attributes ?? {};
+        return Number.isFinite(lat) && Number.isFinite(lon) ? { ...l, lat, lon } : l;
+      }),
+    })),
+  };
+}
+
+// Approximate distance in meters (equirectangular; fine at city scale).
+export function distanceMeters(a, b) {
+  const k = Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+  const dy = (a.lat - b.lat) * 111_320;
+  const dx = (a.lon - b.lon) * 111_320 * k;
+  return Math.hypot(dx, dy);
+}
+
+export const NEAR_METERS = 1000;
+
+// Trip to show for a position `{ lat, lon }`, or -1: among `near` trips with first-stop
+// coordinates, the nearest within NEAR_METERS that is at least 2x closer than any `near` trip
+// with a different first stop. Trips sharing the first stop go by list order.
+export function pickByLocation(trips, pos) {
+  const cands = [];
+  trips.forEach((t, i) => {
+    const first = t.near === true && t.legs.find(l => l.kind === 'transit');
+    if (first && Number.isFinite(first.lat) && Number.isFinite(first.lon)) {
+      cands.push({ i, stop: first.stop, d: distanceMeters(pos, first) });
+    }
+  });
+  if (!cands.length) return -1;
+  const best = cands.reduce((a, b) => (b.d < a.d ? b : a));
+  if (best.d > NEAR_METERS) return -1;
+  const rival = Math.min(...cands.filter(c => c.stop !== best.stop).map(c => c.d));
+  return rival >= 2 * best.d ? best.i : -1;
 }
 
 // The stop (JSON:API resource with latitude/longitude) closest to a point.
@@ -409,12 +463,14 @@ function nextWindowStart(ms, trips) {
 }
 
 // Trip index to show: a manual override `{ index, setAt }` holds until the next window start
-// after it was set; otherwise the first trip whose window contains now; otherwise the last used.
-export function pickTrip(nowMs, cfg, override, lastUsed) {
+// after it was set; then a location match (`located`, from pickByLocation); then the first trip
+// whose window contains now; otherwise the last used.
+export function pickTrip(nowMs, cfg, override, lastUsed, located = -1) {
   const n = cfg.trips.length;
   if (override && override.index >= 0 && override.index < n && nowMs < nextWindowStart(override.setAt, cfg.trips)) {
     return override.index;
   }
+  if (located >= 0 && located < n) return located;
   const m = minuteOfDay(nowMs);
   const inside = cfg.trips.findIndex(t => t.window && inWindow(m, t.window));
   if (inside >= 0) return inside;
@@ -713,10 +769,10 @@ export function formatTime(ms, nowMs) {
   return `${weekdayFmt.format(new Date(ms))} ${t}`;
 }
 
-// A trip's time window for the setup list: "Any time", or "6:00am–12:00pm" ("midnight" for
+// A trip's time window for the setup list: "When chosen", or "6:00am–12:00pm" ("midnight" for
 // 00:00 and 24:00).
 export function windowLabel(window) {
-  if (!window) return 'Any time';
+  if (!window) return 'When chosen';
   const clock = s => {
     const [h, m] = s.split(':').map(Number);
     if (h % 24 === 0 && m === 0) return 'midnight';

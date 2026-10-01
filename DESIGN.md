@@ -121,9 +121,19 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:05`
 
 1. A manual switch (`{ index, setAt }` in `localStorage`) holds until the next time any
    trip's window starts after it was set (forever if no trip has a window).
-2. Otherwise the first trip whose `window` contains now (`to < from` crosses midnight;
+2. Otherwise a location match (`pickByLocation`): among trips with `near: true` and stored
+   first-stop coordinates, the nearest first stop within 1 km of the phone that is at least 2×
+   closer than any such trip with a different first stop (shared first stop: list order).
+3. Otherwise the first trip whose `window` contains now (`to < from` crosses midnight;
    `from == to` is the whole day; overlapping windows: first in the list wins).
-3. Otherwise the last trip used.
+4. Otherwise the last trip used (so a location pick sticks after walking away).
+
+Location is requested only when some trip has `near` (choosing "When I'm near its first
+stop" in the trip screen triggers the permission prompt): `getCurrentPosition` (low accuracy,
+fix up to 5 min old, 10 s timeout) on launch and on return to the foreground, not while the
+app stays open. The fallback trip shows first and the app switches when the fix arrives; it
+never switches away from a trip with an active "Leaving now" / "At the stop". Denied or
+unavailable: fallback, and the status line adds "Location off".
 
 ### Countdown states
 
@@ -218,6 +228,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 
 - `departureCount`, `stopSlackMinutes`, `wakeMinutes`, `apiKey`: optional, app-wide.
 - `trips[].window`: optional `HH:MM` range; `to` may be `24:00`.
+- `trips[].near`: optional `true` (show when near the first stop); exclusive with `window`.
+  Neither: shown only when chosen (or as the last used trip).
+- `legs[].lat`, `legs[].lon` (transit): board stop coordinates, set by setup at save time
+  (`locateLegs`; only the first leg's are used).
 - `trips[].timingLeg`: optional, 0-based index among the trip's **transit** legs; pins the
   timing leg.
 - Transit legs: `route`, `direction_id` (0/1), board `stop`, `alight` stop (both required;
@@ -236,7 +250,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   shown, minutes early at the stop, minutes to keep the screen on before leave-by, API key), Export/Import, and "Reload app" (reloads the
   page, e.g. to pick up a new version in the installed PWA). Done saves changed app-wide
   fields and closes setup; it is disabled until a trip has been saved.
-- Trip screen (tap a row, or "Add trip"): name, optional time window, time to the first stop
+- Trip screen (tap a row, or "Add trip"): name, "Show automatically" (During a time window,
+  with from/until fields / When I'm near its first stop / Never (only when chosen)), time to the first stop
   and from the last stop, transit legs with a transfer time between them, "Add return trip",
   "Delete trip" (hidden for the only trip). Cancel discards the edits; Save checks and stores the whole config right
   away, then returns to the list. First run opens an empty trip directly; its top-left button is Import (opens the list with

@@ -172,7 +172,7 @@
       <button id="reload" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · 0ba20fadf5</footer>
+    <footer class="version">Version 2026-10-01 · bdc949488c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -188,12 +188,12 @@
 </script>
 <script type="module">
 import {
-  validateConfig, tripShape, commuteEntities, pickTrip, scheduleWindow, nextServiceWindow, fillRows,
+  validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, startEnRoute, withTarget, enRouteActive, enRouteStatus, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=bc52e6a0cf';
-import { openSetup } from './setup.js?v=581259f4de';
+} from './core.js?v=80db90acfa';
+import { openSetup } from './setup.js?v=f904492846';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -498,7 +498,8 @@ function render() {
       : `Error: ${lastError}`;
   } else {
     status.className = notice ? 'status stale' : 'status';
-    status.textContent = [lastOk ? `Updated ${formatTime(lastOk)}` : 'Loading…', notice].filter(Boolean).join(' · ');
+    status.textContent = [lastOk ? `Updated ${formatTime(lastOk)}` : 'Loading…', notice,
+      locationOff && usesLocation() && 'Location off'].filter(Boolean).join(' · ');
   }
 
   $('alerts').replaceChildren(...currentAlerts(now).map(a => {
@@ -602,7 +603,8 @@ function showSetup() {
       lastTiming.clear();
       lastOk = null;
       notice = warning;
-      tripIdx = pickTrip(Date.now(), config, null, store.get(KEY_LAST_TRIP));
+      tripIdx = pickTrip(Date.now(), config, null, store.get(KEY_LAST_TRIP), located());
+      locate(); // the saved trips may now use location
     },
   });
 }
@@ -621,17 +623,41 @@ $('open-setup').onclick = showSetup;
 
 $('refresh').onclick = () => refresh({ force: true });
 
-setInterval(() => {
-  if (document.hidden || setupView) return;
-  // Switch trips when a trip window starts (a manual override expires at that point).
-  const t = config ? pickTrip(Date.now(), config, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP)) : tripIdx;
+// Location for "near" trips: the last fix, re-taken on launch and on return to the app.
+let here = null;
+let locationOff = false;
+const usesLocation = () => !!config?.trips.some(t => t.near === true);
+const located = () => (here && config ? pickByLocation(config.trips, here) : -1);
+
+function locate() {
+  if (!usesLocation() || !navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(p => {
+    here = { lat: p.coords.latitude, lon: p.coords.longitude };
+    locationOff = false;
+    autoSwitch();
+  }, () => {
+    locationOff = true;
+    render();
+  }, { enableHighAccuracy: false, maximumAge: 5 * 60_000, timeout: 10_000 });
+}
+
+// Switches to the trip pickTrip chooses (a window starting, a location fix), but not away from
+// a trip with an active "Leaving now" / "At the stop".
+function autoSwitch() {
+  if (!config || setupView) return;
+  const t = enRouteState() ? tripIdx : pickTrip(Date.now(), config, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP), located());
   if (t !== tripIdx) setTrip(t, false);
   else render();
+}
+
+setInterval(() => {
+  if (document.hidden || setupView) return;
+  autoSwitch();
 }, 1000);
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) clearTimeout(pollTimer);
-  else if (!setupView) refresh();
+  else if (!setupView) { refresh(); locate(); }
 });
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
@@ -640,7 +666,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 
 window.appStarted = true;
 render();
-if (config) refresh({ force: true });
+if (config) { refresh({ force: true }); locate(); }
 else showSetup(); // first run: nothing to show until a trip is set up
 </script>
 </body>

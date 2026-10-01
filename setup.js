@@ -2,10 +2,10 @@
 // pickers. Each trip is saved on its own. Pure helpers live in core.js; this module owns the DOM
 // and the setup-time requests.
 import {
-  validateConfig, checkStops, stopQueries, stopsKey, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
+  validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, stopsAfter, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=bc52e6a0cf';
+} from './core.js?v=80db90acfa';
 
 const ROUTE_LIMIT = 60;
 
@@ -27,7 +27,7 @@ function h(tag, props = {}, ...children) {
   return e;
 }
 
-const emptyTrip = n => ({ name: n === 0 ? 'My trip' : `Trip ${n + 1}`, window: null, timingLeg: null, walkBefore: 5, walkAfter: 5, transit: [] });
+const emptyTrip = n => ({ name: n === 0 ? 'My trip' : `Trip ${n + 1}`, window: null, near: false, timingLeg: null, walkBefore: 5, walkAfter: 5, transit: [] });
 const numberValue = v => (v === '' ? NaN : Number(v));
 const info = text => ({ text, err: false });
 const errs = list => list.map(text => ({ text, err: true }));
@@ -134,6 +134,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // Every save refreshes the legs' stored labels and colors when the route list is loaded.
   function persist(cfg, warning = null) {
     if (routes) cfg = labelLegs(cfg, routes);
+    cfg = locateLegs(cfg, stopDocs); // first-stop coordinates for "near" trips
     saved = cfg;
     onSave(cfg, warning);
     listMessages = warning ? [info(warning)] : [];
@@ -222,7 +223,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     return h('div', { class: 'trip-row' },
       h('button', { type: 'button', class: 'item', onclick: () => openTrip(i) },
         h('b', {}, t.name),
-        h('div', { class: 'muted' }, `${windowLabel(t.window)} · `, ...chain)),
+        h('div', { class: 'muted' }, `${t.near ? 'Near first stop' : windowLabel(t.window)} · `, ...chain)),
       h('button', { type: 'button', 'aria-label': `Move ${t.name} up`, disabled: i === 0, onclick: () => moveTrip(i, -1) }, '↑'),
       h('button', { type: 'button', 'aria-label': `Move ${t.name} down`, disabled: i === n - 1, onclick: () => moveTrip(i, 1) }, '↓'));
   }
@@ -326,9 +327,25 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     return [...routeTag(l), ` toward ${destination(l.route, l.direction_id)} · ${stopName(l.route, l.direction_id, l.stop)} → ${stopName(l.route, l.direction_id, l.alight)}`];
   }
 
+  // Choosing "near" asks for location now (the iOS prompt), not later on the main screen.
+  function askLocation() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(() => {}, err => {
+      if (err.code !== err.PERMISSION_DENIED || !editing) return;
+      editing.messages = errs(['Location is off for this app; this trip will only show when chosen or last used.']);
+      render();
+    }, { maximumAge: 5 * 60_000, timeout: 10_000 });
+  }
+
   function tripScreen() {
     const t = editing.form;
-    const anyTime = !t.window;
+    const mode = t.window ? 'window' : t.near ? 'near' : 'never';
+    const setMode = m => {
+      t.window = m === 'window' ? (t.window ?? { from: '06:00', to: '12:00' }) : null;
+      t.near = m === 'near';
+      if (t.near) askLocation();
+      render();
+    };
     const timeInput = key => h('input', {
       type: 'time',
       value: t.window?.[key] === '24:00' ? '00:00' : (t.window?.[key] ?? ''),
@@ -376,10 +393,12 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('div', { class: 'card' },
         h('label', { class: 'field' }, 'Trip name',
           h('input', { type: 'text', value: t.name, oninput: e => { t.name = e.target.value; } })),
-        h('label', { class: 'check' },
-          h('input', { type: 'checkbox', checked: anyTime, onchange: e => { t.window = e.target.checked ? null : { from: '06:00', to: '12:00' }; render(); } }),
-          'Any time (show only when chosen)'),
-        !anyTime && h('div', { class: 'row2' },
+        h('label', { class: 'field' }, 'Show automatically',
+          h('select', { onchange: e => setMode(e.target.value) },
+            h('option', { value: 'window', selected: mode === 'window' }, 'During a time window'),
+            h('option', { value: 'near', selected: mode === 'near' }, "When I'm near its first stop"),
+            h('option', { value: 'never', selected: mode === 'never' }, 'Never (only when chosen)'))),
+        mode === 'window' && h('div', { class: 'row2' },
           h('label', { class: 'field' }, 'Shown from', timeInput('from')),
           h('label', { class: 'field' }, 'until', timeInput('to'))),
         numberField('Time to first stop (min)', t.walkBefore, v => { t.walkBefore = v; }),

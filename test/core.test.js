@@ -6,7 +6,7 @@ import {
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, withTarget, enRouteActive, enRouteStatus, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, stopQueries, checkStops, stopsKey, tripLabel,
-  tripToForm, formToTrip, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
+  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
 } from '../core.js';
 
@@ -127,6 +127,60 @@ test('inWindow handles normal, midnight-crossing, and whole-day windows', () => 
   assert.ok(inWindow(m('01:00'), { from: '22:00', to: '02:00' }));
   assert.ok(!inWindow(m('03:00'), { from: '22:00', to: '02:00' }));
   assert.ok(inWindow(m('03:00'), { from: '06:00', to: '06:00' }));
+});
+
+test('location: near trips, first-stop coordinates, pickByLocation, precedence', () => {
+  // Config: near is exclusive with window; coordinates are numbers.
+  const near = structuredClone(EXAMPLE);
+  near.trips.forEach(t => { delete t.window; t.near = true; });
+  assert.deepEqual(validateConfig(near), []);
+  const both = structuredClone(near);
+  both.trips[0].window = { from: '06:00', to: '12:00' };
+  assert.deepEqual(validateConfig(both), [`Trip "${both.trips[0].name}": can't have both near and window.`]);
+  const bad = structuredClone(near);
+  bad.trips[0].near = 'yes';
+  bad.trips[0].legs[1].lat = 'x';
+  assert.deepEqual(validateConfig(bad), [
+    `Trip "${bad.trips[0].name}": legs[1].lat must be a number.`, `Trip "${bad.trips[0].name}": near must be true if present.`]);
+
+  // locateLegs: board stop (or a child platform) → coordinates; unloaded docs keep what they have.
+  const stopsDoc = (...stops) => ({ data: stops.map(([id, lat, lon, children = []]) => ({
+    id, attributes: { latitude: lat, longitude: lon }, relationships: { child_stops: { data: children.map(c => ({ id: c })) } } })) });
+  const docs = new Map([
+    ['132/1', stopsDoc(['25996', 42.43, -71.07], ['5991', 42.44, -71.08])],
+    ['Orange/1', stopsDoc(['place-ogmnl', 42.437, -71.071, ['70036']])],
+  ]);
+  const cfg = { trips: [{ name: 'T', near: true, legs: [
+    { kind: 'transit', route: '132', direction_id: 1, stop: '25996', alight: '5991' },
+    { kind: 'transit', route: 'Orange', direction_id: 1, stop: '70036', alight: 'place-state' },
+    { kind: 'transit', route: '99', direction_id: 0, stop: 'a', alight: 'b', lat: 1, lon: 2 }] }] };
+  const located = locateLegs(cfg, docs).trips[0].legs;
+  assert.deepEqual(located.map(l => [l.lat, l.lon]), [[42.43, -71.07], [42.437, -71.071], [1, 2]]);
+  // Coordinates survive the setup form.
+  assert.deepEqual(formToTrip(tripToForm({ ...cfg.trips[0], legs: located })), { ...cfg.trips[0], legs: located });
+
+  // distanceMeters: 0.01° latitude ≈ 1113 m.
+  assert.equal(Math.round(distanceMeters({ lat: 42.40, lon: -71.07 }, { lat: 42.41, lon: -71.07 })), 1113);
+
+  // pickByLocation: within 1 km and 2x closer than a different first stop.
+  const trip = (name, lat, stop = name, extra = { near: true }) =>
+    ({ name, ...extra, legs: [{ kind: 'transit', route: 'R', direction_id: 0, stop, alight: 'z', lat, lon: -71.07 }] });
+  const home = trip('home', 42.400);
+  const work = trip('work', 42.360);
+  const pos = lat => ({ lat, lon: -71.07 });
+  assert.equal(pickByLocation([home, work], pos(42.401)), 0);
+  assert.equal(pickByLocation([home, work], pos(42.361)), 1);
+  assert.equal(pickByLocation([home, work], pos(42.420)), -1); // 2.2 km from home
+  assert.equal(pickByLocation([home, trip('close', 42.405)], pos(42.4025)), -1); // no clear winner
+  assert.equal(pickByLocation([trip('a', 42.400, 's'), trip('b', 42.400, 's')], pos(42.401)), 0); // same stop: list order
+  assert.equal(pickByLocation([trip('w', 42.400, 'w', { window: { from: '06:00', to: '12:00' } })], pos(42.401)), -1);
+  assert.equal(pickByLocation([{ name: 'x', near: true, legs: [] }], pos(42.4)), -1);
+
+  // pickTrip: override > location > window > last used.
+  const cfgW = { trips: [{ ...work, near: undefined, window: { from: '06:00', to: '12:00' } }, home] };
+  assert.equal(pickTrip(at('08:00'), cfgW, null, 0, 1), 1);
+  assert.equal(pickTrip(at('08:00'), cfgW, null, 1, -1), 0);
+  assert.equal(pickTrip(at('08:00'), cfgW, { index: 0, setAt: at('07:59') }, 1, 1), 0);
 });
 
 test('pickTrip: windows, overlap order, override expiry, last used', () => {
@@ -432,7 +486,7 @@ test('countdownLabel text per state', () => {
 });
 
 test('windowLabel formats trip windows for the setup list', () => {
-  assert.equal(windowLabel(null), 'Any time');
+  assert.equal(windowLabel(null), 'When chosen');
   assert.equal(windowLabel({ from: '06:00', to: '12:00' }), '6:00am–12:00pm');
   assert.equal(windowLabel({ from: '12:00', to: '24:00' }), '12:00pm–midnight');
   assert.equal(windowLabel({ from: '22:30', to: '02:15' }), '10:30pm–2:15am');
