@@ -200,7 +200,8 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 - Trip screen (tap a row, or "Add trip"): name, optional time window, time to the first stop
   and from the last stop, transit legs with a transfer time between them, "Add return trip",
   "Delete trip" (hidden for the only trip). Cancel discards the edits; Save checks and stores the whole config right
-  away, then returns to the list. First run opens an empty trip directly, without Cancel.
+  away, then returns to the list. First run opens an empty trip directly; its top-left button is Import (opens the list with
+  the import box) instead of Cancel.
 - Reordering and deleting trips also save right away.
 - The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
   canonical legs back, omitting zero-minute walks and transfers.

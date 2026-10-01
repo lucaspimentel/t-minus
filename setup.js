@@ -364,7 +364,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const isSaved = editing.idx != null;
     return [
       h('div', { class: 'setup-head' },
-        savedTrips().length ? h('button', { type: 'button', onclick: () => { editing = null; render(); } }, 'Cancel') : h('span'),
+        savedTrips().length
+          ? h('button', { type: 'button', onclick: () => { editing = null; render(); } }, 'Cancel')
+          // First run: no list to cancel back to; offer the list's import box instead.
+          : h('button', { type: 'button', id: 'setup-import', onclick: () => { editing = null; ioArea = { mode: 'import', text: '' }; render(); } }, 'Import'),
         h('b', {}, isSaved ? 'Edit trip' : 'New trip'),
         h('button', { type: 'button', class: 'primary', id: 'setup-save', disabled: busy, onclick: saveTrip }, 'Save')),
       ...editing.messages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)),
