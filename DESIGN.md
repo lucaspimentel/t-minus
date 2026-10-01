@@ -168,8 +168,11 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Per departure: countdown/state with the leave-by time right-aligned ("Leave in 12 min   8:04am"),
   then collapsed "● Bus 132 8:10am → 8:56am" (timing leg departure with its source badge, then
   arrival). All times use the compact "8:04am" form (`formatTime`), with the weekday prefixed
-  across dates. Tapping a row expands one line per leg ("● Orange 8:30am → 8:45am") with
-  its own badge, the timing leg in bold; tap again to collapse. Expanded rows are remembered
+  across dates. Tapping a row replaces the summary with a timeline under a divider, steps
+  joined by a rail through the route dots: "Walk 5 min · 1 min early at the stop" (the slack
+  part only when > 0; no first walk on en-route rows), "● Bus 132 8:10am → 8:20am LIVE" per
+  leg, "9 min to transfer" (the actual gap: next departure − previous arrival), and
+  "Walk 10 min · arrive 8:56am" (`timelineSteps`); tap again to collapse. Expanded rows are remembered
   by the timing vehicle's trip id while the page is open.
 - Route labels are short: rail by line ("Orange", "Green B", "Mattapan"), Silver Line as
   "Silver SL1", other buses as "Bus 132" / "Bus CT3". The dot is the route's MBTA color

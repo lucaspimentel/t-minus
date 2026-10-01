@@ -600,6 +600,24 @@ export function keepAwake(rows, nowMs, minutes) {
   return minutes > 0 && rows.some(r => !r.missed && r.leaveBy != null && nowMs >= r.leaveBy - minutes * MIN && nowMs < r.lastChance);
 }
 
+// Steps of an expanded row: walk to the first stop (not en route; with the stop slack), legs,
+// the actual gap at each transfer, and the final walk with the arrival time.
+export function timelineSteps(row, trip, slackMinutes, nowMs) {
+  const { walkBefore, walkAfter } = tripShape(trip);
+  const steps = [];
+  if (!row.enRoute) {
+    const parts = [walkBefore > 0 && `Walk ${walkBefore} min`, slackMinutes > 0 && `${slackMinutes} min early at the stop`].filter(Boolean);
+    if (parts.length) steps.push({ kind: 'walk', text: parts.join(' · ') });
+  }
+  row.legs.forEach((leg, i) => {
+    if (i > 0) steps.push({ kind: 'walk', text: `${formatCountdown(leg.dep - row.legs[i - 1].arr)} to transfer` });
+    steps.push({ kind: 'leg', leg });
+  });
+  const arrive = formatTime(row.eta, nowMs);
+  steps.push({ kind: 'walk', text: walkAfter > 0 ? `Walk ${walkAfter} min · arrive ${arrive}` : `Arrive ${arrive}` });
+  return steps;
+}
+
 // State of a row: 'enroute' for a reachable en-route row, else countdownState.
 export function rowState(nowMs, row) {
   if (row.enRoute && nowMs < row.lastChance) return 'enroute';

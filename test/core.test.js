@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, startEnRoute, withTarget, enRouteActive, enRouteStatus, pickTrip, inWindow, countdownState, pollIntervalMs,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, withTarget, enRouteActive, enRouteStatus, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -316,6 +316,27 @@ test('en route: reachability from the at-stop time, no leave-by', () => {
   assert.equal(enRouteStatus(stop, at('07:39')), 'At the stop since 7:38am');
   assert.equal(pollIntervalMs(rowsAt('07:00', leaving), at('07:00')), 60_000);
   assert.equal(keepAwake(rowsAt('07:30', leaving), at('07:30'), 10), false);
+});
+
+test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {
+  const buses = [veh('b1', '10:24', '10:34', 'live')];
+  const trains = [veh('o1', '10:43', '10:57', 'live')];
+  const [row] = tripRows(homeToOffice, [buses, trains], 0, at('10:00'), 1);
+  const texts = steps => steps.map(s => (s.kind === 'leg' ? `[${s.leg.route} ${s.leg.source}]` : s.text));
+  assert.deepEqual(texts(timelineSteps(row, homeToOffice, 1, at('10:00'))), [
+    'Walk 5 min · 1 min early at the stop', '[132 live]', '9 min to transfer', '[Orange live]',
+    'Walk 10 min · arrive 11:07am',
+  ]);
+  assert.equal(timelineSteps(row, homeToOffice, 0, at('10:00'))[0].text, 'Walk 5 min');
+  // En route: no first walk.
+  assert.equal(texts(timelineSteps({ ...row, enRoute: true }, homeToOffice, 1, at('10:00')))[0], '[132 live]');
+  // No walks configured: slack only, then "Arrive".
+  const bare = { legs: homeToOffice.legs.filter(l => l.kind !== 'walk') };
+  const tight = { ...row, legs: [row.legs[0], { ...row.legs[1], dep: row.legs[0].arr + 30_000 }], eta: at('10:57') };
+  assert.deepEqual(texts(timelineSteps(tight, bare, 1, at('10:00'))), [
+    '1 min early at the stop', '[132 live]', '<1 min to transfer', '[Orange live]', 'Arrive 10:57am',
+  ]);
+  assert.equal(timelineSteps(tight, bare, 0, at('10:00'))[0].kind, 'leg');
 });
 
 test('tripRows: only the most recent missed ride', () => {

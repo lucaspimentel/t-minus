@@ -90,9 +90,16 @@
     padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); margin-left: 6px; vertical-align: 2px;
   }
   .badge.live { border-color: var(--green); color: var(--green); }
-  .leg.timing { color: var(--text); font-weight: 600; }
   .row { cursor: pointer; }
-  .leg:first-of-type { margin-top: 6px; }
+  /* Expanded row: steps under a divider, joined by a rail through the route dots. */
+  .timeline { position: relative; border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; }
+  .timeline::before {
+    content: ''; position: absolute; left: 4px; top: 14px; bottom: 10px; width: 2px; background: var(--border);
+  }
+  .step { position: relative; padding: 3px 0 3px 22px; font-variant-numeric: tabular-nums; }
+  .step.walk { font-size: 13px; color: var(--muted); }
+  .step.leg { font-size: 14px; }
+  .step.leg .dot { position: absolute; left: 0; top: calc(3px + .4em); margin: 0; }
   .empty { color: var(--muted); padding: 16px 0; }
   .enroute-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 14px; color: var(--muted); }
   .enroute-bar button {
@@ -164,7 +171,7 @@
       <button id="reload" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · a28a3e5e21</footer>
+    <footer class="version">Version 2026-10-01 · 34f0940a6c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -182,10 +189,10 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
-  rowState, startEnRoute, withTarget, enRouteActive, enRouteStatus, pollIntervalMs,
+  rowState, timelineSteps, startEnRoute, withTarget, enRouteActive, enRouteStatus, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=b6b570a240';
-import { openSetup } from './setup.js?v=8cfa323f8c';
+} from './core.js?v=bc52e6a0cf';
+import { openSetup } from './setup.js?v=581259f4de';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -434,26 +441,31 @@ function renderRow(r, now, isCatch) {
   const target = state === 'red' ? r.lastChance : firstLeg ? r.firstDep : r.leaveBy;
   head.append(el('span', null, countdownLabel(state, target - now, r.legs[0].label)), el('span', 'at', formatTime(target, now)));
   li.append(head);
-  // Collapsed: the timing leg (the first leg, the one missed, on a missed row) with its badge,
-  // and arrival. Tap to expand.
-  const shown = r.legs[firstLeg ? 0 : r.timingIdx];
-  const summary = el('div', 'detail');
-  summary.append(dot(shown.color), `${shown.label} ${formatTime(shown.dep, now)}`, badge(shown.source), ` → ${formatTime(r.eta, now)}`);
-  li.append(summary);
   const key = rowKey(r);
-  li.setAttribute('aria-expanded', String(expandedRows.has(key)));
+  const expanded = expandedRows.has(key);
+  li.setAttribute('aria-expanded', String(expanded));
   li.onclick = () => {
     if (!expandedRows.delete(key)) expandedRows.add(key);
     render();
   };
-  // Expanded: one line per leg, each with its own live/scheduled badge; the timing leg is bold.
-  if (expandedRows.has(key)) {
-    r.legs.forEach((leg, i) => {
-      const line = el('div', i === r.timingIdx ? 'detail leg timing' : 'detail leg');
-      line.append(dot(leg.color), `${leg.label} ${formatTime(leg.dep, now)} → ${formatTime(leg.arr, now)}`, badge(leg.source));
-      li.append(line);
-    });
+  if (!expanded) {
+    // Collapsed: the timing leg (the first leg on missed and en-route rows) with its badge, and
+    // arrival. Tap to expand.
+    const shown = r.legs[firstLeg ? 0 : r.timingIdx];
+    const summary = el('div', 'detail');
+    summary.append(dot(shown.color), `${shown.label} ${formatTime(shown.dep, now)}`, badge(shown.source), ` → ${formatTime(r.eta, now)}`);
+    li.append(summary);
+    return li;
   }
+  // Expanded: the timeline replaces the summary (walks, legs with their badges, transfers).
+  const timeline = el('div', 'timeline');
+  for (const s of timelineSteps(r, config.trips[tripIdx], stopSlackMinutes(config), now)) {
+    if (s.kind === 'walk') { timeline.append(el('div', 'step walk', s.text)); continue; }
+    const line = el('div', 'step leg');
+    line.append(dot(s.leg.color), `${s.leg.label} ${formatTime(s.leg.dep, now)} → ${formatTime(s.leg.arr, now)}`, badge(s.leg.source));
+    timeline.append(line);
+  }
+  li.append(timeline);
   return li;
 }
 
