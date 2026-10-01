@@ -166,8 +166,8 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, mergeTrips, legVehicles, averageHeadway, pickTimingLeg, tripRows,
   countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=2642d560a3';
-import { openSetup } from './setup.js?v=1d52b04ce2';
+} from './core.js?v=894689b259';
+import { openSetup } from './setup.js?v=b297d1bfe1';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -384,11 +384,13 @@ function dot(color) {
 }
 
 function renderRow(r, now) {
-  const state = countdownState(now, r.leaveBy, r.firstDep);
+  const state = countdownState(now, r.leaveBy, r.lastChance);
   if (state === 'hidden') return null;
   const li = el('li', `row ${state}`);
   const head = el('div', 'big');
-  head.append(el('span', null, countdownLabel(state, r.leaveBy - now)), el('span', 'at', formatTime(r.leaveBy, now)));
+  // Red counts down to (and shows) the last chance; leave-by has already passed.
+  const target = state === 'red' ? r.lastChance : r.leaveBy;
+  head.append(el('span', null, countdownLabel(state, target - now)), el('span', 'at', formatTime(target, now)));
   li.append(head);
   // Collapsed: the timing leg (with its badge) and arrival. Tap to expand.
   const timing = r.legs[r.timingIdx];

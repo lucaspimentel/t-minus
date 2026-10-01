@@ -189,12 +189,14 @@ test('tripRows: single leg with stop slack, "Hurry" window, and ETA', () => {
   const rows = tripRows(trip, [buses], 0, at('07:15'), 1);
   assert.deepEqual(rows.map(r => r.key), ['b2', 'b3']);
   assert.equal(rows[0].leaveBy, at('07:34')); // 07:40 - 5 walk - 1 slack
+  assert.equal(rows[0].lastChance, at('07:35')); // 07:40 - 5 walk
   assert.equal(rows[0].firstDep, at('07:40'));
   assert.equal(rows[0].eta, at('07:52'));
   assert.deepEqual(rows[0].legs, [{ route: '132', label: '132', color: null, dep: at('07:40'), arr: at('07:50'), source: 'live' }]);
-  // Past leave-by but before the bus leaves: the row stays ("Hurry").
-  assert.deepEqual(tripRows(trip, [buses], 0, at('07:38'), 1).map(r => r.key), ['b2', 'b3']);
-  assert.equal(countdownState(at('07:38'), rows[0].leaveBy, rows[0].firstDep), 'red');
+  // Past leave-by but before the last chance: the row stays ("Hurry"); at the last chance it goes.
+  assert.deepEqual(tripRows(trip, [buses], 0, at('07:34'), 1).map(r => r.key), ['b2', 'b3']);
+  assert.equal(countdownState(at('07:34'), rows[0].leaveBy, rows[0].lastChance), 'red');
+  assert.deepEqual(tripRows(trip, [buses], 0, at('07:35'), 1).map(r => r.key), ['b3']);
   // Count limit.
   assert.equal(tripRows(trip, [buses], 0, at('07:15'), 1, 1).length, 1);
 });
@@ -207,9 +209,10 @@ test('tripRows: train then bus picks the latest viable train and skips unreachab
   const rows = tripRows(officeToHome, [trains, buses], 1, at('17:00'), 1);
   // b0 leaves before any train can arrive.
   assert.deepEqual(rows.map(r => r.key), ['b1', 'b2', 'b3']);
-  // b1 17:40 - 5 transfer: latest train arriving by 17:35 is o2. No stop slack (timing leg is not first).
+  // b1 17:40 - 5 transfer: latest train arriving by 17:35 is o2; 17:16 - 10 walk - 1 slack.
   assert.equal(rows[0].legs[0].dep, at('17:16'));
-  assert.equal(rows[0].leaveBy, at('17:06'));
+  assert.equal(rows[0].leaveBy, at('17:05'));
+  assert.equal(rows[0].lastChance, at('17:06'));
   assert.equal(rows[0].eta, at('17:55'));
   // Each leg keeps its own source.
   assert.deepEqual(rows[0].legs.map(l => l.source), ['live', 'scheduled']);
@@ -241,25 +244,25 @@ test('tripRows: three legs chain backwards and forwards around a middle timing l
   const [row] = tripRows(trip, [a, b, c], 1, at('07:50'), 1);
   // Latest A arriving by 08:27 is a3; earliest C leaving at or after 08:48 is c2.
   assert.deepEqual(row.legs.map(l => [l.route, l.dep]), [['A', at('08:12')], ['B', at('08:30')], ['C', at('08:50')]]);
-  assert.equal(row.leaveBy, at('08:10'));
+  assert.equal(row.leaveBy, at('08:09'));
   assert.equal(row.eta, at('09:09'));
   assert.equal(row.timingIdx, 1);
 });
 
 test('countdownState boundaries', () => {
   const leave = at('08:00');
-  const dep = at('08:06');
-  assert.equal(countdownState(at('07:57'), leave, dep), 'green');
-  assert.equal(countdownState(at('07:58'), leave, dep), 'amber');
-  assert.equal(countdownState(at('08:00'), leave, dep), 'red');
-  assert.equal(countdownState(at('08:06'), leave, dep), 'hidden');
-  assert.equal(countdownState(at('08:00'), null, dep), 'none');
+  const last = at('08:01');
+  assert.equal(countdownState(at('07:56'), leave, last), 'green');
+  assert.equal(countdownState(at('07:57'), leave, last), 'amber');
+  assert.equal(countdownState(at('08:00'), leave, last), 'red');
+  assert.equal(countdownState(at('08:01'), leave, last), 'hidden');
+  assert.equal(countdownState(at('08:00'), null, last), 'none');
 });
 
 test('pollIntervalMs: 60s within 15 minutes of leave-by, otherwise 120s', () => {
   const dep = at('09:00');
-  assert.equal(pollIntervalMs([{ leaveBy: at('08:45'), firstDep: dep }], at('08:30')), 60_000);
-  assert.equal(pollIntervalMs([{ leaveBy: at('08:46'), firstDep: dep }], at('08:30')), 120_000);
+  assert.equal(pollIntervalMs([{ leaveBy: at('08:45'), lastChance: dep }], at('08:30')), 60_000);
+  assert.equal(pollIntervalMs([{ leaveBy: at('08:46'), lastChance: dep }], at('08:30')), 120_000);
   assert.equal(pollIntervalMs([], at('08:30')), 120_000);
 });
 
@@ -304,9 +307,9 @@ test('filterAlerts keeps service-impacting alerts on configured stops only', () 
 
 test('countdownLabel text per state', () => {
   assert.equal(countdownLabel('green', 12 * MIN + 30_000), 'Leave in 12 min');
-  assert.equal(countdownLabel('amber', 90_000), 'Leave now · 1 min');
-  assert.equal(countdownLabel('amber', 59_000), 'Leave now!');
-  assert.equal(countdownLabel('red', -30_000), 'Hurry');
+  assert.equal(countdownLabel('amber', 150_000), 'Leave in 2 min');
+  assert.equal(countdownLabel('amber', 59_000), 'Leave in <1 min');
+  assert.equal(countdownLabel('red', 45_000), 'Hurry · <1 min');
   assert.equal(countdownLabel('none', 0), 'No connection');
 });
 

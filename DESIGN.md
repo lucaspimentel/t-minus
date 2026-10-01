@@ -93,24 +93,26 @@ For each timing-leg vehicle in departure order (up to `departureCount` rows):
 
 1. **Legs before it**, working backwards: the **latest** vehicle whose arrival is at or
    before the next leg's departure minus the transfer time (minimal waiting).
-2. **First leg reachability**: if the timing leg is the first leg, the row stays until the
-   vehicle leaves (red "Hurry" state); otherwise the first vehicle must depart at or after
-   `now + walkBefore`.
+2. **First leg reachability**: the first vehicle's `last_chance` (below) must be after `now`;
+   this is the same for every trip, whichever leg is the timing leg.
 3. **Legs after it**, working forwards: the **earliest** vehicle departing at or after the
    previous leg's arrival plus the transfer time.
 4. If any leg has no feasible vehicle, the departure is skipped (e.g. the first bus of the
    day, which leaves before the first train arrives).
 
 ```
-leave_by = first_leg.departure - walkBefore - (stop_slack if the timing leg is the first leg)
-eta      = last_leg.arrival + walkAfter
+last_chance = first_leg.departure - walkBefore      (arrive at the stop as it leaves)
+leave_by    = last_chance - stop_slack
+eta         = last_leg.arrival + walkAfter
 ```
 
-Stop slack (`stopSlackMinutes`, default 1) applies only when the first leg is the timing
-leg, as in the original bus-first rule; transfer times cover the waiting otherwise.
+Stop slack (`stopSlackMinutes`, default 1) applies to the first leg of every trip, whichever
+leg is the timing leg, so every trip gets the same green/amber/red sequence. With 0 slack,
+`leave_by == last_chance` and there is no red phase.
 
 Example (office → home, 17:00, walk 10, transfer 5): for the 17:40 bus, the latest train
-arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
+arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:05`
+(17:16 - 10 walk - 1 slack).
 
 ### Trip selection (`pickTrip`)
 
@@ -124,10 +126,10 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
 
 | State | Condition | Display |
 |---|---|---|
-| Green | `now < leave_by - 2 min` | Countdown to `leave_by` |
-| Amber | `leave_by - 2 min <= now < leave_by` | "Leave now" + countdown |
-| Red | `leave_by <= now < first_leg.departure` | "Hurry" (stop slack may still save it) |
-| Hidden | `now >= first_leg.departure` | Row removed; next departure promoted |
+| Green | `now < leave_by - 3 min` | "Leave in 12 min", leave-by time on the right |
+| Amber | `leave_by - 3 min <= now < leave_by` | "Leave in 2 min" (the color carries the urgency) |
+| Red | `leave_by <= now < last_chance` | "Hurry · <1 min" (to `last_chance`), last-chance time on the right |
+| Hidden | `now >= last_chance` | Row removed; next departure promoted |
 
 ### Display
 

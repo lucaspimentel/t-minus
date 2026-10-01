@@ -525,9 +525,8 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
       for (const c of vehiclesByLeg[i] ?? []) if (c.arr <= latestArr && (!best || c.dep > best.dep)) best = c;
       if (best) chain[i] = best; else ok = false;
     }
-    // Timing leg first: show it until it leaves ("Hurry"); otherwise the first vehicle must be
-    // reachable on foot from now.
-    if (!ok || (timingIdx > 0 && chain[0].dep < nowMs + walkBefore * MIN)) continue;
+    // The first vehicle must still be reachable on foot (its last chance is in the future).
+    if (!ok || chain[0].dep - walkBefore * MIN <= nowMs) continue;
 
     for (let i = timingIdx + 1; i < n && ok; i++) {
       const earliestDep = chain[i - 1].arr + transfers[i - 1] * MIN;
@@ -538,7 +537,8 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
 
     rows.push({
       key: v.tripId,
-      leaveBy: chain[0].dep - (walkBefore + (timingIdx === 0 ? slackMinutes : 0)) * MIN,
+      leaveBy: chain[0].dep - (walkBefore + slackMinutes) * MIN,
+      lastChance: chain[0].dep - walkBefore * MIN, // arrive at the stop as it leaves
       firstDep: chain[0].dep,
       eta: chain[n - 1].arr + walkAfter * MIN,
       timingIdx,
@@ -551,10 +551,11 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
   return rows;
 }
 
-export function countdownState(nowMs, leaveBy, firstDep) {
-  if (nowMs >= firstDep) return 'hidden';
+// green until 3 min before leave-by, amber until leave-by, red ("Hurry") until the last chance.
+export function countdownState(nowMs, leaveBy, lastChance) {
+  if (nowMs >= lastChance) return 'hidden';
   if (leaveBy == null) return 'none';
-  if (nowMs < leaveBy - 2 * MIN) return 'green';
+  if (nowMs < leaveBy - 3 * MIN) return 'green';
   if (nowMs < leaveBy) return 'amber';
   return 'red';
 }
@@ -565,7 +566,7 @@ export function fillRows(todayRows, nextRows, count = DEFAULT_DEPARTURE_COUNT) {
 }
 
 export function pollIntervalMs(rows, nowMs) {
-  const soon = rows.some(r => r.leaveBy != null && r.firstDep > nowMs && r.leaveBy - nowMs <= 15 * MIN);
+  const soon = rows.some(r => r.leaveBy != null && r.lastChance > nowMs && r.leaveBy - nowMs <= 15 * MIN);
   return soon ? 60_000 : 120_000;
 }
 
@@ -623,12 +624,13 @@ export function windowLabel(window) {
   return `${clock(window.from)}–${clock(window.to)}`;
 }
 
-// Headline for a departure row, given its countdownState and the time left until leave-by.
+// Headline for a departure row, given its countdownState and the time left until leave-by
+// (green, amber) or until the last chance (red).
 export function countdownLabel(state, msLeft) {
   switch (state) {
-    case 'green': return `Leave in ${formatCountdown(msLeft)}`;
-    case 'amber': return msLeft < MIN ? 'Leave now!' : `Leave now · ${formatCountdown(msLeft)}`;
-    case 'red': return 'Hurry';
+    case 'green':
+    case 'amber': return `Leave in ${formatCountdown(msLeft)}`;
+    case 'red': return `Hurry · ${formatCountdown(msLeft)}`;
     default: return 'No connection';
   }
 }
