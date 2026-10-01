@@ -30,7 +30,8 @@
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    padding: max(12px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    /* 10px below the notch/status bar: iOS blurs content right under it. */
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px max(16px, env(safe-area-inset-bottom));
   }
   main { max-width: 480px; margin: 0 auto; }
   header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
@@ -104,7 +105,8 @@
   .setup button:disabled { opacity: .5; }
   .setup-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    position: sticky; top: 0; background: var(--bg); padding: 4px 0 10px; z-index: 1;
+    /* Sticks below the status bar, with the same 10px gap as the page top. */
+    position: sticky; top: env(safe-area-inset-top, 0px); background: var(--bg); padding: 10px 0; margin-top: -6px; z-index: 1;
   }
   .setup .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 12px;
