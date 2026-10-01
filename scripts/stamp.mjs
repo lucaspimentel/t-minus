@@ -21,6 +21,19 @@ export function fileHash(name, root = '.') {
   return createHash('sha256').update(source).digest('hex').slice(0, 10);
 }
 
+// App version shown in the footer: the date it was stamped plus a hash of every shell file
+// (index.html with the version itself blanked), so any change to what's served shows a new one.
+export const VERSION_FILES = ['index.html', 'core.js', 'setup.js', 'sw.js', 'manifest.json'];
+export const versionRe = /Version (\d{4}-\d{2}-\d{2}) · ([0-9a-f]{10})/;
+
+export function versionHash(root = '.') {
+  const h = createHash('sha256');
+  for (const name of VERSION_FILES) {
+    h.update(readFileSync(`${root}/${name}`, 'utf8').replace(/\r\n/g, '\n').replace(versionRe, 'Version'));
+  }
+  return h.digest('hex').slice(0, 10);
+}
+
 // pathToFileURL (not a bare `file://` template) so this comparison also works on Windows,
 // where process.argv[1] uses backslashes.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -31,4 +44,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     writeFileSync(file, source.replace(re, `from './${dep}?v=${fileHash(dep)}'`));
     console.log(`${file} now imports ${dep}?v=${fileHash(dep)}`);
   }
+  // The date only changes when the content does.
+  const page = readFileSync('index.html', 'utf8');
+  const current = page.match(versionRe);
+  if (!current) throw new Error('Version footer not found in index.html');
+  const hash = versionHash();
+  if (current[2] !== hash) {
+    const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+    writeFileSync('index.html', page.replace(versionRe, `Version ${date} · ${hash}`));
+  }
+  console.log(`version ${readFileSync('index.html', 'utf8').match(versionRe).slice(1).join(' · ')}`);
 }

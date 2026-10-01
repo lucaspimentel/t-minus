@@ -336,6 +336,10 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
   three), so a new page can never run against a stale cached module. Mixing the two once left the
   app stuck on "Loading…" (missing export → module never ran). The hash is computed with
   LF line endings so Windows checkouts and CI agree.
+- The main screen's footer shows "Version <date> · <hash>": a hash of the shell files
+  (`index.html` without the version, `core.js`, `setup.js`, `sw.js`, `manifest.json`) and the
+  date `npm run stamp` last changed it (a unit test enforces the hash), to tell whether the
+  installed app has updated.
 - If the module has not started within 5 s, the page shows "The app failed to start" with a
   Reload button instead of staying on "Loading…".
 - Polling pauses while the page is hidden (browsers throttle background timers

@@ -8,7 +8,8 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - No build step, no runtime dependencies. Static files served by GitHub Pages from `main` root:
   https://lucaspimentel.github.io/mbta-leave-by/
 - `core.js`: pure logic only (no DOM, no fetch); every change there gets a unit test.
-- After changing `core.js` or `setup.js`, run `npm run stamp` (updates the `?v=<hash>`
+- After changing any shell file (`index.html`, `core.js`, `setup.js`, `sw.js`, `manifest.json`),
+  run `npm run stamp` (updates the footer version and the `?v=<hash>`
   imports in `index.html` and `setup.js`; a test fails otherwise). Bump `CACHE` in `sw.js` when
   the shell file list changes.
 - `setup.js`: the setup view (DOM + setup-time requests); pure helpers belong in `core.js`.
