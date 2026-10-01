@@ -6,7 +6,7 @@ import {
   tripRows, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey, tripLabel,
-  tripToForm, formToTrip, routeLabel, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
+  tripToForm, formToTrip, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
 } from '../core.js';
 
@@ -429,6 +429,17 @@ test('routeLabel and searchRoutes', () => {
   assert.deepEqual(searchRoutes(routes, ' MALDEN ').map(x => x.id), ['132']);
   assert.deepEqual(searchRoutes(routes, '13').map(x => x.id), ['132']);
   assert.deepEqual(searchRoutes(routes, 'bus').map(x => x.id), ['132']);
+});
+
+test('routeEnds', () => {
+  const r = (type, long, dd) => ({ attributes: { type, long_name: long, direction_destinations: dd } });
+  assert.equal(routeEnds(r(3, 'Redstone Shopping Center - Malden Center Station', ['Redstone', 'Malden Center'])),
+    'Redstone Shopping Center - Malden Center Station');
+  assert.equal(routeEnds(r(1, 'Orange Line', ['Forest Hills', 'Oak Grove'])), 'Forest Hills - Oak Grove');
+  assert.equal(routeEnds(r(0, 'Green Line B', ['Boston College', 'Government Center'])), 'Boston College - Government Center');
+  assert.equal(routeEnds(r(1, 'Orange Line', undefined)), '');
+  const routes = [{ id: 'Red', attributes: { type: 1, long_name: 'Red Line', direction_destinations: ['Ashmont/Braintree', 'Alewife'] } }];
+  assert.deepEqual(searchRoutes(routes, 'alewife').map(x => x.id), ['Red']);
 });
 
 test('shortRouteLabel and labelLegs', () => {

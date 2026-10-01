@@ -2,10 +2,10 @@
 // pickers. Each trip is saved on its own. Pure helpers live in core.js; this module owns the DOM
 // and the setup-time requests.
 import {
-  validateConfig, checkStops, stopQueries, stopsKey, tripLabel, tripToForm, formToTrip, routeLabel, shortRouteLabel, labelLegs,
+  validateConfig, checkStops, stopQueries, stopsKey, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, stopsAfter, defaultTransferMinutes, departureCount, stopSlackMinutes,
   reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=9092eec518';
+} from './core.js?v=2642d560a3';
 
 const ROUTE_LIMIT = 60;
 
@@ -463,7 +463,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const routeButton = r => h('button', { type: 'button', class: 'item', onclick: () => {
         picker = { ...picker, route: r, step: 'direction', query: '' };
         render();
-      } }, dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), r.attributes.type === 3 ? h('span', { class: 'muted' }, ` ${r.attributes.long_name}`) : null);
+      } }, dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), routeEnds(r) && h('span', { class: 'muted' }, ` ${routeEnds(r)}`));
       // Without a search, routes near the previous drop-off come first.
       const nearRoutes = !q.trim() && picker.near ? found.filter(r => picker.near.routeIds.includes(r.id)) : [];
       return [

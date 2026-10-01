@@ -141,6 +141,8 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:06`.
   "Silver SL1", other buses as "Bus 132" / "Bus CT3". The dot is the route's MBTA color
   (yellow for buses, gray for the Silver Line). Setup uses the same labels and dots in the
   trip list, leg summaries, and route picker; the timing dropdown keeps full names.
+  The route picker follows each label with the route's ends: a bus's long name, or a rail line's
+  `direction_destinations` ("Forest Hills - Oak Grove"); search matches the ends too.
 - Trip switcher: two buttons for two trips, a dropdown for three or more, hidden with a
   single trip.
 - Alerts above the list: only alerts active now whose `informed_entity` matches a

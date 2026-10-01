@@ -182,11 +182,20 @@ export function labelLegs(cfg, routes) {
   };
 }
 
-// Routes whose label, number, or long name contains the query, in MBTA sort order.
+// The route's two ends, "A - B": a bus's long name already is; rail long names are just the
+// line ("Orange Line"), so use the direction destinations ("Forest Hills - Oak Grove").
+export function routeEnds(route) {
+  const a = route.attributes ?? {};
+  if (a.type === 3) return a.long_name ?? '';
+  const d = a.direction_destinations;
+  return Array.isArray(d) && d[0] && d[1] ? `${d[0]} - ${d[1]}` : '';
+}
+
+// Routes whose label, number, long name, or ends contain the query, in MBTA sort order.
 export function searchRoutes(routes, query = '') {
   const q = query.trim().toLowerCase();
   return routes
-    .filter(r => !q || [routeLabel(r), shortRouteLabel(r), r.attributes?.short_name, r.attributes?.long_name, r.id]
+    .filter(r => !q || [routeLabel(r), shortRouteLabel(r), routeEnds(r), r.attributes?.short_name, r.attributes?.long_name, r.id]
       .some(s => s && String(s).toLowerCase().includes(q)))
     .sort((a, b) => (a.attributes?.sort_order ?? 0) - (b.attributes?.sort_order ?? 0));
 }
