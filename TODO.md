@@ -10,6 +10,10 @@ route labels with MBTA color dots (see `DESIGN.md`).
 ## Deferred
 
 - "Near me" / GPS features (sorting stops by distance from the phone).
+- Pick the initial trip by location: show the trip whose first stop is closest to the phone
+  (at home → "Home to office", at work → "Office to home"). Open questions: precedence vs.
+  time windows and the manual override, a distance cutoff, and when to ask for location
+  permission (iOS prompts per Home Screen app).
 - Default times to/from the stops and transfer times estimated from stop coordinates
   (a walking estimate; the user can change it, e.g. when getting a ride).
 - Commuter rail and ferry.
