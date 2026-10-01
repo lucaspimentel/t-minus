@@ -243,6 +243,11 @@ returns the stops in trip order. The check fails when:
 Failures block the save. If the API can't be reached, the config is saved with a
 "couldn't verify stops" warning.
 
+Errors (from both checks) name the trip (`tripLabel`): `Trip "Office to home": route 132:
+stop "99999" is not served ...`, with the 1-based position added when the name is missing
+(`Trip 2`) or shared (`Trip 2 "Home"`). Leg references stay JSON-style (`legs[1].stop`). The
+trip screen drops the edited trip's own label.
+
 ### Verified IDs
 
 | Entity | ID | Notes |

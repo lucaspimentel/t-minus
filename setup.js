@@ -2,10 +2,10 @@
 // pickers. Each trip is saved on its own. Pure helpers live in core.js; this module owns the DOM
 // and the setup-time requests.
 import {
-  validateConfig, checkStops, stopQueries, stopsKey, tripToForm, formToTrip, routeLabel, shortRouteLabel, labelLegs,
+  validateConfig, checkStops, stopQueries, stopsKey, tripLabel, tripToForm, formToTrip, routeLabel, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, stopsAfter, defaultTransferMinutes, departureCount, stopSlackMinutes,
   reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=2fe6aad5d1';
+} from './core.js?v=9092eec518';
 
 const ROUTE_LIMIT = 60;
 
@@ -111,16 +111,15 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     return map;
   }
 
-  // Validates and stop-checks `cfg` (only `checkTrips` for stops), then saves it.
-  // Returns the error list (empty on success).
-  async function checkAndPersist(cfg, checkTrips = cfg.trips) {
+  // Validates and stop-checks `cfg` (stops only for the trip indices in `only`, default all),
+  // then saves it. Returns the error list (empty on success).
+  async function checkAndPersist(cfg, only) {
     const errors = validateConfig(cfg);
     if (errors.length) return errors;
     let warning = null;
     try {
-      const sub = { ...cfg, trips: checkTrips };
-      await Promise.all(stopQueries(sub).map(q => loadStops(q.route, q.direction_id)));
-      const stopErrors = checkStops(sub, stopDocs);
+      await Promise.all(stopQueries(cfg, only).map(q => loadStops(q.route, q.direction_id)));
+      const stopErrors = checkStops(cfg, stopDocs, only);
       if (stopErrors.length) return stopErrors;
     } catch (e) {
       // Wrong stops block the save; an unreachable API does not.
@@ -267,15 +266,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     busy = true;
     editing.messages = [info('Checking stops…')];
     render();
-    // Only this trip's stops are checked (as trips[0]); the others were checked when saved.
-    let errors = validateConfig({ ...base, trips });
-    if (!errors.length) {
-      errors = (await checkAndPersist({ ...base, trips }, [trip])).map(m => m.replace(/^trips\[0\]/, `trips[${pos}]`));
-    }
+    // Only this trip's stops are checked; the others were checked when saved.
+    const errors = await checkAndPersist({ ...base, trips }, [pos]);
     busy = false;
     if (errors.length) {
-      const prefix = new RegExp(`^trips\\[${pos}\\](\\.)?\\s*`);
-      editing.messages = errs(errors.map(m => m.replace(prefix, '')));
+      // This trip's own messages drop its label; messages about other trips keep theirs.
+      const own = `${tripLabel(trips, pos)}: `;
+      editing.messages = errs(errors.map(m => (m.startsWith(own) ? m.slice(own.length) : m)));
       return render();
     }
     editing = null;

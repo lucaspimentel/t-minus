@@ -5,7 +5,7 @@ import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
   tripRows, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
-  nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey,
+  nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, routeLabel, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
 } from '../core.js';
@@ -45,13 +45,13 @@ test('validateConfig rejects the old format and bad legs, windows, timingLeg', (
   cfg.trips[1].timingLeg = 2;
   cfg.trips[1].legs[0].minutes = -1;
   assert.deepEqual(validateConfig(cfg), [
-    'trips[0].legs[1].stop and .alight are required.',
-    'trips[0].window must be { "from": "HH:MM", "to": "HH:MM" } (to may be 24:00).',
-    'trips[1].legs[0].minutes must be a number >= 0.',
-    'trips[1].timingLeg must be a transit leg index from 0 to 1.',
+    'Trip "Home to office": legs[1].stop and .alight are required.',
+    'Trip "Home to office": window must be { "from": "HH:MM", "to": "HH:MM" } (to may be 24:00).',
+    'Trip "Office to home": legs[0].minutes must be a number >= 0.',
+    'Trip "Office to home": timingLeg must be a transit leg index from 0 to 1.',
   ]);
   assert.deepEqual(validateConfig({ trips: [{ name: 'x', legs: [{ kind: 'walk', minutes: 3 }] }] }),
-    ['trips[0] needs at least one transit leg.']);
+    ['Trip "x": needs at least one transit leg.']);
 });
 
 test('departureCount and stopSlackMinutes default and validate', () => {
@@ -372,17 +372,33 @@ test('checkStops reports unknown stops, wrong direction, and unknown routes', ()
   const badStop = structuredClone(EXAMPLE);
   badStop.trips[1].legs[3].stop = '99999';
   assert.deepEqual(checkStops(badStop, liveStops()),
-    ['trips[1] 132: stop "99999" is not served by route 132 in direction 0.']);
+    ['Trip "Office to home": route 132: stop "99999" is not served by route 132 in direction 0.']);
+  // `only` checks a subset of trips but still labels them against the full list.
+  assert.deepEqual(checkStops(badStop, liveStops(), [0]), []);
+  assert.deepEqual(checkStops(badStop, liveStops(), [1]),
+    ['Trip "Office to home": route 132: stop "99999" is not served by route 132 in direction 0.']);
+  assert.deepEqual(stopQueries(badStop, [1]).map(q => stopsKey(q.route, q.direction_id)).sort(), ['132/0', 'Orange/1']);
 
   const swapped = structuredClone(EXAMPLE);
   swapped.trips[1].legs[1].direction_id = 0;
   assert.deepEqual(checkStops(swapped, liveStops()),
-    ['trips[1] Orange: stop "place-state" comes after alight "place-ogmnl" in direction 0; direction_id is probably wrong.']);
+    ['Trip "Office to home": route Orange: stop "place-state" comes after alight "place-ogmnl" in direction 0; direction_id is probably wrong.']);
 
   const badRoute = structuredClone(EXAMPLE);
   badRoute.trips[0].legs[1].route = '999x';
   const errors = checkStops(badRoute, new Map([...liveStops(), [stopsKey('999x', 1), stopsDoc([])]]));
-  assert.deepEqual(errors, ['trips[0] 999x: no stops for route "999x" in direction 1; check route and direction_id.']);
+  assert.deepEqual(errors, ['Trip "Home to office": route 999x: no stops for route "999x" in direction 1; check route and direction_id.']);
+});
+
+test('tripLabel uses the name, adding the position for missing or shared names', () => {
+  const trips = [{ name: 'Home' }, { name: 'Work' }, { name: ' Home ' }, { name: '' }, {}];
+  assert.equal(tripLabel(trips, 1), 'Trip "Work"');
+  assert.equal(tripLabel(trips, 0), 'Trip 1 "Home"');
+  assert.equal(tripLabel(trips, 2), 'Trip 3 "Home"');
+  assert.equal(tripLabel(trips, 3), 'Trip 4');
+  assert.equal(tripLabel(trips, 4), 'Trip 5');
+  assert.deepEqual(validateConfig({ trips: [{ legs: [] }] }),
+    ['Trip 1: name is required.', 'Trip 1: needs at least one transit leg.']);
 });
 
 // ---------- setup form model ----------

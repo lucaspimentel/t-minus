@@ -7,10 +7,6 @@ Done: the N-leg engine and the setup UI, including next-leg suggestions, return 
 timing-leg override, collapsed rows, the trip list with one-at-a-time editing, and short
 route labels with MBTA color dots (see `DESIGN.md`).
 
-## Small
-
-- Import errors name trips by index (`trips[1] 132: stop "99999" ...`); use the trip name.
-
 ## Deferred
 
 - "Near me" / GPS features (sorting stops by distance from the phone).

@@ -42,13 +42,13 @@ export function validateConfig(cfg) {
     return errors;
   }
   cfg.trips.forEach((t, i) => {
-    const p = `trips[${i}]`;
-    if (!t?.name) errors.push(`${p}.name is required.`);
-    if (!Array.isArray(t?.legs)) { errors.push(`${p}.legs must be an array.`); return; }
+    const p = `${tripLabel(cfg.trips, i)}:`;
+    if (!t?.name) errors.push(`${p} name is required.`);
+    if (!Array.isArray(t?.legs)) { errors.push(`${p} legs must be an array.`); return; }
     const transitCount = t.legs.filter(l => l?.kind === 'transit').length;
     if (transitCount < 1) errors.push(`${p} needs at least one transit leg.`);
     t.legs.forEach((l, j) => {
-      const q = `${p}.legs[${j}]`;
+      const q = `${p} legs[${j}]`;
       if (l?.kind === 'walk' || l?.kind === 'transfer') {
         if (!Number.isFinite(l.minutes) || l.minutes < 0) errors.push(`${q}.minutes must be a number >= 0.`);
       } else if (l?.kind === 'transit') {
@@ -66,11 +66,11 @@ export function validateConfig(cfg) {
       const w = t.window;
       const ok = w && HHMM_RE.test(w.from ?? '') && HHMM_RE.test(w.to ?? '') &&
         parseHHMM(w.from) < 24 * 60 && parseHHMM(w.to) <= 24 * 60;
-      if (!ok) errors.push(`${p}.window must be { "from": "HH:MM", "to": "HH:MM" } (to may be 24:00).`);
+      if (!ok) errors.push(`${p} window must be { "from": "HH:MM", "to": "HH:MM" } (to may be 24:00).`);
     }
     if (t.timingLeg !== undefined && t.timingLeg !== null &&
         !(Number.isInteger(t.timingLeg) && t.timingLeg >= 0 && t.timingLeg < transitCount)) {
-      errors.push(`${p}.timingLeg must be a transit leg index from 0 to ${transitCount - 1}.`);
+      errors.push(`${p} timingLeg must be a transit leg index from 0 to ${transitCount - 1}.`);
     }
   });
   return errors;
@@ -250,10 +250,24 @@ export function defaultTransferMinutes(prevAlight, nextBoard, parentOf = new Map
 
 export const stopsKey = (route, directionId) => `${route}/${directionId}`;
 
-// Unique route/direction pairs whose stop lists are needed to check a config.
-export function stopQueries(cfg) {
+// Names a trip in error messages: `Trip "Name"`, with its 1-based position when the name is
+// missing (`Trip 2`) or shared with another trip (`Trip 2 "Name"`).
+export function tripLabel(trips, i) {
+  const name = typeof trips[i]?.name === 'string' ? trips[i].name.trim() : '';
+  if (!name) return `Trip ${i + 1}`;
+  const shared = trips.some((t, j) => j !== i && typeof t?.name === 'string' && t.name.trim() === name);
+  return shared ? `Trip ${i + 1} "${name}"` : `Trip "${name}"`;
+}
+
+// Trip indices to check: all, or only those listed in `only`.
+const selectedTrips = (cfg, only) =>
+  cfg.trips.map((t, i) => [t, i]).filter(([, i]) => !only || [...only].includes(i));
+
+// Unique route/direction pairs whose stop lists are needed to check a config
+// (optionally only the trips at indices `only`).
+export function stopQueries(cfg, only) {
   const pairs = new Map();
-  for (const t of cfg.trips) {
+  for (const [t] of selectedTrips(cfg, only)) {
     for (const l of t.legs) {
       if (l.kind === 'transit') pairs.set(stopsKey(l.route, l.direction_id), { route: l.route, direction_id: l.direction_id });
     }
@@ -264,12 +278,13 @@ export function stopQueries(cfg) {
 // Checks configured stops against `/stops?filter[route]&filter[direction_id]&include=child_stops`
 // docs (keyed by `stopsKey`). The API lists stops in trip order for the direction, so order
 // errors reveal a wrong direction_id even when both stops are served both ways.
-export function checkStops(cfg, stopsByKey) {
+// `only` limits the check to those trip indices; labels still use the full trip list.
+export function checkStops(cfg, stopsByKey, only) {
   const errors = [];
-  cfg.trips.forEach((t, i) => {
+  for (const [t, i] of selectedTrips(cfg, only)) {
     for (const l of t.legs) {
       if (l.kind !== 'transit') continue;
-      const p = `trips[${i}] ${l.route}`;
+      const p = `${tripLabel(cfg.trips, i)}: route ${l.route}`;
       const listed = stopsByKey.get(stopsKey(l.route, l.direction_id))?.data ?? [];
       if (listed.length === 0) {
         errors.push(`${p}: no stops for route "${l.route}" in direction ${l.direction_id}; check route and direction_id.`);
@@ -291,7 +306,7 @@ export function checkStops(cfg, stopsByKey) {
         errors.push(`${p}: stop "${l.stop}" comes after alight "${l.alight}" in direction ${l.direction_id}; direction_id is probably wrong.`);
       }
     }
-  });
+  }
   return errors;
 }
 
