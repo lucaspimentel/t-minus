@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, pickTrip, inWindow, countdownState, pollIntervalMs,
+  tripRows, rememberLive, withRemembered, rowState, startEnRoute, withTarget, enRouteActive, enRouteStatus, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -276,6 +276,46 @@ test('tripRows: three legs chain backwards and forwards around a middle timing l
   assert.equal(row.leaveBy, at('08:09'));
   assert.equal(row.eta, at('09:09'));
   assert.equal(row.timingIdx, 1);
+});
+
+test('en route: reachability from the at-stop time, no leave-by', () => {
+  const trip = { legs: [{ kind: 'walk', minutes: 5 }, homeToOffice.legs[1]] };
+  const buses = [veh('b2', '07:40', '07:50'), veh('b3', '08:10', '08:20')];
+  const rowsAt = (t, en) => tripRows(trip, [buses], 0, at(t), 1, 4, en);
+  const states = (t, en) => rowsAt(t, en).map(r => [r.key, rowState(at(t), r)]);
+
+  // Leaving at 07:30 (normal leave-by 07:34): at the stop 07:35, b2 reachable until it leaves.
+  const leaving = startEnRoute('leaving', at('07:30'), 5);
+  assert.deepEqual(leaving, { kind: 'leaving', at: at('07:30'), atStop: at('07:35') });
+  const [r2] = rowsAt('07:30', leaving);
+  assert.equal(r2.leaveBy, null);
+  assert.equal(r2.lastChance, at('07:40'));
+  assert.deepEqual(states('07:39', leaving), [['b2', 'enroute'], ['b3', 'enroute']]);
+  assert.deepEqual(states('07:40', leaving), [['b2', 'missed'], ['b3', 'enroute']]);
+  // Leaving at 07:37: at the stop 07:42, after b2 leaves: b2 is missed right away.
+  assert.deepEqual(states('07:37', startEnRoute('leaving', at('07:37'), 5)), [['b2', 'missed'], ['b3', 'enroute']]);
+  // At the stop at 07:38 (normal last chance was 07:35): b2 is reachable; the first tap is kept.
+  const stop = startEnRoute('stop', at('07:38'), 5, leaving);
+  assert.deepEqual(stop, { kind: 'stop', at: at('07:30'), atStop: at('07:38') });
+  assert.deepEqual(states('07:38', stop), [['b2', 'enroute'], ['b3', 'enroute']]);
+
+  // Target and end of the mode.
+  const s = withTarget(leaving, rowsAt('07:30', leaving));
+  assert.deepEqual([s.key, s.dep], ['b2', at('07:40')]);
+  assert.equal(enRouteActive(s, [], at('07:49')), true);
+  assert.equal(enRouteActive(s, [], at('07:50')), false); // left 10 min ago
+  assert.equal(enRouteActive(s, [{ key: 'b2', firstDep: at('07:45') }], at('07:50')), true); // delayed
+  assert.equal(enRouteActive({ ...s, key: null }, [], at('07:59')), true);
+  assert.equal(enRouteActive({ ...s, key: null }, [], at('08:00')), false); // 30 min after the tap
+  assert.deepEqual(withTarget(leaving, []), { ...leaving, key: null, dep: null });
+
+  // Labels, status, polling, wake lock.
+  assert.equal(countdownLabel('enroute', 6 * MIN, 'Bus 132'), 'Bus 132 in 6 min');
+  assert.equal(enRouteStatus(leaving, at('07:31')), 'Walking · at the stop ~7:35am');
+  assert.equal(enRouteStatus(leaving, at('07:36')), 'At the stop since ~7:35am');
+  assert.equal(enRouteStatus(stop, at('07:39')), 'At the stop since 7:38am');
+  assert.equal(pollIntervalMs(rowsAt('07:00', leaving), at('07:00')), 60_000);
+  assert.equal(keepAwake(rowsAt('07:30', leaving), at('07:30'), 10), false);
 });
 
 test('tripRows: only the most recent missed ride', () => {

@@ -540,7 +540,9 @@ export function pickTimingLeg(headways, previous, override) {
 // A departure is skipped if any leg has no feasible vehicle.
 // Rows whose last chance has passed are "missed" until MISSED_MINUTES after the first vehicle
 // departs; the most recent one leads the list (counting toward `count`, if `count` >= 2).
-export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, count = DEFAULT_DEPARTURE_COUNT) {
+// En route (`enRoute` = { at, atStop }: "Leaving now" / "At the stop"), a ride is reachable if
+// its first vehicle leaves at or after `atStop` (no stop slack), and rows have no leave-by.
+export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, count = DEFAULT_DEPARTURE_COUNT, enRoute = null) {
   const { transit, walkBefore, walkAfter, transfers } = tripShape(trip);
   const n = transit.length;
   const rows = [];
@@ -560,8 +562,11 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
       if (best) chain[i] = best; else ok = false;
     }
     if (!ok) continue;
-    // Unreachable on foot (last chance passed): a missed candidate while recent.
-    const isMissed = chain[0].dep - walkBefore * MIN <= nowMs;
+    // En route, an unreachable ride's last chance is the (past) tap time: missed right away.
+    const dep0 = chain[0].dep;
+    const lastChance = enRoute ? (enRoute.atStop <= dep0 ? dep0 : enRoute.at) : dep0 - walkBefore * MIN;
+    // Unreachable (last chance passed): a missed candidate while recent.
+    const isMissed = lastChance <= nowMs;
     if (isMissed && (chain[0].dep + MISSED_MINUTES * MIN <= nowMs || (missed && missed.firstDep >= chain[0].dep))) continue;
 
     for (let i = timingIdx + 1; i < n && ok; i++) {
@@ -573,8 +578,9 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
 
     const row = {
       key: v.tripId,
-      leaveBy: chain[0].dep - (walkBefore + slackMinutes) * MIN,
-      lastChance: chain[0].dep - walkBefore * MIN, // arrive at the stop as it leaves
+      leaveBy: enRoute ? null : dep0 - (walkBefore + slackMinutes) * MIN,
+      lastChance, // normally: arrive at the stop as it leaves
+      ...(enRoute && { enRoute: true }),
       firstDep: chain[0].dep,
       eta: chain[n - 1].arr + walkAfter * MIN,
       timingIdx,
@@ -591,7 +597,40 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
 // Keep the screen on while an upcoming row is within `minutes` of its leave-by, until its last
 // chance (0 = never).
 export function keepAwake(rows, nowMs, minutes) {
-  return minutes > 0 && rows.some(r => !r.missed && nowMs >= r.leaveBy - minutes * MIN && nowMs < r.lastChance);
+  return minutes > 0 && rows.some(r => !r.missed && r.leaveBy != null && nowMs >= r.leaveBy - minutes * MIN && nowMs < r.lastChance);
+}
+
+// State of a row: 'enroute' for a reachable en-route row, else countdownState.
+export function rowState(nowMs, row) {
+  if (row.enRoute && nowMs < row.lastChance) return 'enroute';
+  return countdownState(nowMs, row.leaveBy, row.lastChance, row.firstDep);
+}
+
+// "Leaving now" (at the stop after the walk) or "At the stop" (now). `at` is the first tap,
+// kept when "At the stop" follows "Leaving now"; it caps the mode at 30 min.
+export function startEnRoute(kind, nowMs, walkBefore, prev = null) {
+  return { kind, at: prev?.at ?? nowMs, atStop: kind === 'leaving' ? nowMs + walkBefore * MIN : nowMs };
+}
+
+// The ride being headed for: the first reachable en-route row.
+export function withTarget(state, rows) {
+  const r = rows.find(x => x.enRoute && !x.missed);
+  return r ? { ...state, key: r.key, dep: r.firstDep } : { ...state, key: null, dep: null };
+}
+
+// Active until the target ride (following its current departure) left 10 min ago, or 30 min
+// after the first tap.
+export function enRouteActive(state, rows, nowMs) {
+  if (!state || nowMs >= state.at + 30 * MIN) return false;
+  if (state.key == null) return true;
+  const dep = rows.find(r => r.key === state.key)?.firstDep ?? state.dep;
+  return nowMs < dep + MISSED_MINUTES * MIN;
+}
+
+export function enRouteStatus(state, nowMs) {
+  if (state.kind === 'stop') return `At the stop since ${formatTime(state.atStop, nowMs)}`;
+  if (nowMs >= state.atStop) return `At the stop since ~${formatTime(state.atStop, nowMs)}`;
+  return `Walking · at the stop ~${formatTime(state.atStop, nowMs)}`;
 }
 
 // green until 3 min before leave-by, amber until leave-by, red ("Hurry") until the last chance,
@@ -610,7 +649,7 @@ export function fillRows(todayRows, nextRows, count = DEFAULT_DEPARTURE_COUNT) {
 }
 
 export function pollIntervalMs(rows, nowMs) {
-  const soon = rows.some(r => r.leaveBy != null && r.lastChance > nowMs && r.leaveBy - nowMs <= 15 * MIN);
+  const soon = rows.some(r => r.lastChance > nowMs && (r.enRoute || (r.leaveBy != null && r.leaveBy - nowMs <= 15 * MIN)));
   return soon ? 60_000 : 120_000;
 }
 
@@ -670,8 +709,9 @@ export function windowLabel(window) {
 
 // Headline for a departure row, given its countdownState and the time left until leave-by
 // (green, amber), the last chance (red), or the first departure (missed).
-export function countdownLabel(state, msLeft) {
+export function countdownLabel(state, msLeft, label = '') {
   switch (state) {
+    case 'enroute': return `${label} in ${formatCountdown(msLeft)}`;
     case 'green':
     case 'amber': return `Leave in ${formatCountdown(msLeft)}`;
     case 'red': return `Hurry · ${formatCountdown(msLeft)}`;

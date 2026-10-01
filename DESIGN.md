@@ -140,6 +140,24 @@ Live predictions disappear once a vehicle leaves its stop, so the last live time
 the app is open are kept per trip (`rememberLive`/`withRemembered`, in memory, dropped 30 min
 after departure); after a fresh open, a missed row falls back to the schedule.
 
+### En route ("Leaving now" / "At the stop")
+
+For leaving earlier or later than leave-by. A bar under the status line always offers
+[Leaving now] [At the stop]; while active it reads "Walking · at the stop ~9:25am"
+[At the stop] [Cancel] or "At the stop since 9:23am" [Cancel].
+
+- At-stop time: tap + `walkBefore` ("Leaving now"), or the tap ("At the stop"; replaces the
+  estimate when tapped while walking).
+- Today's rows: a ride is reachable if its first vehicle departs at or after the at-stop time
+  (no stop slack). Reachable rows read "Bus 132 in 6 min" (to the first leg's departure,
+  shown on the right, collapsed line shows the first leg); the first is highlighted green
+  (the one being headed for), later ones neutral. No leave-by. Unreachable rides follow the
+  missed rules (one gray row, missed immediately if the at-stop time is after it leaves).
+- Ends 10 min after the target ride (first reachable at the tap) departs, following its live
+  time, or 30 min after the first tap, or on Cancel.
+- Stored per trip index in `localStorage` (`mbta-leave-by:en-route`, with the trip name; a
+  renamed trip drops it; cleared when setup saves). Polls every 60 s while active; no wake lock.
+
 Screen stays on (Screen Wake Lock, `keepAwake`) while the app is open and any upcoming row is
 within `wakeMinutes` (default 10, 0 = off) of its leave-by, until its last chance. The OS
 releases the lock while the page is hidden; it is re-requested on the next render (and on a
