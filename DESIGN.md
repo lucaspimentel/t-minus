@@ -176,8 +176,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 ### Display
 
 - Per departure: countdown/state with the leave-by time right-aligned ("Leave in 12 min   8:04am"),
-  then collapsed "● Bus 132 8:10am → 8:56am" (timing leg departure with its source badge, then
-  arrival). All times use the compact "8:04am" form (`formatTime`), with the weekday prefixed
+  then, collapsed, the source badge (LIVE/SCHEDULED, of the timing leg; the first leg on missed
+  and en-route rows) and "arrive 8:56am" right-aligned under the time; routes and departures
+  only when expanded. All times use the compact "8:04am" form (`formatTime`), with the weekday prefixed
   across dates. Tapping a row replaces the summary with a timeline under a divider, steps
   joined by a rail through the route dots: "Walk 5 min · 1 min early at the stop" (the slack
   part only when > 0; no first walk on en-route rows), "● Bus 132 8:10am → 8:20am LIVE" per

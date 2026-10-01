@@ -92,6 +92,9 @@
   }
   .badge.live { border-color: var(--green); color: var(--green); }
   .row { cursor: pointer; }
+  .summary { display: flex; justify-content: space-between; align-items: center; gap: 0 8px; }
+  .summary .badge { margin-left: 0; }
+  .arrive { margin-left: auto; white-space: nowrap; }
   /* Expanded row: steps under a divider, joined by a rail through the route dots. */
   .timeline { position: relative; border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; }
   .timeline::before {
@@ -172,7 +175,7 @@
       <button id="reload" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · bdc949488c</footer>
+    <footer class="version">Version 2026-10-01 · bc9a276ff1</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -450,11 +453,11 @@ function renderRow(r, now, isCatch) {
     render();
   };
   if (!expanded) {
-    // Collapsed: the timing leg (the first leg on missed and en-route rows) with its badge, and
-    // arrival. Tap to expand.
+    // Collapsed: the live/scheduled badge of the timing leg (the first leg on missed and
+    // en-route rows), and the arrival under the leave time. Tap to expand for the legs.
     const shown = r.legs[firstLeg ? 0 : r.timingIdx];
-    const summary = el('div', 'detail');
-    summary.append(dot(shown.color), `${shown.label} ${formatTime(shown.dep, now)}`, badge(shown.source), ` → ${formatTime(r.eta, now)}`);
+    const summary = el('div', 'detail summary');
+    summary.append(badge(shown.source), el('span', 'arrive', `arrive ${formatTime(r.eta, now)}`));
     li.append(summary);
     return li;
   }
