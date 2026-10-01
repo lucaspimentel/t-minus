@@ -140,6 +140,11 @@ Live predictions disappear once a vehicle leaves its stop, so the last live time
 the app is open are kept per trip (`rememberLive`/`withRemembered`, in memory, dropped 30 min
 after departure); after a fresh open, a missed row falls back to the schedule.
 
+Screen stays on (Screen Wake Lock, `keepAwake`) while the app is open and any upcoming row is
+within `wakeMinutes` (default 10, 0 = off) of its leave-by, until its last chance. The OS
+releases the lock while the page is hidden; it is re-requested on the next render (and on a
+tap, for browsers that want a gesture). Nothing happens where the API is missing or refused.
+
 ### Display
 
 - Per departure: countdown/state with the leave-by time right-aligned ("Leave in 12 min   8:04am"),
@@ -190,7 +195,7 @@ after departure); after a fresh open, a missed row falls back to the schedule.
 }
 ```
 
-- `departureCount`, `stopSlackMinutes`, `apiKey`: optional, app-wide.
+- `departureCount`, `stopSlackMinutes`, `wakeMinutes`, `apiKey`: optional, app-wide.
 - `trips[].window`: optional `HH:MM` range; `to` may be `24:00`.
 - `trips[].timingLeg`: optional, 0-based index among the trip's **transit** legs; pins the
   timing leg.
@@ -207,7 +212,7 @@ after departure); after a fresh open, a missed row falls back to the schedule.
   pauses while it is open.
 - List screen: one row per saved trip (name, time window, route chain like
   "● Bus 132 → ● Orange") with ↑/↓ to reorder, "Add trip", then a Settings card (departures
-  shown, minutes early at the stop, API key), Export/Import, and "Reload app" (reloads the
+  shown, minutes early at the stop, minutes to keep the screen on before leave-by, API key), Export/Import, and "Reload app" (reloads the
   page, e.g. to pick up a new version in the installed PWA). Done saves changed app-wide
   fields and closes setup; it is disabled until a trip has been saved.
 - Trip screen (tap a row, or "Add trip"): name, optional time window, time to the first stop

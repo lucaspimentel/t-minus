@@ -5,7 +5,7 @@ import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
   tripRows, rememberLive, withRemembered, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
-  nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey, tripLabel,
+  nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
 } from '../core.js';
@@ -63,6 +63,26 @@ test('departureCount and stopSlackMinutes default and validate', () => {
   for (const bad of [0, 9, 2.5, '4']) {
     assert.ok(validateConfig({ ...EXAMPLE, departureCount: bad }).some(e => e.startsWith('departureCount')));
   }
+});
+
+test('wakeMinutes default and validate', () => {
+  assert.equal(wakeMinutes(EXAMPLE), 10);
+  assert.deepEqual(validateConfig({ ...EXAMPLE, wakeMinutes: 0 }), []);
+  for (const bad of [-1, 'x']) assert.deepEqual(validateConfig({ ...EXAMPLE, wakeMinutes: bad }), ['wakeMinutes must be a number >= 0.']);
+});
+
+test('keepAwake: from N min before leave-by until the last chance', () => {
+  const row = { leaveBy: at('08:00'), lastChance: at('08:01') };
+  const awake = (t, rows = [row], minutes = 10) => keepAwake(rows, at(t), minutes);
+  assert.equal(keepAwake([row], at('07:50') - 1000, 10), false);
+  assert.equal(awake('07:50'), true);
+  assert.equal(keepAwake([row], at('08:00') + 30_000, 10), true);
+  assert.equal(awake('08:01'), false);
+  assert.equal(awake('07:55', [row], 0), false);
+  assert.equal(awake('07:55', [{ ...row, missed: true }]), false);
+  const next = { leaveBy: at('08:08'), lastChance: at('08:09') };
+  assert.equal(awake('08:02', [{ ...row, missed: true }, next]), true);
+  assert.equal(awake('08:02', []), false);
 });
 
 test('tripShape splits walk, transfer, and transit legs', () => {

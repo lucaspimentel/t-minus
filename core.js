@@ -6,6 +6,7 @@ export const DEFAULT_DEPARTURE_COUNT = 4;
 export const MISSED_MINUTES = 10;
 export const MAX_DEPARTURE_COUNT = 8;
 export const DEFAULT_STOP_SLACK_MINUTES = 1;
+export const DEFAULT_WAKE_MINUTES = 10;
 // A leg becomes the timing leg only when its headway is this much longer than the current one's,
 // so the choice doesn't flip back and forth between refreshes.
 export const TIMING_HYSTERESIS = 1.5;
@@ -31,6 +32,9 @@ export function validateConfig(cfg) {
   if (!cfg || typeof cfg !== 'object') return ['Config must be a JSON object.'];
   if (cfg.stopSlackMinutes !== undefined && !(Number.isFinite(cfg.stopSlackMinutes) && cfg.stopSlackMinutes >= 0)) {
     errors.push('stopSlackMinutes must be a number >= 0.');
+  }
+  if (cfg.wakeMinutes !== undefined && !(Number.isFinite(cfg.wakeMinutes) && cfg.wakeMinutes >= 0)) {
+    errors.push('wakeMinutes must be a number >= 0.');
   }
   if (cfg.departureCount !== undefined &&
       !(Number.isInteger(cfg.departureCount) && cfg.departureCount >= 1 && cfg.departureCount <= MAX_DEPARTURE_COUNT)) {
@@ -84,6 +88,10 @@ export function departureCount(cfg) {
 
 export function stopSlackMinutes(cfg) {
   return cfg.stopSlackMinutes ?? DEFAULT_STOP_SLACK_MINUTES;
+}
+
+export function wakeMinutes(cfg) {
+  return cfg.wakeMinutes ?? DEFAULT_WAKE_MINUTES;
 }
 
 // Transit legs plus the minutes around them: walking before the first transit leg, after the
@@ -578,6 +586,12 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
     if (isMissed) missed = { ...row, missed: true }; else rows.push(row);
   }
   return missed && count >= 2 ? [missed, ...rows.slice(0, count - 1)] : rows;
+}
+
+// Keep the screen on while an upcoming row is within `minutes` of its leave-by, until its last
+// chance (0 = never).
+export function keepAwake(rows, nowMs, minutes) {
+  return minutes > 0 && rows.some(r => !r.missed && nowMs >= r.leaveBy - minutes * MIN && nowMs < r.lastChance);
 }
 
 // green until 3 min before leave-by, amber until leave-by, red ("Hurry") until the last chance,

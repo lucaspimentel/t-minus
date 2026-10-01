@@ -166,10 +166,10 @@
 <script type="module">
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, scheduleWindow, nextServiceWindow, fillRows,
-  departureCount, stopSlackMinutes, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
+  departureCount, stopSlackMinutes, wakeMinutes, keepAwake, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=d39a7d7fde';
-import { openSetup } from './setup.js?v=ec38bcc082';
+} from './core.js?v=4e0f127fe9';
+import { openSetup } from './setup.js?v=93818a9add';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -433,6 +433,7 @@ function render() {
   renderToggle();
 
   const status = $('status');
+  syncWakeLock(!!config && keepAwake(currentRows(now), now, wakeMinutes(config)));
   if (!config) {
     status.className = 'status';
     status.textContent = 'No trips set up yet.';
@@ -464,6 +465,29 @@ function render() {
   if (rows.length) $('rows').replaceChildren(...rows);
   else $('rows').replaceChildren(el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''));
 }
+
+// Screen Wake Lock: keeps the screen on near leave-by (keepAwake). The OS drops the lock while
+// the page is hidden; the next render re-requests it. Errors (unsupported, Low Power Mode) are
+// ignored.
+let wakeLock = null;
+let wakeWanted = false;
+let wakeRequesting = false;
+function syncWakeLock(want) {
+  wakeWanted = want;
+  if (!navigator.wakeLock) return;
+  if (want && (!wakeLock || wakeLock.released) && !wakeRequesting) {
+    wakeRequesting = true;
+    navigator.wakeLock.request('screen')
+      .then(l => { wakeLock = l; if (!wakeWanted) syncWakeLock(false); })
+      .catch(() => {})
+      .finally(() => { wakeRequesting = false; });
+  } else if (!want && wakeLock && !wakeLock.released) {
+    wakeLock.release().catch(() => {});
+    wakeLock = null;
+  }
+}
+// Some browsers only grant the lock after a user gesture.
+document.addEventListener('pointerdown', () => syncWakeLock(wakeWanted));
 
 // A manual choice holds until the next trip window starts (see pickTrip).
 function setTrip(i, manual) {

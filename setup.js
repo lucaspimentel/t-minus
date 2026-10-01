@@ -3,9 +3,9 @@
 // and the setup-time requests.
 import {
   validateConfig, checkStops, stopQueries, stopsKey, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
-  searchRoutes, searchStops, stopsAfter, defaultTransferMinutes, departureCount, stopSlackMinutes,
+  searchRoutes, searchStops, stopsAfter, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=d39a7d7fde';
+} from './core.js?v=4e0f127fe9';
 
 const ROUTE_LIMIT = 60;
 
@@ -42,6 +42,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
     stopSlackMinutes: cfg ? stopSlackMinutes(cfg) : 1,
+    wakeMinutes: cfg ? wakeMinutes(cfg) : 10,
     apiKey: cfg?.apiKey ?? '',
   });
   const app = appFields(saved); // list-screen fields, saved by Done
@@ -178,7 +179,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const errors = validateConfig(cfg);
     if (errors.length) { listMessages = errs(errors); return render(); }
     const before = appFields(saved);
-    if (cfg.departureCount !== before.departureCount || cfg.stopSlackMinutes !== before.stopSlackMinutes || cfg.apiKey !== before.apiKey) {
+    if (cfg.departureCount !== before.departureCount || cfg.stopSlackMinutes !== before.stopSlackMinutes || cfg.wakeMinutes !== before.wakeMinutes || cfg.apiKey !== before.apiKey) {
       persist(cfg);
     }
     onClose();
@@ -240,6 +241,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('div', { class: 'card' },
         numberField('Departures shown (1-8)', app.departureCount, v => { app.departureCount = v; }, { min: '1', max: '8' }),
         numberField('Minutes early at the stop', app.stopSlackMinutes, v => { app.stopSlackMinutes = v; }),
+        numberField('Keep screen on before leave-by (min, 0 = off)', app.wakeMinutes, v => { app.wakeMinutes = v; }),
         h('label', { class: 'field' }, 'MBTA API key (optional)',
           // Masked so the key isn't exposed on screen (or in screenshots).
           h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Keyless: 20 requests/min', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),
