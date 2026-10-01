@@ -352,6 +352,6 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 ## Future extensions
 
 - Deferred items in `TODO.md`.
-- "Leave now" notifications via the Notifications API.
+- Leave-time push notifications (needs a small backend; see `TODO.md`).
 - Arrive-by target (highlight the latest departure that makes a target time).
 - Possibly a backend later, only if shared profiles or push reminders are wanted.

@@ -13,3 +13,9 @@ route labels with MBTA color dots (see `DESIGN.md`).
 - Default times to/from the stops and transfer times estimated from stop coordinates
   (a walking estimate; the user can change it, e.g. when getting a ride).
 - Commuter rail and ferry.
+- Leave-time push notifications. iOS only wakes a Home Screen PWA with Web Push from a server
+  (no scheduled local notifications; timers stop in the background). Plan: a Cloudflare Worker
+  (free tier, 1-min cron + KV) that imports `core.js`; tapping "Notify me" on a row sends the
+  push subscription, trip, and ride; the worker polls that ride's predictions, recomputes
+  leave-by, pushes at leave-by, then deletes the reminder. Needs VAPID keys, payload
+  encryption, a `push` handler in `sw.js`, and a permission step. Breaks "no backend".
