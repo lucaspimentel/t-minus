@@ -3,6 +3,7 @@
 export const TZ = 'America/New_York';
 const MIN = 60_000;
 export const DEFAULT_DEPARTURE_COUNT = 4;
+export const MISSED_MINUTES = 10;
 export const MAX_DEPARTURE_COUNT = 8;
 export const DEFAULT_STOP_SLACK_MINUTES = 1;
 // A leg becomes the timing leg only when its headway is this much longer than the current one's,
@@ -479,6 +480,27 @@ export function legVehicles(tripsMap, leg) {
   return out.sort((a, b) => a.dep - b.dep);
 }
 
+// Live predictions disappear once a vehicle leaves the board stop. The last live times seen per
+// leg (`[Map<tripId, {dep, arr}>]`) keep a just-missed ride on its real time instead of the
+// schedule's. Entries that departed more than 30 min ago are dropped.
+export function rememberLive(memory, liveByLeg, nowMs) {
+  return liveByLeg.map((live, i) => {
+    const m = new Map([...(memory?.[i] ?? [])].filter(([, e]) => e.dep > nowMs - 30 * MIN));
+    for (const v of live) m.set(v.tripId, { dep: v.dep, arr: v.arr });
+    return m;
+  });
+}
+
+// Leg vehicles with remembered live times applied to those no longer predicted.
+export function withRemembered(vehiclesByLeg, memory) {
+  return vehiclesByLeg.map((vs, i) => {
+    const m = memory?.[i];
+    if (!m?.size) return vs;
+    return vs.map(v => (v.source !== 'live' && m.has(v.tripId) ? { ...v, ...m.get(v.tripId), source: 'live' } : v))
+      .sort((a, b) => a.dep - b.dep);
+  });
+}
+
 // Mean gap between consecutive departures; Infinity with fewer than 2 (a leg that barely
 // runs is the constraint).
 export function averageHeadway(vehicles) {
@@ -508,13 +530,17 @@ export function pickTimingLeg(headways, previous, override) {
 // Departure rows for a trip. For each timing-leg vehicle, earlier legs take the latest vehicle
 // that still makes the next one (minimal waiting), later legs the earliest one after arrival.
 // A departure is skipped if any leg has no feasible vehicle.
+// Rows whose last chance has passed are "missed" until MISSED_MINUTES after the first vehicle
+// departs; the most recent one leads the list (counting toward `count`, if `count` >= 2).
 export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, count = DEFAULT_DEPARTURE_COUNT) {
   const { transit, walkBefore, walkAfter, transfers } = tripShape(trip);
   const n = transit.length;
   const rows = [];
+  let missed = null;
   for (const v of vehiclesByLeg[timingIdx] ?? []) {
     if (rows.length >= count) break;
-    if (v.dep <= nowMs) continue;
+    // The first vehicle leaves no later than the timing one.
+    if (v.dep + MISSED_MINUTES * MIN <= nowMs) continue;
     const chain = new Array(n);
     chain[timingIdx] = v;
     let ok = true;
@@ -525,8 +551,10 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
       for (const c of vehiclesByLeg[i] ?? []) if (c.arr <= latestArr && (!best || c.dep > best.dep)) best = c;
       if (best) chain[i] = best; else ok = false;
     }
-    // The first vehicle must still be reachable on foot (its last chance is in the future).
-    if (!ok || chain[0].dep - walkBefore * MIN <= nowMs) continue;
+    if (!ok) continue;
+    // Unreachable on foot (last chance passed): a missed candidate while recent.
+    const isMissed = chain[0].dep - walkBefore * MIN <= nowMs;
+    if (isMissed && (chain[0].dep + MISSED_MINUTES * MIN <= nowMs || (missed && missed.firstDep >= chain[0].dep))) continue;
 
     for (let i = timingIdx + 1; i < n && ok; i++) {
       const earliestDep = chain[i - 1].arr + transfers[i - 1] * MIN;
@@ -535,7 +563,7 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
     }
     if (!ok) continue;
 
-    rows.push({
+    const row = {
       key: v.tripId,
       leaveBy: chain[0].dep - (walkBefore + slackMinutes) * MIN,
       lastChance: chain[0].dep - walkBefore * MIN, // arrive at the stop as it leaves
@@ -546,14 +574,16 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
         route: transit[i].route, label: transit[i].label ?? transit[i].route, color: transit[i].color ?? null,
         dep: c.dep, arr: c.arr, source: c.source,
       })),
-    });
+    };
+    if (isMissed) missed = { ...row, missed: true }; else rows.push(row);
   }
-  return rows;
+  return missed && count >= 2 ? [missed, ...rows.slice(0, count - 1)] : rows;
 }
 
-// green until 3 min before leave-by, amber until leave-by, red ("Hurry") until the last chance.
-export function countdownState(nowMs, leaveBy, lastChance) {
-  if (nowMs >= lastChance) return 'hidden';
+// green until 3 min before leave-by, amber until leave-by, red ("Hurry") until the last chance,
+// then gray ("Missed") until MISSED_MINUTES after the first vehicle departs.
+export function countdownState(nowMs, leaveBy, lastChance, firstDep) {
+  if (nowMs >= lastChance) return nowMs < firstDep + MISSED_MINUTES * MIN ? 'missed' : 'hidden';
   if (leaveBy == null) return 'none';
   if (nowMs < leaveBy - 3 * MIN) return 'green';
   if (nowMs < leaveBy) return 'amber';
@@ -625,12 +655,14 @@ export function windowLabel(window) {
 }
 
 // Headline for a departure row, given its countdownState and the time left until leave-by
-// (green, amber) or until the last chance (red).
+// (green, amber), the last chance (red), or the first departure (missed).
 export function countdownLabel(state, msLeft) {
   switch (state) {
     case 'green':
     case 'amber': return `Leave in ${formatCountdown(msLeft)}`;
     case 'red': return `Hurry · ${formatCountdown(msLeft)}`;
+    // msLeft: until the first vehicle departs (negative once it has).
+    case 'missed': return msLeft > 0 ? `Missed · leaves in ${formatCountdown(msLeft)}` : `Missed · ${formatCountdown(-msLeft)} ago`;
     default: return 'No connection';
   }
 }

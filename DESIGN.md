@@ -94,7 +94,10 @@ For each timing-leg vehicle in departure order (up to `departureCount` rows):
 1. **Legs before it**, working backwards: the **latest** vehicle whose arrival is at or
    before the next leg's departure minus the transfer time (minimal waiting).
 2. **First leg reachability**: the first vehicle's `last_chance` (below) must be after `now`;
-   this is the same for every trip, whichever leg is the timing leg.
+   this is the same for every trip, whichever leg is the timing leg. Otherwise the departure
+   is **missed** while `now < first_leg.departure + 10 min`; only the most recent missed
+   departure is kept. It leads the list and counts toward `departureCount` (1 missed + 3
+   upcoming at 4); with `departureCount` 1 there is no missed row.
 3. **Legs after it**, working forwards: the **earliest** vehicle departing at or after the
    previous leg's arrival plus the transfer time.
 4. If any leg has no feasible vehicle, the departure is skipped (e.g. the first bus of the
@@ -129,7 +132,13 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:05`
 | Green | `now < leave_by - 3 min` | "Leave in 12 min", leave-by time on the right |
 | Amber | `leave_by - 3 min <= now < leave_by` | "Leave in 2 min" (the color carries the urgency) |
 | Red | `leave_by <= now < last_chance` | "Hurry · <1 min" (to `last_chance`), last-chance time on the right |
-| Hidden | `now >= last_chance` | Row removed; next departure promoted |
+| Missed | `last_chance <= now < first_leg.departure + 10 min` | Gray "Missed · leaves in 2 min", then "Missed · 3 min ago"; first-leg departure on the right |
+| Hidden | `now >= first_leg.departure + 10 min` | Row removed |
+
+A missed row's collapsed line shows the first leg (the one missed) instead of the timing leg.
+Live predictions disappear once a vehicle leaves its stop, so the last live times seen while
+the app is open are kept per trip (`rememberLive`/`withRemembered`, in memory, dropped 30 min
+after departure); after a fresh open, a missed row falls back to the schedule.
 
 ### Display
 
@@ -297,7 +306,8 @@ To stay well inside it:
 - Per poll: one `/predictions` request per transit leg of the shown trip.
 - Schedules: one request per transit leg on load, on trip change, and every 15 min.
 - Alerts: one request every 5 min.
-- Schedule window: from now to max(6 h, 90 min × `departureCount`) ahead; once it reaches
+- Schedule window: from 30 min ago (for missed rows, with the 15-min refresh) to
+  max(6 h, 90 min × `departureCount`) ahead; once it reaches
   22:00 it is extended to the end of the service day (28:00).
 - Next service day schedules: one request per transit leg, only when today has fewer than
   `departureCount` rows; at most once an hour.

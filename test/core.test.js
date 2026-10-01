@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, pickTrip, inWindow, countdownState, pollIntervalMs,
+  tripRows, rememberLive, withRemembered, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -186,17 +186,23 @@ test('averageHeadway and pickTimingLeg with hysteresis and override', () => {
 test('tripRows: single leg with stop slack, "Hurry" window, and ETA', () => {
   const trip = { legs: [{ kind: 'walk', minutes: 5 }, homeToOffice.legs[1], { kind: 'walk', minutes: 2 }] };
   const buses = [veh('b1', '07:10', '07:20'), veh('b2', '07:40', '07:50', 'live'), veh('b3', '08:10', '08:21')];
-  const rows = tripRows(trip, [buses], 0, at('07:15'), 1);
+  const rows = tripRows(trip, [buses], 0, at('07:21'), 1); // b1 left 11 min ago
   assert.deepEqual(rows.map(r => r.key), ['b2', 'b3']);
   assert.equal(rows[0].leaveBy, at('07:34')); // 07:40 - 5 walk - 1 slack
   assert.equal(rows[0].lastChance, at('07:35')); // 07:40 - 5 walk
   assert.equal(rows[0].firstDep, at('07:40'));
   assert.equal(rows[0].eta, at('07:52'));
   assert.deepEqual(rows[0].legs, [{ route: '132', label: '132', color: null, dep: at('07:40'), arr: at('07:50'), source: 'live' }]);
-  // Past leave-by but before the last chance: the row stays ("Hurry"); at the last chance it goes.
+  // Past leave-by but before the last chance: the row stays ("Hurry").
   assert.deepEqual(tripRows(trip, [buses], 0, at('07:34'), 1).map(r => r.key), ['b2', 'b3']);
-  assert.equal(countdownState(at('07:34'), rows[0].leaveBy, rows[0].lastChance), 'red');
-  assert.deepEqual(tripRows(trip, [buses], 0, at('07:35'), 1).map(r => r.key), ['b3']);
+  assert.equal(countdownState(at('07:34'), rows[0].leaveBy, rows[0].lastChance, rows[0].firstDep), 'red');
+  // From the last chance until 10 min after it leaves: missed, first, counting toward `count`.
+  const missedAt = t => tripRows(trip, [buses], 0, at(t), 1).map(r => [r.key, !!r.missed]);
+  assert.deepEqual(missedAt('07:35'), [['b2', true], ['b3', false]]);
+  assert.deepEqual(missedAt('07:49'), [['b2', true], ['b3', false]]);
+  assert.deepEqual(missedAt('07:50'), [['b3', false]]);
+  assert.deepEqual(tripRows(trip, [buses], 0, at('07:36'), 1, 2).map(r => r.key), ['b2', 'b3']);
+  assert.deepEqual(tripRows(trip, [buses], 0, at('07:36'), 1, 1).map(r => r.key), ['b3']);
   // Count limit.
   assert.equal(tripRows(trip, [buses], 0, at('07:15'), 1, 1).length, 1);
 });
@@ -219,8 +225,11 @@ test('tripRows: train then bus picks the latest viable train and skips unreachab
   assert.equal(rows[1].legs[0].dep, at('17:21'));
   assert.equal(rows[2].legs[0].dep, at('18:01'));
   // At 17:08, o2 (17:16) can't be reached with a 10-minute walk and o3 arrives too late
-  // for b1, so b1 is skipped.
-  assert.deepEqual(tripRows(officeToHome, [trains, buses], 1, at('17:08'), 1).map(r => r.key), ['b2', 'b3']);
+  // for b1, so b1 is missed (until 10 min after o2 leaves), shown first.
+  const late = tripRows(officeToHome, [trains, buses], 1, at('17:08'), 1);
+  assert.deepEqual(late.map(r => [r.key, !!r.missed]), [['b1', true], ['b2', false], ['b3', false]]);
+  assert.equal(late[0].firstDep, at('17:16'));
+  assert.deepEqual(tripRows(officeToHome, [trains, buses], 1, at('17:26'), 1).map(r => r.key), ['b2', 'b3']);
 });
 
 test('tripRows: bus then train takes the earliest onward train for the ETA', () => {
@@ -249,14 +258,39 @@ test('tripRows: three legs chain backwards and forwards around a middle timing l
   assert.equal(row.timingIdx, 1);
 });
 
+test('tripRows: only the most recent missed ride', () => {
+  const trip = { legs: [{ kind: 'walk', minutes: 5 }, homeToOffice.legs[1]] };
+  const buses = [veh('b1', '07:30', '07:40'), veh('b2', '07:33', '07:43'), veh('b3', '07:50', '08:00')];
+  assert.deepEqual(tripRows(trip, [buses], 0, at('07:36'), 1).map(r => [r.key, !!r.missed]), [['b2', true], ['b3', false]]);
+});
+
+test('rememberLive and withRemembered keep a departed ride on its last live time', () => {
+  const live = [veh('b2', '07:42', '07:52', 'live')];
+  let mem = rememberLive(null, [live], at('07:30'));
+  // The prediction is gone after it leaves: the memory keeps it.
+  mem = rememberLive(mem, [[]], at('07:43'));
+  const scheduled = [veh('b2', '07:40', '07:50'), veh('b1', '07:41', '07:51'), veh('b3', '08:10', '08:20', 'live')];
+  assert.deepEqual(withRemembered([scheduled], mem)[0].map(v => [v.tripId, v.dep, v.source]),
+    [['b1', at('07:41'), 'scheduled'], ['b2', at('07:42'), 'live'], ['b3', at('08:10'), 'live']]);
+  // A current prediction wins over the memory.
+  const predicted = [veh('b2', '07:44', '07:54', 'live')];
+  assert.equal(withRemembered([predicted], mem)[0][0].dep, at('07:44'));
+  // Dropped 30 min after it left.
+  assert.equal(rememberLive(mem, [[]], at('08:12'))[0].size, 0);
+  assert.deepEqual(withRemembered([scheduled], null), [scheduled]);
+});
+
 test('countdownState boundaries', () => {
   const leave = at('08:00');
   const last = at('08:01');
-  assert.equal(countdownState(at('07:56'), leave, last), 'green');
-  assert.equal(countdownState(at('07:57'), leave, last), 'amber');
-  assert.equal(countdownState(at('08:00'), leave, last), 'red');
-  assert.equal(countdownState(at('08:01'), leave, last), 'hidden');
-  assert.equal(countdownState(at('08:00'), null, last), 'none');
+  const dep = at('08:06');
+  assert.equal(countdownState(at('07:56'), leave, last, dep), 'green');
+  assert.equal(countdownState(at('07:57'), leave, last, dep), 'amber');
+  assert.equal(countdownState(at('08:00'), leave, last, dep), 'red');
+  assert.equal(countdownState(at('08:01'), leave, last, dep), 'missed');
+  assert.equal(countdownState(at('08:15'), leave, last, dep), 'missed');
+  assert.equal(countdownState(at('08:16'), leave, last, dep), 'hidden');
+  assert.equal(countdownState(at('08:00'), null, last, dep), 'none');
 });
 
 test('pollIntervalMs: 60s within 15 minutes of leave-by, otherwise 120s', () => {
@@ -310,6 +344,9 @@ test('countdownLabel text per state', () => {
   assert.equal(countdownLabel('amber', 150_000), 'Leave in 2 min');
   assert.equal(countdownLabel('amber', 59_000), 'Leave in <1 min');
   assert.equal(countdownLabel('red', 45_000), 'Hurry · <1 min');
+  assert.equal(countdownLabel('missed', 150_000), 'Missed · leaves in 2 min');
+  assert.equal(countdownLabel('missed', -30_000), 'Missed · <1 min ago');
+  assert.equal(countdownLabel('missed', -3 * MIN - 10_000), 'Missed · 3 min ago');
   assert.equal(countdownLabel('none', 0), 'No connection');
 });
 

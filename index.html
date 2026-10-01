@@ -75,6 +75,8 @@
   .green .big { color: var(--green); }
   .amber .big { color: var(--amber); }
   .red .big { color: var(--red); }
+  .row.missed { border-left-color: var(--muted); }
+  .missed .big { color: var(--muted); font-size: 20px; }
   .none .big { color: var(--muted); font-size: 20px; }
   .detail { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
   .dot {
@@ -164,10 +166,10 @@
 <script type="module">
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, scheduleWindow, nextServiceWindow, fillRows,
-  departureCount, stopSlackMinutes, mergeTrips, legVehicles, averageHeadway, pickTimingLeg, tripRows,
+  departureCount, stopSlackMinutes, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   countdownState, pollIntervalMs, filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=894689b259';
-import { openSetup } from './setup.js?v=b297d1bfe1';
+} from './core.js?v=d39a7d7fde';
+import { openSetup } from './setup.js?v=ec38bcc082';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -196,7 +198,8 @@ let tripIdx = config ? pickTrip(Date.now(), config, store.get(KEY_OVERRIDE), sto
 // Per-trip cache, one doc per transit leg:
 // { predictions: [doc], schedules: {docs, date, coversEndOfService, at}, alerts: {doc, at},
 //   nextDay: {docs, date, at} (next service day's schedules, fetched once today's run out),
-//   timing: index of the transit leg leave-by is based on }
+//   timing: index of the transit leg leave-by is based on,
+//   lastLive: last live times per leg (rememberLive), for rides that just left }
 let cache = {};
 // Previous timing leg per trip, for the hysteresis in pickTimingLeg.
 const lastTiming = new Map();
@@ -269,10 +272,14 @@ async function refresh({ force = false } = {}) {
   const c = (cache[idx] ??= {});
   const now = Date.now();
   try {
-    const tasks = [fetchPredictions(trip).then(p => { c.predictions = p; })];
+    const tasks = [fetchPredictions(trip).then(p => {
+      c.predictions = p;
+      c.lastLive = rememberLive(c.lastLive, tripShape(trip).transit.map((l, i) => legVehicles(mergeTrips(p[i], null), l)), Date.now());
+    })];
     if (force || !c.schedules || now - c.schedules.at > SCHEDULE_TTL) {
       // Look further ahead when more departures are shown (60-min midday headways).
-      const w = scheduleWindow(now, 5, Math.max(360, 90 * departureCount(config)));
+      // 30 min back keeps a just-missed ride (shown up to 10 min after it leaves) in the data.
+      const w = scheduleWindow(now, 30, Math.max(360, 90 * departureCount(config)));
       tasks.push(fetchSchedules(trip, w).then(s => { c.schedules = s; updateTiming(idx, trip, c); }));
     }
     if (force || !c.alerts || now - c.alerts.at > ALERT_TTL) {
@@ -282,7 +289,7 @@ async function refresh({ force = false } = {}) {
     // Once today's service is running out, fetch the next service day's morning schedule.
     const next = nextServiceWindow(now);
     if (c.schedules?.coversEndOfService &&
-        rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now).length < departureCount(config) &&
+        rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now, c.lastLive).length < departureCount(config) &&
         (!c.nextDay || c.nextDay.date !== next.date || now - c.nextDay.at > NEXT_DAY_TTL)) {
       c.nextDay = await fetchSchedules(trip, next);
     }
@@ -306,9 +313,10 @@ function schedulePoll() {
 
 // ---------- compute + render ----------
 
-function rowsFor(trip, timing, predictionDocs, scheduleDocs, now) {
+function rowsFor(trip, timing, predictionDocs, scheduleDocs, now, lastLive = null) {
   if (!predictionDocs && !scheduleDocs) return [];
-  const vehicles = tripShape(trip).transit.map((l, i) => legVehicles(mergeTrips(predictionDocs?.[i], scheduleDocs?.[i]), l));
+  const vehicles = withRemembered(
+    tripShape(trip).transit.map((l, i) => legVehicles(mergeTrips(predictionDocs?.[i], scheduleDocs?.[i]), l)), lastLive);
   return tripRows(trip, vehicles, timing ?? 0, now, stopSlackMinutes(config), departureCount(config));
 }
 
@@ -320,7 +328,7 @@ function currentRows(now) {
   const c = cache[tripIdx];
   if (!c) return [];
   const count = departureCount(config);
-  const today = rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now);
+  const today = rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now, c.lastLive);
   if (today.length >= count || !c.nextDay || !c.schedules?.coversEndOfService) return today;
   return fillRows(today, rowsFor(trip, c.timing, null, c.nextDay.docs, now), count);
 }
@@ -384,18 +392,20 @@ function dot(color) {
 }
 
 function renderRow(r, now) {
-  const state = countdownState(now, r.leaveBy, r.lastChance);
+  const state = countdownState(now, r.leaveBy, r.lastChance, r.firstDep);
   if (state === 'hidden') return null;
   const li = el('li', `row ${state}`);
   const head = el('div', 'big');
-  // Red counts down to (and shows) the last chance; leave-by has already passed.
-  const target = state === 'red' ? r.lastChance : r.leaveBy;
+  // Red counts down to (and shows) the last chance; leave-by has already passed. Missed counts
+  // to/from the first departure.
+  const target = state === 'red' ? r.lastChance : state === 'missed' ? r.firstDep : r.leaveBy;
   head.append(el('span', null, countdownLabel(state, target - now)), el('span', 'at', formatTime(target, now)));
   li.append(head);
-  // Collapsed: the timing leg (with its badge) and arrival. Tap to expand.
-  const timing = r.legs[r.timingIdx];
+  // Collapsed: the timing leg (the first leg, the one missed, on a missed row) with its badge,
+  // and arrival. Tap to expand.
+  const shown = r.legs[state === 'missed' ? 0 : r.timingIdx];
   const summary = el('div', 'detail');
-  summary.append(dot(timing.color), `${timing.label} ${formatTime(timing.dep, now)}`, badge(timing.source), ` → ${formatTime(r.eta, now)}`);
+  summary.append(dot(shown.color), `${shown.label} ${formatTime(shown.dep, now)}`, badge(shown.source), ` → ${formatTime(r.eta, now)}`);
   li.append(summary);
   const key = rowKey(r);
   li.setAttribute('aria-expanded', String(expandedRows.has(key)));
