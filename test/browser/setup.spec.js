@@ -81,6 +81,17 @@ test('the next leg lists only routes near the transfer, then boards at the neare
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Forest Hills']);
 });
 
+test('a rail station shows only its own lines, not a nearby station\'s', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('Blue');
+  await setup(page).locator('.item', { hasText: 'Blue' }).first().click();
+  await setup(page).locator('#picker-search').fill('Maverick');
+  await setup(page).locator('.item', { hasText: 'Maverick' }).click();
+  await expect(setup(page).locator('.item', { hasText: 'State' }).locator('.conn')).toHaveText(['Orange']);
+  await expect(setup(page).locator('.item', { hasText: 'Government Center' }).locator('.conn')).toHaveText(['Green B/C/D/E']);
+});
+
 test('a leg can take any route between its stops (Green branches)', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
   await setup(page).getByLabel('Trip name').fill('Green');

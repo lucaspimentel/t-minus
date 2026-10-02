@@ -363,8 +363,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   list in order, `servesInOrder`) are offered as "Also take" checkboxes, all checked; checked
   ones are saved as `also`. Without candidates the leg is done right away.
 - Connections in the drop-off list: each stop is followed by the rail lines (route types 0
-  and 1: Red, Mattapan, Orange, Blue, Green B–E) at the same station or with a station within
-  200 m (`railConnections`, `CONNECTION_METERS`), e.g. "Washington St opp Oak Grove Sta
+  and 1: Red, Mattapan, Orange, Blue, Green B–E) at it: for a rail station, the lines listing
+  that station (State and Government Center are ~155 m apart but separate stations); for
+  other stops (street bus stops have no parent station), lines with a station within 200 m
+  (`railConnections`, `CONNECTION_METERS`), e.g. "Washington St opp Oak Grove Sta
   ● Orange". The leg's own route is left out; branches of a line (same color) merge as "Green
   D/E" (`commonLabel`). Station lists come from `/stops?filter[route]=<rail route>`
   (`mbta-leave-by:rail-stops`, 7 days); if that fails, no connections are shown. A new leg's transfer time defaults to 3 min within the

@@ -298,13 +298,16 @@ export function alightGroups(doc0, doc1, boardId) {
 
 export const CONNECTION_METERS = 200;
 
-// Rail lines at or near a stop (JSON:API stop with latitude/longitude): the same station id, or
-// a station within CONNECTION_METERS. `railStops`: [{ route, label, color, stops: [{ id, lat, lon }] }].
+// Rail lines at a stop (JSON:API stop with latitude/longitude). A rail station connects only to
+// the lines listing that station (State and Government Center are ~155 m apart but separate);
+// another stop (a street bus stop has no parent station) to lines with a station within
+// CONNECTION_METERS. `railStops`: [{ route, label, color, stops: [{ id, lat, lon }] }].
 // Branches of one line (same color) merge: [{ label: 'Green B/C/D/E', color }].
 export function railConnections(stop, railStops, exclude = []) {
   const a = stop?.attributes ?? {};
   const here = { lat: a.latitude, lon: a.longitude };
-  const hasPos = Number.isFinite(here.lat) && Number.isFinite(here.lon);
+  const isStation = (railStops ?? []).some(line => line.stops.some(s => s.id === stop.id));
+  const hasPos = !isStation && Number.isFinite(here.lat) && Number.isFinite(here.lon);
   const byColor = new Map();
   for (const line of railStops ?? []) {
     if (exclude.includes(line.route)) continue;

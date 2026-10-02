@@ -924,6 +924,16 @@ test('railConnections: same station or within 200 m, own routes left out, branch
   assert.deepEqual(railConnections(stop('place-haecl'), rail, ['Orange']), [{ label: 'Green C/D', color: '00843D' }]);
   // ~700 m from Park Street: none.
   assert.deepEqual(railConnections(stop('x', 42.3627, -71.0624), rail), []);
+  // Stations connect by id only: State and Government Center are ~155 m apart.
+  const blue = [
+    { route: 'Blue', label: 'Blue', color: '003DA5', stops: [st('place-state', 42.358978, -71.057598), st('place-gover', 42.359705, -71.059215)] },
+    { route: 'Orange', label: 'Orange', color: 'ED8B00', stops: [st('place-state', 42.358978, -71.057598)] },
+    { route: 'Green-B', label: 'Green B', color: '00843D', stops: [st('place-gover', 42.359705, -71.059215)] },
+  ];
+  assert.deepEqual(railConnections(stop('place-state', 42.358978, -71.057598), blue, ['Blue']), [{ label: 'Orange', color: 'ED8B00' }]);
+  assert.deepEqual(railConnections(stop('place-gover', 42.359705, -71.059215), blue, ['Blue']), [{ label: 'Green B', color: '00843D' }]);
+  // A bus stop between them still sees both.
+  assert.deepEqual(railConnections(stop('bus', 42.3593, -71.0584), blue).map(c => c.label), ['Blue', 'Orange', 'Green B']);
 });
 
 test('boardGroups and alightGroups: no direction step', () => {
