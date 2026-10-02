@@ -478,26 +478,41 @@ test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
   const now = at('07:20');
 
   // Comfortable / tight (b1 arrives 07:26 + 5 = 07:31).
-  const ok = transferOutlook(ride(buses[0], trains[2]), riding0, vs, transfers);
+  const ok = transferOutlook(ride(buses[0], trains[2]), riding0, [buses, [trains[0], trains[2], trains[3]]], transfers, now);
   assert.deepEqual([ok.leg, ok.margin, ok.missedDep, ok.none], [1, 5 * MIN, null, false]);
   assert.deepEqual(outlookText(ok, ride(buses[0], trains[2]), now), { text: 'Then Orange 7:36am · 5 min to spare', warn: false });
-  const tight = transferOutlook(ride(buses[0], trains[1]), riding0, vs, transfers);
+  const tight = transferOutlook(ride(buses[0], trains[1]), riding0, vs, transfers, now);
   assert.equal(outlookText(tight, ride(buses[0], trains[1]), now).text, 'Then Orange 7:31am · tight');
   // Missed (o0 leaves 07:28): earliest feasible after 07:31 is o1; never an earlier vehicle.
   const r = ride(buses[0], trains[0]);
-  const missed = transferOutlook(r, riding0, vs, transfers);
+  const missed = transferOutlook(r, riding0, vs, transfers, now);
   assert.deepEqual([missed.legs[1].tripId, missed.missedDep, missed.margin], ['o1', at('07:28'), 0]);
   assert.equal(outlookText(missed, r, now).text, 'Then Orange 7:31am (missed 7:28am)');
   // After the switch is stored, the text keeps saying what was missed.
   const stored = { ...r, legs: missed.legs, missed: { leg: 1, dep: at('07:28') } };
-  assert.equal(outlookText(transferOutlook(stored, riding0, vs, transfers), stored, now).text, 'Then Orange 7:31am (missed 7:28am)');
+  assert.equal(outlookText(transferOutlook(stored, riding0, vs, transfers, now), stored, now).text, 'Then Orange 7:31am (missed 7:28am)');
   // Also during the transfer; nothing after the last train; no next leg.
   const late = { ...ride(buses[1], trains[3]), legs: [{ ...leg(buses[1], 'Bus 132'), arr: at('08:10') }, leg(trains[3], 'Orange')] };
-  const none = transferOutlook(late, { kind: 'transfer', leg: 1 }, vs, transfers);
+  const none = transferOutlook(late, { kind: 'transfer', leg: 1 }, vs, transfers, now);
   assert.equal(none.none, true);
   assert.equal(outlookText(none, late, now).text, 'No connection after 8:15am');
   assert.equal(transferOutlook(r, { kind: 'riding', leg: 1 }, vs, transfers), null);
   assert.equal(transferOutlook(r, { kind: 'walking', leg: 2 }, vs, transfers), null);
+
+  // Earlier connection: the planned o3 (8:00) still works, but o1 (7:31) is catchable: switch,
+  // silently (no missedDep), even when tight.
+  const slow = ride(buses[0], trains[3]);
+  const earlier = transferOutlook(slow, riding0, vs, transfers, now);
+  assert.deepEqual([earlier.earlier, earlier.legs[1].tripId, earlier.margin, earlier.missedDep], [true, 'o1', 0, null]);
+  assert.equal(outlookText(earlier, slow, now).text, 'Then Orange 7:31am · tight');
+  // Under EARLIER_MIN sooner: kept.
+  const near = [buses, [veh('p1', '07:35', '07:50'), veh('p2', '07:36', '07:51')]];
+  const kept = transferOutlook(ride(buses[0], near[1][1]), riding0, near, transfers, now);
+  assert.deepEqual([kept.earlier, kept.legs[1].tripId], [undefined, 'p2']);
+  // In the transfer with `needed` past: a vehicle that already left isn't picked.
+  const waiting = ride(buses[0], trains[3]);
+  const atPlatform = transferOutlook(waiting, { kind: 'transfer', leg: 1 }, vs, transfers, at('07:33'));
+  assert.deepEqual([atPlatform.earlier, atPlatform.legs[1].tripId], [true, 'o2']);
 
   // Later vehicles of a leg: left after the assumed one, by now.
   assert.deepEqual(laterVehicles(buses, leg(buses[0], 'Bus 132'), at('07:45')).map(v => v.tripId), ['b2']);

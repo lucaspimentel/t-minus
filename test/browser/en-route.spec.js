@@ -98,6 +98,21 @@ test('a bus running late re-plans the transfer and says what was missed', async 
   await expect(card(page).locator('.ride-outlook')).toHaveClass(/warn/);
 });
 
+test('a planned train that falls behind gives way to an earlier one, silently', async ({ page }) => {
+  const scenario = commute();
+  await openApp(page, { time: '07:00', scenario });
+  await atTheStop(page);
+  await tickTo(page, '07:09');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange 7:32am · 5 min to spare');
+  // The planned 7:32 now leaves at 7:42; the 7:38 is still catchable (off at 7:22 + 5 min).
+  scenario.trips.find(t => t.id === 'OLin-0732').live = { delay: 10 };
+  await tickTo(page, '07:11');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange 7:38am · 11 min to spare');
+  await expect(card(page).locator('.ride-outlook')).not.toHaveClass(/warn/);
+  await tickTo(page, '07:39');
+  await expect(head(page)).toHaveText('On Orange · off at 7:53am');
+});
+
 test('Later one? moves the ride to a vehicle that left after the assumed one', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await atTheStop(page);

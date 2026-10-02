@@ -198,6 +198,11 @@ For leaving earlier or later than leave-by. A bar under the status line always o
     an earlier vehicle) and reads "Then Orange 7:36am (missed 7:31am)" until that leg is
     boarded (`ride.missed`); no chain: "No connection after 7:26am", plan kept. No extra
     requests (the per-leg vehicles already polled).
+  - A working connection still switches to a catchable vehicle leaving 2+ min sooner
+    (`EARLIER_MIN`; not one that already left), e.g. the planned train fell behind a delayed
+    earlier one: legs i+1… are re-planned from it, silently ("Then Orange 7:31am · 4 min to
+    spare", or "· tight"). The 2-min gain keeps jittery predictions from flipping the plan; once
+    switched, it only moves later again through the missed-connection path.
   - "Later one?" (riding): the leg's vehicles that left after the assumed one and by now (up
     to 3); picking one moves the leg to it and re-plans the later legs (`switchLeg`).
   - "Missed it" for 2 min after each boarding: on the first leg, back to "At the stop" now; on

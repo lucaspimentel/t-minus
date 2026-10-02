@@ -249,7 +249,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · cb33444cab</footer>
+    <footer class="version">Version 2026-10-02 · 4ca6060965</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -271,8 +271,8 @@ import {
   rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD,
   trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=2a2ae000f3';
-import { openSetup } from './setup.js?v=34b23d362e';
+} from './core.js?v=8d1da6f55e';
+import { openSetup } from './setup.js?v=f8b7556f67';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -526,8 +526,9 @@ function syncEnRoute(now) {
     let ride = { ...s.ride, legs: trackLegs(s.ride.legs, transit, maps, c.lastLive) };
     // A connection that no longer works is re-planned; what was missed shows until boarding.
     const phase = ridePhase(ride, walkAfter, now);
-    const o = transferOutlook(ride, phase, rideVehicles(), tripShape(trip).transfers);
+    const o = transferOutlook(ride, phase, rideVehicles(), tripShape(trip).transfers, now);
     if (o?.missedDep != null) ride = { ...ride, legs: o.legs, missed: { leg: o.leg, dep: o.missedDep } };
+    else if (o?.earlier) ride = { ...ride, legs: o.legs };
     if (ride.missed && (phase.leg > ride.missed.leg || (phase.kind === 'riding' && phase.leg === ride.missed.leg))) {
       const { missed: _, ...rest } = ride;
       ride = rest;
@@ -836,7 +837,7 @@ function renderRideCard(s, now) {
   summary.append(badge(last.arrSource ?? last.source), el('span', 'arrive', `arrive ${formatTime(phase.eta, now)}`));
   li.append(summary);
   // The next connection: spare time, tight, re-planned after a miss, or none.
-  const outlook = outlookText(transferOutlook(ride, phase, rideVehicles(), tripShape(trip).transfers), ride, now);
+  const outlook = outlookText(transferOutlook(ride, phase, rideVehicles(), tripShape(trip).transfers, now), ride, now);
   if (outlook) li.append(el('div', `ride-outlook${outlook.warn ? ' warn' : ''}`, outlook.text));
   // Riding: where the vehicle is and the stops left to the drop-off (next 4, "… N more", drop-off).
   const rs = cache[tripIdx]?.rideStops;

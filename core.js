@@ -827,21 +827,33 @@ export function rideStops(doc, alightId, nowMs) {
 // Copies a vehicle's trip and times onto a planned leg.
 const onVehicle = (leg, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined });
 
+// How much earlier another vehicle must leave before a working connection switches to it.
+export const EARLIER_MIN = 2;
+
 // The next connection while riding leg i (or in the transfer before leg i+1): needed = leg i's
 // arrival + transfer; margin = leg i+1's departure − needed. A missed connection (margin < 0)
-// re-plans legs i+1… to the earliest feasible chain after `needed` (never an earlier vehicle);
-// `none` when there's no such chain (plan kept). Null without a next leg.
-export function transferOutlook(ride, phase, vehiclesByLeg, transfers) {
+// re-plans legs i+1… to the earliest feasible chain after `needed` (never a vehicle leaving
+// before it); `none` when there's no such chain (plan kept). A working connection switches to
+// a catchable vehicle leaving EARLIER_MIN+ min sooner (`earlier`; e.g. the planned train fell
+// behind a delayed earlier one). Null without a next leg.
+export function transferOutlook(ride, phase, vehiclesByLeg, transfers, nowMs) {
   const i = phase.kind === 'riding' ? phase.leg : phase.kind === 'transfer' ? phase.leg - 1 : -1;
   const next = i + 1;
   if (i < 0 || next >= ride.legs.length) return null;
   const needed = ride.legs[i].arr + (transfers[i] ?? 0) * MIN;
   const planned = ride.legs[next];
   const base = { leg: next, needed, margin: planned.dep - needed, legs: ride.legs, missedDep: null, none: false };
-  if (base.margin >= 0) return base;
+  const replanned = chain => ride.legs.map((l, k) => (k >= next ? onVehicle(l, chain[k - next]) : l));
+  if (base.margin >= 0) {
+    // Not before now: in the transfer, `needed` may already be past.
+    const chain = replanFrom(vehiclesByLeg, next, Math.max(needed, nowMs), transfers);
+    if (!chain || chain[0].tripId === planned.tripId || chain[0].dep > planned.dep - EARLIER_MIN * MIN) return base;
+    const legs = replanned(chain);
+    return { ...base, legs, margin: legs[next].dep - needed, earlier: true };
+  }
   const chain = replanFrom(vehiclesByLeg, next, needed, transfers);
   if (!chain) return { ...base, none: true };
-  const legs = ride.legs.map((l, k) => (k >= next ? onVehicle(l, chain[k - next]) : l));
+  const legs = replanned(chain);
   return { ...base, legs, margin: legs[next].dep - needed, missedDep: planned.dep };
 }
 
