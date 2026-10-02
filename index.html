@@ -198,9 +198,11 @@
     <div class="enroute-bar" id="enroute" hidden></div>
     <p class="status stale" id="loadfail" hidden>The app failed to start, probably a partial update.
       <button id="reload" type="button">Reload</button></p>
+    <p class="status stale" id="newversion" hidden>New version available
+      <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · b9963b8872</footer>
+    <footer class="version">Version 2026-10-01 · 44eedc4e8c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -614,7 +616,7 @@ function render() {
   } else {
     status.className = notice ? 'status stale' : 'status';
     status.textContent = [lastOk ? `Updated ${formatTime(lastOk)}` : 'Loading…', notice,
-      locationOff && usesLocation() && 'Location off'].filter(Boolean).join(' · ');
+      locationOff && usesLocation() && 'Location off', savedCopy && 'Saved copy'].filter(Boolean).join(' · ');
   }
 
   $('alerts').replaceChildren(...currentAlerts(now).map(a => {
@@ -878,6 +880,7 @@ $('refresh').onclick = () => refresh({ force: true });
 // Location for "near" trips: the last fix, re-taken on launch and on return to the app.
 let here = null;
 let locationOff = false;
+let savedCopy = false; // this page came from the service worker's cache
 const usesLocation = () => !!config?.trips.some(t => t.near === true);
 const located = () => (here && config ? pickByLocation(config.trips, here) : -1);
 
@@ -914,7 +917,17 @@ document.addEventListener('visibilitychange', () => {
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
+  // The service worker says whether this page came from its cache (server slow or failing) and
+  // whether a newer page has been saved since.
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type !== 'nav') return;
+    savedCopy = e.data.cached;
+    $('newversion').hidden = !e.data.updated;
+    render();
+  });
+  navigator.serviceWorker.controller?.postMessage('nav-status');
 }
+$('reload-new').onclick = () => location.reload();
 
 window.appStarted = true;
 render();

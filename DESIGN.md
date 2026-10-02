@@ -409,8 +409,17 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 
 - `manifest.json`: name, icons, `display: standalone`, start URL.
 - `sw.js`: network-first for same-origin files, revalidating with the server
-  (`cache: 'no-cache'`) rather than trusting GitHub Pages' 10-minute HTTP cache; cache as
-  offline fallback; precaches the app shell. `api-v3.mbta.com` is never cached.
+  (`cache: 'no-cache'`) rather than trusting GitHub Pages' 10-minute HTTP cache; precaches the
+  app shell. `api-v3.mbta.com` is never cached. The cache is the fallback when the server
+  answers 5xx (4xx is shown as is), takes over 3 s (the request keeps running and still
+  updates the cache), or is unreachable. The 5xx and timeout fallbacks match exactly (with the
+  `?v=` query) so a new page never gets an old module; offline ignores the query. Versioned
+  modules (`?v=<content hash>`) are immutable, so a cached exact match is served without a
+  request (a slow server delays only the page, not each module).
+- When the page itself came from the cache, the status line adds "Saved copy". If the late
+  network page then differs from it, a "New version available · Reload" banner appears; if it's
+  the same, "Saved copy" clears. The page asks the service worker (`nav-status` message) on
+  load; the service worker also posts to open pages when the late response arrives.
 - `index.html` imports `core.js?v=<content hash>` and `setup.js?v=<content hash>`, and
   `setup.js` imports `core.js?v=<content hash>` (`npm run stamp`; a unit test enforces all
   three), so a new page can never run against a stale cached module. Mixing the two once left the

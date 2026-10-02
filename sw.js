@@ -14,21 +14,71 @@ self.addEventListener('activate', event => {
   );
 });
 
+// Network-first so new deploys show up immediately. The cache is the fallback when the server
+// fails (5xx), is slow (no answer in 3 s; the request keeps running and still updates the
+// cache), or is unreachable. The first two use an exact match (with the `?v=` query) so a new
+// page never runs against an old cached module; offline ignores the query (the cached shell is
+// self-consistent).
+const TIMEOUT_MS = 3000;
+
+// The latest navigation: served from the cache, and whether a newer page has since been saved.
+let lastNav = { cached: false, updated: false };
+
+async function postNav() {
+  for (const c of await self.clients.matchAll({ type: 'window' })) c.postMessage({ type: 'nav', ...lastNav });
+}
+
+// no-cache: revalidate with the server instead of trusting the 10-min HTTP cache.
+// (A fresh Request: navigation requests cannot be re-fetched with an init object.)
+async function fetchAndSave(request) {
+  const res = await fetch(new Request(request.url, { cache: 'no-cache' }));
+  if (res.ok) await caches.open(CACHE).then(c => c.put(request, res.clone()));
+  return res;
+}
+
+self.addEventListener('message', event => {
+  if (event.data === 'nav-status') event.source?.postMessage({ type: 'nav', ...lastNav });
+});
+
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
-  // Network-first so new deploys show up immediately; cache is the offline fallback.
-  event.respondWith(
-    // no-cache: revalidate with the server instead of trusting the 10-min HTTP cache.
-    // (A fresh Request: navigation requests cannot be re-fetched with an init object.)
-    fetch(new Request(event.request.url, { cache: 'no-cache' }))
-      .then(res => {
-        if (res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(event.request, copy));
-        }
-        return res;
+  // Versioned modules (`?v=<content hash>`) never change: a cached copy is served directly.
+  if (url.searchParams.has('v')) {
+    event.respondWith(caches.match(event.request).then(c => c ?? fetchAndSave(event.request))
+      .catch(async () => (await caches.match(event.request, { ignoreSearch: true })) ?? Response.error()));
+    return;
+  }
+  const nav = event.request.mode === 'navigate';
+  if (nav) lastNav = { cached: false, updated: false };
+  // Exact match; its text is kept for navigations to compare with a late network response.
+  const cached = caches.match(event.request).then(async res => res && { res, text: nav ? await res.clone().text() : null });
+  const net = fetchAndSave(event.request);
+  let fromCache = false;
+  const useCache = c => { fromCache = true; if (nav) lastNav = { cached: true, updated: false }; return c.res; };
+  // After serving the cache: a newer page saved → "updated"; the same page → not a stale copy.
+  if (nav) event.waitUntil(net.then(async res => {
+    if (!fromCache || !res.ok) return;
+    const [fresh, c] = await Promise.all([res.clone().text(), cached]);
+    lastNav = fresh === c?.text ? { cached: false, updated: false } : { cached: true, updated: true };
+    await postNav();
+  }).catch(() => {}));
+  else event.waitUntil(net.catch(() => {}));
+  event.respondWith(new Promise(resolve => {
+    let done = false;
+    const finish = res => { if (!done) { done = true; resolve(res); } };
+    const timer = setTimeout(() => cached.then(c => c && !done && finish(useCache(c))), TIMEOUT_MS);
+    net.then(async res => {
+      if (done || res.status < 500) return res;
+      const c = await cached;
+      return c ? useCache(c) : res;
+    })
+      .catch(async () => {
+        if (done) return null;
+        const res = await caches.match(event.request, { ignoreSearch: true });
+        if (res) { fromCache = true; if (nav) lastNav = { cached: true, updated: false }; }
+        return res ?? Response.error();
       })
-      .catch(() => caches.match(event.request, { ignoreSearch: true })),
-  );
+      .then(res => { clearTimeout(timer); finish(res); });
+  }));
 });
