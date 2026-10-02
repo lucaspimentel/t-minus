@@ -244,7 +244,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   name; no extra requests), each leg has a muted "Wonderland → State" line under its times,
   and the steps say "Walk 5 min to Wonderland · …", "6 min to transfer at State" (or ",
   State → Downtown Crossing" between different stops), "Walk 10 min from Kendall/MIT · arrive
-  …". The ride card's timeline shows the same. A muted ▾ at the bottom-right of a collapsed row
+  …". The ride card's timeline shows the same. Steps that involve walking (walks over 0 min,
+  every transfer) carry a small walking figure on the rail (inline SVG, muted color), so the
+  rail reads walk, ● Bus 132, walk, ● Orange, walk; slack-only and "Arrive" steps have none. A muted ▾ at the bottom-right of a collapsed row
   (after the arrival) hints at this; expanded rows show ▴ in the same corner, on the "Track
   this trip" line. Expanded rows are remembered
   by the timing vehicle's trip id while the page is open.

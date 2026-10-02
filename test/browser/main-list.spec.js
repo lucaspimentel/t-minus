@@ -29,6 +29,8 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
     '10 min to transfer, Washington St opp Oak Grove Sta → Oak Grove',
     'Walk 10 min from State · arrive 7:57am',
   ]);
+  // Walking figures on the rail: walk, transfer, walk.
+  await expect(first.locator('.step.walk .walk-icon')).toHaveCount(3);
   await expect(first.locator('.row-foot')).toContainText('Track this trip');
   await expect(first.locator('.row-foot .chev')).toHaveText('▴');
   await first.click();

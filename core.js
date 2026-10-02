@@ -882,7 +882,7 @@ export function keepAwakeRiding(ride, walkAfter, nowMs, minutes) {
 // Steps of an expanded row: walk to the first stop (not en route; with the stop slack), legs,
 // the actual gap at each transfer, and the final walk with the arrival time.
 // `names`: stop id → name (stopNames); leg steps get `from`/`to`, walks and transfers name their
-// stops when known.
+// stops when known. Steps that involve walking (walks over 0 min, every transfer) get `walking`.
 export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map()) {
   const { walkBefore, walkAfter, transit } = tripShape(trip);
   const from = i => names.get(transit[i]?.stop) ?? null;
@@ -891,14 +891,14 @@ export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map())
   if (!row.enRoute) {
     const walk = walkBefore > 0 && `Walk ${walkBefore} min${from(0) ? ` to ${from(0)}` : ''}`;
     const parts = [walk, slackMinutes > 0 && `${slackMinutes} min early at the stop`].filter(Boolean);
-    if (parts.length) steps.push({ kind: 'walk', text: parts.join(' · ') });
+    if (parts.length) steps.push({ kind: 'walk', text: parts.join(' · '), walking: walkBefore > 0 });
   }
   row.legs.forEach((leg, i) => {
     if (i > 0) {
       const a = to(i - 1);
       const b = from(i);
       const where = a && b ? (a === b ? ` at ${a}` : `, ${a} → ${b}`) : '';
-      steps.push({ kind: 'walk', text: `${formatCountdown(leg.dep - row.legs[i - 1].arr)} to transfer${where}` });
+      steps.push({ kind: 'walk', text: `${formatCountdown(leg.dep - row.legs[i - 1].arr)} to transfer${where}`, walking: true });
     }
     steps.push({ kind: 'leg', leg, from: from(i), to: to(i) });
   });
@@ -906,7 +906,7 @@ export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map())
   const last = to(row.legs.length - 1);
   steps.push({ kind: 'walk', text: walkAfter > 0
     ? `Walk ${walkAfter} min${last ? ` from ${last}` : ''} · arrive ${arrive}`
-    : `Arrive ${arrive}${last ? ` at ${last}` : ''}` });
+    : `Arrive ${arrive}${last ? ` at ${last}` : ''}`, walking: walkAfter > 0 });
   return steps;
 }
 

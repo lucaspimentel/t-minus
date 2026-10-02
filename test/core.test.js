@@ -595,6 +595,11 @@ test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {
   const same = new Map([...names, ['5991', 'Oak Grove']]);
   assert.equal(timelineSteps(row, homeToOffice, 1, at('10:00'), same)[2].text, '9 min to transfer at Oak Grove');
   assert.equal(texts(timelineSteps(tight, bare, 1, at('10:00'), names)).at(-1), 'Arrive 10:57am at State');
+  // Walking icons: walks over 0 min and every transfer; none for slack only or "Arrive".
+  const walking = steps => steps.filter(st => st.kind === 'walk').map(st => !!st.walking);
+  assert.deepEqual(walking(named), [true, true, true]);
+  assert.deepEqual(walking(timelineSteps(tight, bare, 1, at('10:00'))), [false, true, false]);
+  assert.deepEqual(walking(timelineSteps({ ...row, enRoute: true }, homeToOffice, 1, at('10:00'))), [true, true]);
 });
 
 test('tripRows: only the most recent missed ride', () => {
