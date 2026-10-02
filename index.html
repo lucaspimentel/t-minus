@@ -205,6 +205,13 @@
     /* When stuck, its own top padding keeps the buttons out of the blurred strip. */
     position: sticky; top: env(safe-area-inset-top, 0px); background: var(--bg); padding: 22px 0 10px; margin-top: -22px; z-index: 1;
   }
+  /* Picker: header, context line and search stick together; the header inside is a plain block. */
+  .picker-top {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 1; background: var(--bg);
+    padding: 22px 0 8px; margin-top: -22px;
+  }
+  .picker-top .setup-head { position: static; padding: 0 0 10px; margin: 0; }
+  .picker-top .muted { margin-top: 0; }
   .setup .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 12px;
     padding: 10px 14px 14px; margin-bottom: 12px;
@@ -258,7 +265,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · 90f147eb14</footer>
+    <footer class="version">Version 2026-10-02 · 8049a3618a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -281,7 +288,7 @@ import {
   unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
 } from './core.js?v=823673841b';
-import { openSetup } from './setup.js?v=8f60742d00';
+import { openSetup } from './setup.js?v=67aa75d85c';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';

@@ -352,7 +352,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   toast. Undo restores trips and settings, not a cleared "Leaving now" / tracking state.
 - The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
   canonical legs back, omitting zero-minute walks and transfers.
-- Leg picker: one search box ("Search stations or routes") finds rail stations
+- Leg picker: the header, context line, and search box stick together at the top while the
+  list scrolls under them (so iOS's scroll for the keyboard can't slide the search under the
+  header). One search box ("Search stations or routes") finds rail stations
   (`searchStations`, each with its lines) and routes (`searchRoutes`). Without typing, a first
   leg lists the rail lines and "Show all routes"; a later leg lists the stations (within 300 m)
   and routes near the previous drop-off (see next-leg suggestions).

@@ -101,6 +101,22 @@ test('station-first: from a station to any station reachable without a transfer'
   await expect(setup(page).locator('#picker-search')).toHaveAttribute('placeholder', 'Search stations or routes');
 });
 
+test('the picker\'s search stays at the top, uncovered, while the list scrolls', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('Oak Grove');
+  await setup(page).locator('.item.station', { hasText: 'Oak Grove' }).click();
+  await expect(setup(page).locator('.item', { hasText: 'Forest Hills' })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  const search = setup(page).locator('#picker-search');
+  await expect(search).toBeInViewport();
+  const box = await search.boundingBox();
+  const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.id, [box.x + 2, box.y + 2]);
+  expect(hit).toBe('picker-search');
+  await search.fill('Wellington');
+  await expect(setup(page).locator('.item')).toHaveText(['Wellington']);
+});
+
 test('station-first takes every line that makes the ride; the editor trims them', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
   await setup(page).getByLabel('Trip name').fill('Green');

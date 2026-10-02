@@ -6,14 +6,13 @@ number of transit legs, without knowing GTFS IDs or the engine's internals.
 Done: the N-leg engine and the setup UI, including no direction step, nearby-only next legs,
 rail connections in the drop-off list, multi-route legs (`also`), return trips, the
 timing-leg override, collapsed rows, the trip list with one-at-a-time editing, short
-route labels with MBTA color dots, trip tracking, service worker fallbacks (5xx, 3 s
+route labels with MBTA color dots, a sticky picker search, trip tracking, service worker fallbacks (5xx, 3 s
 timeout, "Saved copy", reload banner), and UI affordances: loading indicators, the old-data
 age, Retry / backoff / rate-limit countdown, expand hints, pressed states, Undo toasts on
 the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop list with the stop before the drop-off, and browser tests in CI against a fake MBTA API (see `DESIGN.md`).
 
 ## UI
 
-- Leg picker: the search box's top edge is hidden under the sticky header ("Add a leg").
 - Station-first drop-off list: stations every branch serves (Park Street, Boylston, Arlington,
   Copley) show no branch label, unlike "Kenmore · Green B/C/D"; show "Green B/C/D/E" or
   "Green (any)".

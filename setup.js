@@ -718,7 +718,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       [routeLabel(picker.route), picker.board && `from ${stopName(picker.route.id, null, picker.board)}`,
         picker.step === 'also' && `to ${stopName(picker.route.id, picker.direction, picker.alight)}`].filter(Boolean).join(' · '));
     if (picker.step === 'also') {
-      return [head, context,
+      return [h('div', { class: 'picker-top' }, head, context),
         h('div', { class: 'muted' }, 'These also make this ride. Any checked route counts.'),
         h('div', { class: 'list' }, ...picker.also.map(a => h('label', { class: 'check' },
           h('input', { type: 'checkbox', checked: a.checked, onchange: e => { a.checked = e.target.checked; } }),
@@ -730,7 +730,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       type: 'search', id: 'picker-search', placeholder: picker.step === 'search' ? 'Search stations or routes' : picker.step === 'to' ? 'Search stations' : 'Search stops',
       value: picker.query, oninput: e => { picker.query = e.target.value; list.replaceChildren(...pickerList()); },
     });
-    return [head, context, search, list];
+    // Header, context and search stay at the top while the list scrolls under them (and iOS's
+    // scroll for the keyboard can't slide the search under the header).
+    return [h('div', { class: 'picker-top' }, head, context, search), list];
   }
 
   // The list keeps its scroll position while a trip is open, and a trip keeps its own while a
