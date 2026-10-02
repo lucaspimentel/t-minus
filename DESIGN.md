@@ -170,9 +170,11 @@ For leaving earlier or later than leave-by. A bar under the status line always o
   departure as the target (`pinTarget`): it's never re-taken, boards when its first vehicle
   departs even if the at-stop estimate says it's unreachable, and has no 30-min cap. From the
   normal list it starts `kind: 'track'`: rows keep their leave-by countdowns, the pinned row
-  has a green outline and a disabled "Tracking" button, and the bar reads "Tracking Bus 132
+  has a green outline and a "Tracking ✕" button, and the bar reads "Tracking Bus 132
   7:40am" [Leaving now] [At the stop] [Cancel] (both keep the pin). While en route, the pinned
-  row is highlighted instead of the first reachable one.
+  row is highlighted instead of the first reachable one. "Tracking ✕" drops only the pin
+  (`unpinTarget`): plain tracking ends; "Leaving now" / "At the stop" stays and the highlight
+  goes back to the first reachable ride. Either way: "Tracking cancelled · Undo" toast.
 - Boarding is assumed when the target's first vehicle departs (live or scheduled time) while
   it was reachable: its legs (trip id + times) become the ride, and a trip card replaces the
   list and the bar:

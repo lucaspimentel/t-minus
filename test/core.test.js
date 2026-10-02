@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -462,6 +462,10 @@ test('Track this trip: pinned target', () => {
   assert.deepEqual([pinned.kind, pinned.atStop, pinned.target.key], ['stop', at('07:05'), 'b2']);
   const leaving = startEnRoute('leaving', at('07:08'), 5, tracked);
   assert.deepEqual([leaving.pinned, leaving.target.key], [true, 'b2']);
+  // Unpinning: plain tracking ends; an en-route state stays, without the pin.
+  assert.equal(unpinTarget(tracked), null);
+  assert.deepEqual(unpinTarget(pinned), { kind: 'stop', at: stop.at, atStop: at('07:05') });
+  assert.deepEqual([unpinTarget(leaving).kind, unpinTarget(leaving).pinned, unpinTarget(leaving).target], ['leaving', undefined, undefined]);
   // Pinned boards even if the at-stop estimate says it was unreachable.
   const late = pinTarget({ kind: 'leaving', at: at('07:10'), atStop: at('07:15') }, r1, at('07:10'));
   assert.equal(advanceEnRoute(late, rowsAt('07:12', late), at('07:12')).ride.boardedAt, at('07:12'));

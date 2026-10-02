@@ -159,12 +159,45 @@ test('Track this trip pins a later departure and boards it when it leaves', asyn
   await second.getByRole('button', { name: 'Track this trip' }).click();
   await tick(page, 1000);
   await expect(page.locator('.row.tracked .big')).toContainText('7:30am'); // leave-by kept in the list
-  await expect(page.locator('.row.tracked').getByRole('button', { name: 'Tracking' })).toBeDisabled();
+  await expect(page.locator('.row.tracked').getByRole('button', { name: 'Stop tracking' })).toHaveText('Tracking ✕');
   await expect(bar(page)).toContainText('Tracking Bus 132 7:36am');
   await tickTo(page, '07:09');
   await expect(card(page)).toHaveCount(0); // the 7:08 left without boarding
   await tickTo(page, '07:36:30');
   await expect(head(page)).toHaveText('On Bus 132 · off at 7:50am');
+});
+
+test('Tracking ✕ ends plain tracking, with Undo', async ({ page }) => {
+  await openApp(page, { time: '07:00' });
+  const second = page.locator('.row').nth(1);
+  await second.click();
+  await second.getByRole('button', { name: 'Track this trip' }).click();
+  await tick(page, 1000);
+  await page.locator('.row.tracked').getByRole('button', { name: 'Stop tracking' }).click();
+  await tick(page, 300);
+  await expect(page.locator('.row.tracked')).toHaveCount(0);
+  await expect(bar(page)).not.toContainText('Tracking');
+  await expect(toast(page)).toContainText('Tracking cancelled');
+  await toast(page).getByRole('button', { name: 'Undo' }).click();
+  await tick(page, 1000);
+  await expect(bar(page)).toContainText('Tracking Bus 132 7:36am');
+  await expect(page.locator('.row.tracked .big')).toContainText('7:30am');
+});
+
+test('Tracking ✕ while at the stop keeps the at-stop state and drops the pin', async ({ page }) => {
+  await openApp(page, { time: '07:00' });
+  await atTheStop(page);
+  const second = page.locator('.row').nth(1);
+  await second.click();
+  await second.getByRole('button', { name: 'Track this trip' }).click();
+  await tick(page, 1000);
+  await expect(page.locator('.row.catch .big')).toContainText('7:36am');
+  await page.locator('.row.tracked').getByRole('button', { name: 'Stop tracking' }).click();
+  await tick(page, 1000);
+  await expect(bar(page)).toContainText('At the stop since 7:00am');
+  await expect(page.locator('.row.tracked')).toHaveCount(0);
+  await expect(page.locator('.row.catch .big')).toContainText('7:08am');
+  await expect(toast(page)).toContainText('Tracking cancelled');
 });
 
 test('the screen stays on only near a drop-off or a transfer departure', async ({ page }) => {

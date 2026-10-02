@@ -709,6 +709,14 @@ export function pinTarget(prev, row, nowMs) {
   return { ...base, pinned: true, target: { key: row.key, legs: row.legs } };
 }
 
+// "Tracking ✕": drops the pin. Plain tracking ends; "Leaving now" / "At the stop" stays, and
+// advanceEnRoute retargets the first reachable row.
+export function unpinTarget(state) {
+  if (!state || state.kind === 'track') return null;
+  const { pinned: _, target: __, ...rest } = state;
+  return rest;
+}
+
 // Before boarding: the target is the first reachable en-route row, re-taken every tick. Once
 // the target's first vehicle departs while it was reachable, boarding is assumed and its legs
 // become the ride ({ legs, boardedAt }).

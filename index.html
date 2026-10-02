@@ -141,7 +141,7 @@
     padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
   }
-  .track-btn:disabled { color: var(--green); border-color: var(--green); cursor: default; }
+  .track-btn.tracking { color: var(--green); border-color: var(--green); }
   .ride-outlook { margin-top: 6px; font-size: 14px; color: var(--muted); }
   .ride-outlook.warn { color: var(--amber); font-weight: 600; }
   .ride-stops { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -249,7 +249,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · 4ca6060965</footer>
+    <footer class="version">Version 2026-10-02 · 5374825595</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -269,10 +269,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD,
-  trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg,
+  unpinTarget, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=8d1da6f55e';
-import { openSetup } from './setup.js?v=f8b7556f67';
+} from './core.js?v=449f138fce';
+import { openSetup } from './setup.js?v=1a0e8e65a2';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -661,11 +661,12 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
   // Footer: "Track this trip" (not next-day rows, nor rides already gone) and the ▴ hint.
   const foot = el('div', 'row-foot');
   if (!r.nextDay && r.firstDep > now) {
-    const b = el('button', 'track-btn', tracked ? 'Tracking' : 'Track this trip');
+    const b = el('button', `track-btn${tracked ? ' tracking' : ''}`, tracked ? 'Tracking ✕' : 'Track this trip');
     b.type = 'button';
-    b.disabled = tracked;
+    if (tracked) b.setAttribute('aria-label', 'Stop tracking');
     b.onclick = e => {
       e.stopPropagation();
+      if (tracked) return unpinTracking();
       setEnRoute(pinTarget(enRouteState(), r, Date.now()));
       render();
       schedulePoll();
@@ -787,6 +788,20 @@ function cancelTracking() {
   schedulePoll();
   showToast('Tracking cancelled', 'Undo', () => {
     if (snap.idx !== tripIdx) setTrip(snap.idx, true); // Cancel let autoSwitch change trips
+    setEnRoute(snap.state);
+    render();
+    schedulePoll();
+  });
+}
+
+// "Tracking ✕" on the tracked row: drops only the pin (unpinTarget), with Undo.
+function unpinTracking() {
+  const snap = { idx: tripIdx, state: enRouteState() };
+  setEnRoute(unpinTarget(snap.state));
+  render();
+  schedulePoll();
+  showToast('Tracking cancelled', 'Undo', () => {
+    if (snap.idx !== tripIdx) setTrip(snap.idx, true);
     setEnRoute(snap.state);
     render();
     schedulePoll();
