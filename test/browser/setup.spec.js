@@ -125,6 +125,7 @@ test('station-first takes every line that makes the ride; the editor trims them'
   await setup(page).locator('.item.station', { hasText: 'Government Center' }).click();
   // Kenmore: not every branch stops there.
   await expect(setup(page).locator('.item', { hasText: 'Kenmore' })).toContainText('Kenmore · Green B/C/D');
+  await expect(setup(page).locator('.item', { hasText: 'Copley' })).toContainText('Copley · Green (any)');
   await setup(page).locator('.item', { hasText: 'Park Street' }).first().click();
   await expect(setup(page)).toContainText('Green B/C/D/E toward Boston College · Government Center → Park Street');
   await setup(page).getByRole('checkbox', { name: 'Take Green D' }).click(); // re-renders without it

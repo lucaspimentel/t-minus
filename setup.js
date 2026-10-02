@@ -654,7 +654,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     }
     if (picker.step === 'to') {
       // Station-first drop-off: stations reachable without a transfer, per line and direction;
-      // branch letters only where just some branches stop.
+      // on a line with branches, which ones stop ("Green B/C/D", or "Green (any)" for all).
       if (!railNet) return [h('div', { class: 'muted' }, 'Loading stations…')];
       return reachableFrom(railNet, picker.from).flatMap(g => {
         const found = searchStops(g.stations.map(st => ({ ...st, attributes: { name: st.name } })), q);
@@ -663,7 +663,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         return [h('div', { class: 'muted section-head' }, dot(g.color), `${g.label} toward ${g.toward.join(' / ')}`),
           ...found.map(st => h('button', { type: 'button', class: 'item', onclick: () => chooseTo(st.id) },
             st.name,
-            g.routes.length > 1 && st.routes.length < g.routes.length && h('span', { class: 'muted' }, ` · ${commonLabel(st.routes.map(label))}`),
+            g.routes.length > 1 && h('span', { class: 'muted' }, ` · ${st.routes.length < g.routes.length ? commonLabel(st.routes.map(label)) : `${g.label} (any)`}`),
             ...stationLines(st.id, g.routes)))];
       });
     }

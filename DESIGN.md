@@ -362,7 +362,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   (`reachableFrom`) holds the stations reachable without a transfer, under "● Orange toward
   Forest Hills" headings (one per line color and direction; "Green toward Boston College /
   Cleveland Circle / …"), from the canonical route patterns, so branches never mix (no Ashmont →
-  Quincy); a station only some branches serve shows them ("Kenmore · Green B/C/D"). The pick
+  Quincy); on a line with branches each station says which stop there ("Kenmore · Green
+  B/C/D", "Copley · Green (any)"). The pick
   makes the leg with every route that passes both stations in order (`legBetween`): Government
   Center → Park Street is Green-B plus `also` C, D, E, with no extra step. Stop ids are parent
   stations. A later leg whose previous leg ended at a rail station opens on the To list from it
