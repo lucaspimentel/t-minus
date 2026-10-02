@@ -227,6 +227,11 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   leg, "9 min to transfer" (the actual gap: next departure − previous arrival), and
   "Walk 10 min · arrive 8:56am" (`timelineSteps`); tap again to collapse. Expanded rows are remembered
   by the timing vehicle's trip id while the page is open.
+- Status line (per trip): "Loading…" until that trip's first fetch completes ("Still
+  loading… (MBTA is slow)" after 5 s; the list stays empty, "No upcoming departures found."
+  only after a completed fetch), then "Updated 8:04pm", or "Stale (…) · last updated …" /
+  "Error: …" from that trip's own last fetch. The ↻ icon spins during every fetch (polls
+  included), at least 0.5 s; with reduced motion it dims instead.
 - Route labels are short: rail by line ("Orange", "Green B", "Mattapan"), Silver Line as
   "Silver SL1", other buses as "Bus 132" / "Bus CT3". The dot is the route's MBTA color
   (yellow for buses, gray for the Silver Line). Setup uses the same labels and dots in the

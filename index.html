@@ -11,6 +11,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <style>
+  [hidden] { display: none !important; }
   :root {
     color-scheme: light dark; /* native controls (time pickers, checkboxes) follow the theme */
     --bg: #f5f5f3; --card: #ffffff; --text: #1c1f24; --muted: #6b7078; --border: #dcdde0;
@@ -50,6 +51,9 @@
     width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 10px;
     background: var(--card); color: var(--text); font-size: 20px; cursor: pointer;
   }
+  #refresh.busy span { display: inline-block; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { #refresh.busy span { animation: none; opacity: .4; } }
   .status { font-size: 13px; color: var(--muted); margin: 0 0 12px; min-height: 18px; }
   .status.stale { color: var(--red); }
   .alerts { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
@@ -191,7 +195,7 @@
   <div id="app">
     <header>
       <div class="toggle" id="toggle" role="group" aria-label="Trip"></div>
-      <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh">&#x21bb;</button>
+      <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh"><span>&#x21bb;</span></button>
       <button class="icon-btn" id="open-setup" aria-label="Setup" title="Setup">&#x2699;</button>
     </header>
     <p class="status" id="status">Loading…</p>
@@ -202,7 +206,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · 44eedc4e8c</footer>
+    <footer class="version">Version 2026-10-01 · d0cc5f402e</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -256,12 +260,12 @@ let tripIdx = config ? pickTrip(Date.now(), config, store.get(KEY_OVERRIDE), sto
 // { predictions: [doc], schedules: {docs, date, coversEndOfService, at}, alerts: {doc, at},
 //   nextDay: {docs, date, at} (next service day's schedules, fetched once today's run out),
 //   timing: index of the transit leg leave-by is based on,
-//   lastLive: last live times per leg (rememberLive), for rides that just left }
+//   lastLive: last live times per leg (rememberLive), for rides that just left,
+//   lastOk / lastError: this trip's last successful fetch time and last error }
 let cache = {};
 // Previous timing leg per trip, for the hysteresis in pickTimingLeg.
 const lastTiming = new Map();
-let lastOk = null;
-let lastError = null;
+let loading = null; // { idx, since }: a fetch for a trip with no data yet ("Still loading…")
 let notice = null; // e.g. "Saved, but couldn't verify stops"
 let setupView = null; // open setup view (setup.js), if any
 let pollTimer = null;
@@ -347,6 +351,8 @@ async function refresh({ force = false } = {}) {
   const trip = config.trips[idx];
   const c = (cache[idx] ??= {});
   const now = Date.now();
+  $('refresh').classList.add('busy');
+  if (!c.lastOk) loading = { idx, since: now };
   try {
     const tasks = [fetchPredictions(trip).then(p => {
       c.predictions = p;
@@ -377,12 +383,15 @@ async function refresh({ force = false } = {}) {
         (!c.nextDay || c.nextDay.date !== next.date || now - c.nextDay.at > NEXT_DAY_TTL)) {
       c.nextDay = await fetchSchedules(trip, next);
     }
-    lastOk = Date.now();
-    lastError = null;
+    c.lastOk = Date.now();
+    c.lastError = null;
   } catch (e) {
-    lastError = e.message || String(e);
+    c.lastError = e.message || String(e);
   } finally {
     inFlight = false;
+    loading = null;
+    // Spins at least 0.5 s so a fast reply still registers.
+    setTimeout(() => { if (!inFlight) $('refresh').classList.remove('busy'); }, Math.max(0, now + 500 - Date.now()));
   }
   render();
   if (pending) { pending = false; return refresh(); }
@@ -608,6 +617,7 @@ function render() {
     $('rows').replaceChildren(li);
     return;
   }
+  const { lastOk, lastError } = cache[tripIdx] ?? {};
   if (lastError) {
     status.className = 'status stale';
     status.textContent = lastOk
@@ -615,7 +625,8 @@ function render() {
       : `Error: ${lastError}`;
   } else {
     status.className = notice ? 'status stale' : 'status';
-    status.textContent = [lastOk ? `Updated ${formatTime(lastOk)}` : 'Loading…', notice,
+    const slow = loading?.idx === tripIdx && now - loading.since >= 5000;
+    status.textContent = [lastOk ? `Updated ${formatTime(lastOk)}` : slow ? 'Still loading… (MBTA is slow)' : 'Loading…', notice,
       locationOff && usesLocation() && 'Location off', savedCopy && 'Saved copy'].filter(Boolean).join(' · ');
   }
 
@@ -642,7 +653,6 @@ function render() {
   }
   const current = currentRows(now);
   renderEnRoute(now, current.length > 0);
-  // En route, the first reachable ride is the one being headed for.
   // The ride being headed for: the pinned one ("Track this trip"), else en route the first
   // reachable one.
   const s = enRouteState();
@@ -855,7 +865,6 @@ function showSetup() {
       store.del(KEY_EN_ROUTE);
       cache = {};
       lastTiming.clear();
-      lastOk = null;
       notice = warning;
       tripIdx = pickTrip(Date.now(), config, null, store.get(KEY_LAST_TRIP), located());
       locate(); // the saved trips may now use location
