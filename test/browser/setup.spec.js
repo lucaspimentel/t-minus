@@ -56,6 +56,24 @@ test('boarding at the end of a line asks for no direction', async ({ page }) => 
   await expect(setup(page)).toContainText('toward Forest Hills · Oak Grove → Wellington');
 });
 
+test('the next leg lists only routes near the transfer, then boards at the nearest stop', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('132');
+  await setup(page).locator('.item', { hasText: 'Bus 132' }).click();
+  await setup(page).locator('.item', { hasText: 'Main St @ South St' }).nth(1).click();
+  await setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).click();
+  await button(page, '+ Add transit leg').click();
+  await expect(setup(page)).toContainText('Near Washington St opp Oak Grove Sta');
+  await expect(setup(page).locator('.item b')).toHaveText(['Orange', 'Bus 132']);
+  await button(page, 'Show all routes').click();
+  await expect(setup(page).locator('.item b')).toHaveText(['Red', 'Orange', 'Bus 132', 'Bus 137']);
+  await setup(page).locator('.item', { hasText: 'Orange' }).click();
+  // Straight to the drop-off: Oak Grove is the nearest Orange stop, and the end of the line.
+  await expect(setup(page).locator('.muted').first()).toHaveText('Orange Line · from Oak Grove');
+  await expect(setup(page).locator('.section-head')).toHaveText(['toward Forest Hills']);
+});
+
 test('Cancel discards edits with Undo; without edits there is no toast', async ({ page }) => {
   await openSetup(page);
   await setup(page).locator('.trip-row .item').first().click();

@@ -29,6 +29,18 @@ for (const doc of STOP_DOCS.values()) {
   }
 }
 
+// Recorded stops within `radius` degrees of a point (the API's nearby search).
+function nearbyStops(lat, lon, radius) {
+  const out = new Map();
+  for (const doc of STOP_DOCS.values()) {
+    for (const s of doc.data) {
+      const a = s.attributes;
+      if (Math.hypot(a.latitude - lat, a.longitude - lon) <= radius) out.set(s.id, { type: 'stop', id: s.id, attributes: { name: a.name } });
+    }
+  }
+  return [...out.values()];
+}
+
 const TZ = 'America/New_York';
 const MIN = 60_000;
 
@@ -153,8 +165,18 @@ export async function fakeMbta(context, scenario, { now }) {
   }
 
   function stops(q) {
-    if (q.has('filter[latitude]')) return { data: [] }; // no nearby suggestions
+    if (q.has('filter[latitude]')) return { data: nearbyStops(+q.get('filter[latitude]'), +q.get('filter[longitude]'), +q.get('filter[radius]')) };
     return STOP_DOCS.get(`${q.get('filter[route]')}-${q.get('filter[direction_id]')}`) ?? { data: [] };
+  }
+
+  // Routes whose recorded stop lists include any of `ids` (a stop or one of its platforms).
+  function routesAt(ids) {
+    const wanted = new Set(ids);
+    const found = new Set();
+    for (const [key, doc] of STOP_DOCS) {
+      if (doc.data.some(s => wanted.has(s.id) || (s.relationships?.child_stops?.data ?? []).some(c => wanted.has(c.id)))) found.add(key.replace(/-[01]$/, ''));
+    }
+    return { data: ROUTES.data.filter(r => found.has(r.id)) };
   }
 
   function answer(url) {
@@ -164,7 +186,7 @@ export async function fakeMbta(context, scenario, { now }) {
       case '/predictions': return q.has('filter[trip]') ? tripPredictions(q.get('filter[trip]')) : legPredictions(q);
       case '/alerts': return alerts();
       case '/stops': return stops(q);
-      case '/routes': return q.has('filter[stop]') ? { data: [] } : ROUTES;
+      case '/routes': return q.has('filter[stop]') ? routesAt(q.get('filter[stop]').split(',')) : ROUTES;
       default: return null;
     }
   }

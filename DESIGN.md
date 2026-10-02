@@ -352,12 +352,15 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   stops after it under "toward …"; at the end of a line there is one group. The drop-off pick
   sets `direction_id`. A new leg's transfer time defaults to 3 min within the
   same station, else 5 (`defaultTransferMinutes`).
-- Next-leg suggestions: adding a leg after another lists first the routes serving stops within
+- Next-leg suggestions: adding a leg after another lists only the routes serving stops within
   ~300 m of the previous drop-off (`/stops?filter[latitude]&filter[longitude]&filter[radius]=0.003`,
   then `/routes?filter[stop]=...`). This uses the stop's location because street bus stops have
   no parent station (bus stop `5991` at Oak Grove is not linked to `place-ogmnl`). After the
   route is chosen, the board stop nearest the previous drop-off (`nearestStop`, either
   direction) is preselected and the picker goes straight to the drop-off step; Back reaches the full list.
+  Without a search, the route list holds only those nearby routes ("Finding routes nearby…"
+  while loading) and a "Show all routes" button; a search covers every route, and a failed or
+  empty lookup shows the full list.
 - "Leave-by time is based on": per trip with 2+ legs, "Automatic (currently <route>)" (the
   app's live choice) or a pinned leg (`timingLeg`). Moving or removing legs keeps the pin on
   the same leg.

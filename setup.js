@@ -456,9 +456,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     loadRoutes().then(r => { routes = r; render(); }).catch(e => { if (picker) picker.error = e.message || String(e); render(); });
     const prev = legIdx == null ? editing.form.transit.at(-1) : null;
     if (prev) {
-      loadNearby(prev).then(near => {
-        if (picker && picker.legIdx == null) { picker.near = near; render(); }
-      }).catch(() => {});
+      picker.nearLoading = true;
+      const done = near => { if (picker && picker.legIdx == null) { picker.near = near; picker.nearLoading = false; render(); } };
+      loadNearby(prev).then(done, () => done(null));
     }
     render();
   }
@@ -519,12 +519,20 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       if (!routes) return [h('div', { class: 'muted' }, picker.error ?? 'Loading routes…')];
       const found = searchRoutes(routes, q);
       const routeButton = r => h('button', { type: 'button', class: 'item', onclick: () => chooseRoute(r) }, dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), routeEnds(r) && h('span', { class: 'muted' }, ` ${routeEnds(r)}`));
-      // Without a search, routes near the previous drop-off come first.
-      const nearRoutes = !q.trim() && picker.near ? found.filter(r => picker.near.routeIds.includes(r.id)) : [];
+      // A next leg, without a search: only the routes near the previous drop-off (you transfer
+      // there), with a way to the full list. A search always covers every route.
+      if (!q.trim() && !picker.allRoutes) {
+        if (picker.nearLoading) return [h('div', { class: 'muted' }, 'Finding routes nearby…')];
+        const nearRoutes = picker.near ? found.filter(r => picker.near.routeIds.includes(r.id)) : [];
+        if (nearRoutes.length) {
+          return [
+            h('div', { class: 'muted' }, `Near ${picker.near.name}`),
+            ...nearRoutes.map(routeButton),
+            h('button', { type: 'button', class: 'add', onclick: () => { picker.allRoutes = true; render(); } }, 'Show all routes'),
+          ];
+        }
+      }
       return [
-        nearRoutes.length ? h('div', { class: 'muted' }, `Near ${picker.near.name}`) : null,
-        ...nearRoutes.map(routeButton),
-        nearRoutes.length ? h('div', { class: 'muted' }, 'All routes') : null,
         ...found.slice(0, ROUTE_LIMIT).map(routeButton),
         found.length > ROUTE_LIMIT ? h('div', { class: 'muted' }, `${found.length - ROUTE_LIMIT} more; refine the search.`) : null,
       ].filter(Boolean);
