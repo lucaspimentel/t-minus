@@ -203,10 +203,13 @@ For leaving earlier or later than leave-by. A bar under the status line always o
     a later leg, that leg's next vehicle (not the missed one) and the earliest connections
     after it (`replanFrom`), or "No later connection." Cancel ends tracking.
 - Stored per trip index in `localStorage` (`mbta-leave-by:en-route`, with the trip name; a
-  renamed trip drops it; cleared when setup saves). Polls every 60 s while active; no wake lock.
+  renamed trip drops it; cleared when setup saves). Polls every 60 s while active.
 
 Screen stays on (Screen Wake Lock, `keepAwake`) while the app is open and any upcoming row is
-within `wakeMinutes` (default 10, 0 = off) of its leave-by, until its last chance. The OS
+within `wakeMinutes` (default 10, 0 = off) of its leave-by, until its last chance. While a
+ride is tracked (`keepAwakeRiding`): the last 2 min before the drop-off of the leg being
+ridden, and the last 2 min before the next leg's departure during a transfer (fixed; off when
+`wakeMinutes` is 0). The OS
 releases the lock while the page is hidden; it is re-requested on the next render (and on a
 tap, for browsers that want a gesture). Nothing happens where the API is missing or refused.
 

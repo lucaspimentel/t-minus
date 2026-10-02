@@ -5,7 +5,7 @@ import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
-  nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, stopQueries, checkStops, stopsKey, tripLabel,
+  nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
 } from '../core.js';
@@ -83,6 +83,19 @@ test('keepAwake: from N min before leave-by until the last chance', () => {
   const next = { leaveBy: at('08:08'), lastChance: at('08:09') };
   assert.equal(awake('08:02', [{ ...row, missed: true }, next]), true);
   assert.equal(awake('08:02', []), false);
+});
+
+test('keepAwakeRiding: 2 min before a drop-off or the next departure', () => {
+  const ride = { boardedAt: at('07:40'), legs: [{ dep: at('07:40'), arr: at('07:54') }, { dep: at('08:02'), arr: at('08:20') }] };
+  const awake = (t, minutes = 10) => keepAwakeRiding(ride, 5, at(t), minutes);
+  assert.equal(awake('07:45'), false);
+  assert.equal(awake('07:52'), true);
+  assert.equal(awake('07:56'), false); // transfer, 6 min before the next departure
+  assert.equal(awake('08:00'), true);
+  assert.equal(awake('08:10'), false);
+  assert.equal(awake('08:19'), true);
+  assert.equal(awake('08:22'), false); // walking
+  assert.equal(awake('08:19', 0), false);
 });
 
 test('tripShape splits walk, transfer, and transit legs', () => {

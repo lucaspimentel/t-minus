@@ -200,7 +200,7 @@
       <button id="reload" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · 4af40e906f</footer>
+    <footer class="version">Version 2026-10-01 · b9963b8872</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -217,12 +217,12 @@
 <script type="module">
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
-  departureCount, stopSlackMinutes, wakeMinutes, keepAwake, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
+  departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs,
   trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=9ecd1cf6e5';
-import { openSetup } from './setup.js?v=1edee21c02';
+} from './core.js?v=34a6718d0d';
+import { openSetup } from './setup.js?v=996dd814a6';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -594,8 +594,8 @@ function render() {
   renderToggle();
 
   const status = $('status');
-  syncWakeLock(!!config && keepAwake(currentRows(now), now, wakeMinutes(config)));
   if (!config) {
+    syncWakeLock(false);
     status.className = 'status';
     status.textContent = 'No trips set up yet.';
     $('alerts').replaceChildren();
@@ -624,6 +624,9 @@ function render() {
   }));
 
   const en = syncEnRoute(now);
+  syncWakeLock(en?.ride
+    ? keepAwakeRiding(en.ride, tripShape(config.trips[tripIdx]).walkAfter, now, wakeMinutes(config))
+    : keepAwake(currentRows(now), now, wakeMinutes(config)));
   // A new leg being ridden: fetch its stops now rather than at the next poll.
   const riding = en?.ride && ridingLeg(now);
   if (riding && cache[tripIdx]?.rideStops?.tripId !== riding.leg.tripId && rideFetchFor !== riding.leg.tripId && !inFlight) {
@@ -795,7 +798,8 @@ function missedIt(phase) {
   schedulePoll();
 }
 
-// Screen Wake Lock: keeps the screen on near leave-by (keepAwake). The OS drops the lock while
+// Screen Wake Lock: keeps the screen on near leave-by (keepAwake), and while riding near a
+// drop-off or the next leg's departure (keepAwakeRiding). The OS drops the lock while
 // the page is hidden; the next render re-requests it. Errors (unsupported, Low Power Mode) are
 // ignored.
 let wakeLock = null;
