@@ -229,7 +229,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · 5868c5d82e</footer>
+    <footer class="version">Version 2026-10-01 · 7e7b136fcc</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -465,7 +465,8 @@ function currentRows(now, enRoute = enRouteState()) {
   // Rows follow the at-stop time only after "Leaving now" / "At the stop" (not plain tracking).
   const en = enRoute?.ride || enRoute?.kind === 'track' ? null : enRoute;
   const today = rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now, c.lastLive, en);
-  if (today.length >= count || !c.nextDay || !c.schedules?.coversEndOfService) return today;
+  // En route, the next service day's rides don't apply (you're heading out now).
+  if (en || today.length >= count || !c.nextDay || !c.schedules?.coversEndOfService) return today;
   return fillRows(today, rowsFor(trip, c.timing, null, c.nextDay.docs, now), count);
 }
 

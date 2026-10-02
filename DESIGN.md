@@ -163,6 +163,7 @@ For leaving earlier or later than leave-by. A bar under the status line always o
   shown on the right, collapsed line shows the first leg); the first is highlighted green
   (the one being headed for), later ones neutral. No leave-by. Unreachable rides follow the
   missed rules (one gray row, missed immediately if the at-stop time is after it leaves).
+  Next-day rows are not shown (the list may be shorter than `departureCount`).
 - The highlighted ride is the target, re-taken every tick while it's reachable
   (`advanceEnRoute`). Before boarding the mode ends 30 min after the first tap, or on Cancel.
 - "Track this trip" (expanded rows, except next-day rows and rides already gone) pins that
