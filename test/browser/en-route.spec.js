@@ -4,6 +4,7 @@
 // transfer, Orange 7:32 → 7:47 (every 6 min), 10-min walk → arrive 7:57.
 import { test, expect } from '@playwright/test';
 import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB } from './helpers.js';
+import { series } from './fake-mbta.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -111,6 +112,32 @@ test('a planned train that falls behind gives way to an earlier one, silently', 
   await expect(card(page).locator('.ride-outlook')).not.toHaveClass(/warn/);
   await tickTo(page, '07:39');
   await expect(head(page)).toHaveText('On Orange · off at 7:53am');
+});
+
+test('a long ride lists the next 3 stops, the stop before the drop-off, and expands', async ({ page }) => {
+  // Bus 132 inbound with its 14 stops between Pond St and Oak Grove.
+  const middle = ['15999', '16000', '16001', '5975', '5976', '5978', '5980', '5982', '5983', '5985', '5986', '5987', '5988', '5990'];
+  const scenario = commute();
+  scenario.trips = [...scenario.trips.filter(t => !t.id.startsWith('132in')),
+    ...series({ prefix: '132in', route: '132', direction: 1, first: '05:44', every: 28, count: 40,
+      stops: [['25996', 0], ['25997', 4], ...middle.map((s, i) => [s, 5 + Math.floor(i * 9 / 14)]), ['5991', 14]] })];
+  await openApp(page, { time: '07:00', scenario });
+  await atTheStop(page);
+  await tickTo(page, '07:09');
+  const stops = card(page).locator('.ride-stops');
+  await expect(stops.locator('.ride-where')).toContainText('16 stops to go');
+  await expect(stops.locator('.ride-stop')).toHaveText([
+    /^Pond St @ Stone Zoo/, /^Wyoming Ave @ Fellsway E/, /^Wyoming Ave @ Ravine Rd/, '… 11 more',
+    /^Washington St @ Glen Rock Rd/, /^Washington St opp Oak Grove Sta/]);
+  await expect(stops.locator('.ride-stop.drop')).toHaveText(/^Washington St opp Oak Grove Sta/);
+  await stops.getByRole('button', { name: '… 11 more' }).click();
+  await tick(page, 300);
+  await expect(stops.locator('div.ride-stop')).toHaveCount(16);
+  await tick(page, 60_000); // stays open across polls
+  await expect(stops.locator('div.ride-stop')).toHaveCount(16);
+  await stops.getByRole('button', { name: 'Show fewer' }).click();
+  await tick(page, 300);
+  await expect(stops.locator('div.ride-stop')).toHaveCount(5);
 });
 
 test('Later one? moves the ride to a vehicle that left after the assumed one', async ({ page }) => {

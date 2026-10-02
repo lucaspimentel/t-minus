@@ -184,8 +184,10 @@ For leaving earlier or later than leave-by. A bar under the status line always o
   - Badge (the last leg's arrival source) and "arrive 7:56am"; the timeline (no first walk)
     with the current step bold.
   - Riding: "Next: State · 9 stops to go" (or "At Downtown Crossing", when stopped there), then
-    the stops left to the drop-off with predicted times: the next 4, "… N more", and the
-    drop-off in bold (`rideStops`). From `/predictions?filter[trip]=<id>&include=stop,vehicle`
+    the stops left to the drop-off with predicted times: all of them up to 6, else the next 3,
+    "… N more", the stop before the drop-off (the cue to get ready), and the drop-off in bold
+    (`rideStops`, `shownStops`). Tapping "… N more" lists every stop ("Show fewer" collapses)
+    for the rest of that leg. From `/predictions?filter[trip]=<id>&include=stop,vehicle`
     (only remaining stops are returned; the drop-off matches the leg's `alight` or a child
     platform of it). Fetched on every poll while riding, and right away when a ride starts; no
     data (trip id changed, request failed) just hides the section.

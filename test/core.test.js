@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -634,6 +634,14 @@ test('dataAgeText: the age once older than two poll intervals', () => {
   assert.equal(dataAgeText(t0, 120_000, t0 + 200_000), null);
   assert.equal(dataAgeText(t0, 120_000, t0 + 25 * 60_000), '25 min ago');
   assert.equal(dataAgeText(t0, 120_000, t0 + 65 * 60_000), '1h 05m ago');
+});
+
+test('shownStops: up to 6 as is; else next 3, the count, the last two; all when expanded', () => {
+  const stops = n => Array.from({ length: n }, (_, i) => ({ id: `s${i}` }));
+  assert.deepEqual(shownStops(stops(6)), stops(6));
+  assert.deepEqual(shownStops(stops(15)), [{ id: 's0' }, { id: 's1' }, { id: 's2' }, { more: 10 }, { id: 's13' }, { id: 's14' }]);
+  assert.deepEqual(shownStops(stops(7)), [{ id: 's0' }, { id: 's1' }, { id: 's2' }, { more: 2 }, { id: 's5' }, { id: 's6' }]);
+  assert.deepEqual(shownStops(stops(15), true), stops(15));
 });
 
 test('pullOffset: half the finger distance, capped, never negative', () => {
