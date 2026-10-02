@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -423,6 +423,35 @@ test('tracking: boarding, live leg times, phases, Missed it re-plan', () => {
   assert.deepEqual(replanFrom([buses, trains], 1, at('07:32'), transfers, 'o1').map(v => v.tripId), ['o2']);
   assert.deepEqual(replanFrom([buses, trains], 0, at('07:13'), transfers, 'b1').map(v => v.tripId), ['b2', 'o3']);
   assert.equal(replanFrom([buses, trains], 1, at('08:01'), transfers), null);
+});
+
+test('Track this trip: pinned target', () => {
+  const trip = homeToOffice;
+  const buses = [veh('b1', '07:12', '07:26'), veh('b2', '07:40', '07:54')];
+  const trains = [veh('o1', '07:31', '07:46'), veh('o3', '08:00', '08:15')];
+  const rowsAt = (t, en) => tripRows(trip, [buses, trains], 0, at(t), 1, 4, en);
+  const [r1, r2] = rowsAt('07:00', null);
+
+  // From the normal list: kind 'track', no at-stop time.
+  const tracked = pinTarget(null, r2, at('07:00'));
+  assert.deepEqual([tracked.kind, tracked.pinned, tracked.target.key, tracked.atStop], ['track', true, 'b2', undefined]);
+  assert.equal(enRouteStatus(tracked, at('07:00')), 'Tracking 132 7:40am');
+  // Not re-targeted when b1 departs; boards at b2's departure; no 30-min cap before that.
+  let s = advanceEnRoute(tracked, rowsAt('07:12', null), at('07:12'));
+  assert.deepEqual([s.ride, s.target.key], [undefined, 'b2']);
+  assert.equal(enRouteActive(s, 10, at('07:39')), true);
+  s = advanceEnRoute(s, rowsAt('07:40', null), at('07:40'));
+  assert.deepEqual([s.ride.boardedAt, s.ride.legs.map(l => l.tripId)], [at('07:40'), ['b2', 'o3']]);
+
+  // Keeping an en-route state; "Leaving now" afterwards keeps the pin.
+  const stop = startEnRoute('stop', at('07:05'), 5);
+  const pinned = pinTarget(stop, r2, at('07:06'));
+  assert.deepEqual([pinned.kind, pinned.atStop, pinned.target.key], ['stop', at('07:05'), 'b2']);
+  const leaving = startEnRoute('leaving', at('07:08'), 5, tracked);
+  assert.deepEqual([leaving.pinned, leaving.target.key], [true, 'b2']);
+  // Pinned boards even if the at-stop estimate says it was unreachable.
+  const late = pinTarget({ kind: 'leaving', at: at('07:10'), atStop: at('07:15') }, r1, at('07:10'));
+  assert.equal(advanceEnRoute(late, rowsAt('07:12', late), at('07:12')).ride.boardedAt, at('07:12'));
 });
 
 test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {

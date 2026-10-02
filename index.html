@@ -102,6 +102,12 @@
   .ride-head { font-size: 20px; font-weight: 700; color: var(--green); }
   .row.ride.arrived .ride-head { color: var(--text); }
   .step.current { color: var(--text); font-weight: 600; }
+  .row.tracked { outline: 2px solid var(--green); outline-offset: -2px; }
+  .track-btn {
+    margin-top: 10px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .track-btn:disabled { color: var(--green); border-color: var(--green); cursor: default; }
   .ride-outlook { margin-top: 6px; font-size: 14px; color: var(--muted); }
   .ride-outlook.warn { color: var(--amber); font-weight: 600; }
   .ride-stops { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -129,6 +135,7 @@
     background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
   }
   .en-status { flex: 1 1 0; min-width: 0; }
+  .enroute-bar.wide .en-status { flex-basis: 100%; }
   .row.enroute { border-left-color: var(--border); }
   .enroute .big { color: var(--text); }
   .row.enroute.catch { border-left-color: var(--green); }
@@ -193,7 +200,7 @@
       <button id="reload" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · 3f16153810</footer>
+    <footer class="version">Version 2026-10-01 · 4af40e906f</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -211,11 +218,11 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
-  rowState, timelineSteps, startEnRoute, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs,
+  rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs,
   trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=6d8d3b5dad';
-import { openSetup } from './setup.js?v=37bc95b583';
+} from './core.js?v=9ecd1cf6e5';
+import { openSetup } from './setup.js?v=1edee21c02';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -416,7 +423,8 @@ function currentRows(now, enRoute = enRouteState()) {
   const c = cache[tripIdx];
   if (!c) return [];
   const count = departureCount(config);
-  const en = enRoute?.ride ? null : enRoute;
+  // Rows follow the at-stop time only after "Leaving now" / "At the stop" (not plain tracking).
+  const en = enRoute?.ride || enRoute?.kind === 'track' ? null : enRoute;
   const today = rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now, c.lastLive, en);
   if (today.length >= count || !c.nextDay || !c.schedules?.coversEndOfService) return today;
   return fillRows(today, rowsFor(trip, c.timing, null, c.nextDay.docs, now), count);
@@ -515,10 +523,11 @@ function dot(color) {
   return d;
 }
 
-function renderRow(r, now, isCatch) {
+function renderRow(r, now, isCatch, pinnedKey = null) {
   const state = rowState(now, r);
   if (state === 'hidden') return null;
-  const li = el('li', `row ${state}${isCatch ? ' catch' : ''}`);
+  const tracked = pinnedKey != null && isCatch;
+  const li = el('li', `row ${state}${isCatch ? ' catch' : ''}${tracked ? ' tracked' : ''}`);
   const head = el('div', 'big');
   // Red counts down to (and shows) the last chance; leave-by has already passed. Missed and
   // en route count to/from the first departure.
@@ -560,6 +569,19 @@ function renderRow(r, now, isCatch) {
     timeline.append(line);
   }
   li.append(timeline);
+  // "Track this trip": pin this departure (not next-day rows, nor rides already gone).
+  if (!r.nextDay && r.firstDep > now) {
+    const b = el('button', 'track-btn', tracked ? 'Tracking' : 'Track this trip');
+    b.type = 'button';
+    b.disabled = tracked;
+    b.onclick = e => {
+      e.stopPropagation();
+      setEnRoute(pinTarget(enRouteState(), r, Date.now()));
+      render();
+      schedulePoll();
+    };
+    li.append(b);
+  }
   return li;
 }
 
@@ -616,8 +638,13 @@ function render() {
   const current = currentRows(now);
   renderEnRoute(now, current.length > 0);
   // En route, the first reachable ride is the one being headed for.
-  const catchRow = current.find(r => rowState(now, r) === 'enroute');
-  const rows = current.map(r => renderRow(r, now, r === catchRow)).filter(Boolean);
+  // The ride being headed for: the pinned one ("Track this trip"), else en route the first
+  // reachable one.
+  const s = enRouteState();
+  const pinnedKey = s?.pinned ? s.target?.key ?? null : null;
+  const catchRow = pinnedKey != null ? current.find(r => r.key === pinnedKey && !r.nextDay)
+    : current.find(r => rowState(now, r) === 'enroute');
+  const rows = current.map(r => renderRow(r, now, r === catchRow, pinnedKey)).filter(Boolean);
   if (rows.length) $('rows').replaceChildren(...rows);
   else $('rows').replaceChildren(el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''));
 }
@@ -632,6 +659,7 @@ function renderEnRoute(now, hasRows, riding = false) {
   enRouteKey = key;
   const bar = $('enroute');
   bar.hidden = riding || (!hasRows && !s);
+  bar.classList.toggle('wide', s?.kind === 'track'); // three buttons: status on its own line
   if (riding) return bar.replaceChildren();
   const btn = (label, onclick) => {
     const b = el('button', null, label);
@@ -640,7 +668,9 @@ function renderEnRoute(now, hasRows, riding = false) {
     return b;
   };
   bar.replaceChildren(...(s
-    ? [el('span', 'en-status', text), s.kind === 'leaving' && btn('At the stop', () => goEnRoute('stop')),
+    ? [el('span', 'en-status', text),
+      s.kind === 'track' && btn('Leaving now', () => goEnRoute('leaving')),
+      (s.kind === 'leaving' || s.kind === 'track') && btn('At the stop', () => goEnRoute('stop')),
       btn('Cancel', () => { setEnRoute(null); render(); schedulePoll(); })].filter(Boolean)
     : [btn('Leaving now', () => goEnRoute('leaving')), btn('At the stop', () => goEnRoute('stop'))]));
 }

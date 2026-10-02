@@ -28,7 +28,8 @@ walking → at stop → riding leg 1 → transfer → riding leg 2 → … → w
   fall back to the leg's predictions/schedule.
 - Phases: (1) done: state machine, trip card, live arrival, "Missed it"/Cancel, persistence;
   (2) done: remaining-stops list; (3) done: transfer outlook + auto re-plan, "I'm on a later one";
-  (4) "Track this trip" on rows, screen-on near events.
+  (4) done: "Track this trip" on rows. Left: keep the screen on within ~2 min of a drop-off or a
+  transfer departure while tracking.
 
 ## Deferred
 

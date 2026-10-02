@@ -682,8 +682,19 @@ export function rowState(nowMs, row) {
 
 // "Leaving now" (at the stop after the walk) or "At the stop" (now). `at` is the first tap,
 // kept when "At the stop" follows "Leaving now"; it caps the mode at 30 min.
+// A target pinned with "Track this trip" (`pinned`, `target`) is kept.
 export function startEnRoute(kind, nowMs, walkBefore, prev = null) {
-  return { kind, at: prev?.at ?? nowMs, atStop: kind === 'leaving' ? nowMs + walkBefore * MIN : nowMs };
+  return {
+    kind, at: prev?.at ?? nowMs, atStop: kind === 'leaving' ? nowMs + walkBefore * MIN : nowMs,
+    ...(prev?.pinned && { pinned: true, target: prev.target }),
+  };
+}
+
+// "Track this trip": pins `row` as the target, keeping an en-route state (else kind 'track':
+// no at-stop time yet, the list stays normal).
+export function pinTarget(prev, row, nowMs) {
+  const base = prev && !prev.ride && prev.kind !== 'track' ? prev : { kind: 'track', at: nowMs };
+  return { ...base, pinned: true, target: { key: row.key, legs: row.legs } };
 }
 
 // Before boarding: the target is the first reachable en-route row, re-taken every tick. Once
@@ -695,10 +706,12 @@ export function advanceEnRoute(state, rows, nowMs) {
   if (t) {
     const row = rows.find(r => r.key === t.key);
     const dep = row?.firstDep ?? t.legs[0].dep;
-    if (nowMs >= dep && state.atStop <= dep) {
+    // A pinned target boards when it departs (chosen, so no reachability check).
+    if (nowMs >= dep && (state.pinned || state.atStop <= dep)) {
       const { target: _, ...rest } = state;
       return { ...rest, ride: { legs: row?.legs ?? t.legs, boardedAt: dep } };
     }
+    if (state.pinned) return row ? { ...state, target: { key: t.key, legs: row.legs } } : state;
   }
   const r = rows.find(x => x.enRoute && !x.missed);
   return r ? { ...state, target: { key: r.key, legs: r.legs } } : { ...state, target: null };
@@ -861,10 +874,14 @@ export function rideHeadline(phase, ride, nowMs) {
 export function enRouteActive(state, walkAfter, nowMs) {
   if (!state) return false;
   if (state.ride) return ridePhase(state.ride, walkAfter, nowMs).kind !== 'done';
-  return nowMs < state.at + 30 * MIN;
+  return state.pinned || nowMs < state.at + 30 * MIN;
 }
 
 export function enRouteStatus(state, nowMs) {
+  if (state.kind === 'track') {
+    const leg = state.target?.legs[0];
+    return leg ? `Tracking ${leg.label} ${formatTime(leg.dep, nowMs)}` : 'Tracking';
+  }
   if (state.kind === 'stop') return `At the stop since ${formatTime(state.atStop, nowMs)}`;
   if (nowMs >= state.atStop) return `At the stop since ~${formatTime(state.atStop, nowMs)}`;
   return `Walking · at the stop ~${formatTime(state.atStop, nowMs)}`;
