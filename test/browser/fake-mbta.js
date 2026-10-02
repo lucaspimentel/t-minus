@@ -19,6 +19,9 @@ const ROUTES = fixture('routes.json');
 const STOP_DOCS = new Map(readdirSync(FIXTURES).filter(f => f.startsWith('stops-'))
   .map(f => [f.slice(6, -5), fixture(f)])); // "132-1" → doc
 
+const RAIL_DOCS = new Map(readdirSync(FIXTURES).filter(f => f.startsWith('rail-'))
+  .map(f => [f.slice(5, -5), fixture(f)])); // "Orange" → doc (stations, both directions)
+
 // Child platform id → parent station id, and stop names, from the recorded stop lists.
 const PARENT = new Map();
 const NAMES = new Map();
@@ -166,6 +169,7 @@ export async function fakeMbta(context, scenario, { now }) {
 
   function stops(q) {
     if (q.has('filter[latitude]')) return { data: nearbyStops(+q.get('filter[latitude]'), +q.get('filter[longitude]'), +q.get('filter[radius]')) };
+    if (!q.has('filter[direction_id]')) return RAIL_DOCS.get(q.get('filter[route]')) ?? { data: [] };
     return STOP_DOCS.get(`${q.get('filter[route]')}-${q.get('filter[direction_id]')}`) ?? { data: [] };
   }
 

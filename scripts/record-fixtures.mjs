@@ -4,10 +4,14 @@ import { writeFileSync } from 'node:fs';
 
 const API = 'https://api-v3.mbta.com';
 const OUT = new URL('../test/browser/fixtures/', import.meta.url);
-const ROUTES = ['132', '136', '137', 'Orange', 'Red'];
-const STOPS = [['132', 0], ['132', 1], ['Orange', 0], ['Orange', 1]];
+const RAIL = ['Red', 'Mattapan', 'Orange', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue'];
+const ROUTES = ['132', '136', '137', ...RAIL];
+const STOPS = ['132', 'Orange', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue'].flatMap(r => [[r, 0], [r, 1]]);
+// Keyless limit is 20 requests/min: pace the requests unless a key is set.
+const PACE_MS = process.env.MBTA_API_KEY ? 0 : 3500;
 
 async function get(path, params) {
+  await new Promise(r => setTimeout(r, PACE_MS));
   const qs = new URLSearchParams(params);
   if (process.env.MBTA_API_KEY) qs.set('api_key', process.env.MBTA_API_KEY);
   const res = await fetch(`${API}${path}?${qs}`, { headers: { Accept: 'application/vnd.api+json' } });
@@ -34,5 +38,10 @@ for (const [route, dir] of STOPS) {
     'filter[route]': route, 'filter[direction_id]': dir, 'fields[stop]': 'name,latitude,longitude', include: 'child_stops',
   });
   save(`stops-${route}-${dir}.json`, { data: doc.data.map(slim) });
+}
+// Rail stations for the connections shown in the drop-off list (setup.js loadRailStops).
+for (const route of RAIL) {
+  const doc = await get('/stops', { 'filter[route]': route, 'fields[stop]': 'name,latitude,longitude' });
+  save(`rail-${route}.json`, { data: doc.data.map(s => ({ type: s.type, id: s.id, attributes: s.attributes })) });
 }
 console.log('fixtures written');

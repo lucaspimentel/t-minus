@@ -33,6 +33,9 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Redstone Shopping Center', 'toward Malden Center Station']);
   await setup(page).locator('.item', { hasText: 'Main St @ South St' }).nth(1).click(); // toward Malden Center Station
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Malden Center Station']);
+  // Rail connections at the stops (Malden Center and across from Oak Grove: Orange).
+  await expect(setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).locator('.conn')).toHaveText('Orange');
+  await expect(setup(page).locator('.item', { hasText: 'Pond St @ Stone Zoo' }).locator('.conn')).toHaveCount(0);
   await setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).click();
   await expect(setup(page)).toContainText('Main St @ South St → Washington St opp Oak Grove Sta');
   await button(page, 'Save').click();
@@ -52,6 +55,9 @@ test('boarding at the end of a line asks for no direction', async ({ page }) => 
   await setup(page).locator('#picker-search').fill('Oak Grove');
   await setup(page).locator('.item', { hasText: 'Oak Grove' }).click();
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Forest Hills']);
+  // Its own line is not a connection; Green branches merge.
+  await expect(setup(page).locator('.item', { hasText: 'Haymarket' }).locator('.conn')).toHaveText('Green D/E');
+  await expect(setup(page).locator('.item', { hasText: 'Wellington' }).locator('.conn')).toHaveCount(0);
   await setup(page).locator('.item', { hasText: 'Wellington' }).click();
   await expect(setup(page)).toContainText('toward Forest Hills · Oak Grove → Wellington');
 });
@@ -67,7 +73,8 @@ test('the next leg lists only routes near the transfer, then boards at the neare
   await expect(setup(page)).toContainText('Near Washington St opp Oak Grove Sta');
   await expect(setup(page).locator('.item b')).toHaveText(['Orange', 'Bus 132']);
   await button(page, 'Show all routes').click();
-  await expect(setup(page).locator('.item b')).toHaveText(['Red', 'Orange', 'Bus 132', 'Bus 137']);
+  await expect(setup(page).locator('.item b', { hasText: /^Blue$/ })).toBeVisible();
+  await expect(setup(page).locator('.item b', { hasText: /^Green D$/ })).toBeVisible();
   await setup(page).locator('.item', { hasText: 'Orange' }).click();
   // Straight to the drop-off: Oak Grove is the nearest Orange stop, and the end of the line.
   await expect(setup(page).locator('.muted').first()).toHaveText('Orange Line · from Oak Grove');

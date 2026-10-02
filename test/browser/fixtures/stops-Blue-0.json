@@ -1,0 +1,368 @@
+{
+ "data": [
+  {
+   "type": "stop",
+   "id": "place-wondl",
+   "attributes": {
+    "latitude": 42.41342,
+    "longitude": -70.991648,
+    "name": "Wonderland"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "15796",
+       "type": "stop"
+      },
+      {
+       "id": "15797",
+       "type": "stop"
+      },
+      {
+       "id": "15798",
+       "type": "stop"
+      },
+      {
+       "id": "15799",
+       "type": "stop"
+      },
+      {
+       "id": "15800",
+       "type": "stop"
+      },
+      {
+       "id": "70059",
+       "type": "stop"
+      },
+      {
+       "id": "70060",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-rbmnl",
+   "attributes": {
+    "latitude": 42.4078425,
+    "longitude": -70.9925332,
+    "name": "Revere Beach"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70057",
+       "type": "stop"
+      },
+      {
+       "id": "70058",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-bmmnl",
+   "attributes": {
+    "latitude": 42.3975423,
+    "longitude": -70.9923194,
+    "name": "Beachmont"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70055",
+       "type": "stop"
+      },
+      {
+       "id": "70056",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-sdmnl",
+   "attributes": {
+    "latitude": 42.3905007,
+    "longitude": -70.9971226,
+    "name": "Suffolk Downs"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70053",
+       "type": "stop"
+      },
+      {
+       "id": "70054",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-orhte",
+   "attributes": {
+    "latitude": 42.386867,
+    "longitude": -71.004736,
+    "name": "Orient Heights"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "15879",
+       "type": "stop"
+      },
+      {
+       "id": "15880",
+       "type": "stop"
+      },
+      {
+       "id": "5879",
+       "type": "stop"
+      },
+      {
+       "id": "5880",
+       "type": "stop"
+      },
+      {
+       "id": "70051",
+       "type": "stop"
+      },
+      {
+       "id": "70052",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-wimnl",
+   "attributes": {
+    "latitude": 42.3796403,
+    "longitude": -71.0228654,
+    "name": "Wood Island"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "5666",
+       "type": "stop"
+      },
+      {
+       "id": "70049",
+       "type": "stop"
+      },
+      {
+       "id": "70050",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-aport",
+   "attributes": {
+    "latitude": 42.374262,
+    "longitude": -71.030395,
+    "name": "Airport"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70047",
+       "type": "stop"
+      },
+      {
+       "id": "70048",
+       "type": "stop"
+      },
+      {
+       "id": "7096",
+       "type": "stop"
+      },
+      {
+       "id": "70961",
+       "type": "stop"
+      },
+      {
+       "id": "7097",
+       "type": "stop"
+      },
+      {
+       "id": "9070047",
+       "type": "stop"
+      },
+      {
+       "id": "9170047",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-mvbcl",
+   "attributes": {
+    "latitude": 42.3691186,
+    "longitude": -71.0395296,
+    "name": "Maverick"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "5740",
+       "type": "stop"
+      },
+      {
+       "id": "57400",
+       "type": "stop"
+      },
+      {
+       "id": "70045",
+       "type": "stop"
+      },
+      {
+       "id": "70046",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-aqucl",
+   "attributes": {
+    "latitude": 42.359784,
+    "longitude": -71.051652,
+    "name": "Aquarium"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70043",
+       "type": "stop"
+      },
+      {
+       "id": "70044",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-state",
+   "attributes": {
+    "latitude": 42.358978,
+    "longitude": -71.057598,
+    "name": "State"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70022",
+       "type": "stop"
+      },
+      {
+       "id": "70023",
+       "type": "stop"
+      },
+      {
+       "id": "70041",
+       "type": "stop"
+      },
+      {
+       "id": "70042",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-gover",
+   "attributes": {
+    "latitude": 42.359705,
+    "longitude": -71.059215,
+    "name": "Government Center"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70039",
+       "type": "stop"
+      },
+      {
+       "id": "70040",
+       "type": "stop"
+      },
+      {
+       "id": "70201",
+       "type": "stop"
+      },
+      {
+       "id": "70202",
+       "type": "stop"
+      },
+      {
+       "id": "Government Center-Brattle",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-bomnl",
+   "attributes": {
+    "latitude": 42.361365,
+    "longitude": -71.062037,
+    "name": "Bowdoin"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70038",
+       "type": "stop"
+      },
+      {
+       "id": "70838",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,512 @@
+{
+ "data": [
+  {
+   "type": "stop",
+   "id": "place-clmnl",
+   "attributes": {
+    "latitude": 42.336142,
+    "longitude": -71.149326,
+    "name": "Cleveland Circle"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70237",
+       "type": "stop"
+      },
+      {
+       "id": "70238",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-engav",
+   "attributes": {
+    "latitude": 42.337104,
+    "longitude": -71.144852,
+    "name": "Englewood Avenue"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70235",
+       "type": "stop"
+      },
+      {
+       "id": "70236",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-denrd",
+   "attributes": {
+    "latitude": 42.337656,
+    "longitude": -71.142156,
+    "name": "Dean Road"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70233",
+       "type": "stop"
+      },
+      {
+       "id": "70234",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-tapst",
+   "attributes": {
+    "latitude": 42.338459,
+    "longitude": -71.138702,
+    "name": "Tappan Street"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70231",
+       "type": "stop"
+      },
+      {
+       "id": "70232",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-bcnwa",
+   "attributes": {
+    "latitude": 42.339394,
+    "longitude": -71.13533,
+    "name": "Washington Square"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70229",
+       "type": "stop"
+      },
+      {
+       "id": "70230",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-fbkst",
+   "attributes": {
+    "latitude": 42.339725,
+    "longitude": -71.131073,
+    "name": "Fairbanks Street"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70227",
+       "type": "stop"
+      },
+      {
+       "id": "70228",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-bndhl",
+   "attributes": {
+    "latitude": 42.340023,
+    "longitude": -71.129082,
+    "name": "Brandon Hall"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70225",
+       "type": "stop"
+      },
+      {
+       "id": "70226",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-sumav",
+   "attributes": {
+    "latitude": 42.34111,
+    "longitude": -71.12561,
+    "name": "Summit Avenue"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70223",
+       "type": "stop"
+      },
+      {
+       "id": "70224",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-cool",
+   "attributes": {
+    "latitude": 42.342116,
+    "longitude": -71.121263,
+    "name": "Coolidge Corner"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70219",
+       "type": "stop"
+      },
+      {
+       "id": "70220",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-stpul",
+   "attributes": {
+    "latitude": 42.343327,
+    "longitude": -71.116997,
+    "name": "Saint Paul Street"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70217",
+       "type": "stop"
+      },
+      {
+       "id": "70218",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-kntst",
+   "attributes": {
+    "latitude": 42.344074,
+    "longitude": -71.114197,
+    "name": "Kent Street"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70215",
+       "type": "stop"
+      },
+      {
+       "id": "70216",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-hwsst",
+   "attributes": {
+    "latitude": 42.344906,
+    "longitude": -71.111145,
+    "name": "Hawes Street"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70213",
+       "type": "stop"
+      },
+      {
+       "id": "70214",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-smary",
+   "attributes": {
+    "latitude": 42.345974,
+    "longitude": -71.107353,
+    "name": "Saint Mary's Street"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70211",
+       "type": "stop"
+      },
+      {
+       "id": "70212",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-kencl",
+   "attributes": {
+    "latitude": 42.348949,
+    "longitude": -71.095169,
+    "name": "Kenmore"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70150",
+       "type": "stop"
+      },
+      {
+       "id": "70151",
+       "type": "stop"
+      },
+      {
+       "id": "71150",
+       "type": "stop"
+      },
+      {
+       "id": "71151",
+       "type": "stop"
+      },
+      {
+       "id": "899",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-hymnl",
+   "attributes": {
+    "latitude": 42.347888,
+    "longitude": -71.087903,
+    "name": "Hynes Convention Center"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70152",
+       "type": "stop"
+      },
+      {
+       "id": "70153",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-coecl",
+   "attributes": {
+    "latitude": 42.349974,
+    "longitude": -71.077447,
+    "name": "Copley"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70154",
+       "type": "stop"
+      },
+      {
+       "id": "70155",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-armnl",
+   "attributes": {
+    "latitude": 42.351902,
+    "longitude": -71.070893,
+    "name": "Arlington"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70156",
+       "type": "stop"
+      },
+      {
+       "id": "70157",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-boyls",
+   "attributes": {
+    "latitude": 42.35302,
+    "longitude": -71.06459,
+    "name": "Boylston"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70158",
+       "type": "stop"
+      },
+      {
+       "id": "70159",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-pktrm",
+   "attributes": {
+    "latitude": 42.3563946,
+    "longitude": -71.0624242,
+    "name": "Park Street"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70075",
+       "type": "stop"
+      },
+      {
+       "id": "70076",
+       "type": "stop"
+      },
+      {
+       "id": "70196",
+       "type": "stop"
+      },
+      {
+       "id": "70197",
+       "type": "stop"
+      },
+      {
+       "id": "70198",
+       "type": "stop"
+      },
+      {
+       "id": "70199",
+       "type": "stop"
+      },
+      {
+       "id": "70200",
+       "type": "stop"
+      },
+      {
+       "id": "71199",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-gover",
+   "attributes": {
+    "latitude": 42.359705,
+    "longitude": -71.059215,
+    "name": "Government Center"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70039",
+       "type": "stop"
+      },
+      {
+       "id": "70040",
+       "type": "stop"
+      },
+      {
+       "id": "70201",
+       "type": "stop"
+      },
+      {
+       "id": "70202",
+       "type": "stop"
+      },
+      {
+       "id": "Government Center-Brattle",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

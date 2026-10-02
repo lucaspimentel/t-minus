@@ -1,0 +1,184 @@
+{
+ "data": [
+  {
+   "type": "stop",
+   "id": "place-clmnl",
+   "attributes": {
+    "latitude": 42.336142,
+    "longitude": -71.149326,
+    "name": "Cleveland Circle"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-engav",
+   "attributes": {
+    "latitude": 42.337104,
+    "longitude": -71.144852,
+    "name": "Englewood Avenue"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-denrd",
+   "attributes": {
+    "latitude": 42.337656,
+    "longitude": -71.142156,
+    "name": "Dean Road"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-tapst",
+   "attributes": {
+    "latitude": 42.338459,
+    "longitude": -71.138702,
+    "name": "Tappan Street"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-bcnwa",
+   "attributes": {
+    "latitude": 42.339394,
+    "longitude": -71.13533,
+    "name": "Washington Square"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-fbkst",
+   "attributes": {
+    "latitude": 42.339725,
+    "longitude": -71.131073,
+    "name": "Fairbanks Street"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-bndhl",
+   "attributes": {
+    "latitude": 42.340023,
+    "longitude": -71.129082,
+    "name": "Brandon Hall"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-sumav",
+   "attributes": {
+    "latitude": 42.34111,
+    "longitude": -71.12561,
+    "name": "Summit Avenue"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-cool",
+   "attributes": {
+    "latitude": 42.342116,
+    "longitude": -71.121263,
+    "name": "Coolidge Corner"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-stpul",
+   "attributes": {
+    "latitude": 42.343327,
+    "longitude": -71.116997,
+    "name": "Saint Paul Street"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-kntst",
+   "attributes": {
+    "latitude": 42.344074,
+    "longitude": -71.114197,
+    "name": "Kent Street"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-hwsst",
+   "attributes": {
+    "latitude": 42.344906,
+    "longitude": -71.111145,
+    "name": "Hawes Street"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-smary",
+   "attributes": {
+    "latitude": 42.345974,
+    "longitude": -71.107353,
+    "name": "Saint Mary's Street"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-kencl",
+   "attributes": {
+    "latitude": 42.348949,
+    "longitude": -71.095169,
+    "name": "Kenmore"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-hymnl",
+   "attributes": {
+    "latitude": 42.347888,
+    "longitude": -71.087903,
+    "name": "Hynes Convention Center"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-coecl",
+   "attributes": {
+    "latitude": 42.349974,
+    "longitude": -71.077447,
+    "name": "Copley"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-armnl",
+   "attributes": {
+    "latitude": 42.351902,
+    "longitude": -71.070893,
+    "name": "Arlington"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-boyls",
+   "attributes": {
+    "latitude": 42.35302,
+    "longitude": -71.06459,
+    "name": "Boylston"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-pktrm",
+   "attributes": {
+    "latitude": 42.3563946,
+    "longitude": -71.0624242,
+    "name": "Park Street"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-gover",
+   "attributes": {
+    "latitude": 42.359705,
+    "longitude": -71.059215,
+    "name": "Government Center"
+   }
+  }
+ ]
+}

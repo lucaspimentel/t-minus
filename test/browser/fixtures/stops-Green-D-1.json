@@ -1,0 +1,735 @@
+{
+ "data": [
+  {
+   "type": "stop",
+   "id": "place-river",
+   "attributes": {
+    "latitude": 42.337352,
+    "longitude": -71.252685,
+    "name": "Riverside"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "38155",
+       "type": "stop"
+      },
+      {
+       "id": "70160",
+       "type": "stop"
+      },
+      {
+       "id": "70161",
+       "type": "stop"
+      },
+      {
+       "id": "river-B",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-woodl",
+   "attributes": {
+    "latitude": 42.332902,
+    "longitude": -71.243362,
+    "name": "Woodland"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70162",
+       "type": "stop"
+      },
+      {
+       "id": "70163",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-waban",
+   "attributes": {
+    "latitude": 42.325845,
+    "longitude": -71.230609,
+    "name": "Waban"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70164",
+       "type": "stop"
+      },
+      {
+       "id": "70165",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-eliot",
+   "attributes": {
+    "latitude": 42.319045,
+    "longitude": -71.216684,
+    "name": "Eliot"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70166",
+       "type": "stop"
+      },
+      {
+       "id": "70167",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-newtn",
+   "attributes": {
+    "latitude": 42.322381,
+    "longitude": -71.205509,
+    "name": "Newton Highlands"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70168",
+       "type": "stop"
+      },
+      {
+       "id": "70169",
+       "type": "stop"
+      },
+      {
+       "id": "8155",
+       "type": "stop"
+      },
+      {
+       "id": "8203",
+       "type": "stop"
+      },
+      {
+       "id": "9070168",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-newto",
+   "attributes": {
+    "latitude": 42.329443,
+    "longitude": -71.192414,
+    "name": "Newton Centre"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70170",
+       "type": "stop"
+      },
+      {
+       "id": "70171",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-chhil",
+   "attributes": {
+    "latitude": 42.326753,
+    "longitude": -71.164699,
+    "name": "Chestnut Hill"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70172",
+       "type": "stop"
+      },
+      {
+       "id": "70173",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-rsmnl",
+   "attributes": {
+    "latitude": 42.335088,
+    "longitude": -71.148758,
+    "name": "Reservoir"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "21917",
+       "type": "stop"
+      },
+      {
+       "id": "21918",
+       "type": "stop"
+      },
+      {
+       "id": "70174",
+       "type": "stop"
+      },
+      {
+       "id": "70175",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-bcnfd",
+   "attributes": {
+    "latitude": 42.335765,
+    "longitude": -71.140455,
+    "name": "Beaconsfield"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70176",
+       "type": "stop"
+      },
+      {
+       "id": "70177",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-brkhl",
+   "attributes": {
+    "latitude": 42.331316,
+    "longitude": -71.126683,
+    "name": "Brookline Hills"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70178",
+       "type": "stop"
+      },
+      {
+       "id": "70179",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-bvmnl",
+   "attributes": {
+    "latitude": 42.332608,
+    "longitude": -71.116857,
+    "name": "Brookline Village"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70180",
+       "type": "stop"
+      },
+      {
+       "id": "70181",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-longw",
+   "attributes": {
+    "latitude": 42.341702,
+    "longitude": -71.109956,
+    "name": "Longwood"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70182",
+       "type": "stop"
+      },
+      {
+       "id": "70183",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-fenwy",
+   "attributes": {
+    "latitude": 42.345403,
+    "longitude": -71.104213,
+    "name": "Fenway"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70186",
+       "type": "stop"
+      },
+      {
+       "id": "70187",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-kencl",
+   "attributes": {
+    "latitude": 42.348949,
+    "longitude": -71.095169,
+    "name": "Kenmore"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70150",
+       "type": "stop"
+      },
+      {
+       "id": "70151",
+       "type": "stop"
+      },
+      {
+       "id": "71150",
+       "type": "stop"
+      },
+      {
+       "id": "71151",
+       "type": "stop"
+      },
+      {
+       "id": "899",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-hymnl",
+   "attributes": {
+    "latitude": 42.347888,
+    "longitude": -71.087903,
+    "name": "Hynes Convention Center"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70152",
+       "type": "stop"
+      },
+      {
+       "id": "70153",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-coecl",
+   "attributes": {
+    "latitude": 42.349974,
+    "longitude": -71.077447,
+    "name": "Copley"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70154",
+       "type": "stop"
+      },
+      {
+       "id": "70155",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-armnl",
+   "attributes": {
+    "latitude": 42.351902,
+    "longitude": -71.070893,
+    "name": "Arlington"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70156",
+       "type": "stop"
+      },
+      {
+       "id": "70157",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-boyls",
+   "attributes": {
+    "latitude": 42.35302,
+    "longitude": -71.06459,
+    "name": "Boylston"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70158",
+       "type": "stop"
+      },
+      {
+       "id": "70159",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-pktrm",
+   "attributes": {
+    "latitude": 42.3563946,
+    "longitude": -71.0624242,
+    "name": "Park Street"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70075",
+       "type": "stop"
+      },
+      {
+       "id": "70076",
+       "type": "stop"
+      },
+      {
+       "id": "70196",
+       "type": "stop"
+      },
+      {
+       "id": "70197",
+       "type": "stop"
+      },
+      {
+       "id": "70198",
+       "type": "stop"
+      },
+      {
+       "id": "70199",
+       "type": "stop"
+      },
+      {
+       "id": "70200",
+       "type": "stop"
+      },
+      {
+       "id": "71199",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-gover",
+   "attributes": {
+    "latitude": 42.359705,
+    "longitude": -71.059215,
+    "name": "Government Center"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70039",
+       "type": "stop"
+      },
+      {
+       "id": "70040",
+       "type": "stop"
+      },
+      {
+       "id": "70201",
+       "type": "stop"
+      },
+      {
+       "id": "70202",
+       "type": "stop"
+      },
+      {
+       "id": "Government Center-Brattle",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-haecl",
+   "attributes": {
+    "latitude": 42.363021,
+    "longitude": -71.05829,
+    "name": "Haymarket"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70024",
+       "type": "stop"
+      },
+      {
+       "id": "70025",
+       "type": "stop"
+      },
+      {
+       "id": "70203",
+       "type": "stop"
+      },
+      {
+       "id": "70204",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-north",
+   "attributes": {
+    "latitude": 42.365577,
+    "longitude": -71.06129,
+    "name": "North Station"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70026",
+       "type": "stop"
+      },
+      {
+       "id": "70027",
+       "type": "stop"
+      },
+      {
+       "id": "70205",
+       "type": "stop"
+      },
+      {
+       "id": "70206",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-01",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-02",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-03",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-04",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-05",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-06",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-07",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-08",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-09",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-10",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-B1",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-B2",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-spmnl",
+   "attributes": {
+    "latitude": 42.366664,
+    "longitude": -71.067666,
+    "name": "Science Park/West End"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70207",
+       "type": "stop"
+      },
+      {
+       "id": "70208",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-lech",
+   "attributes": {
+    "latitude": 42.371572,
+    "longitude": -71.076584,
+    "name": "Lechmere"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70500",
+       "type": "stop"
+      },
+      {
+       "id": "70501",
+       "type": "stop"
+      },
+      {
+       "id": "70502",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-unsqu",
+   "attributes": {
+    "latitude": 42.377359,
+    "longitude": -71.094761,
+    "name": "Union Square"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70503",
+       "type": "stop"
+      },
+      {
+       "id": "70504",
+       "type": "stop"
+      },
+      {
+       "id": "Union Square-01",
+       "type": "stop"
+      },
+      {
+       "id": "Union Square-02",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

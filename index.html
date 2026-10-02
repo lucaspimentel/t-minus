@@ -229,6 +229,7 @@
   .setup .list.trips { margin: 0; }
   .setup .section { margin: 20px 0 6px; }
   .setup .list .section-head { margin: 8px 0 0; font-weight: 600; }
+  .setup .item .conn { color: var(--muted); font-size: 13px; margin-left: 4px; }
   .trip-row { display: flex; gap: 6px; }
   .trip-row .item { flex: 1; min-width: 0; padding: 10px 12px; }
   .trip-row .item .muted { margin: 2px 0 0; overflow-wrap: anywhere; }
@@ -254,7 +255,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · 259fa7734c</footer>
+    <footer class="version">Version 2026-10-02 · e82b51730c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -276,8 +277,8 @@ import {
   rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD,
   unpinTarget, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=70d908b124';
-import { openSetup } from './setup.js?v=4a053210aa';
+} from './core.js?v=2d53a15abd';
+import { openSetup } from './setup.js?v=29f6e4fff5';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';

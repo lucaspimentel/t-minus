@@ -182,6 +182,21 @@ export function shortRouteLabel(route) {
   return (a.long_name || routeLabel(route)).replace(/ Line\b/, '');
 }
 
+// One label for several routes' short labels: their shared leading words, the rest joined
+// with "/" ("Green B/C/D/E", "Bus 136/137"). `short`: rail lines keep only the shared part
+// ("Green"); buses and the Silver Line keep the numbers.
+export function commonLabel(labels, short = false) {
+  const uniq = [...new Set(labels)];
+  if (uniq.length < 2) return uniq[0] ?? '';
+  const words = uniq.map(l => l.split(' '));
+  let n = 0;
+  while (words.every(w => n < w.length - 1 && w[n] === words[0][n])) n++;
+  if (!n) return uniq.join('/');
+  const head = words[0].slice(0, n).join(' ');
+  if (short && !/^(Bus|Silver)$/.test(head)) return head;
+  return `${head} ${words.map(w => w.slice(n).join(' ')).join('/')}`;
+}
+
 // Refreshes each transit leg's `label` and `color` from `/routes` resources; legs whose route
 // isn't listed keep what they have.
 export function labelLegs(cfg, routes) {
@@ -253,6 +268,27 @@ export function alightGroups(doc0, doc1, boardId) {
     const i = stopIndex(stops, boardId);
     return { direction, stops: i < 0 ? [] : stops.slice(i + 1) };
   }).filter(g => g.stops.length);
+}
+
+export const CONNECTION_METERS = 200;
+
+// Rail lines at or near a stop (JSON:API stop with latitude/longitude): the same station id, or
+// a station within CONNECTION_METERS. `railStops`: [{ route, label, color, stops: [{ id, lat, lon }] }].
+// Branches of one line (same color) merge: [{ label: 'Green B/C/D/E', color }].
+export function railConnections(stop, railStops, exclude = []) {
+  const a = stop?.attributes ?? {};
+  const here = { lat: a.latitude, lon: a.longitude };
+  const hasPos = Number.isFinite(here.lat) && Number.isFinite(here.lon);
+  const byColor = new Map();
+  for (const line of railStops ?? []) {
+    if (exclude.includes(line.route)) continue;
+    const at = line.stops.some(s => s.id === stop.id || (hasPos && Number.isFinite(s.lat) && distanceMeters(here, s) <= CONNECTION_METERS));
+    if (!at) continue;
+    const key = line.color ?? line.route;
+    if (!byColor.has(key)) byColor.set(key, { color: line.color, labels: [] });
+    byColor.get(key).labels.push(line.label);
+  }
+  return [...byColor.values()].map(c => ({ label: commonLabel(c.labels), color: c.color }));
 }
 
 // The trip back: legs in reverse order, opposite directions, board and drop-off swapped,

@@ -6,7 +6,7 @@ import {
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
-  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, defaultTransferMinutes,
+  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
 } from '../core.js';
 
@@ -864,6 +864,34 @@ test('shortRouteLabel and labelLegs', () => {
   const bad = structuredClone(labeled);
   bad.trips[0].legs[1].color = 'orange';
   assert.ok(validateConfig(bad).some(e => e.includes('.color')));
+});
+
+test('commonLabel: shared words, then the rest', () => {
+  assert.equal(commonLabel(['Green B', 'Green C', 'Green D', 'Green E']), 'Green B/C/D/E');
+  assert.equal(commonLabel(['Green B', 'Green D'], true), 'Green');
+  assert.equal(commonLabel(['Bus 136', 'Bus 137'], true), 'Bus 136/137');
+  assert.equal(commonLabel(['Silver SL1', 'Silver SL2'], true), 'Silver SL1/SL2');
+  assert.equal(commonLabel(['Orange', 'Bus 132'], true), 'Orange/Bus 132');
+  assert.equal(commonLabel(['Orange', 'Orange']), 'Orange');
+  assert.equal(commonLabel([]), '');
+});
+
+test('railConnections: same station or within 200 m, own routes left out, branches merged', () => {
+  const st = (id, lat, lon) => ({ id, lat, lon });
+  const rail = [
+    { route: 'Orange', label: 'Orange', color: 'ED8B00', stops: [st('place-ogmnl', 42.43668, -71.07097), st('place-haecl', 42.36279, -71.05829)] },
+    { route: 'Green-C', label: 'Green C', color: '00843D', stops: [st('place-haecl', 42.36279, -71.05829)] },
+    { route: 'Green-D', label: 'Green D', color: '00843D', stops: [st('place-haecl', 42.36279, -71.05829)] },
+    { route: 'Red', label: 'Red', color: 'DA291C', stops: [st('place-pktrm', 42.35639, -71.0624)] },
+  ];
+  const stop = (id, lat, lon) => ({ id, attributes: { latitude: lat, longitude: lon } });
+  // A bus stop across the street from Oak Grove (~30 m).
+  assert.deepEqual(railConnections(stop('5991', 42.436927, -71.071292), rail), [{ label: 'Orange', color: 'ED8B00' }]);
+  assert.deepEqual(railConnections(stop('5991', 42.436927, -71.071292), rail, ['Orange']), []);
+  // Haymarket: the station itself (no coordinates needed), Green branches merged.
+  assert.deepEqual(railConnections(stop('place-haecl'), rail, ['Orange']), [{ label: 'Green C/D', color: '00843D' }]);
+  // ~700 m from Park Street: none.
+  assert.deepEqual(railConnections(stop('x', 42.3627, -71.0624), rail), []);
 });
 
 test('boardGroups and alightGroups: no direction step', () => {

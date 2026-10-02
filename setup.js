@@ -3,15 +3,20 @@
 // and the setup-time requests.
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
-  searchRoutes, searchStops, boardGroups, alightGroups, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
+  searchRoutes, searchStops, boardGroups, alightGroups, railConnections, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=70d908b124';
+} from './core.js?v=2d53a15abd';
 
 const ROUTE_LIMIT = 60;
 
 // Session caches (kept across openSetup calls; route and stop lists rarely change).
 let routesPromise = null;
 const stopDocs = new Map(); // stopsKey → /stops doc (trip order, with child_stops)
+// Rail stations for the connections in the drop-off list, cached for a week (8 requests).
+const RAIL_KEY = 'mbta-leave-by:rail-stops';
+const RAIL_TTL = 7 * 24 * 60 * 60_000;
+let railStops = null; // [{ route, label, color, stops: [{ id, lat, lon }] }]
+let railPromise = null;
 
 function h(tag, props = {}, ...children) {
   const e = document.createElement(tag);
@@ -75,6 +80,28 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       }));
     }
     return stopDocs.get(key);
+  }
+
+  // Subway and light-rail stations (route types 0 and 1) from the cache or the API.
+  function loadRailStops() {
+    if (railStops) return Promise.resolve(railStops);
+    try {
+      const cached = JSON.parse(localStorage.getItem(RAIL_KEY));
+      if (cached && Date.now() - cached.at < RAIL_TTL) return Promise.resolve((railStops = cached.data));
+    } catch {}
+    return (railPromise ??= loadRoutes()
+      .then(rs => Promise.all(rs.filter(r => r.attributes?.type <= 1).map(r => api('/stops', {
+        'filter[route]': r.id, 'fields[stop]': 'name,latitude,longitude',
+      }).then(doc => ({
+        route: r.id, label: shortRouteLabel(r), color: r.attributes.color ?? null,
+        stops: doc.data.map(s => ({ id: s.id, lat: s.attributes?.latitude, lon: s.attributes?.longitude })),
+      })))))
+      .then(data => {
+        railStops = data;
+        try { localStorage.setItem(RAIL_KEY, JSON.stringify({ at: Date.now(), data })); } catch {}
+        return data;
+      })
+      .catch(e => { railPromise = null; throw e; }));
   }
 
   // Loads names for the legs in the saved trips and the form (and the route list) in the background.
@@ -555,11 +582,14 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       });
       return out;
     }
-    // Drop-off: the stops after the board stop, per direction it serves (one at the end of a line).
+    // Drop-off: the stops after the board stop, per direction it serves (one at the end of a
+    // line), each with the rail lines there (loaded in the background; none if that fails).
+    if (!railStops) loadRailStops().then(() => { if (picker?.step === 'alight') render(); }, () => {});
+    const connections = s => railConnections(s, railStops, [picker.route.id]).flatMap(c => [' ', h('span', { class: 'tag conn' }, dot(c.color), c.label)]);
     return alightGroups(...docs, picker.board).flatMap(g => {
       const found = searchStops(g.stops, q);
       return found.length ? [heading(toward(g.direction)), ...found.map(s => h('button', { type: 'button', class: 'item', onclick: () => finishLeg(s.id, g.direction) },
-        s.attributes?.name ?? s.id))] : [];
+        s.attributes?.name ?? s.id, ...connections(s)))] : [];
     });
   }
 

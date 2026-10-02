@@ -1,0 +1,112 @@
+{
+ "data": [
+  {
+   "type": "stop",
+   "id": "place-bomnl",
+   "attributes": {
+    "latitude": 42.361365,
+    "longitude": -71.062037,
+    "name": "Bowdoin"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-gover",
+   "attributes": {
+    "latitude": 42.359705,
+    "longitude": -71.059215,
+    "name": "Government Center"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-state",
+   "attributes": {
+    "latitude": 42.358978,
+    "longitude": -71.057598,
+    "name": "State"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-aqucl",
+   "attributes": {
+    "latitude": 42.359784,
+    "longitude": -71.051652,
+    "name": "Aquarium"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-mvbcl",
+   "attributes": {
+    "latitude": 42.3691186,
+    "longitude": -71.0395296,
+    "name": "Maverick"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-aport",
+   "attributes": {
+    "latitude": 42.374262,
+    "longitude": -71.030395,
+    "name": "Airport"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-wimnl",
+   "attributes": {
+    "latitude": 42.3796403,
+    "longitude": -71.0228654,
+    "name": "Wood Island"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-orhte",
+   "attributes": {
+    "latitude": 42.386867,
+    "longitude": -71.004736,
+    "name": "Orient Heights"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-sdmnl",
+   "attributes": {
+    "latitude": 42.3905007,
+    "longitude": -70.9971226,
+    "name": "Suffolk Downs"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-bmmnl",
+   "attributes": {
+    "latitude": 42.3975423,
+    "longitude": -70.9923194,
+    "name": "Beachmont"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-rbmnl",
+   "attributes": {
+    "latitude": 42.4078425,
+    "longitude": -70.9925332,
+    "name": "Revere Beach"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-wondl",
+   "attributes": {
+    "latitude": 42.41342,
+    "longitude": -70.991648,
+    "name": "Wonderland"
+   }
+  }
+ ]
+}

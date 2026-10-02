@@ -350,7 +350,13 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   direction's own stops under "toward <direction_destinations>" (the two sides of a bus
   street). The drop-off list (`alightGroups`) has, per direction serving the board stop, the
   stops after it under "toward …"; at the end of a line there is one group. The drop-off pick
-  sets `direction_id`. A new leg's transfer time defaults to 3 min within the
+  sets `direction_id`.
+- Connections in the drop-off list: each stop is followed by the rail lines (route types 0
+  and 1: Red, Mattapan, Orange, Blue, Green B–E) at the same station or with a station within
+  200 m (`railConnections`, `CONNECTION_METERS`), e.g. "Washington St opp Oak Grove Sta
+  ● Orange". The leg's own route is left out; branches of a line (same color) merge as "Green
+  D/E" (`commonLabel`). Station lists come from `/stops?filter[route]=<rail route>`
+  (`mbta-leave-by:rail-stops`, 7 days); if that fails, no connections are shown. A new leg's transfer time defaults to 3 min within the
   same station, else 5 (`defaultTransferMinutes`).
 - Next-leg suggestions: adding a leg after another lists only the routes serving stops within
   ~300 m of the previous drop-off (`/stops?filter[latitude]&filter[longitude]&filter[radius]=0.003`,
@@ -446,9 +452,11 @@ To stay well inside it:
 - Next service day schedules: one request per transit leg, only when today has fewer than
   `departureCount` rows; at most once an hour.
 - Setup: one `/routes` request per session (also the source of the stored route labels and
-  colors), one `/stops` request per route/direction pair
-  (cached for the session, 4 for the example); Save and "Add return trip" reuse them. Adding a
-  leg after another costs 2 more (nearby stops, their routes).
+  colors), one `/stops` request per route/direction pair (choosing a route loads both
+  directions; cached for the session, 4 for the example); Save and "Add return trip" reuse
+  them. Adding a leg after another costs 2 more (nearby stops, their routes). The drop-off
+  list's rail connections cost one `/stops?filter[route]` per rail route (8), cached in
+  `localStorage` for 7 days.
 
 A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 requests; a 4-leg trip
 ≤ 4 req/min. Rapid reloads can still hit the limit (seen in testing with ~8 fresh loads in a
