@@ -28,9 +28,11 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('132');
   await setup(page).locator('.item', { hasText: 'Bus 132' }).click();
-  await setup(page).locator('.item').nth(1).click(); // direction 1 (inbound)
   await setup(page).locator('#picker-search').fill('Main St @ South');
-  await setup(page).locator('.item', { hasText: 'Main St @ South St' }).click();
+  // No direction step: stops on each side of the street are listed under their direction.
+  await expect(setup(page).locator('.section-head')).toHaveText(['toward Redstone Shopping Center', 'toward Malden Center Station']);
+  await setup(page).locator('.item', { hasText: 'Main St @ South St' }).nth(1).click(); // toward Malden Center Station
+  await expect(setup(page).locator('.section-head')).toHaveText(['toward Malden Center Station']);
   await setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).click();
   await expect(setup(page)).toContainText('Main St @ South St → Washington St opp Oak Grove Sta');
   await button(page, 'Save').click();
@@ -39,6 +41,19 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   await page.locator('#setup-done').click();
   await expect(page.locator('.row').first()).toBeVisible();
   await expect(page.locator('.row').first().locator('.strip')).toContainText('Bus 132');
+});
+
+test('boarding at the end of a line asks for no direction', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('Orange');
+  await setup(page).locator('.item', { hasText: 'Orange' }).first().click();
+  await expect(setup(page).locator('.section-head')).toHaveCount(0); // stations serve both ways
+  await setup(page).locator('#picker-search').fill('Oak Grove');
+  await setup(page).locator('.item', { hasText: 'Oak Grove' }).click();
+  await expect(setup(page).locator('.section-head')).toHaveText(['toward Forest Hills']);
+  await setup(page).locator('.item', { hasText: 'Wellington' }).click();
+  await expect(setup(page)).toContainText('toward Forest Hills · Oak Grove → Wellington');
 });
 
 test('Cancel discards edits with Undo; without edits there is no toast', async ({ page }) => {

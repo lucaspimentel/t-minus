@@ -230,6 +230,31 @@ export function stopsAfter(stops, boardId) {
   return i < 0 ? [] : stops.slice(i + 1);
 }
 
+// Index of a stop in a direction's list, by its id or one of its child platforms.
+const stopIndex = (stops, id) => stops.findIndex(s => s.id === id || (s.relationships?.child_stops?.data ?? []).some(c => c.id === id));
+
+// Board picker for a route without a chosen direction: stops served in both directions (most
+// subway stations; direction 0's order) and those served by one direction only (the two sides
+// of a bus street), from the two directions' /stops docs.
+export function boardGroups(doc0, doc1) {
+  const lists = [doc0?.data ?? [], doc1?.data ?? []];
+  const ids = lists.map(l => new Set(l.map(s => s.id)));
+  return {
+    both: lists[0].filter(s => ids[1].has(s.id)),
+    only: [lists[0].filter(s => !ids[1].has(s.id)), lists[1].filter(s => !ids[0].has(s.id))],
+  };
+}
+
+// Drop-off choices from a board stop (id or child platform): per direction serving it, the
+// stops after it. Directions with none (e.g. at the end of the line) are left out.
+export function alightGroups(doc0, doc1, boardId) {
+  return [doc0, doc1].map((doc, direction) => {
+    const stops = doc?.data ?? [];
+    const i = stopIndex(stops, boardId);
+    return { direction, stops: i < 0 ? [] : stops.slice(i + 1) };
+  }).filter(g => g.stops.length);
+}
+
 // The trip back: legs in reverse order, opposite directions, board and drop-off swapped,
 // walks swapped, each transfer kept between the same pair of legs. No time window. Reversed
 // bus stops are usually on the other side of the street; the save-time stop check flags them.

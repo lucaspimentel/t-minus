@@ -1,11 +1,11 @@
-// Full-screen setup view: a list of trips, one trip's editor at a time, and route/direction/stop
-// pickers. Each trip is saved on its own. Pure helpers live in core.js; this module owns the DOM
+// Full-screen setup view: a list of trips, one trip's editor at a time, and route/stop pickers
+// (the direction follows from the stops picked). Each trip is saved on its own. Pure helpers live in core.js; this module owns the DOM
 // and the setup-time requests.
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
-  searchRoutes, searchStops, stopsAfter, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
+  searchRoutes, searchStops, boardGroups, alightGroups, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=d1082001ed';
+} from './core.js?v=70d908b124';
 
 const ROUTE_LIMIT = 60;
 
@@ -53,7 +53,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
   let editing = saved ? null : editor(null, 0, emptyTrip(0));
   let routes = null;
-  // { legIdx (null = new leg), step, route, direction, board, near }
+  // { legIdx (null = new leg), step ('route' | 'board' | 'alight'), route, board, near }
   // `near`: { name, lat, lon, routeIds } around the previous leg's drop-off, for suggestions.
   let picker = null;
   let listMessages = [];
@@ -100,12 +100,16 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   };
   const destination = (routeId, dir) => routeById(routeId)?.attributes?.direction_destinations?.[dir] ?? `direction ${dir}`;
 
-  // Name of a stop id (or of the station a child platform belongs to).
+  // Name of a stop id (or of the station a child platform belongs to); `dir` null: either direction.
   function stopName(route, dir, id) {
-    const doc = stopDocs.get(stopsKey(route, dir));
-    const s = doc?.data?.find(x => x.id === id || x.relationships?.child_stops?.data?.some(c => c.id === id));
-    return s?.attributes?.name ?? id;
+    for (const d of dir == null ? [0, 1] : [dir]) {
+      const doc = stopDocs.get(stopsKey(route, d));
+      const s = doc?.data?.find(x => x.id === id || x.relationships?.child_stops?.data?.some(c => c.id === id));
+      if (s) return s.attributes?.name ?? id;
+    }
+    return id;
   }
+  const bothDocs = route => [0, 1].map(d => stopDocs.get(stopsKey(route, d)));
 
   function parentMap(...docs) {
     const map = new Map();
@@ -477,23 +481,23 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     return { name, lat, lon, routeIds: served.data.map(r => r.id) };
   }
 
-  // After a direction is chosen for a new leg, board at the stop nearest the previous drop-off
-  // (skipping to the drop-off step); Back still leads to the full board list.
-  async function chooseDirection(direction) {
-    picker = { ...picker, direction, step: 'board', query: '', loading: true };
+  // A route is chosen: load both directions' stops. For a new leg, board at the stop nearest
+  // the previous drop-off (skipping to the drop-off step); Back still leads to the board list.
+  async function chooseRoute(route) {
+    picker = { ...picker, route, step: 'board', query: '', loading: true };
     render();
     try {
-      const doc = await loadStops(picker.route.id, direction);
-      const near = picker.near && nearestStop(doc.data, picker.near.lat, picker.near.lon);
-      if (near && stopsAfter(doc.data, near.id).length) picker = { ...picker, board: near.id, step: 'alight' };
+      const docs = await Promise.all([0, 1].map(d => loadStops(route.id, d)));
+      const near = picker.near && nearestStop(docs.flatMap(d => d.data), picker.near.lat, picker.near.lon);
+      if (near && alightGroups(...docs, near.id).length) picker = { ...picker, board: near.id, step: 'alight' };
     } catch (e) { picker.error = e.message || String(e); }
     picker.loading = false;
     render();
   }
 
-  function finishLeg(alight) {
+  function finishLeg(alight, direction) {
     const trip = editing.form;
-    const leg = { route: picker.route.id, direction_id: picker.direction, stop: picker.board, alight, transferBefore: 0 };
+    const leg = { route: picker.route.id, direction_id: direction, stop: picker.board, alight, transferBefore: 0 };
     if (picker.legIdx == null) {
       const prev = trip.transit[trip.transit.length - 1];
       if (prev) {
@@ -514,10 +518,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     if (picker.step === 'route') {
       if (!routes) return [h('div', { class: 'muted' }, picker.error ?? 'Loading routes…')];
       const found = searchRoutes(routes, q);
-      const routeButton = r => h('button', { type: 'button', class: 'item', onclick: () => {
-        picker = { ...picker, route: r, step: 'direction', query: '' };
-        render();
-      } }, dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), routeEnds(r) && h('span', { class: 'muted' }, ` ${routeEnds(r)}`));
+      const routeButton = r => h('button', { type: 'button', class: 'item', onclick: () => chooseRoute(r) }, dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), routeEnds(r) && h('span', { class: 'muted' }, ` ${routeEnds(r)}`));
       // Without a search, routes near the previous drop-off come first.
       const nearRoutes = !q.trim() && picker.near ? found.filter(r => picker.near.routeIds.includes(r.id)) : [];
       return [
@@ -528,32 +529,43 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         found.length > ROUTE_LIMIT ? h('div', { class: 'muted' }, `${found.length - ROUTE_LIMIT} more; refine the search.`) : null,
       ].filter(Boolean);
     }
-    const doc = stopDocs.get(stopsKey(picker.route.id, picker.direction));
-    if (picker.loading || !doc) return [h('div', { class: 'muted' }, picker.error ?? 'Loading stops…')];
-    const stops = picker.step === 'board' ? doc.data : stopsAfter(doc.data, picker.board);
-    return searchStops(stops, q).map(s => h('button', { type: 'button', class: 'item', onclick: () => {
-      if (picker.step === 'board') { picker = { ...picker, board: s.id, step: 'alight', query: '' }; render(); } else finishLeg(s.id);
-    } }, s.attributes?.name ?? s.id));
+    const docs = bothDocs(picker.route.id);
+    if (picker.loading || !docs[0] || !docs[1]) return [h('div', { class: 'muted' }, picker.error ?? 'Loading stops…')];
+    const heading = text => h('div', { class: 'muted section-head' }, text);
+    const toward = d => `toward ${destination(picker.route.id, d)}`;
+    if (picker.step === 'board') {
+      // Stops served both ways first, then each direction's own (the two sides of a street).
+      const { both, only } = boardGroups(...docs);
+      const pick = s => h('button', { type: 'button', class: 'item', onclick: () => {
+        picker = { ...picker, board: s.id, step: 'alight', query: '' };
+        render();
+      } }, s.attributes?.name ?? s.id);
+      const out = searchStops(both, q).map(pick);
+      only.forEach((list, d) => {
+        const found = searchStops(list, q);
+        if (found.length) out.push(heading(toward(d)), ...found.map(pick));
+      });
+      return out;
+    }
+    // Drop-off: the stops after the board stop, per direction it serves (one at the end of a line).
+    return alightGroups(...docs, picker.board).flatMap(g => {
+      const found = searchStops(g.stops, q);
+      return found.length ? [heading(toward(g.direction)), ...found.map(s => h('button', { type: 'button', class: 'item', onclick: () => finishLeg(s.id, g.direction) },
+        s.attributes?.name ?? s.id))] : [];
+    });
   }
 
   function pickerScreen() {
-    const titles = { route: 'Choose a route', direction: 'Choose a direction', board: 'Where do you board?', alight: 'Where do you get off?' };
+    const titles = { route: 'Choose a route', board: 'Where do you board?', alight: 'Where do you get off?' };
     const back = () => {
-      const prev = { route: null, direction: 'route', board: 'direction', alight: 'board' }[picker.step];
+      const prev = { route: null, board: 'route', alight: 'board' }[picker.step];
       if (prev) { picker = { ...picker, step: prev, query: '' }; } else { picker = null; }
       render();
     };
     const head = h('div', { class: 'setup-head' },
       h('button', { type: 'button', onclick: back }, 'Back'), h('b', {}, titles[picker.step]), h('span'));
     const context = picker.route && h('div', { class: 'muted' },
-      [routeLabel(picker.route),
-        picker.direction != null && `toward ${destination(picker.route.id, picker.direction)}`,
-        picker.board && `from ${stopName(picker.route.id, picker.direction, picker.board)}`].filter(Boolean).join(' · '));
-    if (picker.step === 'direction') {
-      const dests = picker.route.attributes.direction_destinations ?? [];
-      return [head, context, ...[0, 1].map(d => h('button', { type: 'button', class: 'item', onclick: () => chooseDirection(d) },
-        `toward ${dests[d] ?? `direction ${d}`}`))];
-    }
+      [routeLabel(picker.route), picker.board && `from ${stopName(picker.route.id, null, picker.board)}`].filter(Boolean).join(' · '));
     const list = h('div', { class: 'list' }, pickerList());
     const search = h('input', {
       type: 'search', id: 'picker-search', placeholder: picker.step === 'route' ? 'Search routes (e.g. 132, Orange)' : 'Search stops',
@@ -575,7 +587,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       window.scrollTo(0, restore ? scrollY[screen] : 0);
     }
     shown = screen;
-    if (picker && picker.step !== 'direction') root.querySelector('#picker-search')?.focus({ preventScroll: true });
+    if (picker) root.querySelector('#picker-search')?.focus({ preventScroll: true });
   }
 
   root.hidden = false;

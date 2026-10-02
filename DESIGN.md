@@ -40,7 +40,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Trips | Any number of named trips, each with any number of transit legs; optional time window per trip picks the trip shown |
 | Refresh | Adaptive: fetch every 60s when the next `leave_by` is ≤ 15 min away, else every 120s. Local 1s countdown tick. Manual refresh button. Paused while hidden; refetch on `visibilitychange` to visible |
 | Departures shown | Next `departureCount` departures (config, 1-8, default 4) |
-| Config editing | Full-screen setup view (gear button) with route/direction/stop pickers; JSON only via Export/Import |
+| Config editing | Full-screen setup view (gear button) with route and stop pickers (no direction step); JSON only via Export/Import |
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
 | Deferred | See `TODO.md` (GPS "near me", default times estimated from stop coordinates, commuter rail/ferry), notifications |
 
@@ -344,16 +344,20 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   toast. Undo restores trips and settings, not a cleared "Leaving now" / tracking state.
 - The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
   canonical legs back, omitting zero-minute walks and transfers.
-- Transit leg picker: route (search over bus, subway, light rail) → direction ("toward
-  <direction_destinations>") → board stop (trip order, search) → drop-off stop (only stops
-  after the board stop, `stopsAfter`). A new leg's transfer time defaults to 3 min within the
+- Transit leg picker: route (search over bus, subway, light rail) → board stop → drop-off stop;
+  no direction step (both directions' stop lists are loaded). The board list (`boardGroups`)
+  has the stops served both ways first (most subway stations, direction 0's order), then each
+  direction's own stops under "toward <direction_destinations>" (the two sides of a bus
+  street). The drop-off list (`alightGroups`) has, per direction serving the board stop, the
+  stops after it under "toward …"; at the end of a line there is one group. The drop-off pick
+  sets `direction_id`. A new leg's transfer time defaults to 3 min within the
   same station, else 5 (`defaultTransferMinutes`).
 - Next-leg suggestions: adding a leg after another lists first the routes serving stops within
   ~300 m of the previous drop-off (`/stops?filter[latitude]&filter[longitude]&filter[radius]=0.003`,
   then `/routes?filter[stop]=...`). This uses the stop's location because street bus stops have
   no parent station (bus stop `5991` at Oak Grove is not linked to `place-ogmnl`). After the
-  direction is chosen, the board stop nearest the previous drop-off (`nearestStop`) is
-  preselected and the picker goes straight to the drop-off step; Back reaches the full list.
+  route is chosen, the board stop nearest the previous drop-off (`nearestStop`, either
+  direction) is preselected and the picker goes straight to the drop-off step; Back reaches the full list.
 - "Leave-by time is based on": per trip with 2+ legs, "Automatic (currently <route>)" (the
   app's live choice) or a pinned leg (`timingLeg`). Moving or removing legs keeps the pin on
   the same leg.

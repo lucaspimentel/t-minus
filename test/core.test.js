@@ -6,7 +6,7 @@ import {
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
-  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
+  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
 } from '../core.js';
 
@@ -864,6 +864,28 @@ test('shortRouteLabel and labelLegs', () => {
   const bad = structuredClone(labeled);
   bad.trips[0].legs[1].color = 'orange';
   assert.ok(validateConfig(bad).some(e => e.includes('.color')));
+});
+
+test('boardGroups and alightGroups: no direction step', () => {
+  const s = (id, children = []) => ({ id, attributes: { name: id }, relationships: { child_stops: { data: children.map(c => ({ id: c })) } } });
+  // Orange: parent stations in both directions; Oak Grove is a terminus.
+  const orange0 = { data: [s('place-ogmnl', ['70036']), s('place-mlmnl'), s('place-welln'), s('place-forhl')] };
+  const orange1 = { data: [s('place-forhl'), s('place-welln'), s('place-mlmnl'), s('place-ogmnl', ['70035'])] };
+  const g = boardGroups(orange0, orange1);
+  assert.deepEqual(g.both.map(x => x.id), ['place-ogmnl', 'place-mlmnl', 'place-welln', 'place-forhl']);
+  assert.deepEqual(g.only, [[], []]);
+  const fromOak = alightGroups(orange0, orange1, 'place-ogmnl');
+  assert.deepEqual(fromOak.map(x => [x.direction, x.stops.map(y => y.id)]), [[0, ['place-mlmnl', 'place-welln', 'place-forhl']]]);
+  assert.deepEqual(alightGroups(orange0, orange1, '70036')[0].stops.length, 3); // child platform id
+  assert.deepEqual(alightGroups(orange0, orange1, 'place-mlmnl').map(x => [x.direction, x.stops.length]), [[0, 2], [1, 1]]);
+  // Bus: shared terminal, separate sides of the street.
+  const bus0 = { data: [s('T'), s('a0'), s('b0'), s('M')] };
+  const bus1 = { data: [s('M'), s('b1'), s('a1'), s('T')] };
+  const b = boardGroups(bus0, bus1);
+  assert.deepEqual([b.both.map(x => x.id), b.only.map(l => l.map(x => x.id))], [['T', 'M'], [['a0', 'b0'], ['b1', 'a1']]]);
+  assert.deepEqual(alightGroups(bus0, bus1, 'b1').map(x => [x.direction, x.stops.map(y => y.id)]), [[1, ['a1', 'T']]]);
+  assert.deepEqual(alightGroups(bus0, bus1, 'nope'), []);
+  assert.deepEqual(boardGroups(null, bus1).only[1].length, 4);
 });
 
 test('searchStops, stopsAfter, and defaultTransferMinutes', () => {
