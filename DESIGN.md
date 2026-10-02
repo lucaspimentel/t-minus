@@ -240,7 +240,11 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   only after a completed fetch), then "Updated 8:04pm" ("Updated 8:04pm (25 min ago)" in
   amber once older than two poll intervals, e.g. back in the app before the refresh lands;
   rows unchanged), or "Stale (…) · last updated …" /
-  "Error: …" from that trip's own last fetch. The ↻ icon spins during every fetch (polls
+  "Error: …" from that trip's own last fetch, followed by an underlined "Retry" (hidden while a
+  fetch runs). After a failure the next attempt is automatic in 10 s, 20 s, 40 s, … up to the
+  normal poll interval (`retryDelayMs`). A 429 shows "Rate limited · retry in 40 s" instead,
+  counting down to the next whole minute + 1 s (`rateLimitDelayMs`; the keyless limit resets
+  on whole minutes, and `x-ratelimit-reset` isn't exposed to the page), then retries. The ↻ icon spins during every fetch (polls
   included), stopping at the end of a full turn (0.8 s); with reduced motion it dims instead.
 - Route labels are short: rail by line ("Orange", "Green B", "Mattapan"), Silver Line as
   "Silver SL1", other buses as "Bus 132" / "Bus CT3". The dot is the route's MBTA color

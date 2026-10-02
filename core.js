@@ -914,6 +914,17 @@ export function fillRows(todayRows, nextRows, count = DEFAULT_DEPARTURE_COUNT) {
   return [...todayRows, ...nextRows.map(r => ({ ...r, nextDay: true }))].slice(0, count);
 }
 
+// After a failed fetch: 10 s, 20 s, 40 s, … capped at the normal poll interval.
+export function retryDelayMs(failures, normalMs) {
+  return Math.min(10_000 * 2 ** Math.max(0, failures - 1), normalMs);
+}
+
+// After a 429: until the next whole minute (+1 s), when the keyless limit resets. MBTA's
+// x-ratelimit-reset header isn't exposed to the page, but resets fall on whole minutes.
+export function rateLimitDelayMs(nowMs) {
+  return 60_000 - (nowMs % 60_000) + 1_000;
+}
+
 // The data's age ("25 min ago") once it's older than two poll intervals, else null.
 export function dataAgeText(lastOk, intervalMs, nowMs) {
   const age = nowMs - lastOk;

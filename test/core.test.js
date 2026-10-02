@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -594,6 +594,18 @@ test('countdownState boundaries', () => {
   assert.equal(countdownState(at('08:15'), leave, last, dep), 'missed');
   assert.equal(countdownState(at('08:16'), leave, last, dep), 'hidden');
   assert.equal(countdownState(at('08:00'), null, last, dep), 'none');
+});
+
+test('retryDelayMs: 10 s doubling, capped at the poll interval', () => {
+  assert.deepEqual([1, 2, 3, 4, 5].map(n => retryDelayMs(n, 120_000)), [10_000, 20_000, 40_000, 80_000, 120_000]);
+  assert.equal(retryDelayMs(4, 60_000), 60_000);
+});
+
+test('rateLimitDelayMs: to the next whole minute + 1 s', () => {
+  const m = Date.UTC(2026, 9, 5, 11, 0);
+  assert.equal(rateLimitDelayMs(m), 61_000);
+  assert.equal(rateLimitDelayMs(m + 20_000), 41_000);
+  assert.equal(rateLimitDelayMs(m + 59_500), 1_500);
 });
 
 test('dataAgeText: the age once older than two poll intervals', () => {
