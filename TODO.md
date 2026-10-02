@@ -5,7 +5,23 @@ number of transit legs, without knowing GTFS IDs or the engine's internals.
 
 Done: the N-leg engine and the setup UI, including next-leg suggestions, return trips, the
 timing-leg override, collapsed rows, the trip list with one-at-a-time editing, short
-route labels with MBTA color dots, and trip tracking (see `DESIGN.md`).
+route labels with MBTA color dots, trip tracking, service worker fallbacks (5xx, 3 s
+timeout, "Saved copy", reload banner), and UI affordances: loading indicators, the old-data
+age, Retry / backoff / rate-limit countdown, expand hints, pressed states, and Undo toasts on
+the main screen and in setup (see `DESIGN.md`).
+
+## Next
+
+- Browser tests in the repo, run in CI: the key flows (rows, en route / tracking, ride card,
+  Undo toasts, setup, service worker fallbacks) with Playwright against saved MBTA responses
+  (no live API, no rate limit). Today these checks are ad-hoc scripts that aren't kept.
+
+## UI
+
+- Pull-to-refresh: the Home Screen app has no browser pull gesture; ↻ is the only refresh.
+  Must not fight normal scrolling or iOS's rubber-band bounce.
+- Accessibility: rows are not focusable or announced as buttons (`li` + click handler); the
+  status line and countdown changes are not announced (`aria-live`).
 
 ## Deferred
 
@@ -21,4 +37,6 @@ route labels with MBTA color dots, and trip tracking (see `DESIGN.md`).
   (author's API key, server-side), recomputes leave-by, pushes at leave-by, then deletes the
   reminder. Reminders persist across restarts (Railway volume or small Postgres/Redis). Needs
   VAPID keys, CORS for `lucaspimentel.github.io`, and `push` / `notificationclick` handlers in
-  `sw.js`. Breaks "no backend".
+  `sw.js`. Breaks "no backend". Option: also serve the app from the same Railway service (one
+  origin, no CORS; reinstalling the Home Screen app is acceptable). The `sw.js` fallbacks
+  (5xx, timeout) already cover a down or slow server.
