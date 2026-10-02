@@ -8,13 +8,7 @@ timing-leg override, collapsed rows, the trip list with one-at-a-time editing, s
 route labels with MBTA color dots, trip tracking, service worker fallbacks (5xx, 3 s
 timeout, "Saved copy", reload banner), and UI affordances: loading indicators, the old-data
 age, Retry / backoff / rate-limit countdown, expand hints, pressed states, and Undo toasts on
-the main screen and in setup (see `DESIGN.md`).
-
-## Next
-
-- Browser tests in the repo, run in CI: the key flows (rows, en route / tracking, ride card,
-  Undo toasts, setup, service worker fallbacks) with Playwright against saved MBTA responses
-  (no live API, no rate limit). Today these checks are ad-hoc scripts that aren't kept.
+the main screen and in setup, and browser tests in CI against a fake MBTA API (see `DESIGN.md`).
 
 ## UI
 

@@ -3,7 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test",
-    "stamp": "node scripts/stamp.mjs"
+    "test": "node --test test/*.test.js",
+    "stamp": "node scripts/stamp.mjs",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
   }
 }

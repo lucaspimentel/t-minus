@@ -1,0 +1,463 @@
+{
+ "data": [
+  {
+   "type": "stop",
+   "id": "place-mlmnl",
+   "attributes": {
+    "latitude": 42.426632,
+    "longitude": -71.07411,
+    "name": "Malden Center"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "5072",
+       "type": "stop"
+      },
+      {
+       "id": "5327",
+       "type": "stop"
+      },
+      {
+       "id": "53270",
+       "type": "stop"
+      },
+      {
+       "id": "70034",
+       "type": "stop"
+      },
+      {
+       "id": "70035",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0045-S",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "5074",
+   "attributes": {
+    "latitude": 42.430107,
+    "longitude": -71.074265,
+    "name": "Summer St @ Lincoln St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "5075",
+   "attributes": {
+    "latitude": 42.431862,
+    "longitude": -71.074738,
+    "name": "Summer St @ Clifton St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "5962",
+   "attributes": {
+    "latitude": 42.432193,
+    "longitude": -71.072243,
+    "name": "Washington St @ Clifton St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "5963",
+   "attributes": {
+    "latitude": 42.433926,
+    "longitude": -71.071887,
+    "name": "Washington St opp Francis St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9326",
+   "attributes": {
+    "latitude": 42.436901,
+    "longitude": -71.071145,
+    "name": "Washington St @ Oak Grove Station"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "5967",
+   "attributes": {
+    "latitude": 42.439466,
+    "longitude": -71.071432,
+    "name": "349 Washington St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "5968",
+   "attributes": {
+    "latitude": 42.43999,
+    "longitude": -71.07153,
+    "name": "377 Washington St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15969",
+   "attributes": {
+    "latitude": 42.441868,
+    "longitude": -71.07189,
+    "name": "Washington St opp Brazil St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "25969",
+   "attributes": {
+    "latitude": 42.443715,
+    "longitude": -71.072003,
+    "name": "Pleasant St @ Stone Pl"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15970",
+   "attributes": {
+    "latitude": 42.446413,
+    "longitude": -71.071716,
+    "name": "Pleasant St opp Converse Ln"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15971",
+   "attributes": {
+    "latitude": 42.447972,
+    "longitude": -71.071532,
+    "name": "Pleasant St opp Gould St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "19573",
+   "attributes": {
+    "latitude": 42.449291,
+    "longitude": -71.07053,
+    "name": "Pleasant St opp Frances St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15974",
+   "attributes": {
+    "latitude": 42.450605,
+    "longitude": -71.070392,
+    "name": "Pleasant St opp Everett St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "25974",
+   "attributes": {
+    "latitude": 42.452115,
+    "longitude": -71.070007,
+    "name": "Pleasant St @ Wyoming Ave - Wyoming Sq"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15975",
+   "attributes": {
+    "latitude": 42.452833,
+    "longitude": -71.071903,
+    "name": "Wyoming Ave @ Cottage St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15976",
+   "attributes": {
+    "latitude": 42.4537,
+    "longitude": -71.07485,
+    "name": "Wyoming Ave @ Cleveland St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15977",
+   "attributes": {
+    "latitude": 42.454319,
+    "longitude": -71.076884,
+    "name": "Wyoming Ave @ Whittier St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15978",
+   "attributes": {
+    "latitude": 42.454874,
+    "longitude": -71.07876,
+    "name": "Wyoming Ave @ Ravine Terr"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15979",
+   "attributes": {
+    "latitude": 42.456039,
+    "longitude": -71.082723,
+    "name": "Wyoming Ave @ Fellsway E"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "25982",
+   "attributes": {
+    "latitude": 42.462662,
+    "longitude": -71.091476,
+    "name": "Pond St opp Stone Zoo"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15982",
+   "attributes": {
+    "latitude": 42.465896,
+    "longitude": -71.100693,
+    "name": "Main St @ South St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15983",
+   "attributes": {
+    "latitude": 42.470466,
+    "longitude": -71.100741,
+    "name": "550 Main St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15984",
+   "attributes": {
+    "latitude": 42.47412,
+    "longitude": -71.100667,
+    "name": "Main St @ Summer St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15985",
+   "attributes": {
+    "latitude": 42.476349,
+    "longitude": -71.100425,
+    "name": "Main St @ Hancock St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15986",
+   "attributes": {
+    "latitude": 42.47828,
+    "longitude": -71.100179,
+    "name": "Main St opp Maple St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "25986",
+   "attributes": {
+    "latitude": 42.481549,
+    "longitude": -71.100064,
+    "name": "Main St @ Pleasant St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15987",
+   "attributes": {
+    "latitude": 42.484893,
+    "longitude": -71.100043,
+    "name": "Main St @ William St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15988",
+   "attributes": {
+    "latitude": 42.48761,
+    "longitude": -71.10004,
+    "name": "Main St @ Elm St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "25988",
+   "attributes": {
+    "latitude": 42.491495,
+    "longitude": -71.100177,
+    "name": "Main St @ Collincote St"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "15989",
+   "attributes": {
+    "latitude": 42.495166,
+    "longitude": -71.102121,
+    "name": "Redstone Shopping Center"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": []
+    }
+   }
+  }
+ ]
+}

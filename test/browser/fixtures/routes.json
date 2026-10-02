@@ -1,0 +1,148 @@
+{
+ "data": [
+  {
+   "attributes": {
+    "color": "DA291C",
+    "direction_destinations": [
+     "Ashmont/Braintree",
+     "Alewife"
+    ],
+    "direction_names": [
+     "South",
+     "North"
+    ],
+    "long_name": "Red Line",
+    "short_name": "",
+    "sort_order": 10010,
+    "type": 1
+   },
+   "id": "Red",
+   "links": {
+    "self": "/routes/Red"
+   },
+   "relationships": {
+    "agency": {
+     "data": {
+      "id": "1",
+      "type": "agency"
+     }
+    },
+    "line": {
+     "data": {
+      "id": "line-Red",
+      "type": "line"
+     }
+    }
+   },
+   "type": "route"
+  },
+  {
+   "attributes": {
+    "color": "ED8B00",
+    "direction_destinations": [
+     "Forest Hills",
+     "Oak Grove"
+    ],
+    "direction_names": [
+     "South",
+     "North"
+    ],
+    "long_name": "Orange Line",
+    "short_name": "",
+    "sort_order": 10020,
+    "type": 1
+   },
+   "id": "Orange",
+   "links": {
+    "self": "/routes/Orange"
+   },
+   "relationships": {
+    "agency": {
+     "data": {
+      "id": "1",
+      "type": "agency"
+     }
+    },
+    "line": {
+     "data": {
+      "id": "line-Orange",
+      "type": "line"
+     }
+    }
+   },
+   "type": "route"
+  },
+  {
+   "attributes": {
+    "color": "FFC72C",
+    "direction_destinations": [
+     "Redstone Shopping Center",
+     "Malden Center Station"
+    ],
+    "direction_names": [
+     "Outbound",
+     "Inbound"
+    ],
+    "long_name": "Redstone Shopping Center - Malden Center Station",
+    "short_name": "132",
+    "sort_order": 51320,
+    "type": 3
+   },
+   "id": "132",
+   "links": {
+    "self": "/routes/132"
+   },
+   "relationships": {
+    "agency": {
+     "data": {
+      "id": "1",
+      "type": "agency"
+     }
+    },
+    "line": {
+     "data": {
+      "id": "line-132",
+      "type": "line"
+     }
+    }
+   },
+   "type": "route"
+  },
+  {
+   "attributes": {
+    "color": "FFC72C",
+    "direction_destinations": [
+     "Reading Depot",
+     "Malden Center Station"
+    ],
+    "direction_names": [
+     "Outbound",
+     "Inbound"
+    ],
+    "long_name": "Reading Depot - Malden Center Station",
+    "short_name": "137",
+    "sort_order": 51370,
+    "type": 3
+   },
+   "id": "137",
+   "links": {
+    "self": "/routes/137"
+   },
+   "relationships": {
+    "agency": {
+     "data": {
+      "id": "1",
+      "type": "agency"
+     }
+    },
+    "line": {
+     "data": {
+      "id": "line-137",
+      "type": "line"
+     }
+    }
+   },
+   "type": "route"
+  }
+ ]
+}

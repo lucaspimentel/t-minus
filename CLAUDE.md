@@ -20,7 +20,12 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 
 ## Commands
 
-- Unit tests: `npm test` (Node 22+, `node --test`). CI runs the same on push.
+- Unit tests: `npm test` (Node 22+, `node --test test/*.test.js`). CI runs the same on push.
+- Browser tests: `npm run test:browser` (`@playwright/test`, specs in `test/browser/*.spec.js`;
+  `npm ci` first). MBTA calls go to a fake API built from scenarios (`test/browser/fake-mbta.js`,
+  `helpers.js`), so they need no key, relay, or network; CI runs them on every push. Add or
+  update a spec when UI behavior changes. `node scripts/record-fixtures.mjs` refreshes the
+  recorded route/stop lists setup uses.
 - Local run: `python3 -m http.server 8765`, open `http://localhost:8765/`.
 - Icons: `icons/icon.svg` is the source; re-render the PNGs (192, 512) from it with Playwright.
 
@@ -33,6 +38,11 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 
 ## Browser testing in the Claude Code cloud sandbox
 
+- `@playwright/test` is pinned to the sandbox's preinstalled Playwright (1.56.1, Chromium in
+  `/opt/pw-browsers`), so `npm run test:browser` works without `playwright install`. If the
+  versions drift, set `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium` (the config uses it).
+- The rest of this section is for ad-hoc checks against the live API (the browser tests use a
+  fake API and need none of it).
 - Playwright is global (`/opt/node22/lib/node_modules/playwright`); launch with `{ channel: 'chromium' }`.
 - The sandbox browser does not trust the egress proxy CA, so HTTPS requests fail with
   `ERR_CERT_AUTHORITY_INVALID`. Relay them through Node instead of disabling TLS checks:

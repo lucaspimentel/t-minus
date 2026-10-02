@@ -467,7 +467,16 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 
 ## Development
 
-- Unit tests: `npm test` (runs `node --test`; Node 22+, no dependencies).
+- Unit tests: `npm test` (runs `node --test test/*.test.js`; Node 22+): the pure logic in
+  `core.js`.
+- Browser tests: `npm run test:browser` (Playwright, Chromium, phone viewport, New York time):
+  `test/browser/*.spec.js` cover the main list, en route / ride card, setup, and the service
+  worker fallbacks. The app runs as is, served by `test/browser/server.mjs` (which can also
+  fail, stall, or go down on purpose); MBTA requests are answered by a fake API
+  (`fake-mbta.js`) from scenarios (trips with stop times, optional live delays, alerts) plus
+  recorded route/stop lists for setup (`test/browser/fixtures/`, refreshed by
+  `scripts/record-fixtures.mjs`). The page clock is faked; specs move it with `tick` /
+  `tickTo`. The only devDependency is `@playwright/test`; the app itself has none.
 - Local run: `python3 -m http.server` in the repo root, open `http://localhost:8000/`.
 - Deploy: GitHub Pages from `main`, repository root.
 - Icons: `icons/icon.svg` is the source; PNGs are rendered from it.
