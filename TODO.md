@@ -6,14 +6,13 @@ number of transit legs, without knowing GTFS IDs or the engine's internals.
 Done: the N-leg engine and the setup UI, including no direction step, nearby-only next legs,
 rail connections in the drop-off list, multi-route legs (`also`), return trips, the
 timing-leg override, collapsed rows, the trip list with one-at-a-time editing, short
-route labels with MBTA color dots, a sticky picker search, boxed legs in the trip editor, trip tracking, service worker fallbacks (5xx, 3 s
+route labels with MBTA color dots, a sticky picker search, boxed legs in the trip editor, stop names in the timeline, trip tracking, service worker fallbacks (5xx, 3 s
 timeout, "Saved copy", reload banner), and UI affordances: loading indicators, the old-data
 age, Retry / backoff / rate-limit countdown, expand hints, pressed states, Undo toasts on
 the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop list with the stop before the drop-off, and browser tests in CI against a fake MBTA API (see `DESIGN.md`).
 
 ## UI
 
-- Expanded timeline on the main list shows no station names ("Blue 1:22pm → 1:39pm").
 - Accessibility: rows are not focusable or announced as buttons (`li` + click handler); the
   status line and countdown changes are not announced (`aria-live`).
 

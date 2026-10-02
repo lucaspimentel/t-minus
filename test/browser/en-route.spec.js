@@ -53,6 +53,7 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await tickTo(page, '07:08:30');
   await expect(head(page)).toHaveText('On Bus 132 · off at 7:22am');
   await expect(card(page)).toContainText('Then Orange 7:32am · 5 min to spare');
+  await expect(card(page).locator('.timeline .step-stops')).toHaveText(['Main St @ South St → Washington St opp Oak Grove Sta', 'Oak Grove → State']);
   await expect(card(page).locator('.ride-stops')).toContainText('Pond St @ Stone Zoo');
   await expect(card(page).locator('.ride-stops')).toContainText('Washington St opp Oak Grove Sta');
   await expect(card(page).getByRole('button', { name: 'Missed it' })).toBeVisible();

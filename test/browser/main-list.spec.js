@@ -22,6 +22,13 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   await expect(first).toHaveAttribute('aria-expanded', 'true');
   await expect(first.locator('.timeline')).toContainText('Bus 132 7:08am → 7:22am');
   await expect(first.locator('.timeline')).toContainText('10 min to transfer'); // 7:22 arrival → 7:32 Orange
+  // Stop names from the responses' included stops.
+  await expect(first.locator('.step-stops')).toHaveText(['Main St @ South St → Washington St opp Oak Grove Sta', 'Oak Grove → State']);
+  await expect(first.locator('.step.walk')).toHaveText([
+    'Walk 5 min to Main St @ South St · 1 min early at the stop',
+    '10 min to transfer, Washington St opp Oak Grove Sta → Oak Grove',
+    'Walk 10 min from State · arrive 7:57am',
+  ]);
   await expect(first.locator('.row-foot')).toContainText('Track this trip');
   await expect(first.locator('.row-foot .chev')).toHaveText('▴');
   await first.click();

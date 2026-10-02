@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -579,6 +579,22 @@ test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {
     '1 min early at the stop', '[132 live]', '<1 min to transfer', '[Orange live]', 'Arrive 10:57am',
   ]);
   assert.equal(timelineSteps(tight, bare, 0, at('10:00'))[0].kind, 'leg');
+
+  // With stop names: where each leg starts and ends, where to walk and transfer.
+  const names = stopNames(
+    doc([], [stopInc('25996'), stopInc('5991'), stopInc('70036', 'place-ogmnl'), stopInc('70022', 'place-state')]
+      .map((st, i) => ({ ...st, attributes: { name: ['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State'][i] } }))));
+  assert.deepEqual([names.get('place-ogmnl'), names.get('70036'), names.get('5991')], ['Oak Grove', 'Oak Grove', 'Washington St opp Oak Grove Sta']);
+  const named = timelineSteps(row, homeToOffice, 1, at('10:00'), names);
+  assert.deepEqual(texts(named), [
+    'Walk 5 min to Main St @ South St · 1 min early at the stop', '[132 live]',
+    '9 min to transfer, Washington St opp Oak Grove Sta → Oak Grove', '[Orange live]',
+    'Walk 10 min from State · arrive 11:07am',
+  ]);
+  assert.deepEqual([named[1].from, named[1].to, named[3].from, named[3].to], ['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
+  const same = new Map([...names, ['5991', 'Oak Grove']]);
+  assert.equal(timelineSteps(row, homeToOffice, 1, at('10:00'), same)[2].text, '9 min to transfer at Oak Grove');
+  assert.equal(texts(timelineSteps(tight, bare, 1, at('10:00'), names)).at(-1), 'Arrive 10:57am at State');
 });
 
 test('tripRows: only the most recent missed ride', () => {

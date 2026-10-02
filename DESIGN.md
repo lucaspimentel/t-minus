@@ -238,7 +238,13 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   joined by a rail through the route dots: "Walk 5 min · 1 min early at the stop" (the slack
   part only when > 0; no first walk on en-route rows), "● Bus 132 8:10am → 8:20am LIVE" per
   leg, "9 min to transfer" (the actual gap: next departure − previous arrival), and
-  "Walk 10 min · arrive 8:56am" (`timelineSteps`); tap again to collapse. A muted ▾ at the bottom-right of a collapsed row
+  "Walk 10 min · arrive 8:56am" (`timelineSteps`); tap again to collapse. With stop names
+  known (`stopNames`, from the `include=stop` records the schedule and prediction responses
+  already carry, `fields[stop]=name,parent_station`; a parent station takes its platform's
+  name; no extra requests), each leg has a muted "Wonderland → State" line under its times,
+  and the steps say "Walk 5 min to Wonderland · …", "6 min to transfer at State" (or ",
+  State → Downtown Crossing" between different stops), "Walk 10 min from Kendall/MIT · arrive
+  …". The ride card's timeline shows the same. A muted ▾ at the bottom-right of a collapsed row
   (after the arrival) hints at this; expanded rows show ▴ in the same corner, on the "Track
   this trip" line. Expanded rows are remembered
   by the timing vehicle's trip id while the page is open.

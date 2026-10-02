@@ -177,6 +177,7 @@
   .step { position: relative; padding: 3px 0 3px 22px; font-variant-numeric: tabular-nums; }
   .step.walk { font-size: 13px; color: var(--muted); }
   .step.leg { font-size: 14px; }
+  .step-stops { font-size: 13px; color: var(--muted); font-weight: normal; }
   .step.leg .dot { position: absolute; left: 0; top: calc(3px + .4em); margin: 0; }
   .empty { color: var(--muted); padding: 16px 0; }
   .enroute-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 14px; color: var(--muted); }
@@ -266,7 +267,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · 7b5e9b8963</footer>
+    <footer class="version">Version 2026-10-02 · a8e4323edf</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -285,11 +286,11 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
-  rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
+  rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=823673841b';
-import { openSetup } from './setup.js?v=e74e56f2e4';
+} from './core.js?v=d29f5be19a';
+import { openSetup } from './setup.js?v=6afa27967f';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -351,7 +352,7 @@ const tripFields = {
   'fields[prediction]': 'arrival_time,departure_time,schedule_relationship',
   'fields[schedule]': 'arrival_time,departure_time',
   include: 'stop',
-  'fields[stop]': 'parent_station',
+  'fields[stop]': 'name,parent_station', // names for the timeline (stopNames)
 };
 
 function legQuery(leg) {
@@ -668,10 +669,11 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
   }
   // Expanded: the timeline replaces the summary (walks, legs with their badges, transfers).
   const timeline = el('div', 'timeline');
-  for (const s of timelineSteps(r, config.trips[tripIdx], stopSlackMinutes(config), now)) {
+  for (const s of timelineSteps(r, config.trips[tripIdx], stopSlackMinutes(config), now, tripStopNames())) {
     if (s.kind === 'walk') { timeline.append(el('div', 'step walk', s.text)); continue; }
     const line = el('div', 'step leg');
     line.append(dot(s.leg.color), `${vehicleLabel(s.leg)} ${formatTime(s.leg.dep, now)} → ${formatTime(s.leg.arr, now)}`, badge(s.leg.source));
+    legStops(line, s);
     timeline.append(line);
   }
   li.append(timeline);
@@ -693,6 +695,17 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
   foot.append(chevron('▴'));
   li.append(foot);
   return li;
+}
+
+// Stop names of the shown trip, from the stops its schedule and prediction responses include.
+function tripStopNames() {
+  const c = cache[tripIdx];
+  return stopNames(...(c?.schedules?.docs ?? []), ...(c?.nextDay?.docs ?? []), ...(c?.predictions ?? []));
+}
+
+// "Wonderland → State" under a timeline leg, when both names are known.
+function legStops(line, step) {
+  if (step.from && step.to) line.append(el('div', 'step-stops', `${step.from} → ${step.to}`));
 }
 
 // Rows expanded by a tap, by row key (the timing vehicle's trip id; next-day ids repeat).
@@ -901,7 +914,7 @@ function renderRideCard(s, now) {
   }
   // Timeline with the current step: the leg being ridden, the transfer before a leg, or the
   // final walk.
-  const steps = timelineSteps({ legs: ride.legs, eta: phase.eta, enRoute: true }, trip, 0, now);
+  const steps = timelineSteps({ legs: ride.legs, eta: phase.eta, enRoute: true }, trip, 0, now, tripStopNames());
   const timeline = el('div', 'timeline');
   let legNo = -1;
   steps.forEach((st, k) => {
@@ -913,6 +926,7 @@ function renderRideCard(s, now) {
     const line = el('div', `step ${st.kind}${current ? ' current' : ''}`, st.kind === 'walk' ? st.text : null);
     if (st.kind === 'leg') {
       line.append(dot(st.leg.color), `${vehicleLabel(st.leg)} ${formatTime(st.leg.dep, now)} → ${formatTime(st.leg.arr, now)}`, badge(st.leg.source));
+      legStops(line, st);
     }
     timeline.append(line);
   });

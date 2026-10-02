@@ -881,20 +881,50 @@ export function keepAwakeRiding(ride, walkAfter, nowMs, minutes) {
 
 // Steps of an expanded row: walk to the first stop (not en route; with the stop slack), legs,
 // the actual gap at each transfer, and the final walk with the arrival time.
-export function timelineSteps(row, trip, slackMinutes, nowMs) {
-  const { walkBefore, walkAfter } = tripShape(trip);
+// `names`: stop id → name (stopNames); leg steps get `from`/`to`, walks and transfers name their
+// stops when known.
+export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map()) {
+  const { walkBefore, walkAfter, transit } = tripShape(trip);
+  const from = i => names.get(transit[i]?.stop) ?? null;
+  const to = i => names.get(transit[i]?.alight) ?? null;
   const steps = [];
   if (!row.enRoute) {
-    const parts = [walkBefore > 0 && `Walk ${walkBefore} min`, slackMinutes > 0 && `${slackMinutes} min early at the stop`].filter(Boolean);
+    const walk = walkBefore > 0 && `Walk ${walkBefore} min${from(0) ? ` to ${from(0)}` : ''}`;
+    const parts = [walk, slackMinutes > 0 && `${slackMinutes} min early at the stop`].filter(Boolean);
     if (parts.length) steps.push({ kind: 'walk', text: parts.join(' · ') });
   }
   row.legs.forEach((leg, i) => {
-    if (i > 0) steps.push({ kind: 'walk', text: `${formatCountdown(leg.dep - row.legs[i - 1].arr)} to transfer` });
-    steps.push({ kind: 'leg', leg });
+    if (i > 0) {
+      const a = to(i - 1);
+      const b = from(i);
+      const where = a && b ? (a === b ? ` at ${a}` : `, ${a} → ${b}`) : '';
+      steps.push({ kind: 'walk', text: `${formatCountdown(leg.dep - row.legs[i - 1].arr)} to transfer${where}` });
+    }
+    steps.push({ kind: 'leg', leg, from: from(i), to: to(i) });
   });
   const arrive = formatTime(row.eta, nowMs);
-  steps.push({ kind: 'walk', text: walkAfter > 0 ? `Walk ${walkAfter} min · arrive ${arrive}` : `Arrive ${arrive}` });
+  const last = to(row.legs.length - 1);
+  steps.push({ kind: 'walk', text: walkAfter > 0
+    ? `Walk ${walkAfter} min${last ? ` from ${last}` : ''} · arrive ${arrive}`
+    : `Arrive ${arrive}${last ? ` at ${last}` : ''}` });
   return steps;
+}
+
+// Stop names from responses with `include=stop` (`fields[stop]=name,parent_station`): each
+// included stop, and a parent station (a configured `place-…` id) by its platform's name.
+export function stopNames(...docs) {
+  const names = new Map();
+  const parents = [];
+  for (const doc of docs) {
+    for (const inc of doc?.included ?? []) {
+      if (inc.type !== 'stop' || !inc.attributes?.name) continue;
+      names.set(inc.id, inc.attributes.name);
+      const parent = inc.relationships?.parent_station?.data?.id;
+      if (parent) parents.push([parent, inc.attributes.name]);
+    }
+  }
+  for (const [parent, name] of parents) if (!names.has(parent)) names.set(parent, name);
+  return names;
 }
 
 // State of a row: 'enroute' for a reachable en-route row, else countdownState.
