@@ -13,6 +13,13 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 
 ## UI
 
+- Leg picker: the search box's top edge is hidden under the sticky header ("Add a leg").
+- Station-first drop-off list: stations every branch serves (Park Street, Boylston, Arlington,
+  Copley) show no branch label, unlike "Kenmore · Green B/C/D"; show "Green B/C/D/E" or
+  "Green (any)".
+- Trip editor: the separators between legs, before the first leg, and after the last leg are
+  not clear.
+- Expanded timeline on the main list shows no station names ("Blue 1:22pm → 1:39pm").
 - Accessibility: rows are not focusable or announced as buttons (`li` + click handler); the
   status line and countdown changes are not announced (`aria-live`).
 
