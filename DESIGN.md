@@ -350,6 +350,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   ✕ on a leg → "Leg removed · Undo" (while that editor is open); Import over existing trips →
   "Trips replaced · Undo" (trips and settings). Any later save, and leaving setup, hides the
   toast. Undo restores trips and settings, not a cleared "Leaving now" / tracking state.
+- In the trip editor each transit leg is its own box ("Leg 1", summary, route checkboxes,
+  Edit/↑/↓/✕); the transfer times sit between the boxes and the walk times before the first
+  and after the last.
 - The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
   canonical legs back, omitting zero-minute walks and transfers.
 - Leg picker: the header, context line, and search box stick together at the top while the

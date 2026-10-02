@@ -442,7 +442,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     };
     const legs = t.transit.flatMap((l, j) => [
       j > 0 && numberField('Transfer (min)', l.transferBefore, v => { l.transferBefore = v; }),
+      // Each leg in its own box; transfer and walk times sit between and around the boxes.
       h('div', { class: 'leg-item' },
+        h('div', { class: 'leg-title' }, `Leg ${j + 1}`),
         h('div', { class: 'leg-text' }, legSummary(l)),
         // A leg on several routes: each can be dropped (one always stays).
         l.also?.length > 0 && h('div', { class: 'leg-routes' }, ...legRoutes(l).map(r => h('label', { class: 'check' },

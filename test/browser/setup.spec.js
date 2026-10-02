@@ -93,6 +93,7 @@ test('station-first: from a station to any station reachable without a transfer'
   await setup(page).locator('#picker-search').fill('Downtown');
   await setup(page).locator('.item', { hasText: 'Downtown Crossing' }).click();
   await expect(setup(page)).toContainText('Orange toward Forest Hills · Oak Grove → Downtown Crossing');
+  await expect(setup(page).locator('.leg-item .leg-title')).toHaveText(['Leg 1']);
   // The next leg starts from Downtown Crossing: one tap to Park Street on the Red Line.
   await button(page, '+ Add transit leg').click();
   await expect(setup(page).locator('.muted').first()).toHaveText('From Downtown Crossing · Change');
