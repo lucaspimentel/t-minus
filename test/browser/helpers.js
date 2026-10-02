@@ -76,3 +76,15 @@ export async function tickTo(page, time, date = MONDAY) {
 
 export const statusText = page => page.locator('#status-text').innerText();
 export const rowHeads = page => page.locator('.row .big').allInnerTexts().then(t => t.map(s => s.replace(/\s+/g, ' ').trim()));
+
+// A one-finger drag from (x, y) down by dy px, as real touch events (Chromium's CDP input).
+// Returns release(), which lifts the finger; pass { release: true } to lift it at once.
+export async function drag(page, [x, y], dy, { release = false, steps = 10 } = {}) {
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
+  await touch('touchStart', [{ x, y }]);
+  for (let i = 1; i <= steps; i++) await touch('touchMove', [{ x, y: y + dy * i / steps }]);
+  const lift = () => touch('touchEnd', []);
+  if (release) await lift();
+  return lift;
+}

@@ -28,8 +28,9 @@
     }
   }
   * { box-sizing: border-box; }
-  /* No double-tap zoom (iOS Safari ignores user-scalable=no for pinch zoom). */
-  html { touch-action: manipulation; }
+  /* No double-tap zoom (iOS Safari ignores user-scalable=no for pinch zoom). No rubber-band
+     bounce: the main list has its own pull-to-refresh. */
+  html { touch-action: manipulation; overscroll-behavior-y: none; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -62,6 +63,19 @@
   #refresh.busy span { display: inline-block; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { #refresh.busy span { animation: none; opacity: .4; } }
+  /* Pull-to-refresh: sits above the header (height = PULL_HOLD) and comes into view as #app moves down. */
+  .ptr {
+    height: 48px; margin-top: -48px; display: flex; align-items: center; justify-content: center; gap: 8px;
+    color: var(--muted); font-size: 14px; opacity: 0;
+  }
+  .ptr-icon { display: inline-block; font-size: 20px; }
+  .ptr.busy .ptr-icon { animation: spin .8s linear infinite; }
+  #app.settling { transition: transform 200ms ease-out; }
+  #app.settling .ptr { transition: opacity 200ms; }
+  @media (prefers-reduced-motion: reduce) {
+    .ptr-icon { transform: none !important; }
+    .ptr.busy .ptr-icon { animation: none; opacity: .4; }
+  }
   .status { font-size: 13px; color: var(--muted); margin: 0 0 12px; min-height: 18px; }
   .status.stale { color: var(--red); }
   .status.old { color: var(--amber); }
@@ -221,6 +235,7 @@
 <body>
 <main>
   <div id="app">
+    <div class="ptr" id="ptr" aria-hidden="true"><span class="ptr-icon">&#x21bb;</span><span class="ptr-text"></span></div>
     <header>
       <div class="toggle" id="toggle" role="group" aria-label="Trip"></div>
       <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh"><span>&#x21bb;</span></button>
@@ -234,7 +249,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · 086808058d</footer>
+    <footer class="version">Version 2026-10-02 · cb33444cab</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -253,11 +268,11 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
-  rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs,
+  rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD,
   trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=2ce9cfb566';
-import { openSetup } from './setup.js?v=d4acf3fa9d';
+} from './core.js?v=2a2ae000f3';
+import { openSetup } from './setup.js?v=34b23d362e';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -301,6 +316,7 @@ let pollTimer = null;
 let inFlight = false;
 const SPIN_MS = 800; // one turn of the refresh icon (#refresh.busy animation)
 let spinStart = 0;
+let idleWaiters = []; // called once the refresh icon stops (whenIdle)
 let pending = false;
 
 // ---------- API ----------
@@ -428,11 +444,21 @@ async function refresh({ force = false } = {}) {
     loading = null;
     // Stops only at the end of a full turn (SPIN_MS, as in the CSS), so it never snaps back.
     const spun = Date.now() - spinStart;
-    setTimeout(() => { if (!inFlight) $('refresh').classList.remove('busy'); }, Math.max(1, Math.ceil(spun / SPIN_MS)) * SPIN_MS - spun);
+    setTimeout(() => {
+      if (inFlight) return;
+      $('refresh').classList.remove('busy');
+      for (const cb of idleWaiters.splice(0)) cb();
+    }, Math.max(1, Math.ceil(spun / SPIN_MS)) * SPIN_MS - spun);
   }
   render();
   if (pending) { pending = false; return refresh(); }
   schedulePoll();
+}
+
+// Runs cb once refreshing is over (after any queued refresh), as the header ↻ stops.
+function whenIdle(cb) {
+  if ($('refresh').classList.contains('busy')) idleWaiters.push(cb);
+  else cb();
 }
 
 function schedulePoll() {
@@ -986,6 +1012,57 @@ $('open-setup').onclick = showSetup;
 // ---------- timers ----------
 
 $('refresh').onclick = () => refresh({ force: true });
+
+// Pull-to-refresh: a downward drag that starts at the top of the main list moves it down
+// (pullOffset); released past PULL_READY, it refreshes and holds a gap until the ↻ stops.
+let pull = null; // { x, y, dy, active } for the current touch
+let pullHeld = false;
+
+function setPull(offset, text, settle) {
+  const ptr = $('ptr');
+  $('app').classList.toggle('settling', settle);
+  $('app').style.transform = offset ? `translateY(${offset}px)` : '';
+  ptr.style.opacity = Math.min(1, offset / PULL_READY);
+  ptr.classList.toggle('busy', pullHeld);
+  ptr.querySelector('.ptr-icon').style.transform = pullHeld ? '' : `rotate(${offset * 4}deg)`;
+  if (text != null) ptr.querySelector('.ptr-text').textContent = text;
+}
+
+document.addEventListener('touchstart', e => {
+  pull = null;
+  if (setupView || pullHeld || e.touches.length !== 1 || scrollY > 0 || $('toast').contains(e.target)) return;
+  pull = { x: e.touches[0].clientX, y: e.touches[0].clientY, dy: 0, active: false };
+}, { passive: true });
+
+document.addEventListener('touchmove', e => {
+  if (!pull) return;
+  const t = e.touches[0];
+  const dx = t.clientX - pull.x;
+  const dy = t.clientY - pull.y;
+  // The first move decides: upward or sideways is ordinary scrolling, left alone.
+  if (!pull.active && (e.touches.length !== 1 || dy <= 0 || Math.abs(dx) > dy)) { pull = null; return; }
+  pull.active = true;
+  e.preventDefault();
+  pull.dy = dy;
+  const offset = pullOffset(dy);
+  setPull(offset, offset >= PULL_READY ? 'Release to refresh' : 'Pull to refresh', false);
+}, { passive: false });
+
+document.addEventListener('touchend', () => {
+  const p = pull;
+  pull = null;
+  if (!p?.active) return;
+  if (pullOffset(p.dy) < PULL_READY) { setPull(0, null, true); return; }
+  pullHeld = true;
+  setPull(PULL_HOLD, 'Refreshing…', true);
+  refresh({ force: true });
+  whenIdle(() => { pullHeld = false; setPull(0, null, true); });
+});
+
+document.addEventListener('touchcancel', () => {
+  if (pull?.active) setPull(0, null, true);
+  pull = null;
+});
 $('retry').onclick = () => { $('retry-wrap').hidden = true; refresh(); };
 
 // Location for "near" trips: the last fix, re-taken on launch and on return to the app.

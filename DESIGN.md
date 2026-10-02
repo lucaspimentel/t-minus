@@ -246,6 +246,14 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   counting down to the next whole minute + 1 s (`rateLimitDelayMs`; the keyless limit resets
   on whole minutes, and `x-ratelimit-reset` isn't exposed to the page), then retries. The ↻ icon spins during every fetch (polls
   included), stopping at the end of a full turn (0.8 s); with reduced motion it dims instead.
+- Pull-to-refresh (the Home Screen app has no browser pull): a downward drag that starts with
+  the main list scrolled to the top moves the list down at half the finger's speed (`pullOffset`,
+  up to 110 px), revealing "Pull to refresh", then "Release to refresh" past 64 px. Released
+  there, it runs the same forced refresh as ↻ and holds a 48 px gap with a spinning ↻ and
+  "Refreshing…" until the header ↻ stops (`whenIdle`; a pull during a refresh joins it). Upward
+  or sideways drags, drags that start scrolled down, and setup are left as ordinary scrolling.
+  `overscroll-behavior-y: none` on `html` turns off iOS's rubber-band bounce everywhere, so the
+  two don't move at once.
 - Route labels are short: rail by line ("Orange", "Green B", "Mattapan"), Silver Line as
   "Silver SL1", other buses as "Bus 132" / "Bus CT3". The dot is the route's MBTA color
   (yellow for buses, gray for the Silver Line). Setup uses the same labels and dots in the

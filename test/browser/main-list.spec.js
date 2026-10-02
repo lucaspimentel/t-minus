@@ -128,6 +128,8 @@ test('rate limiting counts down to the next minute, then retries', async ({ page
 
 test('the refresh icon spins for whole turns', async ({ page }) => {
   await openApp(page, { time: '07:00' });
+  // The page clock runs in real time; pause it so test latency doesn't count as spinning.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
   const refresh = page.locator('#refresh');
   await refresh.click();
   await expect(page.locator('#status-text')).toHaveText('Updated 7:00am');

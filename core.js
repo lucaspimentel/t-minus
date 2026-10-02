@@ -931,6 +931,15 @@ export function dataAgeText(lastOk, intervalMs, nowMs) {
   return age > 2 * intervalMs ? `${formatCountdown(age)} ago` : null;
 }
 
+// Pull-to-refresh: the content follows the finger at half speed, up to PULL_MAX px; released
+// at PULL_READY or more, it refreshes and holds a PULL_HOLD gap until done.
+export const PULL_MAX = 110;
+export const PULL_READY = 64;
+export const PULL_HOLD = 48;
+export function pullOffset(dy) {
+  return dy > 0 ? Math.min(dy * 0.5, PULL_MAX) : 0;
+}
+
 export function pollIntervalMs(rows, nowMs, riding = false) {
   if (riding) return 60_000;
   const soon = rows.some(r => r.lastChance > nowMs && (r.enRoute || (r.leaveBy != null && r.leaveBy - nowMs <= 15 * MIN)));

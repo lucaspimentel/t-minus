@@ -7,13 +7,15 @@ Done: the N-leg engine and the setup UI, including next-leg suggestions, return 
 timing-leg override, collapsed rows, the trip list with one-at-a-time editing, short
 route labels with MBTA color dots, trip tracking, service worker fallbacks (5xx, 3 s
 timeout, "Saved copy", reload banner), and UI affordances: loading indicators, the old-data
-age, Retry / backoff / rate-limit countdown, expand hints, pressed states, and Undo toasts on
-the main screen and in setup, and browser tests in CI against a fake MBTA API (see `DESIGN.md`).
+age, Retry / backoff / rate-limit countdown, expand hints, pressed states, Undo toasts on
+the main screen and in setup, pull-to-refresh, and browser tests in CI against a fake MBTA API (see `DESIGN.md`).
 
 ## UI
 
-- Pull-to-refresh: the Home Screen app has no browser pull gesture; ↻ is the only refresh.
-  Must not fight normal scrolling or iOS's rubber-band bounce.
+- Tracking a trip: tapping the "Tracking" button on the tracked row should cancel tracking
+  (same as the bar's Cancel, with Undo).
+- Ride card stop list: when stops are elided ("… 10 more"), always show the next stop and the
+  stop before the drop-off, not only the drop-off.
 - Accessibility: rows are not focusable or announced as buttons (`li` + click handler); the
   status line and countdown changes are not announced (`aria-live`).
 

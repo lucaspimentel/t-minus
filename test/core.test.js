@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -615,6 +615,13 @@ test('dataAgeText: the age once older than two poll intervals', () => {
   assert.equal(dataAgeText(t0, 120_000, t0 + 200_000), null);
   assert.equal(dataAgeText(t0, 120_000, t0 + 25 * 60_000), '25 min ago');
   assert.equal(dataAgeText(t0, 120_000, t0 + 65 * 60_000), '1h 05m ago');
+});
+
+test('pullOffset: half the finger distance, capped, never negative', () => {
+  assert.equal(pullOffset(0), 0);
+  assert.equal(pullOffset(-30), 0);
+  assert.equal(pullOffset(100), 50);
+  assert.equal(pullOffset(500), PULL_MAX);
 });
 
 test('pollIntervalMs: 60s within 15 minutes of leave-by, otherwise 120s', () => {
