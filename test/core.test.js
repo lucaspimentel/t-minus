@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle, defaultTransferMinutes,
@@ -642,6 +642,15 @@ test('shownStops: up to 6 as is; else next 3, the count, the last two; all when 
   assert.deepEqual(shownStops(stops(15)), [{ id: 's0' }, { id: 's1' }, { id: 's2' }, { more: 10 }, { id: 's13' }, { id: 's14' }]);
   assert.deepEqual(shownStops(stops(7)), [{ id: 's0' }, { id: 's1' }, { id: 's2' }, { more: 2 }, { id: 's5' }, { id: 's6' }]);
   assert.deepEqual(shownStops(stops(15), true), stops(15));
+});
+
+test('pageVersion and isNewerPage: the footer version of a fetched page', () => {
+  const page = v => `<main><footer class="version">${v}</footer></main>`;
+  assert.equal(pageVersion(page('Version 2026-10-02 · c712cb1543')), 'Version 2026-10-02 · c712cb1543');
+  assert.equal(pageVersion('<h1>Not found</h1>'), null);
+  assert.equal(isNewerPage(page('Version B'), 'Version A'), true);
+  assert.equal(isNewerPage(page('Version A'), 'Version A'), false);
+  assert.equal(isNewerPage('<h1>Application failed to respond</h1>', 'Version A'), false);
 });
 
 test('pullOffset: half the finger distance, capped, never negative', () => {

@@ -255,7 +255,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · c712cb1543</footer>
+    <footer class="version">Version 2026-10-02 · 5374ea7c05</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -274,11 +274,11 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
-  rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD,
+  rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=cb5672ef95';
-import { openSetup } from './setup.js?v=095b12ec69';
+} from './core.js?v=cd4255d1f4';
+import { openSetup } from './setup.js?v=17a74a1a49';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -1132,8 +1132,30 @@ setInterval(() => {
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) clearTimeout(pollTimer);
-  else if (!setupView) { refresh(); locate(); }
+  else {
+    checkForUpdate();
+    if (!setupView) { refresh(); locate(); }
+  }
 });
+
+// A Home Screen app resumed from the background keeps running the page it loaded: on each
+// return and every 30 min, fetch the page (the service worker saves it, so Reload is quick)
+// and show "New version available" if its footer version differs. Not at launch (just loaded).
+const RUNNING_VERSION = pageVersion(document.documentElement.outerHTML);
+let updateFound = false;
+let lastUpdateCheck = Date.now();
+async function checkForUpdate() {
+  if (updateFound || document.hidden || Date.now() - lastUpdateCheck < 60_000) return;
+  lastUpdateCheck = Date.now();
+  try {
+    const res = await fetch('./', { cache: 'no-store' });
+    if (res.ok && isNewerPage(await res.text(), RUNNING_VERSION)) {
+      updateFound = true;
+      $('newversion').hidden = false;
+    }
+  } catch { /* offline: try again next time */ }
+}
+setInterval(checkForUpdate, 30 * 60_000);
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -1142,7 +1164,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   navigator.serviceWorker.addEventListener('message', e => {
     if (e.data?.type !== 'nav') return;
     savedCopy = e.data.cached;
-    $('newversion').hidden = !e.data.updated;
+    $('newversion').hidden = !e.data.updated && !updateFound;
     render();
   });
   navigator.serviceWorker.controller?.postMessage('nav-status');

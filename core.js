@@ -1068,6 +1068,17 @@ export function pullOffset(dy) {
   return dy > 0 ? Math.min(dy * 0.5, PULL_MAX) : 0;
 }
 
+// The version in a page's footer ("Version 2026-10-02 · c712cb1543"), or null.
+export function pageVersion(html) {
+  return /<footer class="version">([^<]*)<\/footer>/.exec(html ?? '')?.[1].trim() || null;
+}
+
+// Whether a fetched page is a different version than the running one.
+export function isNewerPage(html, currentVersion) {
+  const v = pageVersion(html);
+  return !!v && v !== currentVersion;
+}
+
 export function pollIntervalMs(rows, nowMs, riding = false) {
   if (riding) return 60_000;
   const soon = rows.some(r => r.lastChance > nowMs && (r.enRoute || (r.leaveBy != null && r.leaveBy - nowMs <= 15 * MIN)));

@@ -491,6 +491,13 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
   network page then differs from it, a "New version available · Reload" banner appears; if it's
   the same, "Saved copy" clears. The page asks the service worker (`nav-status` message) on
   load; the service worker also posts to open pages when the late response arrives.
+- Update check: a Home Screen app resumed from the background keeps running the page it
+  loaded. On each return to the app (`visibilitychange`, at most once a minute) and every 30
+  min while it is open, the page fetches `./` (`cache: 'no-store'`; the service worker saves
+  it, so Reload is quick) and compares its footer version (`pageVersion`, `isNewerPage`). A
+  different one shows the same "New version available · Reload" banner; no automatic reload.
+  One request to the app's host, none to the MBTA; offline or the 3-s cache fallback reads as
+  no update.
 - `index.html` imports `core.js?v=<content hash>` and `setup.js?v=<content hash>`, and
   `setup.js` imports `core.js?v=<content hash>` (`npm run stamp`; a unit test enforces all
   three), so a new page can never run against a stale cached module. Mixing the two once left the
