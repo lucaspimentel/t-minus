@@ -37,7 +37,8 @@ const NEARBY_RADIUS = 0.003;
 
 // `onSave(config, warning)` stores a config and keeps setup open; `onClose()` leaves setup.
 // `timingFor(i)` returns the timing leg the app currently uses for saved trip i (or null).
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null }) {
+// `toast(text, action, onAction)` / `hideToast()`: the app's Undo toast.
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {} }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -48,7 +49,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   const app = appFields(saved); // list-screen fields, saved by Done
   const savedTrips = () => saved?.trips ?? [];
   // The trip being edited: `idx` is its saved index (null for a new trip, inserted at `insertAt`).
-  let editing = saved ? null : { idx: null, insertAt: 0, form: emptyTrip(0), messages: [] };
+  // `initial`: the form as opened (JSON), to tell whether Cancel discards edits (null: always).
+  const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
+  let editing = saved ? null : editor(null, 0, emptyTrip(0));
   let routes = null;
   // { legIdx (null = new leg), step, route, direction, board, near }
   // `near`: { name, lat, lon, routeIds } around the previous leg's drop-off, for suggestions.
@@ -133,6 +136,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // Every save refreshes the legs' stored labels and colors when the route list is loaded.
   function persist(cfg, warning = null) {
+    hideToast(); // a later save makes a pending Undo stale
     if (routes) cfg = labelLegs(cfg, routes);
     cfg = locateLegs(cfg, stopDocs); // first-stop coordinates for "near" trips
     saved = cfg;
@@ -155,14 +159,14 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // ---------- list screen ----------
 
   function openTrip(idx) {
-    editing = { idx, insertAt: idx, form: tripToForm(savedTrips()[idx]), messages: [] };
+    editing = editor(idx, idx, tripToForm(savedTrips()[idx]));
     listMessages = [];
     render();
   }
 
   function addTrip() {
     const n = savedTrips().length;
-    editing = { idx: null, insertAt: n, form: emptyTrip(n), messages: [] };
+    editing = editor(null, n, emptyTrip(n));
     listMessages = [];
     render();
   }
@@ -204,6 +208,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     let cfg;
     try { cfg = JSON.parse(text); } catch (e) { listMessages = errs([`Invalid JSON: ${e.message}`]); return render(); }
     if (cfg && typeof cfg === 'object' && !cfg.apiKey && app.apiKey.trim()) cfg = { ...cfg, apiKey: app.apiKey.trim() };
+    const prev = savedTrips().length ? saved : null; // first run: nothing to undo
     busy = true;
     listMessages = [info('Checking stops…')];
     render();
@@ -215,6 +220,16 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     listMessages = [info(`Imported ${cfg.trips.length} trip${cfg.trips.length === 1 ? '' : 's'}.`), ...listMessages];
     loadNames();
     render();
+    if (prev) {
+      toast('Trips replaced', 'Undo', () => {
+        persist(prev);
+        Object.assign(app, appFields(prev));
+        listMessages = [];
+        ioArea = null;
+        loadNames();
+        render();
+      });
+    }
   }
 
   function tripRow(t, i, n) {
@@ -283,12 +298,28 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   }
 
   function deleteTrip() {
-    const { idx, form } = editing;
-    if (!confirm(`Delete "${form.name}"?`)) return;
-    const trips = savedTrips().filter((_, i) => i !== idx);
-    persist({ ...saved, trips });
+    const { idx } = editing;
+    const prev = saved;
+    persist({ ...saved, trips: savedTrips().filter((_, i) => i !== idx) });
     editing = null;
     render();
+    toast('Trip deleted', 'Undo', () => { persist(prev); render(); });
+  }
+
+  // Cancel in the editor: edits are discarded, with Undo when there were any.
+  function cancelEdit() {
+    const { idx, insertAt, form, initial } = editing;
+    const changed = JSON.stringify(form) !== initial;
+    editing = null;
+    render();
+    if (changed) {
+      toast('Edits discarded', 'Undo', () => {
+        editing = { idx, insertAt, form, initial, messages: [] };
+        picker = null;
+        loadNames();
+        render();
+      });
+    }
   }
 
   // Opens the reversed trip as a new trip after this one. A reversed bus stop is usually not
@@ -314,7 +345,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       }
     } catch { /* offline: keep the reversed ids; Save's stop check reports them */ }
     editing = {
-      idx: null, insertAt: idx + 1, form: back,
+      idx: null, insertAt: idx + 1, form: back, initial: null, // a generated draft: Cancel offers Undo
       messages: [info(`Return trip for "${form.name}".` +
         (replaced.length ? ` Matched stops across the street: ${replaced.join('; ')}.` : '') + ' Review it, then Save.')],
     };
@@ -360,9 +391,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       render();
     };
     const removeLeg = j => {
+      const ed = editing, before = structuredClone(t);
       if (t.timingLeg === j) t.timingLeg = null; else if (t.timingLeg > j) t.timingLeg--;
       t.transit.splice(j, 1);
       render();
+      toast('Leg removed', 'Undo', () => { if (editing === ed) { ed.form = before; render(); } });
     };
     const legs = t.transit.flatMap((l, j) => [
       j > 0 && numberField('Transfer (min)', l.transferBefore, v => { l.transferBefore = v; }),
@@ -384,7 +417,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     return [
       h('div', { class: 'setup-head' },
         savedTrips().length
-          ? h('button', { type: 'button', onclick: () => { editing = null; render(); } }, 'Cancel')
+          ? h('button', { type: 'button', onclick: cancelEdit }, 'Cancel')
           // First run: no list to cancel back to; offer the list's import box instead.
           : h('button', { type: 'button', id: 'setup-import', onclick: () => { editing = null; ioArea = { mode: 'import', text: '' }; render(); } }, 'Import'),
         h('b', {}, isSaved ? 'Edit trip' : 'New trip'),

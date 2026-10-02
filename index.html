@@ -230,7 +230,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · b542e1c0f3</footer>
+    <footer class="version">Version 2026-10-01 · f70c646c9b</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -253,7 +253,7 @@ import {
   trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
 } from './core.js?v=5f6ca8c1d4';
-import { openSetup } from './setup.js?v=852d6697b1';
+import { openSetup } from './setup.js?v=183766da6e';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -936,6 +936,8 @@ function showSetup() {
     config,
     api,
     timingFor: i => cache[i]?.timing ?? null,
+    toast: showToast,
+    hideToast,
     onClose: closeSetup,
     // Each trip saves on its own while setup stays open.
     onSave(cfg, warning) {
@@ -953,6 +955,7 @@ function showSetup() {
 }
 
 function closeSetup() {
+  hideToast(); // setup's Undo works only in setup
   setupView?.close();
   setupView = null;
   $('app').hidden = false;

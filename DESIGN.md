@@ -315,6 +315,12 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   away, then returns to the list. First run opens an empty trip directly; its top-left button is Import (opens the list with
   the import box) instead of Cancel.
 - Reordering and deleting trips also save right away.
+- Undo toasts (the main screen's bottom toast, 5 s): Cancel with edits → "Edits discarded ·
+  Undo" (reopens the editor with the form; messages and pickers not restored; a generated
+  return trip counts as edited); Delete trip (no confirm dialog) → "Trip deleted · Undo";
+  ✕ on a leg → "Leg removed · Undo" (while that editor is open); Import over existing trips →
+  "Trips replaced · Undo" (trips and settings). Any later save, and leaving setup, hides the
+  toast. Undo restores trips and settings, not a cleared "Leaving now" / tracking state.
 - The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
   canonical legs back, omitting zero-minute walks and transfers.
 - Transit leg picker: route (search over bus, subway, light rail) → direction ("toward
