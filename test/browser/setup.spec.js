@@ -62,7 +62,7 @@ test('boarding at the end of a line asks for no direction', async ({ page }) => 
   await expect(setup(page)).toContainText('toward Forest Hills · Oak Grove → Wellington');
 });
 
-test('the next leg lists only routes near the transfer, then boards at the nearest stop', async ({ page }) => {
+test('the next leg lists the stations and routes near the transfer; a route boards at the nearest stop', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('132');
@@ -71,14 +71,63 @@ test('the next leg lists only routes near the transfer, then boards at the neare
   await setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).click();
   await button(page, '+ Add transit leg').click();
   await expect(setup(page)).toContainText('Near Washington St opp Oak Grove Sta');
-  await expect(setup(page).locator('.item b')).toHaveText(['Orange', 'Bus 132']);
+  await expect(setup(page).locator('.section-head')).toHaveText(['Stations', 'Routes']);
+  await expect(setup(page).locator('.item b')).toHaveText(['Oak Grove', 'Orange', 'Bus 132']);
   await button(page, 'Show all routes').click();
   await expect(setup(page).locator('.item b', { hasText: /^Blue$/ })).toBeVisible();
   await expect(setup(page).locator('.item b', { hasText: /^Green D$/ })).toBeVisible();
-  await setup(page).locator('.item', { hasText: 'Orange' }).click();
+  await setup(page).locator('.item', { hasText: 'Orange' }).first().click();
   // Straight to the drop-off: Oak Grove is the nearest Orange stop, and the end of the line.
   await expect(setup(page).locator('.muted').first()).toHaveText('Orange Line · from Oak Grove');
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Forest Hills']);
+});
+
+test('station-first: from a station to any station reachable without a transfer', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('Oak Gro');
+  await expect(setup(page).locator('.item.station')).toHaveText([/^Oak Grove\s*Orange$/]);
+  await setup(page).locator('.item.station', { hasText: 'Oak Grove' }).click();
+  await expect(setup(page).locator('.muted').first()).toHaveText('From Oak Grove · Change');
+  await expect(setup(page).locator('.section-head')).toHaveText(['Orange toward Forest Hills']);
+  await setup(page).locator('#picker-search').fill('Downtown');
+  await setup(page).locator('.item', { hasText: 'Downtown Crossing' }).click();
+  await expect(setup(page)).toContainText('Orange toward Forest Hills · Oak Grove → Downtown Crossing');
+  // The next leg starts from Downtown Crossing: one tap to Park Street on the Red Line.
+  await button(page, '+ Add transit leg').click();
+  await expect(setup(page).locator('.muted').first()).toHaveText('From Downtown Crossing · Change');
+  await expect(setup(page).locator('.section-head')).toHaveText(['Red toward Braintree / Ashmont', 'Red toward Alewife', 'Orange toward Forest Hills', 'Orange toward Oak Grove']);
+  await setup(page).getByRole('button', { name: 'Change' }).click();
+  await expect(setup(page).locator('#picker-search')).toHaveAttribute('placeholder', 'Search stations or routes');
+});
+
+test('station-first takes every line that makes the ride; the editor trims them', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await setup(page).getByLabel('Trip name').fill('Green');
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('Government');
+  await setup(page).locator('.item.station', { hasText: 'Government Center' }).click();
+  // Kenmore: not every branch stops there.
+  await expect(setup(page).locator('.item', { hasText: 'Kenmore' })).toContainText('Kenmore · Green B/C/D');
+  await setup(page).locator('.item', { hasText: 'Park Street' }).first().click();
+  await expect(setup(page)).toContainText('Green B/C/D/E toward Boston College · Government Center → Park Street');
+  await setup(page).getByRole('checkbox', { name: 'Take Green D' }).click(); // re-renders without it
+  await expect(setup(page)).toContainText('Green B/C/E toward');
+  await button(page, 'Save').click();
+  await expect(setup(page).locator('.trip-row')).toHaveCount(1);
+  const leg = await page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')).trips[0].legs.find(l => l.kind === 'transit'));
+  expect([leg.route, leg.also, leg.direction_id, leg.stop, leg.alight]).toEqual(['Green-B', ['Green-C', 'Green-E'], 0, 'place-gover', 'place-pktrm']);
+});
+
+test('route-first on a branching line offers only its branch (no Ashmont → Quincy)', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('Red');
+  await setup(page).locator('.item', { hasText: 'Red' }).filter({ hasNot: page.locator('.conn') }).first().click();
+  await setup(page).locator('#picker-search').fill('Ashmont');
+  await setup(page).locator('.item', { hasText: 'Ashmont' }).click();
+  await expect(setup(page).locator('.item', { hasText: 'JFK/UMass' })).toBeVisible();
+  await expect(setup(page).locator('.item', { hasText: 'Quincy Center' })).toHaveCount(0);
 });
 
 test('a rail station shows only its own lines, not a nearby station\'s', async ({ page }) => {

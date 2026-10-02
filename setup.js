@@ -1,22 +1,27 @@
-// Full-screen setup view: a list of trips, one trip's editor at a time, and route/stop pickers
-// (the direction follows from the stops picked). Each trip is saved on its own. Pure helpers live in core.js; this module owns the DOM
+// Full-screen setup view: a list of trips, one trip's editor at a time, and the leg picker
+// (station-first for subway and light rail, route-first for buses; the direction follows from
+// the stops picked). Each trip is saved on its own. Pure helpers live in core.js; this module owns the DOM
 // and the setup-time requests.
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
-  searchRoutes, searchStops, boardGroups, alightGroups, railConnections, servesInOrder, commonLabel, legRoutes, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
+  searchRoutes, searchStops, boardGroups, alightGroups, railConnections, servesInOrder, commonLabel, legRoutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=cd4255d1f4';
+} from './core.js?v=823673841b';
 
 const ROUTE_LIMIT = 60;
 
 // Session caches (kept across openSetup calls; route and stop lists rarely change).
 let routesPromise = null;
 const stopDocs = new Map(); // stopsKey → /stops doc (trip order, with child_stops)
-// Rail stations for the connections in the drop-off list, cached for a week (8 requests).
-const RAIL_KEY = 'mbta-leave-by:rail-stops';
+// The subway and light-rail network (railNetwork): station-first legs and the connections shown
+// in the drop-off lists. One request, cached for a week.
+const RAIL_KEY = 'mbta-leave-by:rail-network';
 const RAIL_TTL = 7 * 24 * 60 * 60_000;
-let railStops = null; // [{ route, label, color, stops: [{ id, lat, lon }] }]
+let railNet = null;
+let railStops = null; // railStopsFrom(railNet), for railConnections
 let railPromise = null;
+const NEARBY_STATION_METERS = 300;
 
 function h(tag, props = {}, ...children) {
   const e = document.createElement(tag);
@@ -58,8 +63,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
   let editing = saved ? null : editor(null, 0, emptyTrip(0));
   let routes = null;
-  // { legIdx (null = new leg), step ('route' | 'board' | 'alight' | 'also'), route, board, near,
-  //   alight, direction, also: [{ route, checked }] (other routes for the same ride) }
+  // { legIdx (null = new leg), step, query, near, ... }. Steps: 'search' (stations and routes);
+  // station-first 'to' { from }; route-first 'board' → 'alight' → 'also' { route, board, alight,
+  // direction, also: [{ route, checked }] (other routes for the same ride) }.
   // `near`: { name, lat, lon, routeIds } around the previous leg's drop-off, for suggestions.
   let picker = null;
   let listMessages = [];
@@ -83,24 +89,27 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     return stopDocs.get(key);
   }
 
-  // Subway and light-rail stations (route types 0 and 1) from the cache or the API.
-  function loadRailStops() {
-    if (railStops) return Promise.resolve(railStops);
+  // The rail network (route types 0 and 1) from the cache or the API: canonical route patterns
+  // with their stations in order.
+  function loadRailNetwork() {
+    const use = net => { railNet = net; railStops = railStopsFrom(net); return net; };
+    if (railNet) return Promise.resolve(railNet);
     try {
       const cached = JSON.parse(localStorage.getItem(RAIL_KEY));
-      if (cached && Date.now() - cached.at < RAIL_TTL) return Promise.resolve((railStops = cached.data));
+      if (cached && Date.now() - cached.at < RAIL_TTL) return Promise.resolve(use(cached.data));
     } catch {}
     return (railPromise ??= loadRoutes()
-      .then(rs => Promise.all(rs.filter(r => r.attributes?.type <= 1).map(r => api('/stops', {
-        'filter[route]': r.id, 'fields[stop]': 'name,latitude,longitude',
-      }).then(doc => ({
-        route: r.id, label: shortRouteLabel(r), color: r.attributes.color ?? null,
-        stops: doc.data.map(s => ({ id: s.id, lat: s.attributes?.latitude, lon: s.attributes?.longitude })),
-      })))))
-      .then(data => {
-        railStops = data;
-        try { localStorage.setItem(RAIL_KEY, JSON.stringify({ at: Date.now(), data })); } catch {}
-        return data;
+      .then(rs => {
+        const rail = rs.filter(r => r.attributes?.type <= 1);
+        return api('/route_patterns', {
+          'filter[route]': rail.map(r => r.id).join(','), 'filter[canonical]': 'true',
+          include: 'representative_trip.stops', 'fields[route_pattern]': 'direction_id', 'fields[trip]': '',
+          'fields[stop]': 'name,latitude,longitude',
+        }).then(doc => railNetwork(doc, rail));
+      })
+      .then(net => {
+        try { localStorage.setItem(RAIL_KEY, JSON.stringify({ at: Date.now(), data: net })); } catch {}
+        return use(net);
       })
       .catch(e => { railPromise = null; throw e; }));
   }
@@ -137,7 +146,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const s = doc?.data?.find(x => x.id === id || x.relationships?.child_stops?.data?.some(c => c.id === id));
       if (s) return s.attributes?.name ?? id;
     }
-    return id;
+    return networkStation(railNet, id)?.name ?? id; // station-first legs load no stop lists
   }
   const bothDocs = route => [0, 1].map(d => stopDocs.get(stopsKey(route, d)));
 
@@ -435,6 +444,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       j > 0 && numberField('Transfer (min)', l.transferBefore, v => { l.transferBefore = v; }),
       h('div', { class: 'leg-item' },
         h('div', { class: 'leg-text' }, legSummary(l)),
+        // A leg on several routes: each can be dropped (one always stays).
+        l.also?.length > 0 && h('div', { class: 'leg-routes' }, ...legRoutes(l).map(r => h('label', { class: 'check' },
+          h('input', { type: 'checkbox', checked: true, 'aria-label': `Take ${shortName(r)}`, onchange: () => {
+            Object.assign(l, trimRoutes(l, legRoutes(l).filter(x => x !== r)));
+            if (!l.also.length) delete l.also;
+            render();
+          } }), dot(routeById(r)?.attributes?.color), shortName(r)))),
         h('div', { class: 'btns' },
           h('button', { type: 'button', onclick: () => openPicker(j) }, 'Edit'),
           h('button', { type: 'button', 'aria-label': 'Move up', onclick: () => moveLeg(j, -1) }, '↑'),
@@ -481,10 +497,18 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // ---------- picker ----------
 
+  // One search for stations and routes. A later leg whose previous one ended at a rail station
+  // opens straight on the drop-off list from that station ("Change" leads to the search).
   function openPicker(legIdx) {
-    picker = { legIdx, step: 'route', query: '' };
+    picker = { legIdx, step: 'search', query: '' };
     loadRoutes().then(r => { routes = r; render(); }).catch(e => { if (picker) picker.error = e.message || String(e); render(); });
     const prev = legIdx == null ? editing.form.transit.at(-1) : null;
+    const opened = picker;
+    loadRailNetwork().then(net => {
+      const st = prev && networkStation(net, prev.alight);
+      if (st && picker === opened && !picker.query) picker = { ...picker, step: 'to', from: st.id };
+      if (picker) render();
+    }, () => {});
     if (prev) {
       picker.nearLoading = true;
       const done = near => { if (picker && picker.legIdx == null) { picker.near = near; picker.nearLoading = false; render(); } };
@@ -549,6 +573,14 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     render();
   }
 
+  // Station-first: from the picked station to `toId`, on every line that makes the ride.
+  function chooseTo(toId) {
+    const leg = legBetween(railNet, picker.from, toId);
+    if (!leg) return;
+    picker = { ...picker, route: { id: leg.route }, board: picker.from, also: leg.also.map(route => ({ route, checked: true })) };
+    finishLeg(toId, leg.direction);
+  }
+
   function finishLeg(alight, direction) {
     const trip = editing.form;
     const also = (picker.also ?? []).filter(a => a.checked).map(a => a.route);
@@ -557,6 +589,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const prev = trip.transit[trip.transit.length - 1];
       if (prev) {
         const parents = parentMap(stopDocs.get(stopsKey(prev.route, prev.direction_id)), stopDocs.get(stopsKey(leg.route, leg.direction_id)));
+        for (const [child, parent] of Object.entries(railNet?.parents ?? {})) if (!parents.has(child)) parents.set(child, parent);
         leg.transferBefore = defaultTransferMinutes(prev.alight, leg.stop, parents);
       }
       trip.transit.push(leg);
@@ -568,23 +601,50 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     render();
   }
 
+  // Dot-labels for rail lines ("● Orange", "● Green B/C/D/E").
+  const lineTags = list => list.flatMap(c => [' ', h('span', { class: 'tag conn' }, dot(c.color), c.label)]);
+  const stationLines = (id, exclude = []) => lineTags(railConnections({ id }, railStops, exclude));
+
   function pickerList() {
     const q = picker.query;
-    if (picker.step === 'route') {
+    const heading = text => h('div', { class: 'muted section-head' }, text);
+    if (picker.step === 'search') {
       if (!routes) return [h('div', { class: 'muted' }, picker.error ?? 'Loading routes…')];
       const found = searchRoutes(routes, q);
       const routeButton = r => h('button', { type: 'button', class: 'item', onclick: () => chooseRoute(r) }, dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), routeEnds(r) && h('span', { class: 'muted' }, ` ${routeEnds(r)}`));
-      // A next leg, without a search: only the routes near the previous drop-off (you transfer
-      // there), with a way to the full list. A search always covers every route.
-      if (!q.trim() && !picker.allRoutes) {
+      const stationButton = st => h('button', { type: 'button', class: 'item station', onclick: () => {
+        picker = { ...picker, step: 'to', from: st.id, query: '' };
+        render();
+      } }, h('b', {}, st.name), ...stationLines(st.id));
+      const showAll = h('button', { type: 'button', class: 'add', onclick: () => { picker.allRoutes = true; render(); } }, 'Show all routes');
+      if (q.trim()) {
+        const stations = railNet ? searchStations(railNet, q).slice(0, 8) : [];
+        return [
+          stations.length ? heading('Stations') : null, ...stations.map(stationButton),
+          stations.length && found.length ? heading('Routes') : null,
+          ...found.slice(0, ROUTE_LIMIT).map(routeButton),
+          found.length > ROUTE_LIMIT ? h('div', { class: 'muted' }, `${found.length - ROUTE_LIMIT} more; refine the search.`) : null,
+        ].filter(Boolean);
+      }
+      if (!picker.allRoutes) {
+        // A next leg: the stations and routes near the previous drop-off (you transfer there).
         if (picker.nearLoading) return [h('div', { class: 'muted' }, 'Finding routes nearby…')];
-        const nearRoutes = picker.near ? found.filter(r => picker.near.routeIds.includes(r.id)) : [];
-        if (nearRoutes.length) {
-          return [
-            h('div', { class: 'muted' }, `Near ${picker.near.name}`),
-            ...nearRoutes.map(routeButton),
-            h('button', { type: 'button', class: 'add', onclick: () => { picker.allRoutes = true; render(); } }, 'Show all routes'),
-          ];
+        if (picker.near) {
+          const here = { lat: picker.near.lat, lon: picker.near.lon };
+          const stations = (railNet?.stations ?? []).filter(st => st.lat != null && distanceMeters(here, st) <= NEARBY_STATION_METERS);
+          const nearRoutes = found.filter(r => picker.near.routeIds.includes(r.id));
+          if (stations.length || nearRoutes.length) {
+            return [
+              h('div', { class: 'muted' }, `Near ${picker.near.name}`),
+              stations.length ? heading('Stations') : null, ...stations.map(stationButton),
+              nearRoutes.length ? heading('Routes') : null, ...nearRoutes.map(routeButton),
+              showAll,
+            ].filter(Boolean);
+          }
+        } else {
+          // A first leg: the rail lines; type to find a station or a bus route.
+          return [h('div', { class: 'muted' }, 'Type a station (e.g. Oak Grove) or a route (e.g. 132).'),
+            ...found.filter(r => r.attributes?.type <= 1).map(routeButton), showAll];
         }
       }
       return [
@@ -592,10 +652,24 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         found.length > ROUTE_LIMIT ? h('div', { class: 'muted' }, `${found.length - ROUTE_LIMIT} more; refine the search.`) : null,
       ].filter(Boolean);
     }
+    if (picker.step === 'to') {
+      // Station-first drop-off: stations reachable without a transfer, per line and direction;
+      // branch letters only where just some branches stop.
+      if (!railNet) return [h('div', { class: 'muted' }, 'Loading stations…')];
+      return reachableFrom(railNet, picker.from).flatMap(g => {
+        const found = searchStops(g.stations.map(st => ({ ...st, attributes: { name: st.name } })), q);
+        if (!found.length) return [];
+        const label = id => railNet.lines.find(l => l.id === id)?.label ?? id;
+        return [h('div', { class: 'muted section-head' }, dot(g.color), `${g.label} toward ${g.toward.join(' / ')}`),
+          ...found.map(st => h('button', { type: 'button', class: 'item', onclick: () => chooseTo(st.id) },
+            st.name,
+            g.routes.length > 1 && st.routes.length < g.routes.length && h('span', { class: 'muted' }, ` · ${commonLabel(st.routes.map(label))}`),
+            ...stationLines(st.id, g.routes)))];
+      });
+    }
     const docs = bothDocs(picker.route.id);
     if (picker.loading && picker.alight) return [h('div', { class: 'muted' }, 'Checking other routes…')];
     if (picker.loading || !docs[0] || !docs[1]) return [h('div', { class: 'muted' }, picker.error ?? 'Loading stops…')];
-    const heading = text => h('div', { class: 'muted section-head' }, text);
     const toward = d => `toward ${destination(picker.route.id, d)}`;
     if (picker.step === 'board') {
       // Stops served both ways first, then each direction's own (the two sides of a street).
@@ -613,25 +687,34 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     }
     // Drop-off: the stops after the board stop, per direction it serves (one at the end of a
     // line), each with the rail lines there (loaded in the background; none if that fails).
-    if (!railStops) loadRailStops().then(() => { if (picker?.step === 'alight') render(); }, () => {});
-    const connections = s => railConnections(s, railStops, [picker.route.id]).flatMap(c => [' ', h('span', { class: 'tag conn' }, dot(c.color), c.label)]);
+    if (!railStops) loadRailNetwork().then(() => { if (picker?.step === 'alight') render(); }, () => {});
+    const connections = s => lineTags(railConnections(s, railStops, [picker.route.id]));
+    // A rail route's per-direction stop list merges its branches: keep only the stations the
+    // network says are reachable from the board stop on this route (no Ashmont → Quincy).
+    const onNetwork = railNet?.lines.some(l => l.id === picker.route.id);
+    const reach = d => new Set(reachableFrom(railNet, picker.board).filter(g => g.direction === d)
+      .flatMap(g => g.stations.filter(st => st.routes.includes(picker.route.id)).map(st => st.id)));
     return alightGroups(...docs, picker.board).flatMap(g => {
-      const found = searchStops(g.stops, q);
+      const ok = onNetwork ? reach(g.direction) : null;
+      const found = searchStops(ok ? g.stops.filter(s => ok.has(s.id)) : g.stops, q);
       return found.length ? [heading(toward(g.direction)), ...found.map(s => h('button', { type: 'button', class: 'item', onclick: () => chooseAlight(s.id, g.direction) },
         s.attributes?.name ?? s.id, ...connections(s)))] : [];
     });
   }
 
   function pickerScreen() {
-    const titles = { route: 'Choose a route', board: 'Where do you board?', alight: 'Where do you get off?', also: 'Also take' };
+    const titles = { search: picker.legIdx == null ? 'Add a leg' : 'Change leg', to: 'Where do you get off?', board: 'Where do you board?', alight: 'Where do you get off?', also: 'Also take' };
     const back = () => {
-      const prev = { route: null, board: 'route', alight: 'board', also: 'alight' }[picker.step];
+      const prev = { search: null, to: 'search', board: 'search', alight: 'board', also: 'alight' }[picker.step];
       if (prev) { picker = { ...picker, step: prev, query: '' }; } else { picker = null; }
       render();
     };
     const head = h('div', { class: 'setup-head' },
       h('button', { type: 'button', onclick: back }, 'Back'), h('b', {}, titles[picker.step]), h('span'));
-    const context = picker.route && h('div', { class: 'muted' },
+    const fromStation = picker.step === 'to' && (networkStation(railNet, picker.from)?.name ?? picker.from);
+    const context = picker.step === 'to' ? h('div', { class: 'muted' }, `From ${fromStation} · `,
+      h('button', { type: 'button', class: 'link', onclick: () => { picker = { ...picker, step: 'search', query: '' }; render(); } }, 'Change'))
+      : picker.step !== 'search' && picker.route && h('div', { class: 'muted' },
       [routeLabel(picker.route), picker.board && `from ${stopName(picker.route.id, null, picker.board)}`,
         picker.step === 'also' && `to ${stopName(picker.route.id, picker.direction, picker.alight)}`].filter(Boolean).join(' · '));
     if (picker.step === 'also') {
@@ -644,7 +727,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     }
     const list = h('div', { class: 'list' }, pickerList());
     const search = h('input', {
-      type: 'search', id: 'picker-search', placeholder: picker.step === 'route' ? 'Search routes (e.g. 132, Orange)' : 'Search stops',
+      type: 'search', id: 'picker-search', placeholder: picker.step === 'search' ? 'Search stations or routes' : picker.step === 'to' ? 'Search stations' : 'Search stops',
       value: picker.query, oninput: e => { picker.query = e.target.value; list.replaceChildren(...pickerList()); },
     });
     return [head, context, search, list];

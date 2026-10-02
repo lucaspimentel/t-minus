@@ -6,7 +6,7 @@ const API = 'https://api-v3.mbta.com';
 const OUT = new URL('../test/browser/fixtures/', import.meta.url);
 const RAIL = ['Red', 'Mattapan', 'Orange', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue'];
 const ROUTES = ['132', '136', '137', ...RAIL];
-const STOPS = ['132', 'Orange', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue'].flatMap(r => [[r, 0], [r, 1]]);
+const STOPS = ['132', 'Orange', 'Red', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue'].flatMap(r => [[r, 0], [r, 1]]);
 // Keyless limit is 20 requests/min: pace the requests unless a key is set.
 const PACE_MS = process.env.MBTA_API_KEY ? 0 : 3500;
 
@@ -39,9 +39,18 @@ for (const [route, dir] of STOPS) {
   });
   save(`stops-${route}-${dir}.json`, { data: doc.data.map(slim) });
 }
-// Rail stations for the connections shown in the drop-off list (setup.js loadRailStops).
-for (const route of RAIL) {
-  const doc = await get('/stops', { 'filter[route]': route, 'fields[stop]': 'name,latitude,longitude' });
-  save(`rail-${route}.json`, { data: doc.data.map(s => ({ type: s.type, id: s.id, attributes: s.attributes })) });
-}
+// The rail network (setup.js loadRailNetwork): canonical route patterns with their trips' stops
+// in order, slimmed to the fields railNetwork reads.
+const net = await get('/route_patterns', {
+  'filter[route]': RAIL.join(','), 'filter[canonical]': 'true',
+  include: 'representative_trip.stops', 'fields[route_pattern]': 'direction_id', 'fields[trip]': '',
+  'fields[stop]': 'name,latitude,longitude',
+});
+save('rail-network.json', {
+  data: net.data.map(p => ({ type: p.type, id: p.id, attributes: { direction_id: p.attributes.direction_id },
+    relationships: { route: { data: p.relationships.route.data }, representative_trip: { data: p.relationships.representative_trip.data } } })),
+  included: net.included.map(x => x.type === 'trip'
+    ? { type: 'trip', id: x.id, relationships: { stops: { data: x.relationships.stops.data } } }
+    : { type: 'stop', id: x.id, attributes: x.attributes, relationships: { parent_station: { data: x.relationships?.parent_station?.data ?? null } } }),
+});
 console.log('fixtures written');

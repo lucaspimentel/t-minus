@@ -262,6 +262,121 @@ export function stopsAfter(stops, boardId) {
   return i < 0 ? [] : stops.slice(i + 1);
 }
 
+// ---------- rail network (station-first legs) ----------
+
+// The subway and light-rail network from `/route_patterns?filter[canonical]=true&include=
+// representative_trip.stops`: each canonical pattern's stations in order (per branch, so the Red
+// Line's Ashmont and Braintree branches stay apart), stations with their lines, and the lines'
+// labels and colors from `/routes` resources (sorted by MBTA sort order).
+// { lines: [{ id, label, color }], stations: [{ id, name, lat, lon, routes }],
+//   patterns: [{ route, direction, stations: [id] }], parents: { platformId: stationId } }
+export function railNetwork(doc, routes = []) {
+  const inc = new Map((doc?.included ?? []).map(x => [`${x.type}/${x.id}`, x]));
+  const byRoute = new Map(routes.map(r => [r.id, r]));
+  const stations = new Map();
+  const parents = {};
+  const patterns = [];
+  for (const p of doc?.data ?? []) {
+    const route = p.relationships?.route?.data?.id;
+    const trip = inc.get(`trip/${p.relationships?.representative_trip?.data?.id}`);
+    if (!route || !trip) continue;
+    const ids = [];
+    for (const ref of trip.relationships?.stops?.data ?? []) {
+      const stop = inc.get(`stop/${ref.id}`);
+      const id = stop?.relationships?.parent_station?.data?.id ?? ref.id;
+      if (id !== ref.id) parents[ref.id] = id;
+      if (!stations.has(id)) {
+        const a = stop?.attributes ?? {};
+        stations.set(id, { id, name: a.name ?? id, lat: a.latitude ?? null, lon: a.longitude ?? null, routes: [] });
+      }
+      const st = stations.get(id);
+      if (!st.routes.includes(route)) st.routes.push(route);
+      if (ids.at(-1) !== id) ids.push(id);
+    }
+    patterns.push({ route, direction: p.attributes?.direction_id, stations: ids });
+  }
+  const order = id => byRoute.get(id)?.attributes?.sort_order ?? Infinity;
+  const lines = [...new Set(patterns.map(p => p.route))].sort((a, b) => order(a) - order(b)).map(id => {
+    const r = byRoute.get(id);
+    return { id, label: r ? shortRouteLabel(r) : id, color: r?.attributes?.color ?? null };
+  });
+  return { lines, stations: [...stations.values()], patterns, parents };
+}
+
+// The station a stop id (station or platform) belongs to, or null if it isn't on the network.
+export function networkStation(net, id) {
+  const sid = net?.parents?.[id] ?? id;
+  return net?.stations.find(s => s.id === sid) ?? null;
+}
+
+// railConnections' input from the network: each line's stations with coordinates.
+export function railStopsFrom(net) {
+  return (net?.lines ?? []).map(l => ({
+    route: l.id, label: l.label, color: l.color,
+    stops: net.stations.filter(s => s.routes.includes(l.id)).map(s => ({ id: s.id, lat: s.lat, lon: s.lon })),
+  }));
+}
+
+// Stations whose name contains the query; names starting with it first.
+export function searchStations(net, query = '') {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const starts = s => (s.name.toLowerCase().startsWith(q) ? 0 : 1);
+  return (net?.stations ?? []).filter(s => s.name.toLowerCase().includes(q))
+    .sort((a, b) => starts(a) - starts(b) || a.name.localeCompare(b.name));
+}
+
+// Stations reachable from `fromId` without a transfer, grouped per line color and direction:
+// [{ key, routes, label, color, direction, toward: [last station names], stations: [{ id, name, routes }] }].
+// Only patterns that pass `fromId` count, so branches never mix (no Ashmont → Quincy).
+export function reachableFrom(net, fromId) {
+  const from = networkStation(net, fromId)?.id ?? fromId;
+  const line = id => net.lines.find(l => l.id === id);
+  const rank = id => net.lines.findIndex(l => l.id === id);
+  const groups = new Map();
+  for (const p of [...net.patterns].sort((a, b) => rank(a.route) - rank(b.route))) {
+    const i = p.stations.indexOf(from);
+    if (i < 0 || i === p.stations.length - 1) continue;
+    const color = line(p.route)?.color ?? p.route;
+    const key = `${color}/${p.direction}`;
+    if (!groups.has(key)) groups.set(key, { key, color: line(p.route)?.color ?? null, direction: p.direction, routes: [], toward: [], stations: new Map() });
+    const g = groups.get(key);
+    if (!g.routes.includes(p.route)) g.routes.push(p.route);
+    const last = net.stations.find(s => s.id === p.stations.at(-1))?.name;
+    if (last && !g.toward.includes(last)) g.toward.push(last);
+    for (const id of p.stations.slice(i + 1)) {
+      if (!g.stations.has(id)) g.stations.set(id, { id, name: net.stations.find(s => s.id === id)?.name ?? id, routes: [] });
+      const st = g.stations.get(id);
+      if (!st.routes.includes(p.route)) st.routes.push(p.route);
+    }
+  }
+  return [...groups.values()].map(g => ({
+    ...g, label: commonLabel(g.routes.map(r => line(r)?.label ?? r), true), stations: [...g.stations.values()],
+  }));
+}
+
+// The leg for riding from one station to another without a transfer: every route with a pattern
+// passing both in order (primary first by sort order), in that direction; null if none.
+export function legBetween(net, fromId, toId) {
+  const from = networkStation(net, fromId)?.id ?? fromId;
+  const to = networkStation(net, toId)?.id ?? toId;
+  const rank = id => net.lines.findIndex(l => l.id === id);
+  const ok = net.patterns
+    .filter(p => { const i = p.stations.indexOf(from); return i >= 0 && p.stations.indexOf(to) > i; })
+    .sort((a, b) => rank(a.route) - rank(b.route));
+  if (!ok.length) return null;
+  const direction = ok[0].direction;
+  const routes = [...new Set(ok.filter(p => p.direction === direction).map(p => p.route))];
+  return { route: routes[0], also: routes.slice(1), direction };
+}
+
+// A leg's routes cut down to `keep` (at least one stays; the first kept becomes primary).
+export function trimRoutes(leg, keep) {
+  const routes = legRoutes(leg).filter(r => keep.includes(r));
+  if (!routes.length) return { route: leg.route, also: leg.also ?? [] };
+  return { route: routes[0], also: routes.slice(1) };
+}
+
 // Index of a stop in a direction's list, by its id or one of its child platforms.
 const stopIndex = (stops, id) => stops.findIndex(s => s.id === id || (s.relationships?.child_stops?.data ?? []).some(c => c.id === id));
 

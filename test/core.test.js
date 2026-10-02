@@ -6,7 +6,8 @@ import {
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
-  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle, defaultTransferMinutes,
+  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
 } from '../core.js';
 
@@ -905,6 +906,37 @@ test('multi-route legs (also): config, labels, queries, vehicles', () => {
   assert.equal(vehicleLabel({ label: 'Orange' }), 'Orange');
   assert.equal(servesInOrder(sd(['a', 'b', 'c']), 'a', 'c'), true);
   assert.equal(servesInOrder(sd(['a', 'b', 'c']), 'c', 'a'), false);
+});
+
+test('rail network: station search, reachable stations per branch, legs between stations', () => {
+  const net = railNetwork(JSON.parse(readFileSync('test/browser/fixtures/rail-network.json', 'utf8')),
+    JSON.parse(readFileSync('test/browser/fixtures/routes.json', 'utf8')).data);
+  assert.deepEqual(net.lines.map(l => l.label), ['Red', 'Mattapan', 'Orange', 'Green B', 'Green C', 'Green D', 'Green E', 'Blue']);
+  assert.deepEqual(networkStation(net, '70036')?.id, 'place-ogmnl'); // a platform
+  assert.equal(networkStation(net, '5991'), null); // a bus stop
+  assert.deepEqual(searchStations(net, 'park').map(s => s.name).slice(0, 1), ['Park Street']);
+  assert.deepEqual(searchStations(net, ''), []);
+  assert.ok(railStopsFrom(net).find(l => l.route === 'Orange').stops.some(s => s.id === 'place-ogmnl'));
+
+  const brief = groups => groups.map(g => [g.label, g.direction, g.toward.join('/'), g.stations.length]);
+  // Oak Grove: the end of the line, one way.
+  assert.deepEqual(brief(reachableFrom(net, 'place-ogmnl')), [['Orange', 0, 'Forest Hills', 19]]);
+  // JFK/UMass southbound: both branches in one group; Ashmont never reaches Quincy.
+  const jfk = reachableFrom(net, 'place-jfk');
+  assert.deepEqual(brief(jfk)[0], ['Red', 0, 'Braintree/Ashmont', 9]);
+  assert.ok(!reachableFrom(net, 'place-asmnl').some(g => g.stations.some(s => s.id === 'place-qnctr')));
+  assert.equal(legBetween(net, 'place-asmnl', 'place-qnctr'), null);
+  // Government Center → Park Street: any Green branch; Kenmore only on some.
+  const gov = reachableFrom(net, 'place-gover').find(g => g.label === 'Green' && g.direction === 0);
+  assert.deepEqual(gov.stations.find(s => s.id === 'place-pktrm').routes, ['Green-B', 'Green-C', 'Green-D', 'Green-E']);
+  assert.deepEqual(gov.stations.find(s => s.id === 'place-kencl').routes, ['Green-B', 'Green-C', 'Green-D']);
+  assert.deepEqual(legBetween(net, 'place-gover', 'place-pktrm'), { route: 'Green-B', also: ['Green-C', 'Green-D', 'Green-E'], direction: 0 });
+  assert.deepEqual(legBetween(net, '70036', 'place-dwnxg'), { route: 'Orange', also: [], direction: 0 });
+  assert.deepEqual(legBetween(net, 'place-dwnxg', 'place-ogmnl'), { route: 'Orange', also: [], direction: 1 });
+  // Trimming routes keeps at least one, the first kept becoming primary.
+  const leg = { route: 'Green-B', also: ['Green-C', 'Green-D'] };
+  assert.deepEqual(trimRoutes(leg, ['Green-C', 'Green-D']), { route: 'Green-C', also: ['Green-D'] });
+  assert.deepEqual(trimRoutes(leg, []), { route: 'Green-B', also: ['Green-C', 'Green-D'] });
 });
 
 test('commonLabel: shared words, then the rest', () => {

@@ -352,7 +352,22 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   toast. Undo restores trips and settings, not a cleared "Leaving now" / tracking state.
 - The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
   canonical legs back, omitting zero-minute walks and transfers.
-- Transit leg picker: route (search over bus, subway, light rail) → board stop → drop-off stop;
+- Leg picker: one search box ("Search stations or routes") finds rail stations
+  (`searchStations`, each with its lines) and routes (`searchRoutes`). Without typing, a first
+  leg lists the rail lines and "Show all routes"; a later leg lists the stations (within 300 m)
+  and routes near the previous drop-off (see next-leg suggestions).
+- Station-first (subway and light rail): From station → To station. The To list
+  (`reachableFrom`) holds the stations reachable without a transfer, under "● Orange toward
+  Forest Hills" headings (one per line color and direction; "Green toward Boston College /
+  Cleveland Circle / …"), from the canonical route patterns, so branches never mix (no Ashmont →
+  Quincy); a station only some branches serve shows them ("Kenmore · Green B/C/D"). The pick
+  makes the leg with every route that passes both stations in order (`legBetween`): Government
+  Center → Park Street is Green-B plus `also` C, D, E, with no extra step. Stop ids are parent
+  stations. A later leg whose previous leg ended at a rail station opens on the To list from it
+  ("From Downtown Crossing · Change"; Change leads to the search). In the trip editor, a leg on
+  several routes has a checkbox per route; unchecking drops it (`trimRoutes`; one always stays,
+  re-pick the leg to restore one).
+- Route-first (buses, or a rail line picked from the search): route → board stop → drop-off stop;
   no direction step (both directions' stop lists are loaded). The board list (`boardGroups`)
   has the stops served both ways first (most subway stations, direction 0's order), then each
   direction's own stops under "toward <direction_destinations>" (the two sides of a bus
@@ -361,15 +376,21 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   sets `direction_id`. Then other routes that also go from the board stop to the drop-off in
   that direction (`findAlso`: `/routes?filter[stop]` at both stops, then each candidate's stop
   list in order, `servesInOrder`) are offered as "Also take" checkboxes, all checked; checked
-  ones are saved as `also`. Without candidates the leg is done right away.
+  ones are saved as `also`. Without candidates the leg is done right away. For a rail route the
+  drop-off list keeps only stations the network says are reachable on that route (its
+  per-direction stop list merges the Red Line's branches).
 - Connections in the drop-off list: each stop is followed by the rail lines (route types 0
   and 1: Red, Mattapan, Orange, Blue, Green B–E) at it: for a rail station, the lines listing
   that station (State and Government Center are ~155 m apart but separate stations); for
   other stops (street bus stops have no parent station), lines with a station within 200 m
   (`railConnections`, `CONNECTION_METERS`), e.g. "Washington St opp Oak Grove Sta
   ● Orange". The leg's own route is left out; branches of a line (same color) merge as "Green
-  D/E" (`commonLabel`). Station lists come from `/stops?filter[route]=<rail route>`
-  (`mbta-leave-by:rail-stops`, 7 days); if that fails, no connections are shown. A new leg's transfer time defaults to 3 min within the
+  D/E" (`commonLabel`).
+- Rail network (`railNetwork`): one `/route_patterns?filter[route]=<rail routes>&filter[canonical]=true
+  &include=representative_trip.stops` request (~100 KB; 18 patterns, each branch and direction,
+  stations in order via the platforms' `parent_station`), cached in `localStorage`
+  (`mbta-leave-by:rail-network`, 7 days). It drives station search, station-first legs, and the
+  connections (`railStopsFrom`). If it fails, the search shows routes only and no connections. A new leg's transfer time defaults to 3 min within the
   same station, else 5 (`defaultTransferMinutes`).
 - Next-leg suggestions: adding a leg after another lists only the routes serving stops within
   ~300 m of the previous drop-off (`/stops?filter[latitude]&filter[longitude]&filter[radius]=0.003`,
@@ -468,8 +489,8 @@ To stay well inside it:
   colors), one `/stops` request per route/direction pair (choosing a route loads both
   directions; cached for the session, 4 for the example); Save and "Add return trip" reuse
   them. Adding a leg after another costs 2 more (nearby stops, their routes). The drop-off
-  list's rail connections cost one `/stops?filter[route]` per rail route (8), cached in
-  `localStorage` for 7 days. Choosing a drop-off costs 2 (`/routes` at both stops) plus one
+  list's connections and station-first legs use the rail network: one `/route_patterns`
+  request, cached in `localStorage` for 7 days. A station-first leg costs nothing more. Choosing a drop-off costs 2 (`/routes` at both stops) plus one
   `/stops` per other route serving both (e.g. 3 for the Green branches).
 
 A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 requests; a 4-leg trip
