@@ -102,6 +102,8 @@
   .ride-head { font-size: 20px; font-weight: 700; color: var(--green); }
   .row.ride.arrived .ride-head { color: var(--text); }
   .step.current { color: var(--text); font-weight: 600; }
+  .ride-outlook { margin-top: 6px; font-size: 14px; color: var(--muted); }
+  .ride-outlook.warn { color: var(--amber); font-weight: 600; }
   .ride-stops { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
   .ride-where { color: var(--muted); font-size: 13px; margin-bottom: 2px; }
   .ride-stop { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
@@ -191,7 +193,7 @@
       <button id="reload" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · a089f43ed4</footer>
+    <footer class="version">Version 2026-10-01 · 3f16153810</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -210,10 +212,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, startEnRoute, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs,
-  trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops,
+  trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=2d0fde533c';
-import { openSetup } from './setup.js?v=52dc1f95e3';
+} from './core.js?v=6d8d3b5dad';
+import { openSetup } from './setup.js?v=37bc95b583';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -432,11 +434,27 @@ function syncEnRoute(now) {
   if (!s.ride) s = advanceEnRoute(s, currentRows(now, s), now);
   if (s.ride && c) {
     const maps = transit.map((l, i) => mergeTrips(c.predictions?.[i], c.schedules?.docs[i]));
-    s = { ...s, ride: { ...s.ride, legs: trackLegs(s.ride.legs, transit, maps, c.lastLive) } };
+    let ride = { ...s.ride, legs: trackLegs(s.ride.legs, transit, maps, c.lastLive) };
+    // A connection that no longer works is re-planned; what was missed shows until boarding.
+    const phase = ridePhase(ride, walkAfter, now);
+    const o = transferOutlook(ride, phase, rideVehicles(), tripShape(trip).transfers);
+    if (o?.missedDep != null) ride = { ...ride, legs: o.legs, missed: { leg: o.leg, dep: o.missedDep } };
+    if (ride.missed && (phase.leg > ride.missed.leg || (phase.kind === 'riding' && phase.leg === ride.missed.leg))) {
+      const { missed: _, ...rest } = ride;
+      ride = rest;
+    }
+    s = { ...s, ride };
   }
   if (!enRouteActive(s, walkAfter, now)) { setEnRoute(null); return null; }
   if (JSON.stringify(s) !== before) setEnRoute(s);
   return s;
+}
+
+// Per-leg vehicles of the shown trip (predictions + schedules, remembered live times).
+function rideVehicles() {
+  const c = cache[tripIdx];
+  const { transit } = tripShape(config.trips[tripIdx]);
+  return withRemembered(transit.map((l, i) => legVehicles(mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i]), l)), c?.lastLive);
 }
 
 function currentAlerts(now) {
@@ -638,6 +656,7 @@ function goEnRoute(kind) {
 // Trip card while riding: phase and live arrival, the timeline with the current step, and
 // Missed it / Cancel.
 let rideNote = null; // e.g. "No later connection" after Missed it
+let laterOpen = false; // "Later one?" choices shown
 let rideFetchFor = null; // trip id whose stops were last requested outside the poll
 function renderRideCard(s, now) {
   const trip = config.trips[tripIdx];
@@ -650,6 +669,9 @@ function renderRideCard(s, now) {
   const summary = el('div', 'detail summary');
   summary.append(badge(last.arrSource ?? last.source), el('span', 'arrive', `arrive ${formatTime(phase.eta, now)}`));
   li.append(summary);
+  // The next connection: spare time, tight, re-planned after a miss, or none.
+  const outlook = outlookText(transferOutlook(ride, phase, rideVehicles(), tripShape(trip).transfers), ride, now);
+  if (outlook) li.append(el('div', `ride-outlook${outlook.warn ? ' warn' : ''}`, outlook.text));
   // Riding: where the vehicle is and the stops left to the drop-off (next 4, "… N more", drop-off).
   const rs = cache[tripIdx]?.rideStops;
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
@@ -695,8 +717,22 @@ function renderRideCard(s, now) {
     return b;
   };
   if (canUndoBoarding(ride, phase, now)) btns.append(btn('Missed it', () => missedIt(phase)));
-  btns.append(btn(phase.kind === 'arrived' ? 'Done' : 'Cancel', () => { rideNote = null; setEnRoute(null); render(); schedulePoll(); }));
+  // "I'm on a later one": vehicles of this leg that left after the assumed one.
+  const later = phase.kind === 'riding' ? laterVehicles(rideVehicles()[phase.leg] ?? [], ride.legs[phase.leg], now) : [];
+  if (later.length) btns.append(btn(laterOpen ? 'Not a later one' : 'Later one?', () => { laterOpen = !laterOpen; render(); }));
+  btns.append(btn(phase.kind === 'arrived' ? 'Done' : 'Cancel', () => { rideNote = null; laterOpen = false; setEnRoute(null); render(); schedulePoll(); }));
   li.append(btns);
+  if (laterOpen && later.length) {
+    const pick = el('div', 'enroute-bar ride-btns');
+    for (const v of later) {
+      pick.append(btn(`${ride.legs[phase.leg].label} ${formatTime(v.dep, now)}`, () => {
+        laterOpen = false;
+        setEnRoute({ ...s, ride: switchLeg(ride, phase.leg, v, rideVehicles(), tripShape(trip).transfers) });
+        render();
+      }));
+    }
+    li.append(pick);
+  }
   return li;
 }
 

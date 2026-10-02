@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, pickTrip, inWindow, countdownState, pollIntervalMs,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -423,6 +423,46 @@ test('tracking: boarding, live leg times, phases, Missed it re-plan', () => {
   assert.deepEqual(replanFrom([buses, trains], 1, at('07:32'), transfers, 'o1').map(v => v.tripId), ['o2']);
   assert.deepEqual(replanFrom([buses, trains], 0, at('07:13'), transfers, 'b1').map(v => v.tripId), ['b2', 'o3']);
   assert.equal(replanFrom([buses, trains], 1, at('08:01'), transfers), null);
+});
+
+test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
+  const { transfers } = tripShape(homeToOffice); // transfer 5
+  const buses = [veh('b1', '07:12', '07:26'), veh('b2', '07:40', '07:54')];
+  const trains = [veh('o0', '07:28', '07:43'), veh('o1', '07:31', '07:46'), veh('o2', '07:36', '07:51'), veh('o3', '08:00', '08:15')];
+  const leg = (v, route) => ({ route, label: route, color: null, tripId: v.tripId, dep: v.dep, arr: v.arr, source: 'scheduled' });
+  const ride = (bus, train) => ({ boardedAt: bus.dep, legs: [leg(bus, 'Bus 132'), leg(train, 'Orange')] });
+  const riding0 = { kind: 'riding', leg: 0 };
+  const vs = [buses, trains];
+  const now = at('07:20');
+
+  // Comfortable / tight (b1 arrives 07:26 + 5 = 07:31).
+  const ok = transferOutlook(ride(buses[0], trains[2]), riding0, vs, transfers);
+  assert.deepEqual([ok.leg, ok.margin, ok.missedDep, ok.none], [1, 5 * MIN, null, false]);
+  assert.deepEqual(outlookText(ok, ride(buses[0], trains[2]), now), { text: 'Then Orange 7:36am · 5 min to spare', warn: false });
+  const tight = transferOutlook(ride(buses[0], trains[1]), riding0, vs, transfers);
+  assert.equal(outlookText(tight, ride(buses[0], trains[1]), now).text, 'Then Orange 7:31am · tight');
+  // Missed (o0 leaves 07:28): earliest feasible after 07:31 is o1; never an earlier vehicle.
+  const r = ride(buses[0], trains[0]);
+  const missed = transferOutlook(r, riding0, vs, transfers);
+  assert.deepEqual([missed.legs[1].tripId, missed.missedDep, missed.margin], ['o1', at('07:28'), 0]);
+  assert.equal(outlookText(missed, r, now).text, 'Then Orange 7:31am (missed 7:28am)');
+  // After the switch is stored, the text keeps saying what was missed.
+  const stored = { ...r, legs: missed.legs, missed: { leg: 1, dep: at('07:28') } };
+  assert.equal(outlookText(transferOutlook(stored, riding0, vs, transfers), stored, now).text, 'Then Orange 7:31am (missed 7:28am)');
+  // Also during the transfer; nothing after the last train; no next leg.
+  const late = { ...ride(buses[1], trains[3]), legs: [{ ...leg(buses[1], 'Bus 132'), arr: at('08:10') }, leg(trains[3], 'Orange')] };
+  const none = transferOutlook(late, { kind: 'transfer', leg: 1 }, vs, transfers);
+  assert.equal(none.none, true);
+  assert.equal(outlookText(none, late, now).text, 'No connection after 8:15am');
+  assert.equal(transferOutlook(r, { kind: 'riding', leg: 1 }, vs, transfers), null);
+  assert.equal(transferOutlook(r, { kind: 'walking', leg: 2 }, vs, transfers), null);
+
+  // Later vehicles of a leg: left after the assumed one, by now.
+  assert.deepEqual(laterVehicles(buses, leg(buses[0], 'Bus 132'), at('07:45')).map(v => v.tripId), ['b2']);
+  assert.deepEqual(laterVehicles(buses, leg(buses[0], 'Bus 132'), at('07:39')), []);
+  // Switching re-plans the later legs from the new arrival (07:54 + 5 → o3 at 08:00).
+  const sw = switchLeg(stored, 0, buses[1], vs, transfers);
+  assert.deepEqual([sw.legs.map(l => l.tripId), sw.boardedAt, sw.missed], [['b2', 'o3'], at('07:40'), undefined]);
 });
 
 test('rideStops: remaining stops to the drop-off and the vehicle', () => {

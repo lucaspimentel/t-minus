@@ -183,6 +183,15 @@ For leaving earlier or later than leave-by. A bar under the status line always o
     (`trackLegs`): live entry, then remembered live times, then schedules, then the stored
     plan. A departed vehicle has no board entry and keeps its stored departure. No extra
     requests.
+  - Next connection (riding leg i, or in the transfer before leg i+1): needed = leg i's
+    arrival + transfer, margin = leg i+1's departure − needed (`transferOutlook`,
+    `outlookText`): "Then Orange 7:31am · 4 min to spare", "· tight" (under 2 min, amber).
+    A negative margin re-plans legs i+1… to the earliest feasible chain after `needed` (never
+    an earlier vehicle) and reads "Then Orange 7:36am (missed 7:31am)" until that leg is
+    boarded (`ride.missed`); no chain: "No connection after 7:26am", plan kept. No extra
+    requests (the per-leg vehicles already polled).
+  - "Later one?" (riding): the leg's vehicles that left after the assumed one and by now (up
+    to 3); picking one moves the leg to it and re-plans the later legs (`switchLeg`).
   - "Missed it" for 2 min after each boarding: on the first leg, back to "At the stop" now; on
     a later leg, that leg's next vehicle (not the missed one) and the earliest connections
     after it (`replanFrom`), or "No later connection." Cancel ends tracking.

@@ -799,6 +799,54 @@ export function rideStops(doc, alightId, nowMs) {
   return { vehicle, stops };
 }
 
+// Copies a vehicle's trip and times onto a planned leg.
+const onVehicle = (leg, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined });
+
+// The next connection while riding leg i (or in the transfer before leg i+1): needed = leg i's
+// arrival + transfer; margin = leg i+1's departure − needed. A missed connection (margin < 0)
+// re-plans legs i+1… to the earliest feasible chain after `needed` (never an earlier vehicle);
+// `none` when there's no such chain (plan kept). Null without a next leg.
+export function transferOutlook(ride, phase, vehiclesByLeg, transfers) {
+  const i = phase.kind === 'riding' ? phase.leg : phase.kind === 'transfer' ? phase.leg - 1 : -1;
+  const next = i + 1;
+  if (i < 0 || next >= ride.legs.length) return null;
+  const needed = ride.legs[i].arr + (transfers[i] ?? 0) * MIN;
+  const planned = ride.legs[next];
+  const base = { leg: next, needed, margin: planned.dep - needed, legs: ride.legs, missedDep: null, none: false };
+  if (base.margin >= 0) return base;
+  const chain = replanFrom(vehiclesByLeg, next, needed, transfers);
+  if (!chain) return { ...base, none: true };
+  const legs = ride.legs.map((l, k) => (k >= next ? onVehicle(l, chain[k - next]) : l));
+  return { ...base, legs, margin: legs[next].dep - needed, missedDep: planned.dep };
+}
+
+// The outlook line: "Then Orange 7:31am · 4 min to spare" / "· tight" (under 2 min) /
+// "(missed 7:31am)" after a re-plan (`ride.missed`) / "No connection after 7:26am".
+export function outlookText(outlook, ride, nowMs) {
+  if (!outlook) return null;
+  if (outlook.none) return { text: `No connection after ${formatTime(outlook.needed, nowMs)}`, warn: true };
+  const leg = outlook.legs[outlook.leg];
+  const head = `Then ${leg.label} ${formatTime(leg.dep, nowMs)}`;
+  const missed = outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null);
+  if (missed != null) return { text: `${head} (missed ${formatTime(missed, nowMs)})`, warn: true };
+  if (outlook.margin < 2 * MIN) return { text: `${head} · tight`, warn: true };
+  return { text: `${head} · ${formatCountdown(outlook.margin)} to spare`, warn: false };
+}
+
+// Vehicles of a leg that left after the assumed one and by now (up to 3): "I'm on a later one".
+export function laterVehicles(vehicles, leg, nowMs) {
+  return vehicles.filter(v => v.dep > leg.dep && v.dep <= nowMs && v.tripId !== leg.tripId).slice(0, 3);
+}
+
+// The ride with leg i on `vehicle` and the later legs re-planned from its arrival (kept if
+// there's no connection).
+export function switchLeg(ride, i, vehicle, vehiclesByLeg, transfers) {
+  const chain = replanFrom(vehiclesByLeg, i + 1, vehicle.arr + (transfers[i] ?? 0) * MIN, transfers) ?? [];
+  const legs = ride.legs.map((l, k) => (k === i ? onVehicle(l, vehicle) : chain[k - i - 1] ? onVehicle(l, chain[k - i - 1]) : l));
+  const { missed: _, ...rest } = ride;
+  return { ...rest, legs, ...(i === 0 && { boardedAt: vehicle.dep }) };
+}
+
 export function rideHeadline(phase, ride, nowMs) {
   const leg = ride.legs[phase.leg];
   switch (phase.kind) {
