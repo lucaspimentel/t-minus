@@ -206,7 +206,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · d0cc5f402e</footer>
+    <footer class="version">Version 2026-10-01 · d07801b6d2</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
 </main>
@@ -270,6 +270,8 @@ let notice = null; // e.g. "Saved, but couldn't verify stops"
 let setupView = null; // open setup view (setup.js), if any
 let pollTimer = null;
 let inFlight = false;
+const SPIN_MS = 800; // one turn of the refresh icon (#refresh.busy animation)
+let spinStart = 0;
 let pending = false;
 
 // ---------- API ----------
@@ -351,6 +353,7 @@ async function refresh({ force = false } = {}) {
   const trip = config.trips[idx];
   const c = (cache[idx] ??= {});
   const now = Date.now();
+  if (!$('refresh').classList.contains('busy')) spinStart = now;
   $('refresh').classList.add('busy');
   if (!c.lastOk) loading = { idx, since: now };
   try {
@@ -390,8 +393,9 @@ async function refresh({ force = false } = {}) {
   } finally {
     inFlight = false;
     loading = null;
-    // Spins at least 0.5 s so a fast reply still registers.
-    setTimeout(() => { if (!inFlight) $('refresh').classList.remove('busy'); }, Math.max(0, now + 500 - Date.now()));
+    // Stops only at the end of a full turn (SPIN_MS, as in the CSS), so it never snaps back.
+    const spun = Date.now() - spinStart;
+    setTimeout(() => { if (!inFlight) $('refresh').classList.remove('busy'); }, Math.max(1, Math.ceil(spun / SPIN_MS)) * SPIN_MS - spun);
   }
   render();
   if (pending) { pending = false; return refresh(); }
