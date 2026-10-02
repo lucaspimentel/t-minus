@@ -203,7 +203,7 @@ For leaving earlier or later than leave-by. A bar under the status line always o
     a later leg, that leg's next vehicle (not the missed one) and the earliest connections
     after it (`replanFrom`), or "No later connection." Cancel ends tracking.
 - Cancel (the bar or the trip card) ends the mode at once (the list returns) and shows a
-  bottom toast "Tracking cancelled · Undo" for 5 s; Undo restores the saved state (switching
+  bottom toast "Tracking cancelled · Undo" for 5 s (a tap elsewhere on it dismisses it); Undo restores the saved state (switching
   back to its trip if needed). "Done" after arrival has no undo.
 - Stored per trip index in `localStorage` (`mbta-leave-by:en-route`, with the trip name; a
   renamed trip drops it; cleared when setup saves). Polls every 60 s while active.

@@ -137,6 +137,7 @@
     background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 12px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, .18); font-size: 15px;
   }
+  .toast { cursor: pointer; }
   .toast span { flex: 1; }
   .toast button {
     padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card);
@@ -228,7 +229,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · d4ee1abe56</footer>
+    <footer class="version">Version 2026-10-01 · 5868c5d82e</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -759,6 +760,8 @@ function hideToast() {
   clearTimeout(toastTimer);
   $('toast').hidden = true;
 }
+// A tap anywhere else on the toast dismisses it.
+$('toast').onclick = hideToast;
 
 function goEnRoute(kind) {
   const now = Date.now();
