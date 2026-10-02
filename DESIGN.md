@@ -317,6 +317,14 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   parent station IDs such as `place-state` or child platform IDs both work). Optional `label`
   and `color` (6-digit hex) are written by setup on every save from `/routes`
   (`labelLegs`/`shortRouteLabel`); without them rows show the route ID and no dot.
+- Optional `also`: other route ids that make the same ride (same `direction_id`, same stops),
+  e.g. `"route": "Green-B", "also": ["Green-C", "Green-D", "Green-E"]` from Government Center
+  to Park Street. Any of them counts: schedules and predictions are fetched with
+  `filter[route]=Green-B,Green-C,…` (no extra requests), alerts and the stop check cover them
+  all. `label` is what the routes share ("Green"; "Bus 136/137" for buses, `commonLabel`) and
+  `routeLabels` maps each route to its own label; each vehicle keeps its route
+  (`relationships.route`, `vehicleRoute`), so the timeline, ride card, and bar say "Green D"
+  (`vehicleLabel`) while the row strip says "Green".
 - Old configs (two `commutes` with `bottleneck`/`connection`/`filler` roles and
   `directionCutoff`) fail validation and are ignored; they must be rebuilt.
 
@@ -350,7 +358,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   direction's own stops under "toward <direction_destinations>" (the two sides of a bus
   street). The drop-off list (`alightGroups`) has, per direction serving the board stop, the
   stops after it under "toward …"; at the end of a line there is one group. The drop-off pick
-  sets `direction_id`.
+  sets `direction_id`. Then other routes that also go from the board stop to the drop-off in
+  that direction (`findAlso`: `/routes?filter[stop]` at both stops, then each candidate's stop
+  list in order, `servesInOrder`) are offered as "Also take" checkboxes, all checked; checked
+  ones are saved as `also`. Without candidates the leg is done right away.
 - Connections in the drop-off list: each stop is followed by the rail lines (route types 0
   and 1: Red, Mattapan, Orange, Blue, Green B–E) at the same station or with a station within
   200 m (`railConnections`, `CONNECTION_METERS`), e.g. "Washington St opp Oak Grove Sta
@@ -456,7 +467,8 @@ To stay well inside it:
   directions; cached for the session, 4 for the example); Save and "Add return trip" reuse
   them. Adding a leg after another costs 2 more (nearby stops, their routes). The drop-off
   list's rail connections cost one `/stops?filter[route]` per rail route (8), cached in
-  `localStorage` for 7 days.
+  `localStorage` for 7 days. Choosing a drop-off costs 2 (`/routes` at both stops) plus one
+  `/stops` per other route serving both (e.g. 3 for the Green branches).
 
 A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 requests; a 4-leg trip
 ≤ 4 req/min. Rapid reloads can still hit the limit (seen in testing with ~8 fresh loads in a

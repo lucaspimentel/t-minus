@@ -59,6 +59,12 @@ export function validateConfig(cfg) {
         if (!Number.isFinite(l.minutes) || l.minutes < 0) errors.push(`${q}.minutes must be a number >= 0.`);
       } else if (l?.kind === 'transit') {
         if (!l.route) errors.push(`${q}.route is required.`);
+        if (l.also !== undefined && !(Array.isArray(l.also) && l.also.every(r => typeof r === 'string' && r && r !== l.route))) {
+          errors.push(`${q}.also must be a list of other route ids.`);
+        }
+        if (l.routeLabels !== undefined && (typeof l.routeLabels !== 'object' || Array.isArray(l.routeLabels) || l.routeLabels === null)) {
+          errors.push(`${q}.routeLabels must be an object.`);
+        }
         if (l.direction_id !== 0 && l.direction_id !== 1) errors.push(`${q}.direction_id must be 0 or 1.`);
         if (!l.stop || !l.alight) errors.push(`${q}.stop and .alight are required.`);
         else if (l.stop === l.alight) errors.push(`${q}.stop and .alight must differ.`);
@@ -111,13 +117,17 @@ export function tripShape(trip) {
   return { transit, walkBefore: gaps[0], walkAfter: gaps[gaps.length - 1], transfers: gaps.slice(1, -1) };
 }
 
+// A transit leg's routes: the primary one, then any others that also count (`also`, e.g. the
+// Green Line branches between Government Center and Park Street).
+export const legRoutes = l => [l.route, ...(l.also ?? [])];
+
 // Stops and routes worth fetching/alerting for a trip.
 export function commuteEntities(trip) {
   const routes = new Set();
   const stops = new Set();
   for (const l of trip.legs) {
     if (l.kind !== 'transit') continue;
-    routes.add(l.route);
+    for (const r of legRoutes(l)) routes.add(r);
     for (const s of [l.stop, l.alight]) if (s) stops.add(s);
   }
   return { routes, stops };
@@ -145,8 +155,10 @@ export function tripToForm(trip) {
   };
 }
 
-// A transit leg's stored label, color, and board stop coordinates, when present.
+// A transit leg's other routes, stored labels, color, and board stop coordinates, when present.
 const routeLook = l => ({
+  ...(l.also?.length && { also: [...l.also] }),
+  ...(l.routeLabels !== undefined && { routeLabels: { ...l.routeLabels } }),
   ...(l.label !== undefined && { label: l.label }),
   ...(l.color !== undefined && { color: l.color }),
   ...(l.lat !== undefined && { lat: l.lat, lon: l.lon }),
@@ -198,7 +210,8 @@ export function commonLabel(labels, short = false) {
 }
 
 // Refreshes each transit leg's `label` and `color` from `/routes` resources; legs whose route
-// isn't listed keep what they have.
+// isn't listed keep what they have. A leg with `also` routes is labeled by what they share
+// ("Green", "Bus 136/137") and keeps each route's own label in `routeLabels` (for the vehicle).
 export function labelLegs(cfg, routes) {
   const byId = new Map(routes.map(r => [r.id, r]));
   return {
@@ -209,7 +222,11 @@ export function labelLegs(cfg, routes) {
         const r = l.kind === 'transit' && byId.get(l.route);
         if (!r) return l;
         const color = r.attributes?.color;
-        return { ...l, label: shortRouteLabel(r), ...(COLOR_RE.test(color ?? '') && { color }) };
+        const { routeLabels: _, ...rest } = l;
+        const out = { ...rest, label: shortRouteLabel(r), ...(COLOR_RE.test(color ?? '') && { color }) };
+        if (!l.also?.length) return out;
+        const labels = Object.fromEntries(legRoutes(l).map(id => [id, byId.get(id) ? shortRouteLabel(byId.get(id)) : id]));
+        return { ...out, label: commonLabel(Object.values(labels), true), routeLabels: labels };
       }),
     })),
   };
@@ -247,6 +264,15 @@ export function stopsAfter(stops, boardId) {
 
 // Index of a stop in a direction's list, by its id or one of its child platforms.
 const stopIndex = (stops, id) => stops.findIndex(s => s.id === id || (s.relationships?.child_stops?.data ?? []).some(c => c.id === id));
+
+// Whether a direction's stop list (a /stops doc) has `boardId` before `alightId` (ids or child
+// platforms): the route can carry the same leg.
+export function servesInOrder(doc, boardId, alightId) {
+  const stops = doc?.data ?? [];
+  const i = stopIndex(stops, boardId);
+  const j = stopIndex(stops, alightId);
+  return i >= 0 && j > i;
+}
 
 // Board picker for a route without a chosen direction: stops served in both directions (most
 // subway stations; direction 0's order) and those served by one direction only (the two sides
@@ -403,7 +429,8 @@ export function stopQueries(cfg, only) {
   const pairs = new Map();
   for (const [t] of selectedTrips(cfg, only)) {
     for (const l of t.legs) {
-      if (l.kind === 'transit') pairs.set(stopsKey(l.route, l.direction_id), { route: l.route, direction_id: l.direction_id });
+      if (l.kind !== 'transit') continue;
+      for (const route of legRoutes(l)) pairs.set(stopsKey(route, l.direction_id), { route, direction_id: l.direction_id });
     }
   }
   return [...pairs.values()];
@@ -416,28 +443,31 @@ export function stopQueries(cfg, only) {
 export function checkStops(cfg, stopsByKey, only) {
   const errors = [];
   for (const [t, i] of selectedTrips(cfg, only)) {
-    for (const l of t.legs) {
-      if (l.kind !== 'transit') continue;
-      const p = `${tripLabel(cfg.trips, i)}: route ${l.route}`;
-      const listed = stopsByKey.get(stopsKey(l.route, l.direction_id))?.data ?? [];
-      if (listed.length === 0) {
-        errors.push(`${p}: no stops for route "${l.route}" in direction ${l.direction_id}; check route and direction_id.`);
-        continue;
-      }
-      // Stop id (or child platform id) → position in trip order.
-      const position = new Map();
-      listed.forEach((s, idx) => {
-        position.set(s.id, idx);
-        for (const child of s.relationships?.child_stops?.data ?? []) position.set(child.id, idx);
-      });
-      for (const field of ['stop', 'alight']) {
-        const id = l[field];
-        if (id && !position.has(id)) {
-          errors.push(`${p}: ${field} "${id}" is not served by route ${l.route} in direction ${l.direction_id}.`);
+    for (const leg of t.legs) {
+      if (leg.kind !== 'transit') continue;
+      for (const route of legRoutes(leg)) {
+        const l = { ...leg, route };
+        const p = `${tripLabel(cfg.trips, i)}: route ${l.route}`;
+        const listed = stopsByKey.get(stopsKey(l.route, l.direction_id))?.data ?? [];
+        if (listed.length === 0) {
+          errors.push(`${p}: no stops for route "${l.route}" in direction ${l.direction_id}; check route and direction_id.`);
+          continue;
         }
-      }
-      if (position.has(l.stop) && position.has(l.alight) && position.get(l.stop) >= position.get(l.alight)) {
-        errors.push(`${p}: stop "${l.stop}" comes after alight "${l.alight}" in direction ${l.direction_id}; direction_id is probably wrong.`);
+        // Stop id (or child platform id) → position in trip order.
+        const position = new Map();
+        listed.forEach((s, idx) => {
+          position.set(s.id, idx);
+          for (const child of s.relationships?.child_stops?.data ?? []) position.set(child.id, idx);
+        });
+        for (const field of ['stop', 'alight']) {
+          const id = l[field];
+          if (id && !position.has(id)) {
+            errors.push(`${p}: ${field} "${id}" is not served by route ${l.route} in direction ${l.direction_id}.`);
+          }
+        }
+        if (position.has(l.stop) && position.has(l.alight) && position.get(l.stop) >= position.get(l.alight)) {
+          errors.push(`${p}: stop "${l.stop}" comes after alight "${l.alight}" in direction ${l.direction_id}; direction_id is probably wrong.`);
+        }
       }
     }
   }
@@ -568,6 +598,7 @@ export function mergeTrips(predictionsDoc, schedulesDoc) {
     const a = rec.attributes ?? {};
     let stops = trips.get(tripId);
     if (!stops) trips.set(tripId, (stops = new Map()));
+    stops.route ??= rec.relationships?.route?.data?.id; // the trip's route (legs with `also`)
     if (source === 'live' && (a.schedule_relationship === 'SKIPPED' || a.schedule_relationship === 'CANCELLED')) {
       stops.set(stopId, { cancelled: true });
       if (parents.has(stopId)) stops.set(parents.get(stopId), { cancelled: true });
@@ -589,7 +620,7 @@ const depOf = e => e?.dep ?? e?.arr ?? null;
 const arrOf = e => e?.arr ?? e?.dep ?? null;
 const usable = e => e && !e.cancelled;
 
-// Vehicles for one transit leg, sorted by departure: `{ tripId, dep, arr, source }` where
+// Vehicles for one transit leg, sorted by departure: `{ tripId, dep, arr, source, route? }` where
 // `dep` is at the leg's board stop and `arr` at its alight stop. The source is the board
 // stop's: that's the time the rider has to catch.
 export function legVehicles(tripsMap, leg) {
@@ -601,7 +632,7 @@ export function legVehicles(tripsMap, leg) {
     const dep = depOf(board);
     const arr = arrOf(alight);
     if (dep == null || arr == null || arr <= dep) continue;
-    out.push({ tripId, dep, arr, source: board.source });
+    out.push({ tripId, dep, arr, source: board.source, ...(stops.route && { route: stops.route }) });
   }
   return out.sort((a, b) => a.dep - b.dep);
 }
@@ -704,7 +735,8 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
       timingIdx,
       legs: chain.map((c, i) => ({
         route: transit[i].route, label: transit[i].label ?? transit[i].route, color: transit[i].color ?? null,
-        dep: c.dep, arr: c.arr, source: c.source, tripId: c.tripId,
+        ...(transit[i].routeLabels && { routeLabels: transit[i].routeLabels }),
+        dep: c.dep, arr: c.arr, source: c.source, tripId: c.tripId, ...(c.route && { vehicleRoute: c.route }),
       })),
     };
     if (isMissed) missed = { ...row, missed: true }; else rows.push(row);
@@ -902,7 +934,11 @@ export function shownStops(stops, expanded = false) {
 }
 
 // Copies a vehicle's trip and times onto a planned leg.
-const onVehicle = (leg, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined });
+export const onVehicle = (leg, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined, vehicleRoute: v.route });
+
+// A planned leg's label for its vehicle: the vehicle's own route on a leg with `also` routes
+// ("Green D"), else the leg's ("Orange").
+export const vehicleLabel = leg => leg.routeLabels?.[leg.vehicleRoute] ?? leg.label;
 
 // How much earlier another vehicle must leave before a working connection switches to it.
 export const EARLIER_MIN = 2;
@@ -940,7 +976,7 @@ export function outlookText(outlook, ride, nowMs) {
   if (!outlook) return null;
   if (outlook.none) return { text: `No connection after ${formatTime(outlook.needed, nowMs)}`, warn: true };
   const leg = outlook.legs[outlook.leg];
-  const head = `Then ${leg.label} ${formatTime(leg.dep, nowMs)}`;
+  const head = `Then ${vehicleLabel(leg)} ${formatTime(leg.dep, nowMs)}`;
   const missed = outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null);
   if (missed != null) return { text: `${head} (missed ${formatTime(missed, nowMs)})`, warn: true };
   if (outlook.margin < 2 * MIN) return { text: `${head} · tight`, warn: true };
@@ -964,8 +1000,8 @@ export function switchLeg(ride, i, vehicle, vehiclesByLeg, transfers) {
 export function rideHeadline(phase, ride, nowMs) {
   const leg = ride.legs[phase.leg];
   switch (phase.kind) {
-    case 'riding': return `On ${leg.label} · off at ${formatTime(leg.arr, nowMs)}`;
-    case 'transfer': return `Transfer · ${leg.label} ${formatTime(leg.dep, nowMs)}`;
+    case 'riding': return `On ${vehicleLabel(leg)} · off at ${formatTime(leg.arr, nowMs)}`;
+    case 'transfer': return `Transfer · ${vehicleLabel(leg)} ${formatTime(leg.dep, nowMs)}`;
     case 'walking': return `Walking · arrive ${formatTime(phase.eta, nowMs)}`;
     default: return `Arrived ~${formatTime(phase.eta, nowMs)}`;
   }
@@ -981,7 +1017,7 @@ export function enRouteActive(state, walkAfter, nowMs) {
 export function enRouteStatus(state, nowMs) {
   if (state.kind === 'track') {
     const leg = state.target?.legs[0];
-    return leg ? `Tracking ${leg.label} ${formatTime(leg.dep, nowMs)}` : 'Tracking';
+    return leg ? `Tracking ${vehicleLabel(leg)} ${formatTime(leg.dep, nowMs)}` : 'Tracking';
   }
   if (state.kind === 'stop') return `At the stop since ${formatTime(state.atStop, nowMs)}`;
   if (nowMs >= state.atStop) return `At the stop since ~${formatTime(state.atStop, nowMs)}`;

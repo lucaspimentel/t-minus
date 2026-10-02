@@ -227,6 +227,34 @@ test('Tracking ✕ while at the stop keeps the at-stop state and drops the pin',
   await expect(toast(page)).toContainText('Tracking cancelled');
 });
 
+test('a leg with several routes is labeled by what they share, each vehicle by its own', async ({ page }) => {
+  const labels = { 'Green-B': 'Green B', 'Green-C': 'Green C', 'Green-D': 'Green D', 'Green-E': 'Green E' };
+  const config = { trips: [{ name: 'Downtown', legs: [
+    { kind: 'walk', minutes: 5 },
+    { kind: 'transit', route: 'Green-B', also: ['Green-C', 'Green-D', 'Green-E'], direction_id: 0, stop: 'place-gover', alight: 'place-pktrm',
+      label: 'Green', color: '00843D', routeLabels: labels },
+    { kind: 'walk', minutes: 5 },
+  ] }] };
+  const stops = [['place-gover', 0], ['place-pktrm', 2]];
+  const scenario = { alerts: [], trips: [
+    ...series({ prefix: 'GD', route: 'Green-D', direction: 0, first: '06:00', every: 10, count: 20, stops }),
+    ...series({ prefix: 'GB', route: 'Green-B', direction: 0, first: '06:05', every: 10, count: 20, stops }),
+  ] };
+  await openApp(page, { time: '06:40', config, scenario });
+  const rows = page.locator('.row');
+  await expect(rows.first().locator('.strip')).toHaveText(/^\s*Green\s*$/);
+  const greenB = rows.filter({ hasText: '6:49am' }); // leave-by for the 6:55 B
+  await greenB.click();
+  await expect(greenB.locator('.timeline')).toContainText('Green B 6:55am → 6:57am');
+  const greenD = rows.filter({ hasText: '6:44am' }); // leave-by for the 6:50 D
+  await greenD.click();
+  await expect(greenD.locator('.timeline')).toContainText('Green D 6:50am → 6:52am');
+  await atTheStop(page);
+  await expect(page.locator('.row.catch .big')).toContainText('Green B in 4 min');
+  await tickTo(page, '06:45:30');
+  await expect(head(page)).toHaveText('On Green B · off at 6:47am');
+});
+
 test('the screen stays on only near a drop-off or a transfer departure', async ({ page }) => {
   await openApp(page, { time: '07:00', init: WAKE_STUB });
   await atTheStop(page);

@@ -81,6 +81,30 @@ test('the next leg lists only routes near the transfer, then boards at the neare
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Forest Hills']);
 });
 
+test('a leg can take any route between its stops (Green branches)', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await setup(page).getByLabel('Trip name').fill('Green');
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('Green B');
+  await setup(page).locator('.item', { hasText: 'Green B' }).click();
+  await setup(page).locator('#picker-search').fill('Government');
+  await setup(page).locator('.item', { hasText: 'Government Center' }).click();
+  await setup(page).locator('#picker-search').fill('Park Street');
+  await expect(setup(page).locator('.section-head')).toHaveText(['toward Boston College']);
+  await setup(page).locator('.item', { hasText: 'Park Street' }).click();
+  await expect(setup(page).locator('b')).toContainText(['Also take']);
+  const boxes = setup(page).locator('label.check');
+  await expect(boxes).toHaveText(['Green C', 'Green D', 'Green E']);
+  for (const box of await boxes.all()) await expect(box.locator('input')).toBeChecked();
+  await boxes.nth(1).locator('input').uncheck();
+  await button(page, 'Done').click();
+  await expect(setup(page)).toContainText('Green B/C/E toward Boston College · Government Center → Park Street');
+  await button(page, 'Save').click();
+  await expect(setup(page).locator('.trip-row')).toHaveCount(1);
+  const leg = await page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')).trips[0].legs.find(l => l.kind === 'transit'));
+  expect([leg.route, leg.also, leg.label, leg.routeLabels]).toEqual(['Green-B', ['Green-C', 'Green-E'], 'Green', { 'Green-B': 'Green B', 'Green-C': 'Green C', 'Green-E': 'Green E' }]);
+});
+
 test('Cancel discards edits with Undo; without edits there is no toast', async ({ page }) => {
   await openSetup(page);
   await setup(page).locator('.trip-row .item').first().click();

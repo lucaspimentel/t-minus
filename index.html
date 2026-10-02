@@ -255,7 +255,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · e82b51730c</footer>
+    <footer class="version">Version 2026-10-02 · 02c0b5ecdb</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -275,10 +275,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD,
-  unpinTarget, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
+  unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=2d53a15abd';
-import { openSetup } from './setup.js?v=29f6e4fff5';
+} from './core.js?v=488f05f206';
+import { openSetup } from './setup.js?v=285d80ee0f';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -344,7 +344,7 @@ const tripFields = {
 };
 
 function legQuery(leg) {
-  return { 'filter[route]': leg.route, 'filter[direction_id]': leg.direction_id, 'filter[stop]': `${leg.stop},${leg.alight}`, ...tripFields };
+  return { 'filter[route]': legRoutes(leg).join(','), 'filter[direction_id]': leg.direction_id, 'filter[stop]': `${leg.stop},${leg.alight}`, ...tripFields };
 }
 
 async function fetchSchedules(trip, w) {
@@ -628,7 +628,7 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
   // en route count to/from the first departure.
   const firstLeg = state === 'missed' || state === 'enroute';
   const target = state === 'red' ? r.lastChance : firstLeg ? r.firstDep : r.leaveBy;
-  head.append(el('span', null, countdownLabel(state, target - now, r.legs[0].label)), el('span', 'at', formatTime(target, now)));
+  head.append(el('span', null, countdownLabel(state, target - now, vehicleLabel(r.legs[0]))), el('span', 'at', formatTime(target, now)));
   li.append(head);
   const key = rowKey(r);
   const expanded = expandedRows.has(key);
@@ -660,7 +660,7 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
   for (const s of timelineSteps(r, config.trips[tripIdx], stopSlackMinutes(config), now)) {
     if (s.kind === 'walk') { timeline.append(el('div', 'step walk', s.text)); continue; }
     const line = el('div', 'step leg');
-    line.append(dot(s.leg.color), `${s.leg.label} ${formatTime(s.leg.dep, now)} → ${formatTime(s.leg.arr, now)}`, badge(s.leg.source));
+    line.append(dot(s.leg.color), `${vehicleLabel(s.leg)} ${formatTime(s.leg.dep, now)} → ${formatTime(s.leg.arr, now)}`, badge(s.leg.source));
     timeline.append(line);
   }
   li.append(timeline);
@@ -901,7 +901,7 @@ function renderRideCard(s, now) {
         : phase.kind === 'transfer' && phase.leg === legNo + 1;
     const line = el('div', `step ${st.kind}${current ? ' current' : ''}`, st.kind === 'walk' ? st.text : null);
     if (st.kind === 'leg') {
-      line.append(dot(st.leg.color), `${st.leg.label} ${formatTime(st.leg.dep, now)} → ${formatTime(st.leg.arr, now)}`, badge(st.leg.source));
+      line.append(dot(st.leg.color), `${vehicleLabel(st.leg)} ${formatTime(st.leg.dep, now)} → ${formatTime(st.leg.arr, now)}`, badge(st.leg.source));
     }
     timeline.append(line);
   });
@@ -925,7 +925,7 @@ function renderRideCard(s, now) {
   if (laterOpen && later.length) {
     const pick = el('div', 'enroute-bar ride-btns');
     for (const v of later) {
-      pick.append(btn(`${ride.legs[phase.leg].label} ${formatTime(v.dep, now)}`, () => {
+      pick.append(btn(`${vehicleLabel(onVehicle(ride.legs[phase.leg], v))} ${formatTime(v.dep, now)}`, () => {
         laterOpen = false;
         setEnRoute({ ...s, ride: switchLeg(ride, phase.leg, v, rideVehicles(), tripShape(trip).transfers) });
         render();
@@ -956,7 +956,7 @@ function missedIt(phase) {
     else {
       const legs = s.ride.legs.map((l, i) => {
         const v = chain[i - phase.leg];
-        return v ? { ...l, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined } : l;
+        return v ? onVehicle(l, v) : l;
       });
       setEnRoute({ ...s, ride: { ...s.ride, legs } });
     }

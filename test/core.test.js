@@ -6,7 +6,7 @@ import {
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
-  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, defaultTransferMinutes,
+  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
 } from '../core.js';
 
@@ -864,6 +864,38 @@ test('shortRouteLabel and labelLegs', () => {
   const bad = structuredClone(labeled);
   bad.trips[0].legs[1].color = 'orange';
   assert.ok(validateConfig(bad).some(e => e.includes('.color')));
+});
+
+test('multi-route legs (also): config, labels, queries, vehicles', () => {
+  const leg = { kind: 'transit', route: 'Green-B', also: ['Green-C', 'Green-D'], direction_id: 0, stop: 'place-gover', alight: 'place-pktrm' };
+  const cfg = { trips: [{ name: 'Green', legs: [leg] }] };
+  assert.deepEqual(validateConfig(cfg), []);
+  assert.deepEqual(legRoutes(leg), ['Green-B', 'Green-C', 'Green-D']);
+  assert.deepEqual([...commuteEntities(cfg.trips[0]).routes], ['Green-B', 'Green-C', 'Green-D']);
+  assert.deepEqual(stopQueries(cfg).map(q => q.route), ['Green-B', 'Green-C', 'Green-D']);
+  const bad = structuredClone(cfg);
+  bad.trips[0].legs[0].also = ['Green-B'];
+  assert.ok(validateConfig(bad).some(e => e.includes('.also')));
+  // Labels: the shared part for the leg, each route's own for its vehicles.
+  const route = (id, long) => ({ id, attributes: { type: 0, long_name: long, color: '00843D' } });
+  const labeled = labelLegs(cfg, [route('Green-B', 'Green Line B'), route('Green-C', 'Green Line C'), route('Green-D', 'Green Line D')]).trips[0].legs[0];
+  assert.deepEqual([labeled.label, labeled.color, labeled.routeLabels], ['Green', '00843D', { 'Green-B': 'Green B', 'Green-C': 'Green C', 'Green-D': 'Green D' }]);
+  assert.deepEqual(formToTrip(tripToForm({ name: 'Green', legs: [labeled] })).legs[0], labeled);
+  // Stop check covers every route: Green-D missing its stop list.
+  const sd = ids => ({ data: ids.map(id => ({ id })) });
+  const byKey = new Map([['Green-B/0', sd(['place-gover', 'place-pktrm'])], ['Green-C/0', sd(['place-gover', 'place-pktrm'])]]);
+  assert.deepEqual(checkStops(cfg, byKey).length, 1);
+  assert.ok(checkStops(cfg, byKey)[0].includes('Green-D'));
+  // Vehicles carry their route; the planned leg names it.
+  const routed = (r, route) => ({ ...r, relationships: { ...r.relationships, route: { data: { id: route } } } });
+  const sched = doc([routed(rec('schedule', 't1', 'place-gover', '07:00', '07:00'), 'Green-D'), routed(rec('schedule', 't1', 'place-pktrm', '07:02', '07:02'), 'Green-D')]);
+  const [v] = legVehicles(mergeTrips(null, sched), leg);
+  assert.equal(v.route, 'Green-D');
+  const planned = onVehicle({ label: 'Green', routeLabels: labeled.routeLabels }, v);
+  assert.equal(vehicleLabel(planned), 'Green D');
+  assert.equal(vehicleLabel({ label: 'Orange' }), 'Orange');
+  assert.equal(servesInOrder(sd(['a', 'b', 'c']), 'a', 'c'), true);
+  assert.equal(servesInOrder(sd(['a', 'b', 'c']), 'c', 'a'), false);
 });
 
 test('commonLabel: shared words, then the rest', () => {

@@ -3,7 +3,8 @@
 Goal: any MBTA rider (bus, subway, light rail) can set up any number of trips with any
 number of transit legs, without knowing GTFS IDs or the engine's internals.
 
-Done: the N-leg engine and the setup UI, including next-leg suggestions, return trips, the
+Done: the N-leg engine and the setup UI, including no direction step, nearby-only next legs,
+rail connections in the drop-off list, multi-route legs (`also`), return trips, the
 timing-leg override, collapsed rows, the trip list with one-at-a-time editing, short
 route labels with MBTA color dots, trip tracking, service worker fallbacks (5xx, 3 s
 timeout, "Saved copy", reload banner), and UI affordances: loading indicators, the old-data

@@ -3,9 +3,9 @@
 // and the setup-time requests.
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
-  searchRoutes, searchStops, boardGroups, alightGroups, railConnections, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
+  searchRoutes, searchStops, boardGroups, alightGroups, railConnections, servesInOrder, commonLabel, legRoutes, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=2d53a15abd';
+} from './core.js?v=488f05f206';
 
 const ROUTE_LIMIT = 60;
 
@@ -58,7 +58,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
   let editing = saved ? null : editor(null, 0, emptyTrip(0));
   let routes = null;
-  // { legIdx (null = new leg), step ('route' | 'board' | 'alight'), route, board, near }
+  // { legIdx (null = new leg), step ('route' | 'board' | 'alight' | 'also'), route, board, near,
+  //   alight, direction, also: [{ route, checked }] (other routes for the same ride) }
   // `near`: { name, lat, lon, routeIds } around the previous leg's drop-off, for suggestions.
   let picker = null;
   let listMessages = [];
@@ -121,9 +122,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   const routeName = id => (routeById(id) ? routeLabel(routeById(id)) : id);
   // Colored dot plus short label ("● Bus 132"), from the route list or the leg's stored look.
   const dot = color => color && h('span', { class: 'dot', style: `background:#${color}` });
+  const shortName = id => (routeById(id) ? shortRouteLabel(routeById(id)) : id);
   const routeTag = l => {
     const r = routeById(l.route);
-    return [h('span', { class: 'tag' }, dot(r?.attributes?.color ?? l.color), r ? shortRouteLabel(r) : (l.label ?? l.route))];
+    const label = l.also?.length ? commonLabel(legRoutes(l).map(shortName)) : r ? shortRouteLabel(r) : (l.label ?? l.route);
+    return [h('span', { class: 'tag' }, dot(r?.attributes?.color ?? l.color), label)];
   };
   const destination = (routeId, dir) => routeById(routeId)?.attributes?.direction_destinations?.[dir] ?? `direction ${dir}`;
 
@@ -511,7 +514,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // A route is chosen: load both directions' stops. For a new leg, board at the stop nearest
   // the previous drop-off (skipping to the drop-off step); Back still leads to the board list.
   async function chooseRoute(route) {
-    picker = { ...picker, route, step: 'board', query: '', loading: true };
+    picker = { ...picker, route, step: 'board', query: '', loading: true, alight: null };
     render();
     try {
       const docs = await Promise.all([0, 1].map(d => loadStops(route.id, d)));
@@ -522,9 +525,34 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     render();
   }
 
+  // Other routes that also go from the board stop to the drop-off in this direction (the Green
+  // Line branches between Government Center and Park Street): routes at both stops, whose stop
+  // list has them in order. 2 requests plus one per candidate (cached per route/direction).
+  async function findAlso(route, direction, board, alight) {
+    const at = id => api('/routes', { 'filter[stop]': id, 'filter[type]': '0,1,3', 'fields[route]': 'short_name' })
+      .then(doc => new Set(doc.data.map(r => r.id)));
+    const [a, b] = await Promise.all([at(board), at(alight)]);
+    const candidates = [...a].filter(id => id !== route && b.has(id));
+    const ok = await Promise.all(candidates.map(id => loadStops(id, direction).then(doc => servesInOrder(doc, board, alight), () => false)));
+    return candidates.filter((_, i) => ok[i]);
+  }
+
+  // The drop-off is chosen: offer the other routes for the same ride, if any, else finish.
+  async function chooseAlight(alight, direction) {
+    picker = { ...picker, alight, direction, loading: true };
+    render();
+    let also = [];
+    try { also = await findAlso(picker.route.id, direction, picker.board, alight); } catch { /* offline: just this route */ }
+    if (picker?.alight !== alight) return; // Back while checking
+    if (!also.length) { finishLeg(alight, direction); return; }
+    picker = { ...picker, step: 'also', also: also.map(route => ({ route, checked: true })), loading: false, query: '' };
+    render();
+  }
+
   function finishLeg(alight, direction) {
     const trip = editing.form;
-    const leg = { route: picker.route.id, direction_id: direction, stop: picker.board, alight, transferBefore: 0 };
+    const also = (picker.also ?? []).filter(a => a.checked).map(a => a.route);
+    const leg = { route: picker.route.id, direction_id: direction, stop: picker.board, alight, ...(also.length && { also }), transferBefore: 0 };
     if (picker.legIdx == null) {
       const prev = trip.transit[trip.transit.length - 1];
       if (prev) {
@@ -565,6 +593,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       ].filter(Boolean);
     }
     const docs = bothDocs(picker.route.id);
+    if (picker.loading && picker.alight) return [h('div', { class: 'muted' }, 'Checking other routes…')];
     if (picker.loading || !docs[0] || !docs[1]) return [h('div', { class: 'muted' }, picker.error ?? 'Loading stops…')];
     const heading = text => h('div', { class: 'muted section-head' }, text);
     const toward = d => `toward ${destination(picker.route.id, d)}`;
@@ -588,22 +617,31 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const connections = s => railConnections(s, railStops, [picker.route.id]).flatMap(c => [' ', h('span', { class: 'tag conn' }, dot(c.color), c.label)]);
     return alightGroups(...docs, picker.board).flatMap(g => {
       const found = searchStops(g.stops, q);
-      return found.length ? [heading(toward(g.direction)), ...found.map(s => h('button', { type: 'button', class: 'item', onclick: () => finishLeg(s.id, g.direction) },
+      return found.length ? [heading(toward(g.direction)), ...found.map(s => h('button', { type: 'button', class: 'item', onclick: () => chooseAlight(s.id, g.direction) },
         s.attributes?.name ?? s.id, ...connections(s)))] : [];
     });
   }
 
   function pickerScreen() {
-    const titles = { route: 'Choose a route', board: 'Where do you board?', alight: 'Where do you get off?' };
+    const titles = { route: 'Choose a route', board: 'Where do you board?', alight: 'Where do you get off?', also: 'Also take' };
     const back = () => {
-      const prev = { route: null, board: 'route', alight: 'board' }[picker.step];
+      const prev = { route: null, board: 'route', alight: 'board', also: 'alight' }[picker.step];
       if (prev) { picker = { ...picker, step: prev, query: '' }; } else { picker = null; }
       render();
     };
     const head = h('div', { class: 'setup-head' },
       h('button', { type: 'button', onclick: back }, 'Back'), h('b', {}, titles[picker.step]), h('span'));
     const context = picker.route && h('div', { class: 'muted' },
-      [routeLabel(picker.route), picker.board && `from ${stopName(picker.route.id, null, picker.board)}`].filter(Boolean).join(' · '));
+      [routeLabel(picker.route), picker.board && `from ${stopName(picker.route.id, null, picker.board)}`,
+        picker.step === 'also' && `to ${stopName(picker.route.id, picker.direction, picker.alight)}`].filter(Boolean).join(' · '));
+    if (picker.step === 'also') {
+      return [head, context,
+        h('div', { class: 'muted' }, 'These also make this ride. Any checked route counts.'),
+        h('div', { class: 'list' }, ...picker.also.map(a => h('label', { class: 'check' },
+          h('input', { type: 'checkbox', checked: a.checked, onchange: e => { a.checked = e.target.checked; } }),
+          dot(routeById(a.route)?.attributes?.color), shortName(a.route)))),
+        h('button', { type: 'button', class: 'primary add', onclick: () => finishLeg(picker.alight, picker.direction) }, 'Done')];
+    }
     const list = h('div', { class: 'list' }, pickerList());
     const search = h('input', {
       type: 'search', id: 'picker-search', placeholder: picker.step === 'route' ? 'Search routes (e.g. 132, Orange)' : 'Search stops',
@@ -625,7 +663,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       window.scrollTo(0, restore ? scrollY[screen] : 0);
     }
     shown = screen;
-    if (picker) root.querySelector('#picker-search')?.focus({ preventScroll: true });
+    if (picker && picker.step !== 'also') root.querySelector('#picker-search')?.focus({ preventScroll: true });
   }
 
   root.hidden = false;

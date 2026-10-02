@@ -73,6 +73,7 @@ function serviceDate(ms) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(ms - 3 * 60 * MIN));
 }
 
+const routesOf = q => new Set(q.get('filter[route]').split(',')); // a leg with `also` asks for several
 const stopRef = id => ({ data: { id, type: 'stop' } });
 const stopRecord = id => ({
   type: 'stop', id,
@@ -112,13 +113,13 @@ export async function fakeMbta(context, scenario, { now }) {
     const data = [];
     const inc = new Set();
     for (const t of scenario.trips) {
-      if (t.route !== q.get('filter[route]') || String(t.direction) !== q.get('filter[direction_id]')) continue;
+      if (!routesOf(q).has(t.route) || String(t.direction) !== q.get('filter[direction_id]')) continue;
       for (const [stopId, hhmm] of t.stops) {
         const m = minutesOf(hhmm);
         if (!matchesStop(stopId, wanted) || m < lo || m > hi) continue;
         const at = iso(localMs(date, m));
         data.push({ type: 'schedule', id: `sch-${t.id}-${stopId}`, attributes: { arrival_time: at, departure_time: at },
-          relationships: { trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
+          relationships: { route: { data: { id: t.route, type: 'route' } }, trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
         inc.add(stopId);
       }
     }
@@ -131,14 +132,14 @@ export async function fakeMbta(context, scenario, { now }) {
     const data = [];
     const inc = new Set();
     for (const t of scenario.trips) {
-      if (!t.live || t.route !== q.get('filter[route]') || String(t.direction) !== q.get('filter[direction_id]')) continue;
+      if (!t.live || !routesOf(q).has(t.route) || String(t.direction) !== q.get('filter[direction_id]')) continue;
       for (const { stopId, ms } of timesOf(t, date)) {
         const at = ms + delayOf(t, stopId);
         if (!matchesStop(stopId, wanted) || at < mbta.now) continue;
         const cancelled = t.cancelled?.includes(stopId);
         data.push({ type: 'prediction', id: `pre-${t.id}-${stopId}`,
           attributes: { arrival_time: cancelled ? null : iso(at), departure_time: cancelled ? null : iso(at), schedule_relationship: cancelled ? 'SKIPPED' : null },
-          relationships: { trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
+          relationships: { route: { data: { id: t.route, type: 'route' } }, trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
         inc.add(stopId);
       }
     }
