@@ -202,6 +202,9 @@ For leaving earlier or later than leave-by. A bar under the status line always o
   - "Missed it" for 2 min after each boarding: on the first leg, back to "At the stop" now; on
     a later leg, that leg's next vehicle (not the missed one) and the earliest connections
     after it (`replanFrom`), or "No later connection." Cancel ends tracking.
+- Cancel (the bar or the trip card) ends the mode at once (the list returns) and shows a
+  bottom toast "Tracking cancelled · Undo" for 5 s; Undo restores the saved state (switching
+  back to its trip if needed). "Done" after arrival has no undo.
 - Stored per trip index in `localStorage` (`mbta-leave-by:en-route`, with the trip name; a
   renamed trip drops it; cleared when setup saves). Polls every 60 s while active.
 
@@ -225,8 +228,12 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   joined by a rail through the route dots: "Walk 5 min · 1 min early at the stop" (the slack
   part only when > 0; no first walk on en-route rows), "● Bus 132 8:10am → 8:20am LIVE" per
   leg, "9 min to transfer" (the actual gap: next departure − previous arrival), and
-  "Walk 10 min · arrive 8:56am" (`timelineSteps`); tap again to collapse. Expanded rows are remembered
+  "Walk 10 min · arrive 8:56am" (`timelineSteps`); tap again to collapse. A muted ▾ at the bottom-right of a collapsed row
+  (after the arrival) hints at this; expanded rows show ▴ in the same corner, on the "Track
+  this trip" line. Expanded rows are remembered
   by the timing vehicle's trip id while the page is open.
+- Pressed feedback: buttons darken and shrink to 97% while pressed; rows only darken (an
+  inset overlay, `--press`). iOS's gray tap highlight is off.
 - Status line (per trip): "Loading…" until that trip's first fetch completes ("Still
   loading… (MBTA is slow)" after 5 s; the list stays empty, "No upcoming departures found."
   only after a completed fetch), then "Updated 8:04pm", or "Stale (…) · last updated …" /

@@ -17,12 +17,14 @@
     --bg: #f5f5f3; --card: #ffffff; --text: #1c1f24; --muted: #6b7078; --border: #dcdde0;
     --green: #1f8a4c; --amber: #b86e00; --red: #c62828; --accent: #ed8b00;
     --alert-bg: #fff4e0; --alert-border: #f0c070;
+    --press: rgba(0, 0, 0, .07); /* pressed overlay */
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #121417; --card: #1c1f24; --text: #eceef1; --muted: #9aa0a8; --border: #2e333a;
       --green: #4cc47f; --amber: #f0a830; --red: #ff6b6b; --accent: #ed8b00;
       --alert-bg: #2e2515; --alert-border: #6b5220;
+      --press: rgba(255, 255, 255, .09);
     }
   }
   * { box-sizing: border-box; }
@@ -31,11 +33,17 @@
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent; /* the :active styles below replace iOS's gray flash */
     /* iOS blurs content right under the status bar. The standalone app starts below it (no
        status-bar-style meta), so the inset is 0 there; the 22px does the work. */
     padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px max(16px, env(safe-area-inset-bottom));
   }
   main { max-width: 480px; margin: 0 auto; }
+  /* Pressed: buttons darken and shrink a little; rows only darken (an inset overlay works on any
+     background). A button pressed inside a row doesn't also darken the row. */
+  button { transition: transform 80ms; }
+  button:not(:disabled):active { box-shadow: inset 0 0 0 100vmax var(--press); transform: scale(.97); }
+  .row:not(.ride):active:not(:has(button:active)) { box-shadow: inset 0 0 0 100vmax var(--press); }
   header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
   .toggle { display: flex; flex-wrap: wrap; flex: 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   .toggle button {
@@ -107,8 +115,11 @@
   .row.ride.arrived .ride-head { color: var(--text); }
   .step.current { color: var(--text); font-weight: 600; }
   .row.tracked { outline: 2px solid var(--green); outline-offset: -2px; }
+  .chev { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .row-foot { display: flex; align-items: center; margin-top: 10px; }
+  .row-foot .chev { margin-left: auto; }
   .track-btn {
-    margin-top: 10px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
   }
   .track-btn:disabled { color: var(--green); border-color: var(--green); cursor: default; }
@@ -120,6 +131,17 @@
   .ride-stop.drop { font-weight: 600; }
   .ride-stop.more { color: var(--muted); font-size: 13px; }
   .ride-btns { margin: 10px 0 0; }
+  .toast {
+    position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 10;
+    max-width: 360px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px;
+    background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .18); font-size: 15px;
+  }
+  .toast span { flex: 1; }
+  .toast button {
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+    color: var(--green); font: inherit; font-weight: 600; cursor: pointer;
+  }
   .summary { display: flex; justify-content: space-between; align-items: center; gap: 0 8px; }
   .summary .badge { margin-left: 0; }
   .arrive { margin-left: auto; white-space: nowrap; }
@@ -206,9 +228,10 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · d07801b6d2</footer>
+    <footer class="version">Version 2026-10-01 · 58b6b8a3b9</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
+  <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
 </main>
 
 <script>
@@ -538,6 +561,13 @@ function dot(color) {
   return d;
 }
 
+// Expand/collapse hint at a row's bottom-right (the row has aria-expanded).
+function chevron(ch) {
+  const c = el('span', 'chev', ch);
+  c.setAttribute('aria-hidden', 'true');
+  return c;
+}
+
 function renderRow(r, now, isCatch, pinnedKey = null) {
   const state = rowState(now, r);
   if (state === 'hidden') return null;
@@ -571,7 +601,7 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
     strip.append(el('span', 'seg'));
     li.append(strip);
     const summary = el('div', 'detail summary');
-    summary.append(badge(shown.source), el('span', 'arrive', `arrive ${formatTime(r.eta, now)}`));
+    summary.append(badge(shown.source), el('span', 'arrive', `arrive ${formatTime(r.eta, now)}`), chevron('▾'));
     li.append(summary);
     return li;
   }
@@ -584,7 +614,8 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
     timeline.append(line);
   }
   li.append(timeline);
-  // "Track this trip": pin this departure (not next-day rows, nor rides already gone).
+  // Footer: "Track this trip" (not next-day rows, nor rides already gone) and the ▴ hint.
+  const foot = el('div', 'row-foot');
   if (!r.nextDay && r.firstDep > now) {
     const b = el('button', 'track-btn', tracked ? 'Tracking' : 'Track this trip');
     b.type = 'button';
@@ -595,8 +626,10 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
       render();
       schedulePoll();
     };
-    li.append(b);
+    foot.append(b);
   }
+  foot.append(chevron('▴'));
+  li.append(foot);
   return li;
 }
 
@@ -690,8 +723,41 @@ function renderEnRoute(now, hasRows, riding = false) {
     ? [el('span', 'en-status', text),
       s.kind === 'track' && btn('Leaving now', () => goEnRoute('leaving')),
       (s.kind === 'leaving' || s.kind === 'track') && btn('At the stop', () => goEnRoute('stop')),
-      btn('Cancel', () => { setEnRoute(null); render(); schedulePoll(); })].filter(Boolean)
+      btn('Cancel', cancelTracking)].filter(Boolean)
     : [btn('Leaving now', () => goEnRoute('leaving')), btn('At the stop', () => goEnRoute('stop'))]));
+}
+
+// Cancel (bar or trip card): ends at once, with "Undo" in a toast for 5 s.
+function cancelTracking() {
+  const snap = { idx: tripIdx, state: enRouteState() };
+  rideNote = null;
+  laterOpen = false;
+  setEnRoute(null);
+  render();
+  schedulePoll();
+  showToast('Tracking cancelled', 'Undo', () => {
+    if (snap.idx !== tripIdx) setTrip(snap.idx, true); // Cancel let autoSwitch change trips
+    setEnRoute(snap.state);
+    render();
+    schedulePoll();
+  });
+}
+
+// Bottom toast with one action; a new one replaces the current one.
+let toastTimer = null;
+function showToast(text, action, onAction) {
+  const t = $('toast');
+  t.querySelector('span').textContent = text;
+  const b = t.querySelector('button');
+  b.textContent = action;
+  b.onclick = () => { hideToast(); onAction(); };
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 5000);
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  $('toast').hidden = true;
 }
 
 function goEnRoute(kind) {
@@ -769,7 +835,9 @@ function renderRideCard(s, now) {
   // "I'm on a later one": vehicles of this leg that left after the assumed one.
   const later = phase.kind === 'riding' ? laterVehicles(rideVehicles()[phase.leg] ?? [], ride.legs[phase.leg], now) : [];
   if (later.length) btns.append(btn(laterOpen ? 'Not a later one' : 'Later one?', () => { laterOpen = !laterOpen; render(); }));
-  btns.append(btn(phase.kind === 'arrived' ? 'Done' : 'Cancel', () => { rideNote = null; laterOpen = false; setEnRoute(null); render(); schedulePoll(); }));
+  btns.append(phase.kind === 'arrived'
+    ? btn('Done', () => { rideNote = null; laterOpen = false; setEnRoute(null); render(); schedulePoll(); })
+    : btn('Cancel', cancelTracking));
   li.append(btns);
   if (laterOpen && later.length) {
     const pick = el('div', 'enroute-bar ride-btns');
@@ -854,6 +922,7 @@ function setTrip(i, manual) {
 function showSetup() {
   if (setupView) return;
   clearTimeout(pollTimer);
+  hideToast();
   $('app').hidden = true;
   setupView = openSetup({
     root: $('setup'),
@@ -941,6 +1010,8 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   navigator.serviceWorker.controller?.postMessage('nav-status');
 }
 $('reload-new').onclick = () => location.reload();
+// iOS Safari applies :active on touch only when a touch listener exists.
+document.addEventListener('touchstart', () => {}, { passive: true });
 
 window.appStarted = true;
 render();
