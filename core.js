@@ -914,6 +914,12 @@ export function fillRows(todayRows, nextRows, count = DEFAULT_DEPARTURE_COUNT) {
   return [...todayRows, ...nextRows.map(r => ({ ...r, nextDay: true }))].slice(0, count);
 }
 
+// The data's age ("25 min ago") once it's older than two poll intervals, else null.
+export function dataAgeText(lastOk, intervalMs, nowMs) {
+  const age = nowMs - lastOk;
+  return age > 2 * intervalMs ? `${formatCountdown(age)} ago` : null;
+}
+
 export function pollIntervalMs(rows, nowMs, riding = false) {
   if (riding) return 60_000;
   const soon = rows.some(r => r.lastChance > nowMs && (r.enRoute || (r.leaveBy != null && r.leaveBy - nowMs <= 15 * MIN)));

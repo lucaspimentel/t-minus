@@ -237,7 +237,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   inset overlay, `--press`). iOS's gray tap highlight is off.
 - Status line (per trip): "Loading…" until that trip's first fetch completes ("Still
   loading… (MBTA is slow)" after 5 s; the list stays empty, "No upcoming departures found."
-  only after a completed fetch), then "Updated 8:04pm", or "Stale (…) · last updated …" /
+  only after a completed fetch), then "Updated 8:04pm" ("Updated 8:04pm (25 min ago)" in
+  amber once older than two poll intervals, e.g. back in the app before the refresh lands;
+  rows unchanged), or "Stale (…) · last updated …" /
   "Error: …" from that trip's own last fetch. The ↻ icon spins during every fetch (polls
   included), stopping at the end of a full turn (0.8 s); with reduced motion it dims instead.
 - Route labels are short: rail by line ("Orange", "Green B", "Mattapan"), Silver Line as

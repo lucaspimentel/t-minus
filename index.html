@@ -64,6 +64,7 @@
   @media (prefers-reduced-motion: reduce) { #refresh.busy span { animation: none; opacity: .4; } }
   .status { font-size: 13px; color: var(--muted); margin: 0 0 12px; min-height: 18px; }
   .status.stale { color: var(--red); }
+  .status.old { color: var(--amber); }
   .alerts { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
   .alerts li {
     background: var(--alert-bg); border: 1px solid var(--alert-border); border-radius: 10px;
@@ -229,7 +230,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-01 · 7e7b136fcc</footer>
+    <footer class="version">Version 2026-10-01 · b542e1c0f3</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -248,11 +249,11 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
-  rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs,
+  rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText,
   trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=34a6718d0d';
-import { openSetup } from './setup.js?v=996dd814a6';
+} from './core.js?v=5f6ca8c1d4';
+import { openSetup } from './setup.js?v=852d6697b1';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -663,9 +664,11 @@ function render() {
       ? `Stale (${lastError}) · last updated ${formatTime(lastOk)}`
       : `Error: ${lastError}`;
   } else {
-    status.className = notice ? 'status stale' : 'status';
+    // Older than two poll intervals (e.g. just back in the app): the age, in amber.
+    const age = lastOk && dataAgeText(lastOk, pollIntervalMs(currentRows(now), now, !!enRouteState()?.ride), now);
+    status.className = notice ? 'status stale' : age ? 'status old' : 'status';
     const slow = loading?.idx === tripIdx && now - loading.since >= 5000;
-    status.textContent = [lastOk ? `Updated ${formatTime(lastOk)}` : slow ? 'Still loading… (MBTA is slow)' : 'Loading…', notice,
+    status.textContent = [lastOk ? `Updated ${formatTime(lastOk)}${age ? ` (${age})` : ''}` : slow ? 'Still loading… (MBTA is slow)' : 'Loading…', notice,
       locationOff && usesLocation() && 'Location off', savedCopy && 'Saved copy'].filter(Boolean).join(' · ');
   }
 

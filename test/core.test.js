@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, defaultTransferMinutes,
@@ -594,6 +594,15 @@ test('countdownState boundaries', () => {
   assert.equal(countdownState(at('08:15'), leave, last, dep), 'missed');
   assert.equal(countdownState(at('08:16'), leave, last, dep), 'hidden');
   assert.equal(countdownState(at('08:00'), null, last, dep), 'none');
+});
+
+test('dataAgeText: the age once older than two poll intervals', () => {
+  const t0 = at('07:00');
+  assert.equal(dataAgeText(t0, 60_000, t0 + 114_000), null);
+  assert.equal(dataAgeText(t0, 60_000, t0 + 150_000), '2 min ago');
+  assert.equal(dataAgeText(t0, 120_000, t0 + 200_000), null);
+  assert.equal(dataAgeText(t0, 120_000, t0 + 25 * 60_000), '25 min ago');
+  assert.equal(dataAgeText(t0, 120_000, t0 + 65 * 60_000), '1h 05m ago');
 });
 
 test('pollIntervalMs: 60s within 15 minutes of leave-by, otherwise 120s', () => {
