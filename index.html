@@ -252,7 +252,15 @@
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px;
   }
   .setup textarea { height: 240px; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; margin-top: 8px; }
-  .leg-item { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); margin-top: 12px; padding: 8px 12px 10px; }
+  .leg-row { display: flex; gap: 6px; margin-top: 12px; }
+  .setup .leg-row .leg-item {
+    flex: 1; min-width: 0; display: flex; align-items: center; text-align: left;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 8px 12px 10px;
+  }
+  .leg-main { flex: 1; min-width: 0; }
+  .go { margin-left: auto; padding-left: 8px; color: var(--muted); font-size: 20px; line-height: 1; }
+  .setup .trip-row .item { display: flex; align-items: center; }
+  .trip-main { flex: 1; min-width: 0; }
   .leg-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
   .leg-text { font-size: 14px; margin-bottom: 6px; }
   .btns { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -299,7 +307,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · 2a5e088e4c</footer>
+    <footer class="version">Version 2026-10-02 · edba85f967</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -322,7 +330,7 @@ import {
   unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
 } from './core.js?v=aeed6b5295';
-import { openSetup } from './setup.js?v=63bd05c20a';
+import { openSetup } from './setup.js?v=ddac8dcceb';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';

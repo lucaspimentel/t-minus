@@ -373,9 +373,12 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   disabled until a leg exists; with legs, the add button has an accent outline. A new trip's
   name is suggested from its stops ("Oak Grove → State", first board stop → last drop-off)
   until one is typed; an empty name saves as "Trip N".
-- In the trip editor each transit leg is its own box ("Leg 1", summary, route checkboxes,
-  Edit/↑/↓/✕); the transfer times sit between the boxes and the walk times before the first
-  and after the last.
+- Trips and legs share one pattern: tap the item (a muted › hints at it) to edit it, ↑↓ on
+  its right (dimmed on the first and last). Deleting is inside: "Delete trip" in the trip
+  editor, "Remove leg" in a leg's "Change leg" screen (both with Undo). In the trip editor
+  each transit leg is its own box ("Leg 1", summary); a leg on several routes has its route
+  checkboxes under the box; transfer times sit between the boxes and the walk times before
+  the first and after the last.
 - The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
   canonical legs back, omitting zero-minute walks and transfers.
 - Leg picker: the header, context line, and search box stick together at the top while the

@@ -217,17 +217,31 @@ test('a saved trip with a time window opens with "More" open; removing every leg
   await expect(setup(page).locator('details.more')).toHaveAttribute('open', '');
   await expect(setup(page).getByLabel('Show automatically')).toHaveValue('window');
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Home to office'); // a saved name is kept
-  for (let i = 0; i < 2; i++) await setup(page).getByRole('button', { name: 'Remove leg' }).first().click();
+  for (let i = 0; i < 2; i++) {
+    await setup(page).getByRole('button', { name: 'Change leg 1' }).click();
+    await button(page, 'Remove leg').click();
+  }
   await expect(setup(page).locator('.legs-empty')).toBeVisible();
   await expect(button(page, 'Save')).toBeDisabled();
 });
 
-test('removing a leg can be undone while the editor is open', async ({ page }) => {
+test('legs: tap to change (Remove leg is in there, with Undo), ↑↓ to reorder', async ({ page }) => {
   await openSetup(page);
   await setup(page).locator('.trip-row .item').first().click();
-  const legs = setup(page).getByRole('button', { name: 'Remove leg' });
+  const legs = setup(page).locator('.leg-row');
   await expect(legs).toHaveCount(2);
-  await legs.nth(1).click();
+  await expect(setup(page).getByRole('button', { name: 'Move leg 1 up' })).toBeDisabled();
+  await expect(setup(page).getByRole('button', { name: 'Move leg 2 down' })).toBeDisabled();
+  await setup(page).getByRole('button', { name: 'Move leg 1 down' }).click();
+  await expect(legs.locator('.leg-text')).toHaveText([/^Orange/, /^Bus 132/]);
+  await setup(page).getByRole('button', { name: 'Move leg 2 up' }).click();
+  // A new leg's picker has nothing to remove.
+  await button(page, '+ Add transit leg').click();
+  await expect(button(page, 'Remove leg')).toHaveCount(0);
+  await button(page, 'Back').click(); // the To list from State, then the search
+  await button(page, 'Back').click();
+  await setup(page).getByRole('button', { name: 'Change leg 2' }).click();
+  await button(page, 'Remove leg').click();
   await expect(legs).toHaveCount(1);
   await expect(toast(page)).toContainText('Leg removed');
   await toast(page).getByRole('button', { name: 'Undo' }).click();

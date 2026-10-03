@@ -281,8 +281,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const chain = transit.length ? transit.flatMap((l, j) => [j > 0 && ' → ', ...routeTag(l)]) : ['No transit legs'];
     return h('div', { class: 'trip-row' },
       h('button', { type: 'button', class: 'item', onclick: () => openTrip(i) },
-        h('b', {}, t.name),
-        h('div', { class: 'muted' }, `${t.near ? 'Near first stop' : windowLabel(t.window)} · `, ...chain)),
+        h('div', { class: 'trip-main' },
+          h('b', {}, t.name),
+          h('div', { class: 'muted' }, `${t.near ? 'Near first stop' : windowLabel(t.window)} · `, ...chain)),
+        h('span', { class: 'go' }, '›')),
       h('button', { type: 'button', 'aria-label': `Move ${t.name} up`, disabled: i === 0, onclick: () => moveTrip(i, -1) }, '↑'),
       h('button', { type: 'button', 'aria-label': `Move ${t.name} down`, disabled: i === n - 1, onclick: () => moveTrip(i, 1) }, '↓'));
   }
@@ -413,6 +415,16 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     }, { maximumAge: 5 * 60_000, timeout: 10_000 });
   }
 
+  // Removes leg j of the trip being edited (from its "Change leg" screen), with Undo.
+  function removeLeg(j) {
+    const ed = editing, t = ed.form, before = structuredClone(t);
+    if (t.timingLeg === j) t.timingLeg = null; else if (t.timingLeg > j) t.timingLeg--;
+    t.transit.splice(j, 1);
+    picker = null;
+    render();
+    toast('Leg removed', 'Undo', () => { if (editing === ed) { ed.form = before; render(); } });
+  }
+
   function tripScreen() {
     const t = editing.form;
     // Name from the stops ("Main St @ South St → State") until one is typed.
@@ -440,31 +452,25 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       moveItem(t.transit, j, delta);
       render();
     };
-    const removeLeg = j => {
-      const ed = editing, before = structuredClone(t);
-      if (t.timingLeg === j) t.timingLeg = null; else if (t.timingLeg > j) t.timingLeg--;
-      t.transit.splice(j, 1);
-      render();
-      toast('Leg removed', 'Undo', () => { if (editing === ed) { ed.form = before; render(); } });
-    };
     const legs = t.transit.flatMap((l, j) => [
       j > 0 && numberField('Transfer (min)', l.transferBefore, v => { l.transferBefore = v; }),
-      // Each leg in its own box; transfer and walk times sit between and around the boxes.
-      h('div', { class: 'leg-item' },
-        h('div', { class: 'leg-title' }, `Leg ${j + 1}`),
-        h('div', { class: 'leg-text' }, legSummary(l)),
-        // A leg on several routes: each can be dropped (one always stays).
-        l.also?.length > 0 && h('div', { class: 'leg-routes' }, ...legRoutes(l).map(r => h('label', { class: 'check' },
-          h('input', { type: 'checkbox', checked: true, 'aria-label': `Take ${shortName(r)}`, onchange: () => {
-            Object.assign(l, trimRoutes(l, legRoutes(l).filter(x => x !== r)));
-            if (!l.also.length) delete l.also;
-            render();
-          } }), dot(routeById(r)?.attributes?.color), shortName(r)))),
-        h('div', { class: 'btns' },
-          h('button', { type: 'button', onclick: () => openPicker(j) }, 'Edit'),
-          h('button', { type: 'button', 'aria-label': 'Move up', onclick: () => moveLeg(j, -1) }, '↑'),
-          h('button', { type: 'button', 'aria-label': 'Move down', onclick: () => moveLeg(j, 1) }, '↓'),
-          h('button', { type: 'button', 'aria-label': 'Remove leg', onclick: () => removeLeg(j) }, '✕'))),
+      // Each leg in its own box, like the trip list: tap to change it (Remove leg is in there),
+      // ↑↓ on the right. Transfer and walk times sit between and around the boxes.
+      h('div', { class: 'leg-row' },
+        h('button', { type: 'button', class: 'item leg-item', 'aria-label': `Change leg ${j + 1}`, onclick: () => openPicker(j) },
+          h('div', { class: 'leg-main' },
+            h('div', { class: 'leg-title' }, `Leg ${j + 1}`),
+            h('div', { class: 'leg-text' }, legSummary(l))),
+          h('span', { class: 'go' }, '›')),
+        h('button', { type: 'button', 'aria-label': `Move leg ${j + 1} up`, disabled: j === 0, onclick: () => moveLeg(j, -1) }, '↑'),
+        h('button', { type: 'button', 'aria-label': `Move leg ${j + 1} down`, disabled: j === t.transit.length - 1, onclick: () => moveLeg(j, 1) }, '↓')),
+      // A leg on several routes: each can be dropped (one always stays).
+      l.also?.length > 0 && h('div', { class: 'leg-routes' }, ...legRoutes(l).map(r => h('label', { class: 'check' },
+        h('input', { type: 'checkbox', checked: true, 'aria-label': `Take ${shortName(r)}`, onchange: () => {
+          Object.assign(l, trimRoutes(l, legRoutes(l).filter(x => x !== r)));
+          if (!l.also.length) delete l.also;
+          render();
+        } }), dot(routeById(r)?.attributes?.color), shortName(r)))),
     ]);
     const current = editing.idx != null ? timingFor(editing.idx) : null;
     const timing = t.transit.length > 1 && h('label', { class: 'field' }, 'Leave-by time is based on',
@@ -747,7 +753,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     });
     // Header, context and search stay at the top while the list scrolls under them (and iOS's
     // scroll for the keyboard can't slide the search under the header).
-    return [h('div', { class: 'picker-top' }, head, context, search), list];
+    // Changing an existing leg: removing it lives here, as "Delete trip" lives in the trip editor.
+    const remove = picker.legIdx != null && (picker.step === 'search' || picker.step === 'to')
+      && h('button', { type: 'button', class: 'danger add', onclick: () => removeLeg(picker.legIdx) }, 'Remove leg');
+    return [h('div', { class: 'picker-top' }, head, context, search), list, remove];
   }
 
   // The list keeps its scroll position while a trip is open, and a trip keeps its own while a
