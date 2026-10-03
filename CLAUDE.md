@@ -18,14 +18,29 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - After pushing to `main`, tell the user the footer version (`Version <date> · <hash>` in
   `index.html`) so they can check that the installed app has updated.
 
+## Working with the author
+
+- Features go grill (AskUserQuestion rounds) → plan → "proceed" → implement and push.
+- For UI changes, show mockups before planning: write HTML in the app's style (both themes) to
+  the scratchpad, screenshot it with Playwright, and send the images. Mockups settle choices
+  faster than descriptions.
+- When several items are reported to be handled "one by one", add them all to `TODO.md` first,
+  then grill, plan, implement, and push each separately.
+
 ## Commands
 
 - Unit tests: `npm test` (Node 22+, `node --test test/*.test.js`). CI runs the same on push.
 - Browser tests: `npm run test:browser` (`@playwright/test`, specs in `test/browser/*.spec.js`;
   `npm ci` first). MBTA calls go to a fake API built from scenarios (`test/browser/fake-mbta.js`,
   `helpers.js`), so they need no key, relay, or network; CI runs them on every push. Add or
-  update a spec when UI behavior changes. `node scripts/record-fixtures.mjs` refreshes the
-  recorded route/stop lists setup uses.
+  update a spec when UI behavior changes. For a new spec, briefly break the feature (comment out
+  its key line) and confirm the spec fails, then restore it.
+- The page clock from `page.clock.install` keeps running in real time; before asserting on short
+  timers (the ↻ spin, the pull-to-refresh hold), call `page.clock.pauseAt(...)` or test latency
+  makes them flaky.
+- `node scripts/record-fixtures.mjs` refreshes the recorded route/stop lists and rail network
+  (`NODE_USE_ENV_PROXY=1`; paced for the keyless limit, ~2 min). Add a route there when a spec
+  needs its stop lists.
 - Local run: `python3 -m http.server 8765`, open `http://localhost:8765/`.
 - Icons: `icons/icon.svg` is the source; re-render the PNGs (192, 512) from it with Playwright.
 
@@ -53,4 +68,8 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   (plain HTTP is allowed there), not through the relay.
 - Use `page.clock.setSystemTime(...)` to test other times of day; rows will come from
   schedules only, since live predictions exist only for the real current time.
-- Don't `pkill -f` a pattern that also appears in the same shell command line; it kills the shell.
+- Don't `pkill -f` (or `ps | grep pattern | xargs kill`) a pattern that also appears in the same
+  shell command line; it kills the shell. Start servers with `run_in_background` and stop them
+  by PID.
+- An empty live result can be a service change, not a bug: check `/alerts` for a SUSPENSION
+  first (the Green Line was suspended downtown through 2026-10-04).

@@ -502,6 +502,13 @@ Base: `https://api-v3.mbta.com` (V3 API, JSON:API format, GTFS/GTFS-Realtime bas
   client-side by effect and `informed_entity` stop.
 - Stops (save-time check): `/stops?filter[route]=R&filter[direction_id]=D&include=child_stops`.
 - Query strings contain literal `[` `]`; `curl` needs `-g` to test them.
+- Sparse fieldsets (`fields[schedule]=…`) limit attributes only; `relationships` (route, trip,
+  stop) still come back. Multi-route legs rely on `relationships.route`.
+- Platform (child) stops carry their station's name ("70036" → "Oak Grove"), so the timeline's
+  stop names come from `include=stop` with `fields[stop]=name,parent_station`.
+- Rail station order per branch: `/route_patterns?filter[route]=<rail>&filter[canonical]=true
+  &include=representative_trip.stops` (18 patterns; one per branch and direction). The
+  per-direction `/stops` lists merge branches (Red: Ashmont and Braintree).
 
 ### Rate limits and request budget
 
