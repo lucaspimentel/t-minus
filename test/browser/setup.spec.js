@@ -31,6 +31,17 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   await setup(page).locator('details.more summary').click();
   await setup(page).getByLabel('Show automatically').selectOption('window');
   await expect(setup(page).getByLabel('Shown from')).toBeVisible();
+  // A change right after opening, before the 'toggle' event (it fires asynchronously), keeps "More" open.
+  await setup(page).locator('details.more summary').click(); // close
+  await expect(setup(page).getByLabel('Show automatically')).toBeHidden();
+  await page.evaluate(() => new Promise(r => setTimeout(r, 50))); // the close's 'toggle' runs
+  await page.evaluate(() => {
+    document.querySelector('#setup details.more summary').click();
+    const select = document.querySelector('#setup details.more select');
+    select.value = 'never';
+    select.dispatchEvent(new Event('change'));
+  });
+  await expect(setup(page).getByLabel('Show automatically')).toBeVisible();
   await setup(page).getByLabel('Show automatically').selectOption('never');
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('132');

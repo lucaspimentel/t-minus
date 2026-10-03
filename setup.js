@@ -499,8 +499,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
           : h('div', { class: 'legs-empty' }, 'No legs yet. Add the bus or train you take first.',
             h('button', { type: 'button', class: 'primary add', onclick: () => openPicker(null) }, '+ Add transit leg')),
         numberField('Time from last stop (min)', t.walkAfter, v => { t.walkAfter = v; }),
+        // 'toggle' fires asynchronously, so a re-render right after opening (a change inside) would
+        // close it again; the summary click records the new state first.
         h('details', { class: 'more', open: editing.moreOpen, ontoggle: e => { if (editing) editing.moreOpen = e.target.open; } },
-          h('summary', {}, 'More: when to show, leave-by time'),
+          h('summary', { onclick: e => { editing.moreOpen = !e.currentTarget.parentNode.open; } }, 'More: when to show, leave-by time'),
           h('label', { class: 'field' }, 'Show automatically',
             h('select', { onchange: e => setMode(e.target.value) },
               h('option', { value: 'window', selected: mode === 'window' }, 'During a time window'),
