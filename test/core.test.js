@@ -9,6 +9,7 @@ import {
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
+  legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -1058,4 +1059,57 @@ test('nearestStop picks the closest stop with coordinates', () => {
   const orange = [s('place-mlmnl', 42.426632, -71.07411), s('place-ogmnl', 42.43668, -71.071097), s('nocoords', null, null)];
   assert.equal(nearestStop(orange, 42.436927, -71.071292).id, 'place-ogmnl');
   assert.equal(nearestStop([], 42.4, -71.0), null);
+});
+
+// ---------- reminders ----------
+
+test('legQuery: every route of the leg, both stops, sparse fields', () => {
+  const q = legQuery({ kind: 'transit', route: 'Green-B', also: ['Green-C'], direction_id: 0, stop: 'place-gover', alight: 'place-pktrm' });
+  assert.equal(q['filter[route]'], 'Green-B,Green-C');
+  assert.equal(q['filter[direction_id]'], 0);
+  assert.equal(q['filter[stop]'], 'place-gover,place-pktrm');
+  assert.equal(q.include, 'stop');
+});
+
+test('rowsFromDocs: rows from raw predictions and schedules', () => {
+  const bus = doc([rec('schedule', 'b1', '25996', '07:10', '07:10'), rec('schedule', 'b1', '5991', '07:25', '07:25')]);
+  const orange = doc([rec('prediction', 'o1', 'place-ogmnl', '07:32', '07:33'), rec('prediction', 'o1', 'place-state', '07:50', '07:50')]);
+  const [row] = rowsFromDocs(homeToOffice, [null, orange], [bus, null], 1, at('07:00'), 1);
+  assert.equal(row.key, 'o1');
+  assert.equal(row.leaveBy, at('07:04')); // 7:10 bus - 5 min walk - 1 min slack
+  assert.deepEqual(row.legs.map(l => l.source), ['scheduled', 'live']);
+});
+
+test('reminderStep: heads-up, then leave; times follow the row', () => {
+  const rem = { leaveBy: at('07:14'), headsUp: true, missing: 0 };
+  assert.deepEqual(reminderStep(rem, { leaveBy: at('07:14') }, at('07:00')), { action: 'wait', leaveBy: at('07:14'), missing: 0 });
+  assert.equal(reminderStep(rem, { leaveBy: at('07:14') }, at('07:09')).action, 'headsUp');
+  // Delayed: the heads-up waits for the new time.
+  assert.deepEqual(reminderStep(rem, { leaveBy: at('07:16') }, at('07:10')), { action: 'wait', leaveBy: at('07:16'), missing: 0 });
+  assert.equal(reminderStep({ ...rem, headsUp: false }, { leaveBy: at('07:14') }, at('07:10')).action, 'wait');
+  assert.equal(reminderStep({ ...rem, headsUp: false }, { leaveBy: at('07:14') }, at('07:14')).action, 'leave');
+  // Earlier than expected and already due: straight to "Leave now".
+  assert.equal(reminderStep(rem, { leaveBy: at('07:05') }, at('07:06')).action, 'leave');
+});
+
+test('reminderStep: a ride missing three polls in a row is cancelled; long past, it expires', () => {
+  const rem = { leaveBy: at('07:14'), headsUp: true, missing: 0 };
+  const a = reminderStep(rem, null, at('07:00'));
+  assert.deepEqual(a, { action: 'wait', leaveBy: at('07:14'), missing: 1 });
+  assert.equal(reminderStep({ ...rem, missing: 1 }, null, at('07:00')).action, 'wait');
+  assert.equal(reminderStep({ ...rem, missing: 2 }, null, at('07:00')).action, 'cancelled');
+  assert.equal(reminderStep({ ...rem, missing: 1 }, { leaveBy: at('07:14') }, at('07:00')).missing, 0);
+  assert.equal(reminderStep(rem, null, at('07:24')).action, 'expire');
+});
+
+test('headsUpDue, reminderText, reminderPollMs', () => {
+  assert.equal(HEADS_UP_MIN, 5);
+  assert.equal(headsUpDue(at('07:14'), at('07:08')), true);
+  assert.equal(headsUpDue(at('07:14'), at('07:09')), false);
+  const row = { leaveBy: at('07:14'), legs: [{ label: 'Bus 132', dep: at('07:20') }] };
+  assert.deepEqual(reminderText('headsUp', 'Home to office', row, at('07:09')), { title: 'Leave in 5 min · Home to office', body: 'Bus 132 at 7:20am' });
+  assert.deepEqual(reminderText('leave', 'Home to office', row, at('07:14')), { title: 'Leave now · Home to office', body: 'Bus 132 at 7:20am' });
+  assert.deepEqual(reminderText('cancelled', 'Home to office', null, at('07:00')), { title: 'Ride cancelled · Home to office', body: 'Open the app for the next one.' });
+  assert.equal(reminderPollMs(at('07:30'), at('07:00')), 60_000);
+  assert.equal(reminderPollMs(at('07:15'), at('07:00')), 20_000);
 });

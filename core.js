@@ -862,6 +862,59 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
   return missed && count >= 2 ? [missed, ...rows.slice(0, count - 1)] : rows;
 }
 
+// One leg's /predictions and /schedules query (the page and the notification server).
+export const tripFields = {
+  'fields[prediction]': 'arrival_time,departure_time,schedule_relationship',
+  'fields[schedule]': 'arrival_time,departure_time',
+  include: 'stop',
+  'fields[stop]': 'name,parent_station', // names for the timeline (stopNames)
+};
+export function legQuery(leg) {
+  return { 'filter[route]': legRoutes(leg).join(','), 'filter[direction_id]': leg.direction_id, 'filter[stop]': `${leg.stop},${leg.alight}`, ...tripFields };
+}
+
+// Rows straight from each transit leg's predictions and schedules documents (either may be
+// missing): the notification server's view of a trip.
+export function rowsFromDocs(trip, predictionDocs, scheduleDocs, timingIdx, nowMs, slackMinutes, count = MAX_DEPARTURE_COUNT) {
+  const vehicles = tripShape(trip).transit.map((l, i) => legVehicles(mergeTrips(predictionDocs?.[i], scheduleDocs?.[i]), l));
+  return tripRows(trip, vehicles, timingIdx, nowMs, slackMinutes, count);
+}
+
+// Leave-time reminders ("Notify me"): a heads-up HEADS_UP_MIN before leave-by, then "Leave now".
+// `rem` = { leaveBy, headsUp (still due?), missing (polls in a row without its row) }; `row` = the
+// re-fetched row with the reminder's key, or null. Times follow the row. Missing for
+// REMINDER_MISSING polls in a row, the ride is reported cancelled; long past, it just expires.
+export const HEADS_UP_MIN = 5;
+export const REMINDER_MISSING = 3;
+export function reminderStep(rem, row, nowMs) {
+  if (!row) {
+    if (nowMs >= rem.leaveBy + MISSED_MINUTES * MIN) return { action: 'expire', leaveBy: rem.leaveBy, missing: rem.missing + 1 };
+    const missing = rem.missing + 1;
+    return { action: missing >= REMINDER_MISSING ? 'cancelled' : 'wait', leaveBy: rem.leaveBy, missing };
+  }
+  const { leaveBy } = row;
+  const action = nowMs >= leaveBy ? 'leave' : rem.headsUp && nowMs >= leaveBy - HEADS_UP_MIN * MIN ? 'headsUp' : 'wait';
+  return { action, leaveBy, missing: 0 };
+}
+// Whether a reminder set at `nowMs` still gets its heads-up (not when set inside the window).
+export const headsUpDue = (leaveBy, nowMs) => nowMs < leaveBy - HEADS_UP_MIN * MIN;
+
+// Push text: { title, body }. `row` (when known) names the first vehicle and its time.
+export function reminderText(kind, tripName, row, nowMs) {
+  const first = row?.legs[0];
+  const body = first ? `${vehicleLabel(first)} at ${formatTime(first.dep, nowMs)}` : '';
+  switch (kind) {
+    case 'headsUp': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body };
+    case 'leave': return { title: `Leave now · ${tripName}`, body };
+    default: return { title: `Ride cancelled · ${tripName}`, body: 'Open the app for the next one.' };
+  }
+}
+
+// How often the server re-checks a reminder: every minute while far off, then every 20 s.
+export function reminderPollMs(leaveBy, nowMs) {
+  return leaveBy - nowMs > 20 * MIN ? 60_000 : 20_000;
+}
+
 // Keep the screen on while an upcoming row is within `minutes` of its leave-by, until its last
 // chance (0 = never).
 export function keepAwake(rows, nowMs, minutes) {

@@ -147,6 +147,14 @@
     background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
   }
   .track-btn.tracking { color: var(--green); border-color: var(--green); }
+  .row-foot { gap: 8px; }
+  .track-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .track-btn.on { color: var(--green); border-color: var(--green); }
+  .track-btn:disabled { opacity: .5; cursor: default; }
+  .push-hint { margin-top: 6px; font-size: 13px; color: var(--muted); }
+  /* A reminder is set ("Notify me"): a bell beside the collapsed row's badge. */
+  .summary .bell { display: inline-flex; color: var(--green); margin-left: 6px; }
+  .summary .bell svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .ride-outlook { margin-top: 6px; font-size: 14px; color: var(--muted); }
   .ride-outlook.warn { color: var(--amber); font-weight: 600; }
   .ride-stops { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -312,7 +320,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-03 · 6cf3d77f3c</footer>
+    <footer class="version">Version 2026-10-03 · fd855e6bdb</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -333,9 +341,9 @@ import {
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
-  filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=aeed6b5295';
-import { openSetup } from './setup.js?v=cb335f0d87';
+  filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel, legQuery, HEADS_UP_MIN, headsUpDue,
+} from './core.js?v=ddb1e40c70';
+import { openSetup } from './setup.js?v=4e2b48d161';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -391,17 +399,6 @@ async function api(path, params) {
   if (res.status === 429) throw Object.assign(new Error('Rate limited (429)'), { rateLimited: true });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
-}
-
-const tripFields = {
-  'fields[prediction]': 'arrival_time,departure_time,schedule_relationship',
-  'fields[schedule]': 'arrival_time,departure_time',
-  include: 'stop',
-  'fields[stop]': 'name,parent_station', // names for the timeline (stopNames)
-};
-
-function legQuery(leg) {
-  return { 'filter[route]': legRoutes(leg).join(','), 'filter[direction_id]': leg.direction_id, 'filter[stop]': `${leg.stop},${leg.alight}`, ...tripFields };
 }
 
 async function fetchSchedules(trip, w) {
@@ -685,9 +682,10 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
   // en route count to/from the first departure.
   const firstLeg = state === 'missed' || state === 'enroute';
   const target = state === 'red' ? r.lastChance : firstLeg ? r.firstDep : r.leaveBy;
+  const key = rowKey(r);
+  const reminder = reminderFor(r, now);
   head.append(el('span', null, countdownLabel(state, target - now, vehicleLabel(r.legs[0]))), el('span', 'at', formatTime(target, now)));
   li.append(head);
-  const key = rowKey(r);
   const expanded = expandedRows.has(key);
   li.setAttribute('aria-expanded', String(expanded));
   li.onclick = () => {
@@ -708,7 +706,16 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
     strip.append(el('span', 'seg'));
     li.append(strip);
     const summary = el('div', 'detail summary');
-    summary.append(badge(shown.source), el('span', 'arrive', `arrive ${formatTime(r.eta, now)}`), chevron('▾'));
+    summary.append(badge(shown.source));
+    // A reminder is set: a bell beside the badge (the header has no room to spare).
+    if (reminder) {
+      const bell = el('span', 'bell');
+      bell.innerHTML = BELL_SVG;
+      bell.setAttribute('role', 'img');
+      bell.setAttribute('aria-label', 'Reminder set');
+      summary.append(bell);
+    }
+    summary.append(el('span', 'arrive', `arrive ${formatTime(r.eta, now)}`), chevron('▾'));
     li.append(summary);
     return li;
   }
@@ -729,9 +736,106 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
     };
     foot.append(b);
   }
+  // "Notify me": a push at leave-by (and a heads-up before), once the push server exists.
+  let hint = null;
+  if (PUSH_SERVER && !r.nextDay && (reminder || r.leaveBy > now)) {
+    const b = el('button', `track-btn${reminder ? ' on' : ''}`);
+    b.type = 'button';
+    b.innerHTML = BELL_SVG;
+    const times = reminder && (reminder.headsUp ? [r.leaveBy - HEADS_UP_MIN * 60_000, r.leaveBy] : [r.leaveBy]);
+    b.append(reminder ? `${times.map(t => formatTime(t, now)).join(' · ')} ✕` : 'Notify me');
+    if (reminder) b.setAttribute('aria-label', 'Cancel the reminder');
+    b.disabled = !pushSupported || reminderBusy === key;
+    b.onclick = e => {
+      e.stopPropagation();
+      if (reminder) unnotify(reminderKey(r)); else notify(r);
+    };
+    foot.append(b);
+    if (!pushSupported) hint = el('div', 'push-hint', 'Add to Home Screen to get notifications.');
+  }
   foot.append(chevron('▴'));
   li.append(foot);
+  if (hint) li.append(hint);
   return li;
+}
+
+// ---------- leave-time reminders ----------
+
+// The push server (server/), empty until it's deployed; on localhost, tests set it in storage.
+const PUSH_SERVER = (location.hostname === 'localhost' && store.get('mbta-leave-by:push-server')) || '';
+// iOS has push only in the Home Screen app.
+const pushSupported = 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
+// Set reminders: { ["<trip>/<row key>"]: { id, leaveBy, headsUp } }, until their leave-by passes.
+const KEY_REMINDERS = 'mbta-leave-by:reminders';
+let reminders = store.get(KEY_REMINDERS) ?? {};
+let reminderBusy = null; // the row key while a request is in flight
+const BELL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
+
+const reminderKey = r => `${tripIdx}/${rowKey(r)}`;
+// The row's reminder, while its leave-by is still ahead.
+function reminderFor(r, now) {
+  const rem = reminders[reminderKey(r)];
+  return rem && r.leaveBy > now ? rem : null;
+}
+function saveReminders() {
+  const now = Date.now();
+  reminders = Object.fromEntries(Object.entries(reminders).filter(([, rem]) => rem.leaveBy + 30 * 60_000 > now));
+  store.set(KEY_REMINDERS, reminders);
+}
+
+async function pushApi(method, path, body) {
+  const res = await fetch(`${PUSH_SERVER}${path}`, {
+    method, ...(body && { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+  });
+  if (method === 'DELETE' && res.status === 404) return null; // already sent or expired
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`);
+  return res.status === 204 ? null : res.json();
+}
+
+const base64UrlBytes = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+
+async function notify(r) {
+  const key = rowKey(r);
+  const remKey = reminderKey(r);
+  const trip = config.trips[tripIdx];
+  // Asked first, while the tap still counts as a user gesture (iOS requires one).
+  const permission = Notification.requestPermission();
+  reminderBusy = key;
+  render();
+  try {
+    if (await permission !== 'granted') throw new Error('notifications are off for this app in Settings');
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const { publicKey } = await pushApi('GET', '/vapid');
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlBytes(publicKey) });
+    }
+    const { id, headsUp } = await pushApi('POST', '/reminders', {
+      subscription: sub.toJSON(), trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
+      timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy,
+    });
+    reminders[remKey] = { id, leaveBy: r.leaveBy, headsUp };
+    saveReminders();
+  } catch (e) {
+    showToast(`Couldn't set the reminder: ${e.message}`, 'Retry', () => notify(r));
+  }
+  reminderBusy = null;
+  render();
+}
+
+async function unnotify(remKey) {
+  const rem = reminders[remKey];
+  delete reminders[remKey];
+  saveReminders();
+  render();
+  try {
+    await pushApi('DELETE', `/reminders/${rem.id}`);
+  } catch (e) {
+    reminders[remKey] = rem;
+    saveReminders();
+    render();
+    showToast(`Couldn't cancel the reminder: ${e.message}`, 'Retry', () => unnotify(remKey));
+  }
 }
 
 // Stop names of the shown trip, from the stops its schedule and prediction responses include.

@@ -30,7 +30,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 
 | Topic | Decision |
 |---|---|
-| Form factor | Static files, no build step, no backend, no dependencies: `index.html` (markup, CSS, UI/fetch/timers), `setup.js` (setup view), `core.js` (pure logic ES module, unit tested), PWA `manifest.json` + `sw.js` |
+| Form factor | Static files, no build step, no dependencies (the optional push server in `server/` is the only backend; see Notifications): `index.html` (markup, CSS, UI/fetch/timers), `setup.js` (setup view), `core.js` (pure logic ES module, unit tested), PWA `manifest.json` + `sw.js` |
 | Target device | Phone first; installable PWA (add to home screen) |
 | Hosting | GitHub Pages (HTTPS; required for service worker, enables Notifications API later) |
 | API calls | Direct from browser to `api-v3.mbta.com` (CORS verified: `access-control-allow-origin: *`) |
@@ -42,7 +42,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Departures shown | Next `departureCount` departures (config, 1-8, default 4) |
 | Config editing | Full-screen setup view (gear button) with route and stop pickers (no direction step); JSON only via Export/Import |
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
-| Deferred | See `TODO.md` (GPS "near me", default times estimated from stop coordinates, commuter rail/ferry), notifications |
+| Deferred | See `TODO.md` (GPS "near me", default times estimated from stop coordinates, commuter rail/ferry) |
 
 ## Data sources and fallback
 
@@ -537,6 +537,61 @@ A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 request
 ≤ 4 req/min. Rapid reloads can still hit the limit (seen in testing with ~8 fresh loads in a
 minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 
+## Notifications (leave-time reminders)
+
+iOS wakes a Home Screen app only with Web Push from a server (no scheduled local
+notifications; page timers stop in the background), so reminders come from a small Node
+service on Railway (`server/`). The app itself stays on GitHub Pages; serving it from Railway
+too is a likely later step.
+
+- **App:** "Notify me" sits next to "Track this trip" in an expanded row, shown only once
+  `PUSH_SERVER` is set in `index.html` (empty until the server is deployed), for today's rows
+  whose leave-by is ahead.
+  - Tapping it asks for notification permission, subscribes the service worker
+    (`pushManager.subscribe` with the server's VAPID key from `GET /vapid`), and posts the ride.
+  - Set, the button shows the heads-up and leave times ("6:57am · 7:02am ✕", from the current
+    row) and a bell sits before the row's leave time. Tapping the button again cancels it
+    (`DELETE`).
+  - Reminders are kept in `localStorage` (`mbta-leave-by:reminders`, keyed by trip and row) and
+    stop showing once leave-by passes.
+  - Without the Push API (iOS outside the Home Screen app), the button is disabled with "Add
+    to Home Screen to get notifications."
+  - Errors show a toast with Retry.
+- **Push:**
+  - The service worker shows `{ title, body, tag }`. The tag is the row key, so a later push
+    for the same ride replaces the earlier one.
+  - Tapping a notification focuses or opens the app.
+- **Server (`server/app.mjs`):**
+  - **Endpoints:** `GET /vapid`, `GET /health`, `POST /reminders` and `DELETE /reminders/:id`.
+  - **What a reminder holds:** the subscription, the trip (checked with `validateConfig`), its
+    slack, the timing leg, the row key (the timing-leg vehicle's trip id) and leave-by. Leave-by
+    must be ahead and within 12 h.
+  - **Polling:** each reminder polls `/predictions` (and `/schedules`, cached 15 min) for its
+    legs with the same `legQuery` as the page. It rebuilds rows (`rowsFromDocs`) and finds its
+    key.
+  - **Decisions (`reminderStep`):**
+    - A heads-up goes out 5 min before leave-by (`HEADS_UP_MIN`), unless the reminder was set
+      inside that window.
+    - "Leave now" goes out at leave-by. Both times follow the row as predictions change.
+    - A row missing 3 polls in a row (cancelled, or the connection no longer works) sends "Ride
+      cancelled" and ends the reminder. MBTA errors don't count; they retry in 20 s.
+    - A reminder 10 min past leave-by with no row just expires.
+  - **Poll timing:** every 60 s while leave-by is more than 20 min away, then every 20 s, and
+    always at the heads-up and leave times (`reminderPollMs`). The loop runs every 5 s.
+  - **Request budget (author's key, 1,000 req/min):** about 3 requests/min per leg per
+    reminder, plus schedules every 15 min.
+  - **Limits:**
+    - CORS only for `ALLOWED_ORIGINS` (default `https://lucaspimentel.github.io`).
+    - 30 requests/min per IP.
+    - 5 active reminders per push subscription.
+    - A 16 KB body.
+    - A 404/410 from the push service drops the reminder.
+- **Storage:** `server/store.mjs` keeps the reminders in one JSON file (`$DATA_DIR/reminders.json`,
+  a Railway volume), rewritten whole via a temp file and rename. A database can replace it later.
+- **Deployment:** `railway.json` (repo root, so `server/` can import `../core.js`). Setup steps
+  are in `server/README.md`. `web-push` is the only dependency, in `server/package.json`; the
+  app has none.
+
 ## PWA
 
 - `manifest.json`: name, icons, `display: standalone`, start URL.
@@ -591,6 +646,10 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
   recorded route/stop lists for setup (`test/browser/fixtures/`, refreshed by
   `scripts/record-fixtures.mjs`). The page clock is faked; specs move it with `tick` /
   `tickTo`. The only devDependency is `@playwright/test`; the app itself has none.
+- Push server: `test/server.test.js` (part of `npm test`) runs `server/app.mjs` against a fake
+  MBTA, a recording sender, a temp store, and a fake clock. Locally:
+  `npm --prefix server ci`, then `node server/main.mjs` with the env vars from
+  `server/README.md` (`DRY_RUN=1` logs pushes instead of sending them).
 - Local run: `python3 -m http.server` in the repo root, open `http://localhost:8000/`.
 - Deploy: GitHub Pages from `main`, repository root.
 - Icons: `icons/icon.svg` is the source; PNGs are rendered from it.
@@ -598,6 +657,5 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 ## Future extensions
 
 - Deferred items in `TODO.md`.
-- Leave-time push notifications (needs a small backend; see `TODO.md`).
 - Arrive-by target (highlight the latest departure that makes a target time).
-- Possibly a backend later, only if shared profiles or push reminders are wanted.
+- Serving the app from the Railway service (one origin with the push API).

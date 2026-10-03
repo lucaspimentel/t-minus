@@ -1,0 +1,14 @@
+{
+  "name": "mbta-leave-by-server",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node main.mjs"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}

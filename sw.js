@@ -40,6 +40,24 @@ self.addEventListener('message', event => {
   if (event.data === 'nav-status') event.source?.postMessage({ type: 'nav', ...lastNav });
 });
 
+// Leave-time reminders from the push server (server/): { title, body, tag }.
+self.addEventListener('push', event => {
+  const data = event.data?.json() ?? {};
+  event.waitUntil(self.registration.showNotification(data.title ?? 'Leave By', {
+    body: data.body ?? '', tag: data.tag, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png',
+  }));
+});
+
+// Tapping a notification opens the app (or brings it to the front).
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const [client] = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (client) return client.focus();
+    return self.clients.openWindow('./');
+  })());
+});
+
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
