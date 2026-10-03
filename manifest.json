@@ -1,7 +1,7 @@
 {
-  "name": "MBTA Leave By",
-  "short_name": "Leave By",
-  "description": "When to leave for the next viable MBTA departure.",
+  "name": "T-Minus",
+  "short_name": "T-Minus",
+  "description": "When to leave for your next ride.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

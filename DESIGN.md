@@ -1,4 +1,4 @@
-# DESIGN.md — mbta-leave-by
+# DESIGN.md — T-Minus (repo: mbta-leave-by)
 
 Status: N-leg engine and setup UI implemented. API verified against live data (2026-09-30).
 

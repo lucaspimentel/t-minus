@@ -43,7 +43,7 @@ self.addEventListener('message', event => {
 // Leave-time reminders from the push server (server/): { title, body, tag }.
 self.addEventListener('push', event => {
   const data = event.data?.json() ?? {};
-  event.waitUntil(self.registration.showNotification(data.title ?? 'Leave By', {
+  event.waitUntil(self.registration.showNotification(data.title ?? 'T-Minus', {
     body: data.body ?? '', tag: data.tag, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png',
   }));
 });

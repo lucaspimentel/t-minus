@@ -21,6 +21,13 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 - Move the reminder store from a JSON file to a database.
 - Serve the app from the Railway service too (one origin; reinstall the Home Screen app).
 
+## Rename
+
+- Rename the repo to match "T-Minus" (the app name changed; the repo, Pages URL, storage keys
+  and `sw.js` cache name still say mbta-leave-by). The Pages URL changes: reinstall the Home
+  Screen app, carry trips over with Export/Import, and update Railway's `ALLOWED_ORIGINS` and
+  source repo.
+
 ## Deferred
 
 - "Near me" / GPS features (sorting stops by distance from the phone).

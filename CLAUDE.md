@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Phone-first PWA that answers "when do I leave?" for a bus + Orange Line commute.
+T-Minus (repo `mbta-leave-by`): a phone-first PWA that answers "when do I leave?" for a bus + Orange Line commute.
 Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pending work.
 
 ## Conventions
