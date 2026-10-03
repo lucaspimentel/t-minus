@@ -68,13 +68,18 @@
     height: 48px; margin-top: -48px; display: flex; align-items: center; justify-content: center; gap: 8px;
     color: var(--muted); font-size: 14px; opacity: 0;
   }
-  .ptr-icon { display: inline-block; font-size: 20px; }
-  .ptr.busy .ptr-icon { animation: spin .8s linear infinite; }
+  /* ↓ while pulling, turning to ↑ at the ready point; a spinning ring while refreshing. */
+  .ptr-icon { display: inline-flex; transition: transform 150ms; }
+  .ptr-icon svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .ptr.ready .ptr-icon { transform: rotate(180deg); }
+  .ptr-ring { display: none; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--muted); border-radius: 50%; }
+  .ptr.busy .ptr-icon { display: none; }
+  .ptr.busy .ptr-ring { display: block; animation: spin .8s linear infinite; }
   #app.settling { transition: transform 200ms ease-out; }
   #app.settling .ptr { transition: opacity 200ms; }
   @media (prefers-reduced-motion: reduce) {
-    .ptr-icon { transform: none !important; }
-    .ptr.busy .ptr-icon { animation: none; opacity: .4; }
+    .ptr-icon { transition: none; }
+    .ptr.busy .ptr-ring { animation: none; opacity: .4; }
   }
   .status { font-size: 13px; color: var(--muted); margin: 0 0 12px; min-height: 18px; }
   .status.stale { color: var(--red); }
@@ -293,7 +298,7 @@
 <body>
 <main>
   <div id="app">
-    <div class="ptr" id="ptr" aria-hidden="true"><span class="ptr-icon">&#x21bb;</span><span class="ptr-text"></span></div>
+    <div class="ptr" id="ptr" aria-hidden="true"><span class="ptr-icon"><svg viewBox="0 0 24 24"><path d="M12 4v16M5 13l7 7 7-7"/></svg></span><span class="ptr-ring"></span><span class="ptr-text"></span></div>
     <header>
       <div class="toggle" id="toggle" role="group" aria-label="Trip"></div>
       <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh"><span>&#x21bb;</span></button>
@@ -307,7 +312,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · edba85f967</footer>
+    <footer class="version">Version 2026-10-02 · 08b3895418</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -1155,7 +1160,7 @@ $('open-setup').onclick = showSetup;
 $('refresh').onclick = () => refresh({ force: true });
 
 // Pull-to-refresh: a downward drag that starts at the top of the main list moves it down
-// (pullOffset); released past PULL_READY, it refreshes and holds a gap until the ↻ stops.
+// (pullOffset); released past PULL_READY, it refreshes and holds a gap until the header ↻ stops.
 let pull = null; // { x, y, dy, active } for the current touch
 let pullHeld = false;
 
@@ -1165,7 +1170,7 @@ function setPull(offset, text, settle) {
   $('app').style.transform = offset ? `translateY(${offset}px)` : '';
   ptr.style.opacity = Math.min(1, offset / PULL_READY);
   ptr.classList.toggle('busy', pullHeld);
-  ptr.querySelector('.ptr-icon').style.transform = pullHeld ? '' : `rotate(${offset * 4}deg)`;
+  ptr.classList.toggle('ready', !pullHeld && offset >= PULL_READY);
   if (text != null) ptr.querySelector('.ptr-text').textContent = text;
 }
 
@@ -1186,7 +1191,7 @@ document.addEventListener('touchmove', e => {
   e.preventDefault();
   pull.dy = dy;
   const offset = pullOffset(dy);
-  setPull(offset, offset >= PULL_READY ? 'Release to refresh' : 'Pull to refresh', false);
+  setPull(offset, offset >= PULL_READY ? 'Release to refresh' : 'Pull down to refresh', false);
 }, { passive: false });
 
 document.addEventListener('touchend', () => {

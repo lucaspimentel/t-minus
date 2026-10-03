@@ -272,8 +272,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   included), stopping at the end of a full turn (0.8 s); with reduced motion it dims instead.
 - Pull-to-refresh (the Home Screen app has no browser pull): a downward drag that starts with
   the main list scrolled to the top moves the list down at half the finger's speed (`pullOffset`,
-  up to 110 px), revealing "Pull to refresh", then "Release to refresh" past 64 px. Released
-  there, it runs the same forced refresh as ↻ and holds a 48 px gap with a spinning ↻ and
+  up to 110 px), revealing a thin ↓ arrow and "Pull down to refresh"; past 64 px the arrow turns
+  to ↑ (150 ms rotation, instant with reduced motion) and reads "Release to refresh". Released
+  there, it runs the same forced refresh as ↻ and holds a 48 px gap with a spinning ring and
   "Refreshing…" until the header ↻ stops (`whenIdle`; a pull during a refresh joins it). Upward
   or sideways drags, drags that start scrolled down, and setup are left as ordinary scrolling.
   `overscroll-behavior-y: none` on `html` turns off iOS's rubber-band bounce everywhere, so the

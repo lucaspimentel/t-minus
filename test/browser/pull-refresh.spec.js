@@ -1,6 +1,6 @@
 // Pull-to-refresh: a downward drag from the top of the main list moves it down; released past
 // the threshold (64 px of offset = 128 px of finger), it refreshes and holds a gap until the
-// header ↻ stops. No rubber-band bounce anywhere.
+// header ↻ stops. The arrow points down, then up once released would refresh; a ring spins meanwhile. No rubber-band bounce anywhere.
 import { test, expect } from '@playwright/test';
 import { openApp, tick, drag } from './helpers.js';
 
@@ -21,7 +21,10 @@ test('a short pull springs back without refreshing', async ({ page }) => {
   const mbta = await openApp(page, { time: '07:00' });
   mbta.hits.length = 0;
   const release = await drag(page, [200, 300], 100);
-  await expect(ptrText(page)).toHaveText('Pull to refresh');
+  await expect(ptrText(page)).toHaveText('Pull down to refresh');
+  await expect(page.locator('#ptr')).not.toHaveClass(/ready/); // ↓
+  await expect(page.locator('#ptr .ptr-icon')).toBeVisible();
+  await expect(page.locator('#ptr .ptr-ring')).toBeHidden();
   expect(await offset(page)).toBe('translateY(50px)');
   expect(await prevented(page)).toBe(true);
   await release();
@@ -37,9 +40,12 @@ test('a long pull refreshes, holding the gap until the ↻ stops', async ({ page
   mbta.hits.length = 0;
   const release = await drag(page, [200, 300], 200);
   await expect(ptrText(page)).toHaveText('Release to refresh');
+  await expect(page.locator('#ptr')).toHaveClass(/ready/); // ↑
   await release();
   await expect(ptrText(page)).toHaveText('Refreshing…');
   await expect(page.locator('#ptr')).toHaveClass(/busy/);
+  await expect(page.locator('#ptr .ptr-ring')).toBeVisible();
+  await expect(page.locator('#ptr .ptr-icon')).toBeHidden();
   expect(await offset(page)).toBe('translateY(48px)');
   await expect.poll(() => dataHits(mbta).some(h => h.path === '/schedules')).toBe(true); // forced, as ↻
   await expect(page.locator('#refresh')).toHaveClass(/busy/);
@@ -47,6 +53,7 @@ test('a long pull refreshes, holding the gap until the ↻ stops', async ({ page
   await expect(page.locator('#refresh')).not.toHaveClass(/busy/);
   await expect.poll(() => offset(page)).toBe('');
   await expect(page.locator('#ptr')).not.toHaveClass(/busy/);
+  await expect(page.locator('#ptr')).not.toHaveClass(/ready/);
   await expect(page.locator('.row').first()).toHaveAttribute('aria-expanded', 'false');
 });
 
