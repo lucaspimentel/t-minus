@@ -19,6 +19,13 @@ test('every 30 min: a new version shows the banner, and Reload loads it', async 
   await mode('new');
   await tick(page, 30 * 60_000);
   await expect(banner(page)).toBeVisible();
+  // At the bottom: below the last row, above the footer version; a large Reload; not error red.
+  const y = async loc => (await loc.boundingBox()).y;
+  expect(await y(banner(page))).toBeGreaterThan(await y(page.locator('.row').last()));
+  expect(await y(banner(page))).toBeLessThan(await y(page.locator('footer.version')));
+  expect((await page.locator('#reload-new').boundingBox()).height).toBeGreaterThanOrEqual(44);
+  const color = loc => loc.evaluate(el => getComputedStyle(el).color);
+  expect(await color(banner(page))).not.toBe(await color(page.locator('#loadfail'))); // #loadfail is red
   await page.locator('#reload-new').click();
   await expect(page.locator('footer.version')).toHaveText('Version NEW');
 });

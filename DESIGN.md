@@ -613,14 +613,15 @@ too is a likely later step.
   modules (`?v=<content hash>`) are immutable, so a cached exact match is served without a
   request (a slow server delays only the page, not each module).
 - When the page itself came from the cache, the status line adds "Saved copy". If the late
-  network page then differs from it, a "New version available · Reload" banner appears; if it's
+  network page then differs from it, the "New version available" card appears (above the footer version, with a full-width 44 px
+  orange Reload button; neutral text, since it is not an error); if it's
   the same, "Saved copy" clears. The page asks the service worker (`nav-status` message) on
   load; the service worker also posts to open pages when the late response arrives.
 - Update check: a Home Screen app resumed from the background keeps running the page it
   loaded. On each return to the app (`visibilitychange`, at most once a minute) and every 30
   min while it is open, the page fetches `./` (`cache: 'no-store'`; the service worker saves
   it, so Reload is quick) and compares its footer version (`pageVersion`, `isNewerPage`). A
-  different one shows the same "New version available · Reload" banner; no automatic reload.
+  different one shows the same "New version available" card; no automatic reload.
   One request to the app's host, none to the MBTA; offline or the 3-s cache fallback reads as
   no update.
 - `index.html` imports `core.js?v=<content hash>` and `setup.js?v=<content hash>`, and
