@@ -564,21 +564,22 @@ test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {
   const buses = [veh('b1', '10:24', '10:34', 'live')];
   const trains = [veh('o1', '10:43', '10:57', 'live')];
   const [row] = tripRows(homeToOffice, [buses, trains], 0, at('10:00'), 1);
-  const texts = steps => steps.map(s => (s.kind === 'leg' ? `[${s.leg.route} ${s.leg.source}]` : s.text));
+  const texts = steps => steps.map(s => (s.kind === 'leg' ? `[${s.leg.route} ${s.leg.source}]`
+    : s.kind === 'end' ? `${s.label} ${formatTime(s.time, at('10:00'))}` : s.text));
   assert.deepEqual(texts(timelineSteps(row, homeToOffice, 1, at('10:00'))), [
-    'Walk 5 min · 1 min early at the stop', '[132 live]', '9 min to transfer', '[Orange live]',
-    'Walk 10 min · arrive 11:07am',
+    'Leave 10:18am', 'Walk 5 min · 1 min early at the stop', '[132 live]', '9 min to transfer', '[Orange live]',
+    'Walk 10 min', 'Arrive 11:07am',
   ]);
-  assert.equal(timelineSteps(row, homeToOffice, 0, at('10:00'))[0].text, 'Walk 5 min');
-  // En route: no first walk.
+  assert.equal(timelineSteps(row, homeToOffice, 0, at('10:00'))[1].text, 'Walk 5 min');
+  // En route: no Leave, no first walk.
   assert.equal(texts(timelineSteps({ ...row, enRoute: true }, homeToOffice, 1, at('10:00')))[0], '[132 live]');
   // No walks configured: slack only, then "Arrive".
   const bare = { legs: homeToOffice.legs.filter(l => l.kind !== 'walk') };
   const tight = { ...row, legs: [row.legs[0], { ...row.legs[1], dep: row.legs[0].arr + 30_000 }], eta: at('10:57') };
   assert.deepEqual(texts(timelineSteps(tight, bare, 1, at('10:00'))), [
-    '1 min early at the stop', '[132 live]', '<1 min to transfer', '[Orange live]', 'Arrive 10:57am',
+    'Leave 10:18am', '1 min early at the stop', '[132 live]', '<1 min to transfer', '[Orange live]', 'Arrive 10:57am',
   ]);
-  assert.equal(timelineSteps(tight, bare, 0, at('10:00'))[0].kind, 'leg');
+  assert.equal(timelineSteps(tight, bare, 0, at('10:00'))[1].kind, 'leg');
 
   // With stop names: each leg's first and last stop (the walks stay short), and its duration.
   const names = stopNames(
@@ -587,13 +588,13 @@ test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {
   assert.deepEqual([names.get('place-ogmnl'), names.get('70036'), names.get('5991')], ['Oak Grove', 'Oak Grove', 'Washington St opp Oak Grove Sta']);
   const named = timelineSteps(row, homeToOffice, 1, at('10:00'), names);
   assert.deepEqual(texts(named), texts(timelineSteps(row, homeToOffice, 1, at('10:00'))));
-  assert.deepEqual([named[1].from, named[1].to, named[1].minutes, named[3].from, named[3].to, named[3].minutes],
+  assert.deepEqual([named[2].from, named[2].to, named[2].minutes, named[4].from, named[4].to, named[4].minutes],
     ['Main St @ South St', 'Washington St opp Oak Grove Sta', '10 min', 'Oak Grove', 'State', '14 min']);
-  assert.deepEqual([timelineSteps(row, homeToOffice, 1, at('10:00'))[1].from, timelineSteps(row, homeToOffice, 1, at('10:00'))[3].to], [null, null]);
+  assert.deepEqual([timelineSteps(row, homeToOffice, 1, at('10:00'))[2].from, timelineSteps(row, homeToOffice, 1, at('10:00'))[4].to], [null, null]);
   // Walking icons: walks over 0 min and every transfer; none for slack only or "Arrive".
   const walking = steps => steps.filter(st => st.kind === 'walk').map(st => !!st.walking);
   assert.deepEqual(walking(named), [true, true, true]);
-  assert.deepEqual(walking(timelineSteps(tight, bare, 1, at('10:00'))), [false, true, false]);
+  assert.deepEqual(walking(timelineSteps(tight, bare, 1, at('10:00'))), [false, true]);
   assert.deepEqual(walking(timelineSteps({ ...row, enRoute: true }, homeToOffice, 1, at('10:00'))), [true, true]);
 });
 

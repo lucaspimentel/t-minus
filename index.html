@@ -184,10 +184,12 @@
   .tl-leg .step.stop:first-child::after { top: calc(8px + .35em); bottom: 0; border-radius: 4px 4px 0 0; }
   .tl-leg .step.ride::after { top: 0; bottom: 0; }
   .tl-leg .step.stop:last-child::after { top: 0; height: calc(8px + .35em); border-radius: 0 0 4px 4px; }
-  .step.stop { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; cursor: pointer; }
+  .step.stop, .step.end { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; }
+  .step.stop { cursor: pointer; }
   .step.stop .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .step.stop.full .n { white-space: normal; }
-  .step.stop .t { flex: none; }
+  .step.stop .t, .step.end .t { flex: none; }
+  .node.end-node { background: var(--muted); border-color: var(--muted); }
   .node {
     position: absolute; left: 0; top: calc(3px + .35em); width: 10px; height: 10px; border-radius: 50%;
     background: var(--card); border: 2px solid var(--c); box-sizing: border-box; z-index: 1;
@@ -297,7 +299,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · ebb63990a4</footer>
+    <footer class="version">Version 2026-10-02 · 2a5e088e4c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -319,8 +321,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=eaac6c2e47';
-import { openSetup } from './setup.js?v=472cfb3f18';
+} from './core.js?v=aeed6b5295';
+import { openSetup } from './setup.js?v=63bd05c20a';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -736,9 +738,9 @@ function walkStep(line, step) {
   return line;
 }
 
-// The timeline: each stop once, as a node with its time; each ride as a bar in its route's color
-// from its first stop to its last, with "Bus 132 · 9 min LIVE" between them; walks and
-// transfers on the dotted rail. Names not known yet show "—". Long names are cut; tapping a stop
+// The timeline: "Leave" and "Arrive" at the ends and each stop once, as nodes with their times;
+// each ride as a bar in its route's color from its first stop to its last, with "Bus 132 · 9 min
+// LIVE" between them; walks and transfers on the dotted rail. Names not known yet show "—". Long names are cut; tapping a stop
 // shows it in full (kept per `key` across re-renders) without collapsing the row.
 // `phase` (ride card): what's done is dimmed, the current step is bold.
 const fullStops = new Set();
@@ -774,6 +776,13 @@ function renderTimeline(steps, now, { phase = null, key = '' } = {}) {
   };
   let i = 0;
   for (const s of steps) {
+    if (s.kind === 'end') {
+      // "Leave 10:30pm" / "Arrive 11:16pm": a gray node with the time in the stops' column.
+      const line = el('div', `step end${walkState(i)}`);
+      line.append(el('span', 'node end-node'), el('span', 'n', s.label), el('span', 't', formatTime(s.time, now)));
+      timeline.append(line);
+      continue;
+    }
     if (s.kind === 'walk') {
       timeline.append(walkStep(el('div', `step walk${walkState(i)}`, s.text), s));
       continue;

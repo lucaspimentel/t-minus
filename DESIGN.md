@@ -237,10 +237,11 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   across dates. Tapping a row replaces the summary with a timeline under a divider:
   "Walk 5 min · 1 min early at the stop" (the slack part only when > 0; no first walk on
   en-route rows), each leg's stops and ride, "9 min to transfer" (the actual gap: next
-  departure − previous arrival), and
-  "Walk 10 min · arrive 8:56am" (`timelineSteps`); tap again to collapse. Layout
-  (`renderTimeline`, shared with the ride card): each stop once, as a hollow node on the rail
-  with its time on the right ("Main St @ South St 7:08am"); each ride as a bar in its route's
+  departure − previous arrival), and "Walk 10 min" (`timelineSteps`), between "Leave 8:04am"
+  and "Arrive 8:56am" lines (gray nodes; no Leave on en-route rows, which have no leave-by);
+  tap again to collapse. Layout
+  (`renderTimeline`, shared with the ride card): Leave, each stop once, and Arrive as nodes on
+  the rail with their times in one right-aligned column; each stop a hollow node ("Main St @ South St 7:08am"); each ride as a bar in its route's
   color from its first node to its last (drawn in pieces, so it ends at the node even when a
   name wraps), with "Bus 132 · 14 min SCHEDULED" between the two stops (`vehicleLabel` for
   legs on several routes); walks and transfers on a dotted gray rail with a walking figure
@@ -250,7 +251,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   name; no extra requests); until known they show "—". Long names are cut with "…"; tapping a
   stop shows it in full (kept across re-renders) without collapsing the row. On the ride
   card, what's done is dimmed and the current step is bold (riding: the ride and its
-  drop-off; transfer: the transfer and the next boarding stop; walking: the last walk).
+  drop-off; transfer: the transfer and the next boarding stop; walking: the last walk and
+  Arrive). The ride card shows Arrive but no Leave.
   A muted ▾ at the bottom-right of a collapsed row
   (after the arrival) hints at this; expanded rows show ▴ in the same corner, on the "Track
   this trip" line. Expanded rows are remembered

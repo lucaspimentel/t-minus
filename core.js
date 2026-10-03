@@ -883,10 +883,12 @@ export function keepAwakeRiding(ride, walkAfter, nowMs, minutes) {
 // the actual gap at each transfer, and the final walk with the arrival time.
 // `names`: stop id → name (stopNames). Leg steps carry `from`/`to` (null when unknown) and the
 // ride's `minutes`; walk and transfer steps are short text, with `walking` when they involve
-// walking (walks over 0 min, every transfer).
+// walking (walks over 0 min, every transfer). `end` steps put the leave-by time ("Leave", rows
+// with one) and the arrival ("Arrive") on the rail like stops.
 export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map()) {
   const { walkBefore, walkAfter, transit } = tripShape(trip);
   const steps = [];
+  if (!row.enRoute && row.leaveBy != null) steps.push({ kind: 'end', label: 'Leave', time: row.leaveBy });
   if (!row.enRoute) {
     const parts = [walkBefore > 0 && `Walk ${walkBefore} min`, slackMinutes > 0 && `${slackMinutes} min early at the stop`].filter(Boolean);
     if (parts.length) steps.push({ kind: 'walk', text: parts.join(' · '), walking: walkBefore > 0 });
@@ -898,8 +900,8 @@ export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map())
       from: names.get(transit[i]?.stop) ?? null, to: names.get(transit[i]?.alight) ?? null,
     });
   });
-  const arrive = formatTime(row.eta, nowMs);
-  steps.push({ kind: 'walk', text: walkAfter > 0 ? `Walk ${walkAfter} min · arrive ${arrive}` : `Arrive ${arrive}`, walking: walkAfter > 0 });
+  if (walkAfter > 0) steps.push({ kind: 'walk', text: `Walk ${walkAfter} min`, walking: true });
+  steps.push({ kind: 'end', label: 'Arrive', time: row.eta });
   return steps;
 }
 

@@ -58,7 +58,8 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await expect(tl.locator('.walk-icon')).toHaveCount(2); // transfer, final walk
   // Progress: the boarding stop is done; the ride and its drop-off are current.
   const cls = loc => loc.evaluateAll(els => els.map(e => (e.classList.contains('done') ? 'done' : e.classList.contains('current') ? 'current' : '')));
-  expect(await cls(tl.locator('.step'))).toEqual(['done', 'current', 'current', '', '', '', '', '']);
+  expect(await cls(tl.locator('.step'))).toEqual(['done', 'current', 'current', '', '', '', '', '', '']);
+  await expect(tl.locator('.step.end')).toHaveText([/^Arrive\s*7:57am$/]); // no Leave on the ride card
   await expect(card(page).locator('.ride-stops')).toContainText('Pond St @ Stone Zoo');
   await expect(card(page).locator('.ride-stops')).toContainText('Washington St opp Oak Grove Sta');
   await expect(card(page).getByRole('button', { name: 'Missed it' })).toBeVisible();
@@ -69,11 +70,12 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await tickTo(page, '07:23');
   await expect(head(page)).toHaveText('Transfer · Orange 7:32am');
   // The bus leg is done; the transfer and the Orange boarding stop are current.
-  expect(await cls(tl.locator('.step'))).toEqual(['done', 'done', 'done', 'current', 'current', '', '', '']);
+  expect(await cls(tl.locator('.step'))).toEqual(['done', 'done', 'done', 'current', 'current', '', '', '', '']);
   await tickTo(page, '07:33');
   await expect(head(page)).toHaveText('On Orange · off at 7:47am');
   await tickTo(page, '07:48');
   await expect(head(page)).toHaveText('Walking · arrive 7:57am');
+  expect((await cls(tl.locator('.step'))).slice(-2)).toEqual(['current', 'current']); // last walk, Arrive
   await tickTo(page, '07:58');
   await expect(head(page)).toHaveText('Arrived ~7:57am');
   await card(page).getByRole('button', { name: 'Done' }).click();
