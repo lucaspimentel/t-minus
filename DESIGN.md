@@ -358,6 +358,14 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   ✕ on a leg → "Leg removed · Undo" (while that editor is open); Import over existing trips →
   "Trips replaced · Undo" (trips and settings). Any later save, and leaving setup, hides the
   toast. Undo restores trips and settings, not a cleared "Leaving now" / tracking state.
+- Trip editor order: name, time to first stop, the legs, "+ Add transit leg", time from last
+  stop, then a "More: when to show, leave-by time" group (`<details>`, closed for a new trip,
+  open when the trip has a window, `near`, or a pinned timing leg) with "Show automatically"
+  and "Leave-by time is based on". A trip with no legs shows a dashed box "No legs yet. Add
+  the bus or train you take first." with a filled accent "+ Add transit leg", and Save is
+  disabled until a leg exists; with legs, the add button has an accent outline. A new trip's
+  name is suggested from its stops ("Oak Grove → State", first board stop → last drop-off)
+  until one is typed; an empty name saves as "Trip N".
 - In the trip editor each transit leg is its own box ("Leg 1", summary, route checkboxes,
   Edit/↑/↓/✕); the transfer times sit between the boxes and the walk times before the first
   and after the last.

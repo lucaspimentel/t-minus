@@ -23,7 +23,14 @@ async function openSetup(page) {
 test('first run: build a trip with the pickers, save it, and see its rows', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
   await expect(button(page, 'Import')).toBeVisible(); // nothing to cancel back to
-  await setup(page).getByLabel('Trip name').fill('Commute');
+  // An empty trip says what to do first; Save waits for a leg; the settings sit under "More".
+  await expect(setup(page).locator('.legs-empty')).toContainText('No legs yet. Add the bus or train you take first.');
+  await expect(button(page, 'Save')).toBeDisabled();
+  await expect(button(page, '+ Add transit leg')).toHaveClass(/primary/);
+  await expect(setup(page).getByLabel('Show automatically')).toBeHidden();
+  await setup(page).locator('details.more summary').click();
+  await setup(page).getByLabel('Show automatically').selectOption('window');
+  await expect(setup(page).getByLabel('Shown from')).toBeVisible();
   await setup(page).getByLabel('Show automatically').selectOption('never');
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('132');
@@ -38,6 +45,12 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   await expect(setup(page).locator('.item', { hasText: 'Pond St @ Stone Zoo' }).locator('.conn')).toHaveCount(0);
   await setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).click();
   await expect(setup(page)).toContainText('Main St @ South St → Washington St opp Oak Grove Sta');
+  await expect(setup(page).locator('.legs-empty')).toHaveCount(0);
+  await expect(button(page, 'Save')).toBeEnabled();
+  await expect(button(page, '+ Add transit leg')).toHaveClass(/accent/);
+  // The name comes from the stops until one is typed.
+  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Main St @ South St → Washington St opp Oak Grove Sta');
+  await setup(page).getByLabel('Trip name').fill('Commute');
   await button(page, 'Save').click();
   await expect(setup(page).locator('.trip-row')).toHaveCount(1);
   expect(await storedNames(page)).toEqual(['Commute']);
@@ -196,6 +209,17 @@ test('Cancel discards edits with Undo; without edits there is no toast', async (
   expect(await tripNames(page)).toEqual(['Home to office', 'Office to home']);
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Changed name');
+});
+
+test('a saved trip with a time window opens with "More" open; removing every leg brings back the hint', async ({ page }) => {
+  await openSetup(page);
+  await setup(page).locator('.trip-row .item').first().click();
+  await expect(setup(page).locator('details.more')).toHaveAttribute('open', '');
+  await expect(setup(page).getByLabel('Show automatically')).toHaveValue('window');
+  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Home to office'); // a saved name is kept
+  for (let i = 0; i < 2; i++) await setup(page).getByRole('button', { name: 'Remove leg' }).first().click();
+  await expect(setup(page).locator('.legs-empty')).toBeVisible();
+  await expect(button(page, 'Save')).toBeDisabled();
 });
 
 test('removing a leg can be undone while the editor is open', async ({ page }) => {

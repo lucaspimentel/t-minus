@@ -37,7 +37,8 @@ function h(tag, props = {}, ...children) {
   return e;
 }
 
-const emptyTrip = n => ({ name: n === 0 ? 'My trip' : `Trip ${n + 1}`, window: null, near: false, timingLeg: null, walkBefore: 5, walkAfter: 5, transit: [] });
+// A new trip has no name until its legs suggest one (tripScreen); Save falls back to "Trip N".
+const emptyTrip = () => ({ name: '', window: null, near: false, timingLeg: null, walkBefore: 5, walkAfter: 5, transit: [] });
 const numberValue = v => (v === '' ? NaN : Number(v));
 const info = text => ({ text, err: false });
 const errs = list => list.map(text => ({ text, err: true }));
@@ -320,6 +321,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   async function saveTrip() {
     const pos = editing.idx ?? editing.insertAt;
+    if (!editing.form.name.trim()) editing.form.name = `Trip ${pos + 1}`;
     const trip = formToTrip(editing.form);
     const trips = [...savedTrips()];
     if (editing.idx != null) trips[pos] = trip; else trips.splice(pos, 0, trip);
@@ -413,6 +415,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   function tripScreen() {
     const t = editing.form;
+    // Name from the stops ("Main St @ South St → State") until one is typed.
+    const first = t.transit[0], last = t.transit.at(-1);
+    const suggestion = first ? `${stopName(first.route, first.direction_id, first.stop)} → ${stopName(last.route, last.direction_id, last.alight)}` : '';
+    if (!t.name || t.name === editing.suggested) { t.name = suggestion; editing.suggested = suggestion; }
+    editing.moreOpen ??= !!(t.window || t.near || Number.isInteger(t.timingLeg));
     const mode = t.window ? 'window' : t.near ? 'near' : 'never';
     const setMode = m => {
       t.window = m === 'window' ? (t.window ?? { from: '06:00', to: '12:00' }) : null;
@@ -473,24 +480,30 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
           // First run: no list to cancel back to; offer the list's import box instead.
           : h('button', { type: 'button', id: 'setup-import', onclick: () => { editing = null; ioArea = { mode: 'import', text: '' }; render(); } }, 'Import'),
         h('b', {}, isSaved ? 'Edit trip' : 'New trip'),
-        h('button', { type: 'button', class: 'primary', id: 'setup-save', disabled: busy, onclick: saveTrip }, 'Save')),
+        h('button', { type: 'button', class: 'primary', id: 'setup-save', disabled: busy || !t.transit.length, onclick: saveTrip }, 'Save')),
       ...editing.messages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)),
+      // Order: name, walk, legs (or what to do first), walk, then the less-used settings.
       h('div', { class: 'card' },
         h('label', { class: 'field' }, 'Trip name',
-          h('input', { type: 'text', value: t.name, oninput: e => { t.name = e.target.value; } })),
-        h('label', { class: 'field' }, 'Show automatically',
-          h('select', { onchange: e => setMode(e.target.value) },
-            h('option', { value: 'window', selected: mode === 'window' }, 'During a time window'),
-            h('option', { value: 'near', selected: mode === 'near' }, "When I'm near its first stop"),
-            h('option', { value: 'never', selected: mode === 'never' }, 'Never (only when chosen)'))),
-        mode === 'window' && h('div', { class: 'row2' },
-          h('label', { class: 'field' }, 'Shown from', timeInput('from')),
-          h('label', { class: 'field' }, 'until', timeInput('to'))),
+          h('input', { type: 'text', value: t.name, placeholder: 'Name (suggested from your stops)', oninput: e => { t.name = e.target.value; } })),
         numberField('Time to first stop (min)', t.walkBefore, v => { t.walkBefore = v; }),
         ...legs,
-        h('button', { type: 'button', class: 'add', onclick: () => openPicker(null) }, '+ Add transit leg'),
+        t.transit.length
+          ? h('button', { type: 'button', class: 'add accent', onclick: () => openPicker(null) }, '+ Add transit leg')
+          : h('div', { class: 'legs-empty' }, 'No legs yet. Add the bus or train you take first.',
+            h('button', { type: 'button', class: 'primary add', onclick: () => openPicker(null) }, '+ Add transit leg')),
         numberField('Time from last stop (min)', t.walkAfter, v => { t.walkAfter = v; }),
-        timing),
+        h('details', { class: 'more', open: editing.moreOpen, ontoggle: e => { if (editing) editing.moreOpen = e.target.open; } },
+          h('summary', {}, 'More: when to show, leave-by time'),
+          h('label', { class: 'field' }, 'Show automatically',
+            h('select', { onchange: e => setMode(e.target.value) },
+              h('option', { value: 'window', selected: mode === 'window' }, 'During a time window'),
+              h('option', { value: 'near', selected: mode === 'near' }, "When I'm near its first stop"),
+              h('option', { value: 'never', selected: mode === 'never' }, 'Never (only when chosen)'))),
+          mode === 'window' && h('div', { class: 'row2' },
+            h('label', { class: 'field' }, 'Shown from', timeInput('from')),
+            h('label', { class: 'field' }, 'until', timeInput('to'))),
+          timing)),
       isSaved && h('div', { class: 'btns trip-btns' },
         t.transit.length > 0 && h('button', { type: 'button', onclick: addReturnTrip }, 'Add return trip'),
         savedTrips().length > 1 && h('button', { type: 'button', class: 'danger', onclick: deleteTrip }, 'Delete trip')),

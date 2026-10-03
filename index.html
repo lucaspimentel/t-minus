@@ -240,6 +240,13 @@
   .btns { display: flex; flex-wrap: wrap; gap: 6px; }
   .trip-btns, .io { margin-top: 12px; }
   .setup button.add { width: 100%; margin: 10px 0 0; }
+  .setup button.add.accent { border-color: var(--accent); color: var(--accent); }
+  .legs-empty {
+    border: 1px dashed var(--border); border-radius: 10px; padding: 12px; margin-top: 12px;
+    text-align: center; color: var(--muted); font-size: 14px;
+  }
+  .setup details.more { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .setup details.more summary { font-size: 14px; color: var(--muted); cursor: pointer; }
   .setup .list { display: grid; gap: 6px; margin-top: 10px; }
   .setup button.item { text-align: left; width: 100%; }  .setup .item + .item { margin-top: 0; }
   .setup .list.trips { margin: 0; }
@@ -274,7 +281,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · 82cc917ce9</footer>
+    <footer class="version">Version 2026-10-02 · bcaf520708</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -297,7 +304,7 @@ import {
   unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
 } from './core.js?v=2c244c74fa';
-import { openSetup } from './setup.js?v=864b078fc1';
+import { openSetup } from './setup.js?v=ecfbc92737';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
