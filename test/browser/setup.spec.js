@@ -257,7 +257,7 @@ test('legs: tap to change (Remove leg is in there, with Undo), ↑↓ to reorder
   await expect(toast(page)).toContainText('Leg removed');
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(legs).toHaveCount(2);
-  await expect(setup(page).getByLabel('Transfer (min)')).toHaveValue('5');
+  await expect(setup(page).getByLabel('Minutes to transfer')).toHaveValue('5');
 });
 
 test('Delete removes the trip at once, with Undo; a later save hides the toast', async ({ page }) => {

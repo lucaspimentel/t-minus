@@ -458,7 +458,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       render();
     };
     const legs = t.transit.flatMap((l, j) => [
-      j > 0 && numberField('Transfer (min)', l.transferBefore, v => { l.transferBefore = v; }),
+      j > 0 && numberField('Minutes to transfer', l.transferBefore, v => { l.transferBefore = v; }),
       // Each leg in its own box, like the trip list: tap to change it (Remove leg is in there),
       // ↑↓ on the right. Transfer and walk times sit between and around the boxes.
       h('div', { class: 'leg-row' },
@@ -497,13 +497,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('div', { class: 'card' },
         h('label', { class: 'field' }, 'Trip name',
           h('input', { type: 'text', value: t.name, placeholder: 'Name (suggested from your stops)', oninput: e => { t.name = e.target.value; } })),
-        numberField('Time to first stop (min)', t.walkBefore, v => { t.walkBefore = v; }),
+        numberField('Minutes to first stop', t.walkBefore, v => { t.walkBefore = v; }),
         ...legs,
         t.transit.length
           ? h('button', { type: 'button', class: 'add accent', onclick: () => openPicker(null) }, '+ Add transit leg')
           : h('div', { class: 'legs-empty' }, 'No legs yet. Add the bus or train you take first.',
             h('button', { type: 'button', class: 'primary add', onclick: () => openPicker(null) }, '+ Add transit leg')),
-        numberField('Time from last stop (min)', t.walkAfter, v => { t.walkAfter = v; }),
+        numberField('Minutes from last stop', t.walkAfter, v => { t.walkAfter = v; }),
         // 'toggle' fires asynchronously, so a re-render right after opening (a change inside) would
         // close it again; the summary click records the new state first.
         h('details', { class: 'more', open: editing.moreOpen, ontoggle: e => { if (editing) editing.moreOpen = e.target.open; } },

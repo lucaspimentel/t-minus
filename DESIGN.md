@@ -71,7 +71,8 @@ A trip is walk/transfer minutes around one or more transit legs (`tripShape`):
 `walkBefore` (before the first transit leg), `transfers[i]` (between transit legs `i` and
 `i+1`; a missing transfer leg counts as 0), `walkAfter` (after the last transit leg).
 Despite the name, a `walk` leg is any time spent getting to or from the stops (walking, a
-ride, etc.); setup labels them "Time to first stop" and "Time from last stop".
+ride, etc.); setup labels them "Minutes to first stop" and "Minutes from last stop" (and a
+transfer leg "Minutes to transfer").
 
 ### Timing leg
 
