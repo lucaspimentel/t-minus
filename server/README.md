@@ -6,11 +6,11 @@ heads-up, "Leave now", or "Ride cancelled" (see `DESIGN.md`, Notifications).
 
 ## Railway setup
 
-1. **Project:** in Railway, choose New Project → Deploy from GitHub repo →
-   `lucaspimentel/mbta-leave-by`. Keep the root directory as the repo root.
-   `railway.json` sets the build (`npm ci --prefix server`), the start command
-   (`node server/main.mjs`), the health check (`/health`), and redeploys only when `server/`,
-   `core.js` or `railway.json` change.
+1. **Project:** in Railway, create a project with a service sourced from
+   `lucaspimentel/mbta-leave-by`, branch `main` (repo root, so `server/` can import
+   `../core.js`). The deploy config lives in the service's Railway settings, not the repo:
+   build command `npm ci --prefix server`, start command `node server/main.mjs`, health check
+   `/health`, watch paths `server/**` and `core.js` (only those change redeploying).
 2. **Volume:** right-click the service → Attach volume, mounted at `/data`. Reminders are kept
    there in `reminders.json`.
 3. **VAPID keys:** run this once, anywhere with Node:
@@ -35,8 +35,9 @@ heads-up, "Leave now", or "Ride cancelled" (see `DESIGN.md`, Notifications).
    keeps running. One replica is enough. Don't add more, because they would each send the
    pushes.
 6. **Domain:** Settings → Networking → Generate Domain. Check `https://<domain>/health`, which
-   should return `{"ok":true,"reminders":0}`. Then send the URL, and `PUSH_SERVER` in
-   `index.html` gets set to it. "Notify me" appears once that version is live.
+   should return `{"ok":true,"reminders":0}`. `PUSH_SERVER` in `index.html` is already set to
+   the deployed URL (`https://push-server-production-7b87.up.railway.app`); change it there if
+   the domain ever moves.
 
 ## Local run
 

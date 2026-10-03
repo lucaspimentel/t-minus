@@ -9,7 +9,7 @@ timing-leg override, collapsed rows, the trip list with one-at-a-time editing, s
 route labels with MBTA color dots, a sticky picker search, boxed legs in the trip editor, stop names in the timeline, trip tracking, service worker fallbacks (5xx, 3 s
 timeout, "Saved copy", reload banner), and UI affordances: loading indicators, the old-data
 age, Retry / backoff / rate-limit countdown, expand hints, pressed states, Undo toasts on
-the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop list with the stop before the drop-off, and browser tests in CI against a fake MBTA API, and leave-time push reminders ("Notify me", `server/`) (see `DESIGN.md`).
+the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop list with the stop before the drop-off, and browser tests in CI against a fake MBTA API, and leave-time push reminders ("Notify me", `server/`) deployed on Railway (see `DESIGN.md`).
 
 ## UI
 
@@ -18,8 +18,6 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 
 ## Notifications
 
-- Deploy the push server on Railway (`server/README.md`), then set `PUSH_SERVER` in
-  `index.html`.
 - Move the reminder store from a JSON file to a database.
 - Serve the app from the Railway service too (one origin; reinstall the Home Screen app).
 
