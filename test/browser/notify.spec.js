@@ -12,7 +12,7 @@ test.beforeEach(({ page }) => {
 // The Push API (permission, the service worker's pushManager) and the push server's address.
 function pushStub({ supported = true, server = PUSH } = {}) {
   return ({ supported, server }) => {
-    if (server) localStorage.setItem('mbta-leave-by:push-server', JSON.stringify(server));
+    if (server != null) localStorage.setItem('mbta-leave-by:push-server', JSON.stringify(server));
     if (!supported) { delete window.PushManager; return; }
     window.Notification.requestPermission = async () => 'granted';
     const sub = { endpoint: 'https://push.example/1', keys: { p256dh: 'k', auth: 'a' } };

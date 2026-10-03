@@ -320,7 +320,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-03 · 0770b57543</footer>
+    <footer class="version">Version 2026-10-03 · 55a3239f8d</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -761,9 +761,10 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
 
 // ---------- leave-time reminders ----------
 
-// The push server (server/), empty until it's deployed; on localhost, tests set it in storage.
-const PUSH_SERVER = (location.hostname === 'localhost' && store.get('mbta-leave-by:push-server'))
-  || 'https://push-server-production-7b87.up.railway.app';
+// The push server (server/, on Railway). On localhost, tests can override it in storage; '' hides
+// "Notify me".
+const pushOverride = location.hostname === 'localhost' ? store.get('mbta-leave-by:push-server') : null;
+const PUSH_SERVER = pushOverride ?? 'https://push-server-production-7b87.up.railway.app';
 // iOS has push only in the Home Screen app.
 const pushSupported = 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
 // Set reminders: { ["<trip>/<row key>"]: { id, leaveBy, headsUp } }, until their leave-by passes.
