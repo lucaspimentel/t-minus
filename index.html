@@ -171,13 +171,30 @@
   .arrive { margin-left: auto; white-space: nowrap; }
   /* Expanded row: steps under a divider, joined by a rail through the route dots. */
   .timeline { position: relative; border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; }
+  /* Walking parts of the rail: dotted; each ride draws its own bar over it (.tl-leg). */
   .timeline::before {
-    content: ''; position: absolute; left: 4px; top: 14px; bottom: 10px; width: 2px; background: var(--border);
+    content: ''; position: absolute; left: 4px; top: 14px; bottom: 12px; border-left: 2px dotted var(--border);
   }
   .step { position: relative; padding: 3px 0 3px 22px; font-variant-numeric: tabular-nums; }
   .step.walk { font-size: 13px; color: var(--muted); }
-  .step.leg { font-size: 14px; }
-  .step-stops { font-size: 13px; color: var(--muted); font-weight: normal; }
+  .tl-leg { position: relative; }
+  /* The ride's bar, in three pieces so it runs node to node even when a long name wraps: from
+     the boarding stop's node down, through the ride line, down to the drop-off's node. */
+  .tl-leg .step::after { content: ''; position: absolute; left: 1px; width: 8px; background: var(--c); }
+  .tl-leg .step.stop:first-child::after { top: calc(8px + .35em); bottom: 0; border-radius: 4px 4px 0 0; }
+  .tl-leg .step.ride::after { top: 0; bottom: 0; }
+  .tl-leg .step.stop:last-child::after { top: 0; height: calc(8px + .35em); border-radius: 0 0 4px 4px; }
+  .step.stop { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; cursor: pointer; }
+  .step.stop .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step.stop.full .n { white-space: normal; }
+  .step.stop .t { flex: none; }
+  .node {
+    position: absolute; left: 0; top: calc(3px + .35em); width: 10px; height: 10px; border-radius: 50%;
+    background: var(--card); border: 2px solid var(--c); box-sizing: border-box; z-index: 1;
+  }
+  .step.ride { font-size: 13px; color: var(--muted); padding-top: 4px; padding-bottom: 4px; }
+  .step.done { opacity: .4; }
+  .step.walk.current, .step.ride.current { color: var(--text); }
   /* Walking figure on the rail (centered on it, like the route dots); the card color masks the rail. */
   .walk-icon {
     position: absolute; left: -3px; top: 3px; width: 16px; height: 18px; display: flex; align-items: center; justify-content: center;
@@ -185,7 +202,6 @@
   }
   .walk-icon svg { width: 14px; height: 14px; fill: currentColor; }
   .step.current .walk-icon { color: var(--text); }
-  .step.leg .dot { position: absolute; left: 0; top: calc(3px + .4em); margin: 0; }
   .empty { color: var(--muted); padding: 16px 0; }
   .enroute-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 14px; color: var(--muted); }
   .enroute-bar button {
@@ -281,7 +297,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-02 · bcaf520708</footer>
+    <footer class="version">Version 2026-10-02 · ebb63990a4</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -303,8 +319,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel,
-} from './core.js?v=2c244c74fa';
-import { openSetup } from './setup.js?v=ecfbc92737';
+} from './core.js?v=eaac6c2e47';
+import { openSetup } from './setup.js?v=472cfb3f18';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -682,15 +698,7 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
     return li;
   }
   // Expanded: the timeline replaces the summary (walks, legs with their badges, transfers).
-  const timeline = el('div', 'timeline');
-  for (const s of timelineSteps(r, config.trips[tripIdx], stopSlackMinutes(config), now, tripStopNames())) {
-    if (s.kind === 'walk') { timeline.append(walkStep(el('div', 'step walk', s.text), s)); continue; }
-    const line = el('div', 'step leg');
-    line.append(dot(s.leg.color), `${vehicleLabel(s.leg)} ${formatTime(s.leg.dep, now)} → ${formatTime(s.leg.arr, now)}`, badge(s.leg.source));
-    legStops(line, s);
-    timeline.append(line);
-  }
-  li.append(timeline);
+  li.append(renderTimeline(timelineSteps(r, config.trips[tripIdx], stopSlackMinutes(config), now, tripStopNames()), now, { key: rowKey(r) }));
   // Footer: "Track this trip" (not next-day rows, nor rides already gone) and the ▴ hint.
   const foot = el('div', 'row-foot');
   if (!r.nextDay && r.firstDep > now) {
@@ -728,9 +736,58 @@ function walkStep(line, step) {
   return line;
 }
 
-// "Wonderland → State" under a timeline leg, when both names are known.
-function legStops(line, step) {
-  if (step.from && step.to) line.append(el('div', 'step-stops', `${step.from} → ${step.to}`));
+// The timeline: each stop once, as a node with its time; each ride as a bar in its route's color
+// from its first stop to its last, with "Bus 132 · 9 min LIVE" between them; walks and
+// transfers on the dotted rail. Names not known yet show "—". Long names are cut; tapping a stop
+// shows it in full (kept per `key` across re-renders) without collapsing the row.
+// `phase` (ride card): what's done is dimmed, the current step is bold.
+const fullStops = new Set();
+function renderTimeline(steps, now, { phase = null, key = '' } = {}) {
+  const timeline = el('div', 'timeline');
+  const n = steps.filter(s => s.kind === 'leg').length;
+  const p = phase ? phase.leg : -1; // index of the leg being ridden, or the one after the transfer
+  const kind = phase?.kind;
+  // Walk step before leg `i` (i === n: the last walk).
+  const walkState = i => !phase ? ''
+    : kind === 'riding' ? (i <= p ? ' done' : '')
+      : kind === 'transfer' ? (i < p ? ' done' : i === p ? ' current' : '')
+        : i < n ? ' done' : ' current';
+  // Leg `i`'s parts: its boarding stop, ride line, and drop-off stop.
+  const legState = (i, part) => {
+    if (!phase || i > p) return '';
+    if (kind !== 'riding' && kind !== 'transfer') return ' done';
+    if (i < p) return ' done';
+    if (kind === 'riding') return part === 'from' ? ' done' : ' current';
+    return part === 'from' ? ' current' : '';
+  };
+  const stopLine = (name, time, id, cls) => {
+    const line = el('div', `step stop${cls}${fullStops.has(id) ? ' full' : ''}`);
+    line.append(el('span', 'node'), el('span', 'n', name ?? '—'), el('span', 't', formatTime(time, now)));
+    if (name) {
+      line.onclick = e => {
+        e.stopPropagation();
+        if (fullStops.has(id)) fullStops.delete(id); else fullStops.add(id);
+        line.classList.toggle('full');
+      };
+    }
+    return line;
+  };
+  let i = 0;
+  for (const s of steps) {
+    if (s.kind === 'walk') {
+      timeline.append(walkStep(el('div', `step walk${walkState(i)}`, s.text), s));
+      continue;
+    }
+    const leg = el('div', 'tl-leg');
+    leg.style.setProperty('--c', s.leg.color ? `#${s.leg.color}` : 'var(--muted)');
+    const ride = el('div', `step ride${legState(i, 'ride')}`, `${vehicleLabel(s.leg)} · ${s.minutes}`);
+    ride.append(badge(s.leg.source));
+    leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from')), ride,
+      stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to')));
+    timeline.append(leg);
+    i++;
+  }
+  return timeline;
 }
 
 // Rows expanded by a tap, by row key (the timing vehicle's trip id; next-day ids repeat).
@@ -940,23 +997,7 @@ function renderRideCard(s, now) {
   // Timeline with the current step: the leg being ridden, the transfer before a leg, or the
   // final walk.
   const steps = timelineSteps({ legs: ride.legs, eta: phase.eta, enRoute: true }, trip, 0, now, tripStopNames());
-  const timeline = el('div', 'timeline');
-  let legNo = -1;
-  steps.forEach((st, k) => {
-    if (st.kind === 'leg') legNo++;
-    const current = st.kind === 'leg'
-      ? phase.kind === 'riding' && phase.leg === legNo
-      : k === steps.length - 1 ? phase.kind === 'walking' || phase.kind === 'arrived'
-        : phase.kind === 'transfer' && phase.leg === legNo + 1;
-    const line = el('div', `step ${st.kind}${current ? ' current' : ''}`, st.kind === 'walk' ? st.text : null);
-    walkStep(line, st);
-    if (st.kind === 'leg') {
-      line.append(dot(st.leg.color), `${vehicleLabel(st.leg)} ${formatTime(st.leg.dep, now)} → ${formatTime(st.leg.arr, now)}`, badge(st.leg.source));
-      legStops(line, st);
-    }
-    timeline.append(line);
-  });
-  li.append(timeline);
+  li.append(renderTimeline(steps, now, { phase, key: `ride:${ride.legs[0].tripId}` }));
   if (rideNote) li.append(el('div', 'msg', rideNote));
   const btns = el('div', 'enroute-bar ride-btns');
   const btn = (label, onclick) => {

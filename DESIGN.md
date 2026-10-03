@@ -234,19 +234,24 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   Orange ─"), then the source badge (LIVE/SCHEDULED, of the timing leg; the first leg on missed
   and en-route rows) and "arrive 8:56am" right-aligned under the time; routes and departures
   only when expanded. All times use the compact "8:04am" form (`formatTime`), with the weekday prefixed
-  across dates. Tapping a row replaces the summary with a timeline under a divider, steps
-  joined by a rail through the route dots: "Walk 5 min · 1 min early at the stop" (the slack
-  part only when > 0; no first walk on en-route rows), "● Bus 132 8:10am → 8:20am LIVE" per
-  leg, "9 min to transfer" (the actual gap: next departure − previous arrival), and
-  "Walk 10 min · arrive 8:56am" (`timelineSteps`); tap again to collapse. With stop names
-  known (`stopNames`, from the `include=stop` records the schedule and prediction responses
-  already carry, `fields[stop]=name,parent_station`; a parent station takes its platform's
-  name; no extra requests), each leg has a muted "Wonderland → State" line under its times,
-  and the steps say "Walk 5 min to Wonderland · …", "6 min to transfer at State" (or ",
-  State → Downtown Crossing" between different stops), "Walk 10 min from Kendall/MIT · arrive
-  …". The ride card's timeline shows the same. Steps that involve walking (walks over 0 min,
-  every transfer) carry a small walking figure on the rail (inline SVG, muted color), so the
-  rail reads walk, ● Bus 132, walk, ● Orange, walk; slack-only and "Arrive" steps have none. A muted ▾ at the bottom-right of a collapsed row
+  across dates. Tapping a row replaces the summary with a timeline under a divider:
+  "Walk 5 min · 1 min early at the stop" (the slack part only when > 0; no first walk on
+  en-route rows), each leg's stops and ride, "9 min to transfer" (the actual gap: next
+  departure − previous arrival), and
+  "Walk 10 min · arrive 8:56am" (`timelineSteps`); tap again to collapse. Layout
+  (`renderTimeline`, shared with the ride card): each stop once, as a hollow node on the rail
+  with its time on the right ("Main St @ South St 7:08am"); each ride as a bar in its route's
+  color from its first node to its last (drawn in pieces, so it ends at the node even when a
+  name wraps), with "Bus 132 · 14 min SCHEDULED" between the two stops (`vehicleLabel` for
+  legs on several routes); walks and transfers on a dotted gray rail with a walking figure
+  (walks over 0 min, every transfer) and short text ("10 min to transfer"). Stop names come
+  from the `include=stop` records the schedule and prediction responses already carry
+  (`stopNames`, `fields[stop]=name,parent_station`; a parent station takes its platform's
+  name; no extra requests); until known they show "—". Long names are cut with "…"; tapping a
+  stop shows it in full (kept across re-renders) without collapsing the row. On the ride
+  card, what's done is dimmed and the current step is bold (riding: the ride and its
+  drop-off; transfer: the transfer and the next boarding stop; walking: the last walk).
+  A muted ▾ at the bottom-right of a collapsed row
   (after the arrival) hints at this; expanded rows show ▴ in the same corner, on the "Track
   this trip" line. Expanded rows are remembered
   by the timing vehicle's trip id while the page is open.

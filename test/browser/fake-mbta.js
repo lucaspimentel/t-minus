@@ -6,6 +6,7 @@
 //   trips: [{ id, route, direction, stops: [[stopId, 'HH:MM'], …], live?: true | { delay, stops? },
 //             cancelled?: [stopId, …] }],
 //   alerts: [{ id, effect, header, route, stop? }],
+//   unnamed?: true (included stops without names),
 // }
 // Times are local (America/New_York) on whatever service date the app asks for, so the same
 // scenario serves today's and the next day's schedules. Live trips also get predictions
@@ -201,6 +202,8 @@ export async function fakeMbta(context, scenario, { now }) {
     if (mbta.mode === '503') return route.fulfill({ status: 503, headers, body: '{}' }).catch(() => {});
     if (mbta.mode === '429') return route.fulfill({ status: 429, headers, body: '{}' }).catch(() => {});
     const body = answer(url);
+    // `scenario.unnamed`: stops come without names (the app shows "—").
+    if (scenario.unnamed) for (const inc of body?.included ?? []) if (inc.attributes) delete inc.attributes.name;
     return route.fulfill({ status: body ? 200 : 404, headers, body: JSON.stringify(body ?? {}) }).catch(() => {});
   }
 

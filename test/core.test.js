@@ -580,21 +580,16 @@ test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {
   ]);
   assert.equal(timelineSteps(tight, bare, 0, at('10:00'))[0].kind, 'leg');
 
-  // With stop names: where each leg starts and ends, where to walk and transfer.
+  // With stop names: each leg's first and last stop (the walks stay short), and its duration.
   const names = stopNames(
     doc([], [stopInc('25996'), stopInc('5991'), stopInc('70036', 'place-ogmnl'), stopInc('70022', 'place-state')]
       .map((st, i) => ({ ...st, attributes: { name: ['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State'][i] } }))));
   assert.deepEqual([names.get('place-ogmnl'), names.get('70036'), names.get('5991')], ['Oak Grove', 'Oak Grove', 'Washington St opp Oak Grove Sta']);
   const named = timelineSteps(row, homeToOffice, 1, at('10:00'), names);
-  assert.deepEqual(texts(named), [
-    'Walk 5 min to Main St @ South St · 1 min early at the stop', '[132 live]',
-    '9 min to transfer, Washington St opp Oak Grove Sta → Oak Grove', '[Orange live]',
-    'Walk 10 min from State · arrive 11:07am',
-  ]);
-  assert.deepEqual([named[1].from, named[1].to, named[3].from, named[3].to], ['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
-  const same = new Map([...names, ['5991', 'Oak Grove']]);
-  assert.equal(timelineSteps(row, homeToOffice, 1, at('10:00'), same)[2].text, '9 min to transfer at Oak Grove');
-  assert.equal(texts(timelineSteps(tight, bare, 1, at('10:00'), names)).at(-1), 'Arrive 10:57am at State');
+  assert.deepEqual(texts(named), texts(timelineSteps(row, homeToOffice, 1, at('10:00'))));
+  assert.deepEqual([named[1].from, named[1].to, named[1].minutes, named[3].from, named[3].to, named[3].minutes],
+    ['Main St @ South St', 'Washington St opp Oak Grove Sta', '10 min', 'Oak Grove', 'State', '14 min']);
+  assert.deepEqual([timelineSteps(row, homeToOffice, 1, at('10:00'))[1].from, timelineSteps(row, homeToOffice, 1, at('10:00'))[3].to], [null, null]);
   // Walking icons: walks over 0 min and every transfer; none for slack only or "Arrive".
   const walking = steps => steps.filter(st => st.kind === 'walk').map(st => !!st.walking);
   assert.deepEqual(walking(named), [true, true, true]);

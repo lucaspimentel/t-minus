@@ -20,21 +20,36 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
 
   await first.click();
   await expect(first).toHaveAttribute('aria-expanded', 'true');
-  await expect(first.locator('.timeline')).toContainText('Bus 132 7:08am → 7:22am');
-  await expect(first.locator('.timeline')).toContainText('10 min to transfer'); // 7:22 arrival → 7:32 Orange
-  // Stop names from the responses' included stops.
-  await expect(first.locator('.step-stops')).toHaveText(['Main St @ South St → Washington St opp Oak Grove Sta', 'Oak Grove → State']);
-  await expect(first.locator('.step.walk')).toHaveText([
-    'Walk 5 min to Main St @ South St · 1 min early at the stop',
-    '10 min to transfer, Washington St opp Oak Grove Sta → Oak Grove',
-    'Walk 10 min from State · arrive 7:57am',
-  ]);
-  // Walking figures on the rail: walk, transfer, walk.
-  await expect(first.locator('.step.walk .walk-icon')).toHaveCount(3);
+  // Stops as the rail's nodes (names from the responses' included stops), each with its time;
+  // each ride between its stops, as a bar in the route's color; walks and transfers short.
+  const tl = first.locator('.timeline');
+  await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
+  await expect(tl.locator('.step.stop .t')).toHaveText(['7:08am', '7:22am', '7:32am', '7:47am']);
+  await expect(tl.locator('.step.ride')).toHaveText([/^Bus 132 · 14 min\s*scheduled$/i, /^Orange · 15 min\s*scheduled$/i]);
+  expect(await tl.locator('.tl-leg').evaluateAll(ls => ls.map(l => l.style.getPropertyValue('--c')))).toEqual(['#FFC72C', '#ED8B00']);
+  await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min · 1 min early at the stop', '10 min to transfer', 'Walk 10 min · arrive 7:57am']);
+  await expect(tl.locator('.step.walk .walk-icon')).toHaveCount(3);
+  // Tapping a stop shows its full name (kept across re-renders) and doesn't collapse the row.
+  const drop = tl.locator('.step.stop').nth(1);
+  await drop.click();
+  await expect(drop).toHaveClass(/\bfull\b/);
+  await expect(first).toHaveAttribute('aria-expanded', 'true');
+  await tick(page, 1500);
+  await expect(tl.locator('.step.stop').nth(1)).toHaveClass(/\bfull\b/);
+  await tl.locator('.step.stop').nth(1).click();
+  await expect(tl.locator('.step.stop').nth(1)).not.toHaveClass(/\bfull\b/);
   await expect(first.locator('.row-foot')).toContainText('Track this trip');
   await expect(first.locator('.row-foot .chev')).toHaveText('▴');
   await first.click();
   await expect(first.locator('.timeline')).toHaveCount(0);
+});
+
+test('before stop names are known, the timeline keeps its shape with "—"', async ({ page }) => {
+  await openApp(page, { time: '06:55', scenario: { ...commute(), unnamed: true } });
+  const first = page.locator('.row').first();
+  await first.click();
+  await expect(first.locator('.timeline .step.stop .n')).toHaveText(['—', '—', '—', '—']);
+  await expect(first.locator('.timeline .step.stop .t')).toHaveText(['7:08am', '7:22am', '7:32am', '7:47am']);
 });
 
 test('countdown goes green → amber → red → missed, and the missed row leaves after 10 min', async ({ page }) => {

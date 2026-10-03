@@ -53,8 +53,12 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await tickTo(page, '07:08:30');
   await expect(head(page)).toHaveText('On Bus 132 · off at 7:22am');
   await expect(card(page)).toContainText('Then Orange 7:32am · 5 min to spare');
-  await expect(card(page).locator('.timeline .step-stops')).toHaveText(['Main St @ South St → Washington St opp Oak Grove Sta', 'Oak Grove → State']);
-  await expect(card(page).locator('.timeline .walk-icon')).toHaveCount(2); // transfer, final walk
+  const tl = card(page).locator('.timeline');
+  await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
+  await expect(tl.locator('.walk-icon')).toHaveCount(2); // transfer, final walk
+  // Progress: the boarding stop is done; the ride and its drop-off are current.
+  const cls = loc => loc.evaluateAll(els => els.map(e => (e.classList.contains('done') ? 'done' : e.classList.contains('current') ? 'current' : '')));
+  expect(await cls(tl.locator('.step'))).toEqual(['done', 'current', 'current', '', '', '', '', '']);
   await expect(card(page).locator('.ride-stops')).toContainText('Pond St @ Stone Zoo');
   await expect(card(page).locator('.ride-stops')).toContainText('Washington St opp Oak Grove Sta');
   await expect(card(page).getByRole('button', { name: 'Missed it' })).toBeVisible();
@@ -64,6 +68,8 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await expect(card(page).getByRole('button', { name: 'Missed it' })).toHaveCount(0); // 2 min after boarding
   await tickTo(page, '07:23');
   await expect(head(page)).toHaveText('Transfer · Orange 7:32am');
+  // The bus leg is done; the transfer and the Orange boarding stop are current.
+  expect(await cls(tl.locator('.step'))).toEqual(['done', 'done', 'done', 'current', 'current', '', '', '']);
   await tickTo(page, '07:33');
   await expect(head(page)).toHaveText('On Orange · off at 7:47am');
   await tickTo(page, '07:48');
@@ -247,10 +253,11 @@ test('a leg with several routes is labeled by what they share, each vehicle by i
   await expect(rows.first().locator('.strip')).toHaveText(/^\s*Green\s*$/);
   const greenB = rows.filter({ hasText: '6:49am' }); // leave-by for the 6:55 B
   await greenB.click();
-  await expect(greenB.locator('.timeline')).toContainText('Green B 6:55am → 6:57am');
+  await expect(greenB.locator('.timeline .step.ride')).toContainText('Green B · 2 min');
+  await expect(greenB.locator('.timeline .step.stop .t')).toHaveText(['6:55am', '6:57am']);
   const greenD = rows.filter({ hasText: '6:44am' }); // leave-by for the 6:50 D
   await greenD.click();
-  await expect(greenD.locator('.timeline')).toContainText('Green D 6:50am → 6:52am');
+  await expect(greenD.locator('.timeline .step.ride')).toContainText('Green D · 2 min');
   await atTheStop(page);
   await expect(page.locator('.row.catch .big')).toContainText('Green B in 4 min');
   await tickTo(page, '06:45:30');
