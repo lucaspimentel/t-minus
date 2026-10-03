@@ -155,6 +155,25 @@ test('origins, validation, and per-subscription cap', async () => {
   } finally { await s.close(); }
 });
 
+test('a test notification is sent 10 s later, once per subscription at a time', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:41');
+    assert.equal((await s.call('POST', '/test-push', { subscription: subscription() }, 'https://evil.example')).status, 403);
+    assert.equal((await s.call('POST', '/test-push', { subscription: { endpoint: 'http://x' } })).status, 400);
+    assert.equal((await s.call('POST', '/test-push', { subscription: subscription() })).status, 202);
+    assert.equal((await s.call('POST', '/test-push', { subscription: subscription() })).status, 429);
+    s.world.clock += 9_000;
+    await s.app.tick();
+    assert.equal(s.sent.length, 0);
+    s.world.clock += 1_000;
+    await s.app.tick();
+    assert.deepEqual(s.sent, [{ kind: 'test', title: 'Test notification', body: 'Push works. Sent 7:41am.', tag: 'test' }]);
+    assert.equal(s.store.all().length, 0); // not stored
+    assert.equal((await s.call('POST', '/test-push', { subscription: subscription() })).status, 202);
+  } finally { await s.close(); }
+});
+
 test('reminders survive a restart', async () => {
   const s = await setup();
   try {

@@ -9,7 +9,7 @@ import {
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
-  legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN,
+  legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, testPushText,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -1112,4 +1112,8 @@ test('headsUpDue, reminderText, reminderPollMs', () => {
   assert.deepEqual(reminderText('cancelled', 'Home to office', null, at('07:00')), { title: 'Ride cancelled · Home to office', body: 'Open the app for the next one.' });
   assert.equal(reminderPollMs(at('07:30'), at('07:00')), 60_000);
   assert.equal(reminderPollMs(at('07:15'), at('07:00')), 20_000);
+});
+
+test('testPushText', () => {
+  assert.deepEqual(testPushText(at('07:41')), { title: 'Test notification', body: 'Push works. Sent 7:41am.' });
 });

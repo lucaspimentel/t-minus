@@ -107,3 +107,38 @@ test('a server error shows a toast with Retry', async ({ page }) => {
   await expect(page.locator('#toast')).toContainText("Couldn't set the reminder: trip is invalid");
   await expect(firstRow(page).getByRole('button', { name: 'Notify me' })).toBeEnabled();
 });
+
+// Setup's "Send test notification in 10 s": the server sends it; nothing is stored here.
+const testButton = page => page.getByRole('button', { name: 'Send test notification in 10 s' });
+async function openSetupScreen(page) {
+  await page.locator('#open-setup').click();
+  await page.locator('#setup-done').waitFor();
+}
+
+test('setup sends a test notification through the server', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(pushStub(), { supported: true, server: PUSH });
+  await openApp(page, { time: '06:50' });
+  await openSetupScreen(page);
+  await testButton(page).click();
+  await expect(page.locator('#toast span')).toHaveText('Test notification in 10 s. Lock the phone to check.');
+  await expect(page.locator('#toast button')).toBeHidden();
+  const post = calls.find(c => c.method === 'POST');
+  expect(post).toMatchObject({ path: '/test-push', body: { subscription: { endpoint: 'https://push.example/1' } } });
+});
+
+test('setup test notification: disabled with a hint without push', async ({ page }) => {
+  await page.addInitScript(pushStub(), { supported: false, server: PUSH });
+  await openApp(page, { time: '06:50' });
+  await openSetupScreen(page);
+  await expect(testButton(page)).toBeDisabled();
+  await expect(page.locator('#setup .push-hint')).toHaveText('Add to Home Screen to get notifications.');
+});
+
+test('setup test notification: absent without a push server', async ({ page }) => {
+  await page.addInitScript(pushStub(), { supported: true, server: '' });
+  await openApp(page, { time: '06:50' });
+  await openSetupScreen(page);
+  await expect(page.locator('#setup-done')).toBeVisible();
+  await expect(testButton(page)).toHaveCount(0);
+});

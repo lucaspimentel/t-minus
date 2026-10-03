@@ -320,7 +320,7 @@
       <button id="reload-new" type="button">Reload</button></p>
     <ul class="alerts" id="alerts"></ul>
     <ul class="rows" id="rows"></ul>
-    <footer class="version">Version 2026-10-03 · 55a3239f8d</footer>
+    <footer class="version">Version 2026-10-03 · c0e60451be</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -342,8 +342,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=ddb1e40c70';
-import { openSetup } from './setup.js?v=4e2b48d161';
+} from './core.js?v=f213b1f5a8';
+import { openSetup } from './setup.js?v=ecded433ee';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -796,24 +796,30 @@ async function pushApi(method, path, body) {
 
 const base64UrlBytes = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
 
+// This device's push subscription (JSON). Call it straight from a tap: permission is asked
+// before the first await, while the tap still counts as a user gesture (iOS requires one).
+async function pushSubscription() {
+  const permission = Notification.requestPermission();
+  if (await permission !== 'granted') throw new Error('notifications are off for this app in Settings');
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    const { publicKey } = await pushApi('GET', '/vapid');
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlBytes(publicKey) });
+  }
+  return sub.toJSON();
+}
+
 async function notify(r) {
   const key = rowKey(r);
   const remKey = reminderKey(r);
   const trip = config.trips[tripIdx];
-  // Asked first, while the tap still counts as a user gesture (iOS requires one).
-  const permission = Notification.requestPermission();
+  const subscription = pushSubscription();
   reminderBusy = key;
   render();
   try {
-    if (await permission !== 'granted') throw new Error('notifications are off for this app in Settings');
-    const reg = await navigator.serviceWorker.ready;
-    let sub = await reg.pushManager.getSubscription();
-    if (!sub) {
-      const { publicKey } = await pushApi('GET', '/vapid');
-      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlBytes(publicKey) });
-    }
     const { id, headsUp } = await pushApi('POST', '/reminders', {
-      subscription: sub.toJSON(), trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
+      subscription: await subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
       timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy,
     });
     reminders[remKey] = { id, leaveBy: r.leaveBy, headsUp };
@@ -823,6 +829,17 @@ async function notify(r) {
   }
   reminderBusy = null;
   render();
+}
+
+// Setup's "Send test notification": the server sends one in 10 s.
+async function testPush() {
+  try {
+    const subscription = await pushSubscription();
+    await pushApi('POST', '/test-push', { subscription });
+    showToast('Test notification in 10 s. Lock the phone to check.');
+  } catch (e) {
+    showToast(`Couldn't send the test: ${e.message}`, 'Retry', testPush);
+  }
 }
 
 async function unnotify(remKey) {
@@ -1049,13 +1066,14 @@ function unpinTracking() {
   });
 }
 
-// Bottom toast with one action; a new one replaces the current one.
+// Bottom toast with one action (or none); a new one replaces the current one.
 let toastTimer = null;
 function showToast(text, action, onAction) {
   const t = $('toast');
   t.querySelector('span').textContent = text;
   const b = t.querySelector('button');
-  b.textContent = action;
+  b.textContent = action ?? '';
+  b.hidden = !action;
   b.onclick = () => { hideToast(); onAction(); };
   t.hidden = false;
   clearTimeout(toastTimer);
@@ -1234,6 +1252,7 @@ function showSetup() {
     timingFor: i => cache[i]?.timing ?? null,
     toast: showToast,
     hideToast,
+    testPush: PUSH_SERVER ? { supported: pushSupported, send: testPush } : null,
     onClose: closeSetup,
     // Each trip saves on its own while setup stays open.
     onSave(cfg, warning) {

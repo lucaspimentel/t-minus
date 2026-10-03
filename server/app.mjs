@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
-  headsUpDue, HEADS_UP_MIN,
+  headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -14,10 +14,12 @@ const MAX_PER_SUBSCRIPTION = 5;
 const RATE_LIMIT = 30; // requests per IP per minute
 const MAX_BODY = 16 * 1024;
 const RETRY_MS = 20_000; // after an MBTA error
+const MAX_TESTS = 100; // pending test notifications, in memory only
 
 export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, allowedOrigins = [], log = () => {} }) {
   const schedules = new Map(); // reminder id -> { at, docs }
   const hits = new Map(); // ip -> { minute, count }
+  let tests = []; // pending test notifications: { subscription, at }
   let ticking = false;
 
   async function mbta(path, params) {
@@ -55,10 +57,12 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     });
   }
 
+  const validSubscription = sub => typeof sub?.endpoint === 'string' && sub.endpoint.startsWith('https://')
+    && typeof sub.keys?.p256dh === 'string' && typeof sub.keys?.auth === 'string';
+
   // The request body for a new reminder, or an error message.
   function checkReminder(b, t) {
-    const sub = b?.subscription;
-    if (typeof sub?.endpoint !== 'string' || !sub.endpoint.startsWith('https://') || typeof sub.keys?.p256dh !== 'string' || typeof sub.keys?.auth !== 'string') return 'subscription is invalid';
+    if (!validSubscription(b?.subscription)) return 'subscription is invalid';
     if (!b.trip || validateConfig({ trips: [b.trip] }).length) return 'trip is invalid';
     const n = tripShape(b.trip).transit.length;
     if (!Number.isInteger(b.timingIdx) || b.timingIdx < 0 || b.timingIdx >= n) return 'timingIdx is invalid';
@@ -84,9 +88,22 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     if (req.method === 'GET' && url.pathname === '/health') return reply(res, 200, { ok: true, reminders: store.all().length }, cors);
     if (req.method === 'GET' && url.pathname === '/vapid') return reply(res, 200, { publicKey }, cors);
 
-    if (req.method === 'POST' && url.pathname === '/reminders') {
-      let body;
+    let body;
+    if (req.method === 'POST') {
       try { body = JSON.parse(await readBody(req)); } catch (e) { return reply(res, e.status ?? 400, { error: e.status ? 'Body too large' : 'Invalid JSON' }, cors); }
+    }
+
+    // The setup's test notification, sent TEST_PUSH_DELAY_MS later; one pending per subscription.
+    if (req.method === 'POST' && url.pathname === '/test-push') {
+      if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' }, cors);
+      if (tests.length >= MAX_TESTS || tests.some(x => x.subscription.endpoint === body.subscription.endpoint)) {
+        return reply(res, 429, { error: 'A test notification is already on its way' }, cors);
+      }
+      tests.push({ subscription: body.subscription, at: t + TEST_PUSH_DELAY_MS });
+      return reply(res, 202, { at: t + TEST_PUSH_DELAY_MS }, cors);
+    }
+
+    if (req.method === 'POST' && url.pathname === '/reminders') {
       const err = checkReminder(body, t);
       if (err) return reply(res, 400, { error: err }, cors);
       if (store.all().filter(r => r.subscription.endpoint === body.subscription.endpoint).length >= MAX_PER_SUBSCRIPTION) {
@@ -173,11 +190,26 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     rem.nextPollAt = due > t ? Math.min(next, due) : next;
   }
 
-  // Checks every reminder that is due. Overlapping calls are skipped.
+  async function sendTests(t) {
+    const due = tests.filter(x => x.at <= t);
+    tests = tests.filter(x => x.at > t);
+    for (const x of due) {
+      try {
+        await send(x.subscription, { kind: 'test', ...testPushText(t), tag: 'test' });
+        log('sent test');
+      } catch (e) {
+        log(`send test failed: ${e.statusCode ?? ''} ${e.message}`);
+      }
+    }
+  }
+
+  // Sends due test notifications and checks every reminder that is due. Overlapping calls are
+  // skipped.
   async function tick() {
     if (ticking) return;
     ticking = true;
     try {
+      await sendTests(now());
       const due = store.all().filter(r => r.nextPollAt <= now());
       for (const rem of due) await check(rem);
       if (due.length) await store.save();

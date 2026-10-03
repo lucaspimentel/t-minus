@@ -910,6 +910,10 @@ export function reminderText(kind, tripName, row, nowMs) {
   }
 }
 
+// The setup's test notification: sent this long after the tap, to lock the phone meanwhile.
+export const TEST_PUSH_DELAY_MS = 10_000;
+export const testPushText = nowMs => ({ title: 'Test notification', body: `Push works. Sent ${formatTime(nowMs)}.` });
+
 // How often the server re-checks a reminder: every minute while far off, then every 20 s.
 export function reminderPollMs(leaveBy, nowMs) {
   return leaveBy - nowMs > 20 * MIN ? 60_000 : 20_000;

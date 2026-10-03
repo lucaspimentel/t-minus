@@ -561,8 +561,15 @@ too is a likely later step.
   - The service worker shows `{ title, body, tag }`. The tag is the row key, so a later push
     for the same ride replaces the earlier one.
   - Tapping a notification focuses or opens the app.
+- **Test notification:** setup ends with a "Notifications" section and one button, "Send test
+  notification in 10 s" (hidden without `PUSH_SERVER`; disabled with the Home Screen hint
+  without push). It subscribes like "Notify me", posts to `POST /test-push`, and toasts "Test
+  notification in 10 s. Lock the phone to check." The server sends "Test notification" / "Push
+  works. Sent 7:41am." from its loop (so up to 5 s late); it keeps pending tests in memory only
+  (lost on restart), one per subscription, at most 100.
 - **Server (`server/app.mjs`):**
-  - **Endpoints:** `GET /vapid`, `GET /health`, `POST /reminders` and `DELETE /reminders/:id`.
+  - **Endpoints:** `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id` and
+    `POST /test-push`.
   - **What a reminder holds:** the subscription, the trip (checked with `validateConfig`), its
     slack, the timing leg, the row key (the timing-leg vehicle's trip id) and leave-by. Leave-by
     must be ahead and within 12 h.

@@ -38,6 +38,8 @@ heads-up, "Leave now", or "Ride cancelled" (see `DESIGN.md`, Notifications).
    should return `{"ok":true,"reminders":0}`. `PUSH_SERVER` in `index.html` is already set to
    the deployed URL (`https://push-server-production-7b87.up.railway.app`); change it there if
    the domain ever moves.
+7. **Test:** in the Home Screen app, open Setup → Notifications → "Send test notification in
+   10 s", then lock the phone. "Test notification" should arrive.
 
 ## Local run
 

@@ -7,7 +7,7 @@ import {
   searchRoutes, searchStops, boardGroups, alightGroups, railConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=ddb1e40c70';
+} from './core.js?v=f213b1f5a8';
 
 const ROUTE_LIMIT = 60;
 
@@ -49,7 +49,8 @@ const NEARBY_RADIUS = 0.003;
 // `onSave(config, warning)` stores a config and keeps setup open; `onClose()` leaves setup.
 // `timingFor(i)` returns the timing leg the app currently uses for saved trip i (or null).
 // `toast(text, action, onAction)` / `hideToast()`: the app's Undo toast.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {} }) {
+// `testPush`: { supported, send() } for "Send test notification" (null: no push server).
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -316,6 +317,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         ioArea.note && h('div', { class: 'msg' }, ioArea.note),
         h('textarea', { id: 'setup-io', readOnly: ioArea.mode === 'export', value: ioArea.text, placeholder: 'Paste a trips config (JSON)', oninput: e => { ioArea.text = e.target.value; } }),
         ioArea.mode === 'import' && h('button', { type: 'button', disabled: busy, onclick: () => importConfig(ioArea.text) }, 'Load')),
+      testPush && h('div', { class: 'muted section' }, 'Notifications'),
+      testPush && h('div', { class: 'btns' },
+        h('button', { type: 'button', disabled: !testPush.supported, onclick: () => testPush.send() }, 'Send test notification in 10 s')),
+      testPush && !testPush.supported && h('div', { class: 'push-hint' }, 'Add to Home Screen to get notifications.'),
     ];
   }
 
