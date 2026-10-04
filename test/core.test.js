@@ -10,7 +10,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, testPushText,
-  lineLabel, toward, withoutArrived,
+  lineLabel, toward, withoutArrived, stopConnections,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -1161,4 +1161,29 @@ test('withoutArrived: the next leg leaves out the routes just ridden', () => {
   const kenmore = [g('B', ['Green-B']), g('C', ['Green-C']), g('D', ['Green-D']), g('any', ['Green-B', 'Green-C', 'Green-D', 'Green-E'])];
   assert.deepEqual(keys(withoutArrived(kenmore, ['Green-B'])), { shown: ['C', 'D', 'any'], hidden: ['B'] });
   assert.deepEqual(withoutArrived(kenmore, ['Green-B', 'Green-C', 'Green-D', 'Green-E']).shown, []);
+});
+
+test('stopConnections: each station tags only the nearest stop of the list (or itself)', () => {
+  const st = (id, lat, lon) => ({ id, lat, lon });
+  // Orange at its platform coordinates (as the rail network has them).
+  const rail = [
+    { route: 'Orange', label: 'Orange', color: 'ED8B00', stops: [st('place-ogmnl', 42.437735, -71.070875), st('place-mlmnl', 42.426677, -71.074381)] },
+    { route: 'Green-C', label: 'Green C', color: '00843D', stops: [st('place-haecl', 42.36279, -71.05829)] },
+    { route: 'Green-D', label: 'Green D', color: '00843D', stops: [st('place-haecl', 42.36279, -71.05829)] },
+  ];
+  const stop = (id, lat, lon) => ({ id, attributes: { latitude: lat, longitude: lon } });
+  // Bus 132 toward Malden (live coordinates): Glen Rock Rd and 14 Summer St are ~124 m from a
+  // platform but not where you transfer.
+  const toMalden = [stop('5990', 42.438768, -71.071435), stop('5991', 42.436927, -71.071292), stop('5992', 42.43545, -71.071995),
+    stop('5069', 42.430028, -71.074376), stop('5070', 42.427777, -71.074151), stop('place-mlmnl', 42.426632, -71.07411)];
+  const tags = stopConnections(toMalden, rail);
+  assert.deepEqual([...tags.keys()].sort(), ['5991', 'place-mlmnl']);
+  assert.deepEqual(tags.get('5991'), [{ label: 'Orange', color: 'ED8B00' }]);
+  // Without the station in the list, the nearest stop within 200 m takes it (14 Summer St).
+  assert.deepEqual([...stopConnections(toMalden.slice(0, -1), rail).keys()].sort(), ['5070', '5991']);
+  // Excluded routes, and nothing within 200 m.
+  assert.equal(stopConnections(toMalden, rail, ['Orange']).size, 0);
+  assert.equal(stopConnections([stop('x', 42.3627, -71.0624)], rail).size, 0);
+  // A station in the list: its lines, branches merged.
+  assert.deepEqual(stopConnections([stop('place-haecl')], rail).get('place-haecl'), [{ label: 'Green C/D', color: '00843D' }]);
 });

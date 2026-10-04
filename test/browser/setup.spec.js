@@ -59,6 +59,10 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Malden Center Station']);
   // Rail connections at the stops (Malden Center and across from Oak Grove: Orange).
   await expect(setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).locator('.conn')).toHaveText('Orange');
+  // Only the stop nearest each station: not Glen Rock Rd or 14 Summer St (~124 m away, a block off).
+  await expect(setup(page).locator('.item', { hasText: 'Washington St @ Glen Rock Rd' }).locator('.conn')).toHaveCount(0);
+  await expect(setup(page).locator('.item', { hasText: '14 Summer St' }).locator('.conn')).toHaveCount(0);
+  await expect(setup(page).locator('.item', { hasText: 'Malden Center' }).locator('.conn')).toHaveText('Orange');
   await expect(setup(page).locator('.item', { hasText: 'Pond St @ Stone Zoo' }).locator('.conn')).toHaveCount(0);
   await setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).click();
   await expect(setup(page)).toContainText('Main St @ South St → Washington St opp Oak Grove Sta');

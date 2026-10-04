@@ -437,12 +437,44 @@ export function railConnections(stop, railStops, exclude = []) {
   for (const line of railStops ?? []) {
     if (exclude.includes(line.route)) continue;
     const at = line.stops.some(s => s.id === stop.id || (hasPos && Number.isFinite(s.lat) && distanceMeters(here, s) <= CONNECTION_METERS));
-    if (!at) continue;
-    const key = line.color ?? line.route;
-    if (!byColor.has(key)) byColor.set(key, { color: line.color, labels: [] });
-    byColor.get(key).labels.push(line.label);
+    if (at) addLine(byColor, line);
   }
-  return [...byColor.values()].map(c => ({ label: commonLabel(c.labels), color: c.color }));
+  return mergedLines(byColor);
+}
+
+// Lines per color, for one stop's tags: branches of one line merge ("Green B/C/D/E").
+function addLine(byColor, line) {
+  const key = line.color ?? line.route;
+  if (!byColor.has(key)) byColor.set(key, { color: line.color, labels: [] });
+  if (!byColor.get(key).labels.includes(line.label)) byColor.get(key).labels.push(line.label);
+}
+const mergedLines = byColor => [...byColor.values()].map(c => ({ label: commonLabel(c.labels), color: c.color }));
+
+// Rail lines for each stop of one drop-off list (JSON:API stops): a station in the list tags
+// itself; otherwise each station tags only the list's nearest non-station stop within
+// CONNECTION_METERS (on the 132, "opp Oak Grove Sta", not Glen Rock Rd a block away).
+// Returns Map<stopId, [{ label, color }]>.
+export function stopConnections(stops, railStops, exclude = []) {
+  const stationIds = new Set((railStops ?? []).flatMap(l => l.stops.map(s => s.id)));
+  const listed = new Set(stops.map(s => s.id));
+  const candidates = stops.filter(s => !stationIds.has(s.id)).map(s => ({ id: s.id, lat: s.attributes?.latitude, lon: s.attributes?.longitude }))
+    .filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lon));
+  const tags = new Map();
+  const tag = (id, line) => { if (!tags.has(id)) tags.set(id, new Map()); addLine(tags.get(id), line); };
+  for (const line of railStops ?? []) {
+    if (exclude.includes(line.route)) continue;
+    for (const st of line.stops) {
+      if (listed.has(st.id)) { tag(st.id, line); continue; }
+      if (!Number.isFinite(st.lat) || !Number.isFinite(st.lon)) continue;
+      let best = null;
+      for (const c of candidates) {
+        const m = distanceMeters(c, st);
+        if (m <= CONNECTION_METERS && (!best || m < best.m)) best = { id: c.id, m };
+      }
+      if (best) tag(best.id, line);
+    }
+  }
+  return new Map([...tags].map(([id, byColor]) => [id, mergedLines(byColor)]));
 }
 
 // The trip back: legs in reverse order, opposite directions, board and drop-off swapped,

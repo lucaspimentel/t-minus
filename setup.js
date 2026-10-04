@@ -4,10 +4,10 @@
 // and the setup-time requests.
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
-  searchRoutes, searchStops, boardGroups, alightGroups, railConnections, servesInOrder, commonLabel, legRoutes,
+  searchRoutes, searchStops, boardGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel,
-} from './core.js?v=bb6ba07360';
+} from './core.js?v=724a006035';
 
 const ROUTE_LIMIT = 60;
 
@@ -723,7 +723,6 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     // Drop-off: the stops after the board stop, per direction it serves (one at the end of a
     // line), each with the rail lines there (loaded in the background; none if that fails).
     if (!railStops) loadRailNetwork().then(() => { if (picker?.step === 'alight') render(); }, () => {});
-    const connections = s => lineTags(railConnections(s, railStops, [picker.route.id]));
     // A rail route's per-direction stop list merges its branches: keep only the stations the
     // network says are reachable from the board stop on this route (no Ashmont → Quincy).
     const onNetwork = railNet?.lines.some(l => l.id === picker.route.id);
@@ -731,9 +730,12 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       .flatMap(g => g.stations.filter(st => st.routes.includes(picker.route.id)).map(st => st.id)));
     return alightGroups(...docs, picker.board).flatMap(g => {
       const ok = onNetwork ? reach(g.direction) : null;
-      const found = searchStops(ok ? g.stops.filter(s => ok.has(s.id)) : g.stops, q);
+      const stops = ok ? g.stops.filter(s => ok.has(s.id)) : g.stops;
+      // Tags from the whole direction list, so they don't move while searching.
+      const conn = stopConnections(stops, railStops, [picker.route.id]);
+      const found = searchStops(stops, q);
       return found.length ? [heading(toward(g.direction)), ...found.map(s => h('button', { type: 'button', class: 'item', onclick: () => chooseAlight(s.id, g.direction) },
-        s.attributes?.name ?? s.id, ...connections(s)))] : [];
+        s.attributes?.name ?? s.id, ...lineTags(conn.get(s.id) ?? [])))] : [];
     });
   }
 

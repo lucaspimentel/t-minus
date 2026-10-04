@@ -423,9 +423,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Connections in the drop-off list: each stop is followed by the rail lines (route types 0
   and 1: Red, Mattapan, Orange, Blue, Green B–E) at it: for a rail station, the lines listing
   that station (State and Government Center are ~155 m apart but separate stations); for
-  other stops (street bus stops have no parent station), lines with a station within 200 m
-  (`railConnections`, `CONNECTION_METERS`), e.g. "Washington St opp Oak Grove Sta
-  ● Orange". The leg's own route is left out; branches of a line (same color) merge as "Green
+  other stops (street bus stops have no parent station), each station within 200 m tags only
+  the list's nearest stop to it, and none when the station itself is in the list
+  (`stopConnections`, `CONNECTION_METERS`, per direction list): "Washington St opp Oak Grove Sta
+  ● Orange", but not Glen Rock Rd or 14 Summer St a block away. The leg's own route is left out; branches of a line (same color) merge as "Green
   D/E" (`commonLabel`).
 - Rail network (`railNetwork`): one `/route_patterns?filter[route]=<rail routes>&filter[canonical]=true
   &include=representative_trip.stops` request (~100 KB; 18 patterns, each branch and direction,
