@@ -31,7 +31,9 @@ async function setup() {
     let data = [];
     if (route === '132' && u.pathname === '/schedules') data = [rec('schedule', 'b1', '25996', world.bus), rec('schedule', 'b1', '5991', '07:25')];
     if (route === 'Orange' && u.pathname === '/predictions' && !world.cancelled) data = [rec('prediction', 'o1', 'place-ogmnl', world.orange), rec('prediction', 'o1', 'place-state', '07:50')];
-    return { ok: true, json: async () => ({ data, included: [] }) };
+    // The bus's schedules carry its headsign (an included trip); Orange's predictions don't.
+    const included = route === '132' && u.pathname === '/schedules' ? [{ type: 'trip', id: 'b1', attributes: { headsign: 'Malden' } }] : [];
+    return { ok: true, json: async () => ({ data, included }) };
   };
   const sent = [];
   world.sendStatus = null;
@@ -71,7 +73,7 @@ test('a reminder sends the heads-up, then "Leave now", then is gone', async () =
     s.world.clock = at('06:59');
     await s.app.tick();
     assert.deepEqual(s.sent.map(p => p.title), ['Leave in 5 min · Home to office']);
-    assert.equal(s.sent[0].body, '132 at 7:10am'); // the fixture has no labels
+    assert.equal(s.sent[0].body, '132 toward Malden at 7:10am'); // the fixture has no labels; the headsign is included
     assert.equal(s.sent[0].tag, 'o1');
     s.world.clock = at('07:04');
     await s.app.tick();

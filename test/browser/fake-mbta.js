@@ -4,7 +4,7 @@
 //
 // scenario = {
 //   trips: [{ id, route, direction, stops: [[stopId, 'HH:MM'], …], live?: true | { delay, stops? },
-//             cancelled?: [stopId, …] }],
+//             cancelled?: [stopId, …], headsign?: string | null (default: the route's per direction) }],
 //   alerts: [{ id, effect, header, route, stop? }],
 //   unnamed?: true (included stops without names),
 // }
@@ -101,6 +101,13 @@ export async function fakeMbta(context, scenario, { now }) {
     release() { const h = this.held.splice(0); this.mode = 'ok'; for (const r of h) respond(r); },
   };
 
+  // A trip's headsign (`headsign` on the scenario trip, else the route's for its direction;
+  // null leaves it out).
+  const HEADSIGNS = { 132: ['Redstone', 'Malden'], Orange: ['Forest Hills', 'Oak Grove'] };
+  const headsignOf = t => (t.headsign !== undefined ? t.headsign : HEADSIGNS[t.route]?.[t.direction] ?? null);
+  const tripRecords = trips => [...trips].map(t => ({ type: 'trip', id: t.id, attributes: { headsign: headsignOf(t) } }))
+    .filter(r => r.attributes.headsign);
+
   // Stop times of a trip on a service date: [{ stopId, ms, seq }].
   const timesOf = (trip, date) => trip.stops.map(([stopId, hhmm], i) => ({ stopId, ms: localMs(date, minutesOf(hhmm)), seq: i + 1 }));
   const delayOf = (trip, stopId) => (trip.live === true || (trip.live?.stops && !trip.live.stops.includes(stopId)) ? 0 : trip.live?.delay ?? 0) * MIN;
@@ -112,6 +119,7 @@ export async function fakeMbta(context, scenario, { now }) {
     const hi = minutesOf(q.get('filter[max_time]'));
     const data = [];
     const inc = new Set();
+    const trips = new Set();
     for (const t of scenario.trips) {
       if (!routesOf(q).has(t.route) || String(t.direction) !== q.get('filter[direction_id]')) continue;
       for (const [stopId, hhmm] of t.stops) {
@@ -121,9 +129,10 @@ export async function fakeMbta(context, scenario, { now }) {
         data.push({ type: 'schedule', id: `sch-${t.id}-${stopId}`, attributes: { arrival_time: at, departure_time: at },
           relationships: { route: { data: { id: t.route, type: 'route' } }, trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
         inc.add(stopId);
+        trips.add(t);
       }
     }
-    return { data, included: [...inc].map(stopRecord) };
+    return { data, included: [...[...inc].map(stopRecord), ...tripRecords(trips)] };
   }
 
   function legPredictions(q) {
@@ -131,6 +140,7 @@ export async function fakeMbta(context, scenario, { now }) {
     const date = serviceDate(mbta.now);
     const data = [];
     const inc = new Set();
+    const trips = new Set();
     for (const t of scenario.trips) {
       if (!t.live || !routesOf(q).has(t.route) || String(t.direction) !== q.get('filter[direction_id]')) continue;
       for (const { stopId, ms } of timesOf(t, date)) {
@@ -141,9 +151,10 @@ export async function fakeMbta(context, scenario, { now }) {
           attributes: { arrival_time: cancelled ? null : iso(at), departure_time: cancelled ? null : iso(at), schedule_relationship: cancelled ? 'SKIPPED' : null },
           relationships: { route: { data: { id: t.route, type: 'route' } }, trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
         inc.add(stopId);
+        trips.add(t);
       }
     }
-    return { data, included: [...inc].map(stopRecord) };
+    return { data, included: [...[...inc].map(stopRecord), ...tripRecords(trips)] };
   }
 
   // Remaining stops of one trip and its vehicle (heading to the next stop).

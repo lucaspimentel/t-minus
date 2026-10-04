@@ -209,6 +209,7 @@
     background: var(--card); border: 2px solid var(--c); box-sizing: border-box; z-index: 1;
   }
   .step.ride { font-size: 13px; color: var(--muted); padding-top: 4px; padding-bottom: 4px; }
+  .step.ride .toward { font-size: 12px; }
   .step.done { opacity: .4; }
   .step.walk.current, .step.ride.current { color: var(--text); }
   /* Walking figure on the rail (centered on it, like the route dots); the card color masks the rail. */
@@ -329,7 +330,7 @@
     <div class="update-card" id="newversion" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-03 · f5ecec6c09</footer>
+    <footer class="version">Version 2026-10-03 · 9744c66953</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -349,10 +350,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
-  unpinTarget, onVehicle, vehicleLabel, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
+  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=f213b1f5a8';
-import { openSetup } from './setup.js?v=b49e0cf3c3';
+} from './core.js?v=0a85558493';
+import { openSetup } from './setup.js?v=7cf8cf6ff1';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -934,8 +935,10 @@ function renderTimeline(steps, now, { phase = null, key = '' } = {}) {
     }
     const leg = el('div', 'tl-leg');
     leg.style.setProperty('--c', s.leg.color ? `#${s.leg.color}` : 'var(--muted)');
-    const ride = el('div', `step ride${legState(i, 'ride')}`, `${vehicleLabel(s.leg)} · ${s.minutes}`);
+    // "Orange Line · 15 min LIVE", then "toward Forest Hills" (the trip's headsign) below.
+    const ride = el('div', `step ride${legState(i, 'ride')}`, `${lineLabel(s.leg)} · ${s.minutes}`);
     ride.append(badge(s.leg.source));
+    if (s.leg.headsign) ride.append(el('div', 'toward', toward(s.leg)));
     leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from')), ride,
       stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to')));
     timeline.append(leg);

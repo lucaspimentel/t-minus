@@ -198,7 +198,7 @@ For leaving earlier or later than leave-by. A bar under the status line always o
     requests.
   - Next connection (riding leg i, or in the transfer before leg i+1): needed = leg i's
     arrival + transfer, margin = leg i+1's departure − needed (`transferOutlook`,
-    `outlookText`): "Then Orange 7:31am · 4 min to spare", "· tight" (under 2 min, amber).
+    `outlookText`): "Then Orange Line toward Forest Hills 7:31am · 4 min to spare", "· tight" (under 2 min, amber).
     A negative margin re-plans legs i+1… to the earliest feasible chain after `needed` (never
     an earlier vehicle) and reads "Then Orange 7:36am (missed 7:31am)" until that leg is
     boarded (`ride.missed`); no chain: "No connection after 7:26am", plan kept. No extra
@@ -244,8 +244,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   (`renderTimeline`, shared with the ride card): Leave, each stop once, and Arrive as nodes on
   the rail with their times in one right-aligned column; each stop a hollow node ("Main St @ South St 7:08am"); each ride as a bar in its route's
   color from its first node to its last (drawn in pieces, so it ends at the node even when a
-  name wraps), with "Bus 132 · 14 min SCHEDULED" between the two stops (`vehicleLabel` for
-  legs on several routes); walks and transfers on a dotted gray rail with a walking figure
+  name wraps), with "Orange Line · 15 min SCHEDULED" between the two stops (`lineLabel`: the
+  vehicle's label, `vehicleLabel` for legs on several routes, plus "Line" for subway lines,
+  "Green Line B") and "toward Forest Hills" below it (`toward`: the trip's headsign, from
+  `include=trip`; left out without one); walks and transfers on a dotted gray rail with a walking figure
   (walks over 0 min, every transfer) and short text ("10 min to transfer"). Stop names come
   from the `include=stop` records the schedule and prediction responses already carry
   (`stopNames`, `fields[stop]=name,parent_station`; a parent station takes its platform's
@@ -493,7 +495,7 @@ every stop, so no headsign or short-turn filter is needed.
 Base: `https://api-v3.mbta.com` (V3 API, JSON:API format, GTFS/GTFS-Realtime based).
 
 - Per transit leg, predictions / schedules for its board and alight stops:
-  `/predictions?filter[route]=R&filter[direction_id]=D&filter[stop]=<stop>,<alight>&include=stop`
+  `/predictions?filter[route]=R&filter[direction_id]=D&filter[stop]=<stop>,<alight>&include=stop,trip`
   `/schedules?...same...&filter[date]=YYYY-MM-DD&filter[min_time]=HH:MM&filter[max_time]=HH:MM`
   Pair rows by `relationships.trip.data.id`.
 - Parent-station filters work, but rows come back with **child** stop IDs; map them
@@ -508,6 +510,9 @@ Base: `https://api-v3.mbta.com` (V3 API, JSON:API format, GTFS/GTFS-Realtime bas
   stop) still come back. Multi-route legs rely on `relationships.route`.
 - Platform (child) stops carry their station's name ("70036" → "Oak Grove"), so the timeline's
   stop names come from `include=stop` with `fields[stop]=name,parent_station`.
+- Directions come from `include=trip` with `fields[trip]=headsign` on the same predictions and
+  schedules (verified 2026-10-04: 132 "Malden" / "Redstone", Orange "Forest Hills" / "Oak
+  Grove"; schedules carry it too). One small included record per trip; no extra requests.
 - Rail station order per branch: `/route_patterns?filter[route]=<rail>&filter[canonical]=true
   &include=representative_trip.stops` (18 patterns; one per branch and direction). The
   per-direction `/stops` lists merge branches (Red: Ashmont and Braintree).
@@ -559,7 +564,8 @@ too is a likely later step.
     to Home Screen to get notifications."
   - Errors show a toast with Retry.
 - **Push:**
-  - The service worker shows `{ title, body, tag }`. The tag is the row key, so a later push
+  - The service worker shows `{ title, body, tag }`. The body names the first vehicle, its
+    direction and time: "Bus 132 toward Malden at 7:08am" (`reminderText`). The tag is the row key, so a later push
     for the same ride replaces the earlier one.
   - Tapping a notification focuses or opens the app.
 - **Test notification:** setup ends with a "Notifications" section and one button, "Send test

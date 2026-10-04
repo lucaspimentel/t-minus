@@ -10,6 +10,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, testPushText,
+  lineLabel, toward,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -486,17 +487,17 @@ test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
   // Comfortable / tight (b1 arrives 07:26 + 5 = 07:31).
   const ok = transferOutlook(ride(buses[0], trains[2]), riding0, [buses, [trains[0], trains[2], trains[3]]], transfers, now);
   assert.deepEqual([ok.leg, ok.margin, ok.missedDep, ok.none], [1, 5 * MIN, null, false]);
-  assert.deepEqual(outlookText(ok, ride(buses[0], trains[2]), now), { text: 'Then Orange 7:36am · 5 min to spare', warn: false });
+  assert.deepEqual(outlookText(ok, ride(buses[0], trains[2]), now), { text: 'Then Orange Line 7:36am · 5 min to spare', warn: false });
   const tight = transferOutlook(ride(buses[0], trains[1]), riding0, vs, transfers, now);
-  assert.equal(outlookText(tight, ride(buses[0], trains[1]), now).text, 'Then Orange 7:31am · tight');
+  assert.equal(outlookText(tight, ride(buses[0], trains[1]), now).text, 'Then Orange Line 7:31am · tight');
   // Missed (o0 leaves 07:28): earliest feasible after 07:31 is o1; never an earlier vehicle.
   const r = ride(buses[0], trains[0]);
   const missed = transferOutlook(r, riding0, vs, transfers, now);
   assert.deepEqual([missed.legs[1].tripId, missed.missedDep, missed.margin], ['o1', at('07:28'), 0]);
-  assert.equal(outlookText(missed, r, now).text, 'Then Orange 7:31am (missed 7:28am)');
+  assert.equal(outlookText(missed, r, now).text, 'Then Orange Line 7:31am (missed 7:28am)');
   // After the switch is stored, the text keeps saying what was missed.
   const stored = { ...r, legs: missed.legs, missed: { leg: 1, dep: at('07:28') } };
-  assert.equal(outlookText(transferOutlook(stored, riding0, vs, transfers, now), stored, now).text, 'Then Orange 7:31am (missed 7:28am)');
+  assert.equal(outlookText(transferOutlook(stored, riding0, vs, transfers, now), stored, now).text, 'Then Orange Line 7:31am (missed 7:28am)');
   // Also during the transfer; nothing after the last train; no next leg.
   const late = { ...ride(buses[1], trains[3]), legs: [{ ...leg(buses[1], 'Bus 132'), arr: at('08:10') }, leg(trains[3], 'Orange')] };
   const none = transferOutlook(late, { kind: 'transfer', leg: 1 }, vs, transfers, now);
@@ -510,7 +511,7 @@ test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
   const slow = ride(buses[0], trains[3]);
   const earlier = transferOutlook(slow, riding0, vs, transfers, now);
   assert.deepEqual([earlier.earlier, earlier.legs[1].tripId, earlier.margin, earlier.missedDep], [true, 'o1', 0, null]);
-  assert.equal(outlookText(earlier, slow, now).text, 'Then Orange 7:31am · tight');
+  assert.equal(outlookText(earlier, slow, now).text, 'Then Orange Line 7:31am · tight');
   // Under EARLIER_MIN sooner: kept.
   const near = [buses, [veh('p1', '07:35', '07:50'), veh('p2', '07:36', '07:51')]];
   const kept = transferOutlook(ride(buses[0], near[1][1]), riding0, near, transfers, now);
@@ -1068,7 +1069,8 @@ test('legQuery: every route of the leg, both stops, sparse fields', () => {
   assert.equal(q['filter[route]'], 'Green-B,Green-C');
   assert.equal(q['filter[direction_id]'], 0);
   assert.equal(q['filter[stop]'], 'place-gover,place-pktrm');
-  assert.equal(q.include, 'stop');
+  assert.equal(q.include, 'stop,trip');
+  assert.equal(q['fields[trip]'], 'headsign');
 });
 
 test('rowsFromDocs: rows from raw predictions and schedules', () => {
@@ -1116,4 +1118,34 @@ test('headsUpDue, reminderText, reminderPollMs', () => {
 
 test('testPushText', () => {
   assert.deepEqual(testPushText(at('07:41')), { title: 'Test notification', body: 'Push works. Sent 7:41am.' });
+});
+
+test('headsigns: from included trips onto vehicles, legs, outlook and push text', () => {
+  const trip = (id, headsign) => ({ type: 'trip', id, attributes: { headsign } });
+  const sched = doc([rec('schedule', 'o1', 'a', '07:30', '07:30'), rec('schedule', 'o1', 'b', '07:45', '07:45'),
+    rec('schedule', 'o2', 'a', '07:40', '07:40'), rec('schedule', 'o2', 'b', '07:55', '07:55'),
+    rec('schedule', 'o3', 'a', '07:50', '07:50'), rec('schedule', 'o3', 'b', '08:05', '08:05')], [trip('o1', 'Forest Hills')]);
+  const pred = doc([rec('prediction', 'o2', 'a', '07:41', '07:41'), rec('prediction', 'o2', 'b', '07:56', '07:56')], [trip('o2', 'Ruggles')]);
+  const vs = legVehicles(mergeTrips(pred, sched), { stop: 'a', alight: 'b' });
+  assert.deepEqual(vs.map(v => v.headsign), ['Forest Hills', 'Ruggles', undefined]); // schedule, prediction, none
+  assert.equal(onVehicle({ label: 'Orange', headsign: 'Forest Hills' }, vs[1]).headsign, 'Ruggles');
+  assert.equal(toward({ headsign: 'Forest Hills' }), 'toward Forest Hills');
+  assert.equal(toward({}), '');
+  const leg = { label: 'Orange', headsign: 'Forest Hills', dep: at('07:32') };
+  assert.equal(outlookText({ legs: [leg], leg: 0, margin: 5 * MIN }, {}, at('07:20')).text, 'Then Orange Line toward Forest Hills 7:32am · 5 min to spare');
+  assert.equal(reminderText('leave', 'Home', { legs: [{ label: 'Bus 132', headsign: 'Malden', dep: at('07:08') }] }, at('07:02')).body, 'Bus 132 toward Malden at 7:08am');
+});
+
+test('lineLabel: subway lines get "Line"', () => {
+  const l = (label, extra) => lineLabel({ label, ...extra });
+  assert.equal(l('Orange'), 'Orange Line');
+  assert.equal(l('Red'), 'Red Line');
+  assert.equal(l('Green'), 'Green Line');
+  assert.equal(l('Green B'), 'Green Line B');
+  assert.equal(l('Green B/C'), 'Green Line B/C');
+  assert.equal(l('Green', { routeLabels: { 'Green-D': 'Green D' }, vehicleRoute: 'Green-D' }), 'Green Line D');
+  assert.equal(l('Bus 132'), 'Bus 132');
+  assert.equal(l('Silver SL1'), 'Silver SL1');
+  assert.equal(l('Mattapan Trolley'), 'Mattapan Trolley');
+  assert.equal(l('Blueberry'), 'Blueberry');
 });

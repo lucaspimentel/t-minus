@@ -25,7 +25,8 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   const tl = first.locator('.timeline');
   await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
   await expect(tl.locator('.step.stop .t')).toHaveText(['7:08am', '7:22am', '7:32am', '7:47am']);
-  await expect(tl.locator('.step.ride')).toHaveText([/^Bus 132 · 14 min\s*scheduled$/i, /^Orange · 15 min\s*scheduled$/i]);
+  await expect(tl.locator('.step.ride')).toHaveText([/^Bus 132 · 14 min\s*scheduled\s*toward Malden$/i, /^Orange Line · 15 min\s*scheduled\s*toward Forest Hills$/i]);
+  await expect(tl.locator('.step.ride .toward')).toHaveText(['toward Malden', 'toward Forest Hills']); // the trip's headsign, on its own line
   expect(await tl.locator('.tl-leg').evaluateAll(ls => ls.map(l => l.style.getPropertyValue('--c')))).toEqual(['#FFC72C', '#ED8B00']);
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min · 1 min early at the stop', '10 min to transfer', 'Walk 10 min']);
   // Leave and Arrive at the ends, in the same time column.

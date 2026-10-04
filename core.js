@@ -708,6 +708,10 @@ const toMs = s => (s ? Date.parse(s) : null);
 // A prediction replaces the schedule for the same trip and stop.
 export function mergeTrips(predictionsDoc, schedulesDoc) {
   const parents = parentMapOf(predictionsDoc, schedulesDoc);
+  const headsigns = new Map();
+  for (const doc of [schedulesDoc, predictionsDoc]) {
+    for (const inc of doc?.included ?? []) if (inc.type === 'trip' && inc.attributes?.headsign) headsigns.set(inc.id, inc.attributes.headsign);
+  }
   const trips = new Map();
   const put = (rec, source) => {
     const tripId = rec.relationships?.trip?.data?.id;
@@ -717,6 +721,7 @@ export function mergeTrips(predictionsDoc, schedulesDoc) {
     let stops = trips.get(tripId);
     if (!stops) trips.set(tripId, (stops = new Map()));
     stops.route ??= rec.relationships?.route?.data?.id; // the trip's route (legs with `also`)
+    stops.headsign ??= headsigns.get(tripId);
     if (source === 'live' && (a.schedule_relationship === 'SKIPPED' || a.schedule_relationship === 'CANCELLED')) {
       stops.set(stopId, { cancelled: true });
       if (parents.has(stopId)) stops.set(parents.get(stopId), { cancelled: true });
@@ -750,7 +755,7 @@ export function legVehicles(tripsMap, leg) {
     const dep = depOf(board);
     const arr = arrOf(alight);
     if (dep == null || arr == null || arr <= dep) continue;
-    out.push({ tripId, dep, arr, source: board.source, ...(stops.route && { route: stops.route }) });
+    out.push({ tripId, dep, arr, source: board.source, ...(stops.route && { route: stops.route }), ...(stops.headsign && { headsign: stops.headsign }) });
   }
   return out.sort((a, b) => a.dep - b.dep);
 }
@@ -855,6 +860,7 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
         route: transit[i].route, label: transit[i].label ?? transit[i].route, color: transit[i].color ?? null,
         ...(transit[i].routeLabels && { routeLabels: transit[i].routeLabels }),
         dep: c.dep, arr: c.arr, source: c.source, tripId: c.tripId, ...(c.route && { vehicleRoute: c.route }),
+        ...(c.headsign && { headsign: c.headsign }),
       })),
     };
     if (isMissed) missed = { ...row, missed: true }; else rows.push(row);
@@ -866,8 +872,9 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
 export const tripFields = {
   'fields[prediction]': 'arrival_time,departure_time,schedule_relationship',
   'fields[schedule]': 'arrival_time,departure_time',
-  include: 'stop',
+  include: 'stop,trip',
   'fields[stop]': 'name,parent_station', // names for the timeline (stopNames)
+  'fields[trip]': 'headsign', // "toward Forest Hills"
 };
 export function legQuery(leg) {
   return { 'filter[route]': legRoutes(leg).join(','), 'filter[direction_id]': leg.direction_id, 'filter[stop]': `${leg.stop},${leg.alight}`, ...tripFields };
@@ -902,7 +909,7 @@ export const headsUpDue = (leaveBy, nowMs) => nowMs < leaveBy - HEADS_UP_MIN * M
 // Push text: { title, body }. `row` (when known) names the first vehicle and its time.
 export function reminderText(kind, tripName, row, nowMs) {
   const first = row?.legs[0];
-  const body = first ? `${vehicleLabel(first)} at ${formatTime(first.dep, nowMs)}` : '';
+  const body = first ? `${lineToward(first)} at ${formatTime(first.dep, nowMs)}` : '';
   switch (kind) {
     case 'headsUp': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body };
     case 'leave': return { title: `Leave now · ${tripName}`, body };
@@ -1134,11 +1141,21 @@ export function shownStops(stops, expanded = false) {
 }
 
 // Copies a vehicle's trip and times onto a planned leg.
-export const onVehicle = (leg, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined, vehicleRoute: v.route });
+export const onVehicle = (leg, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined, vehicleRoute: v.route, headsign: v.headsign });
 
 // A planned leg's label for its vehicle: the vehicle's own route on a leg with `also` routes
 // ("Green D"), else the leg's ("Orange").
 export const vehicleLabel = leg => leg.routeLabels?.[leg.vehicleRoute] ?? leg.label;
+
+// The vehicle's line in full for the timeline, the ride card and pushes: subway lines get "Line"
+// ("Orange Line", "Green Line B"); buses, the Silver Line and the Mattapan Trolley are as labeled.
+export function lineLabel(leg) {
+  const l = vehicleLabel(leg) ?? '';
+  return /^(Red|Orange|Blue|Green)( |$)/.test(l) ? l.replace(/^(\w+)/, '$1 Line') : l;
+}
+// "toward Forest Hills" from the trip's headsign ('' without one).
+export const toward = leg => (leg.headsign ? `toward ${leg.headsign}` : '');
+const lineToward = leg => [lineLabel(leg), toward(leg)].filter(Boolean).join(' ');
 
 // How much earlier another vehicle must leave before a working connection switches to it.
 export const EARLIER_MIN = 2;
@@ -1170,13 +1187,13 @@ export function transferOutlook(ride, phase, vehiclesByLeg, transfers, nowMs) {
   return { ...base, legs, margin: legs[next].dep - needed, missedDep: planned.dep };
 }
 
-// The outlook line: "Then Orange 7:31am · 4 min to spare" / "· tight" (under 2 min) /
+// The outlook line: "Then Orange Line toward Forest Hills 7:31am · 4 min to spare" / "· tight" (under 2 min) /
 // "(missed 7:31am)" after a re-plan (`ride.missed`) / "No connection after 7:26am".
 export function outlookText(outlook, ride, nowMs) {
   if (!outlook) return null;
   if (outlook.none) return { text: `No connection after ${formatTime(outlook.needed, nowMs)}`, warn: true };
   const leg = outlook.legs[outlook.leg];
-  const head = `Then ${vehicleLabel(leg)} ${formatTime(leg.dep, nowMs)}`;
+  const head = `Then ${lineToward(leg)} ${formatTime(leg.dep, nowMs)}`;
   const missed = outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null);
   if (missed != null) return { text: `${head} (missed ${formatTime(missed, nowMs)})`, warn: true };
   if (outlook.margin < 2 * MIN) return { text: `${head} · tight`, warn: true };
