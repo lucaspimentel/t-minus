@@ -6,8 +6,8 @@ import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, alightGroups, railConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
-  reverseTrip, nearestStop, windowLabel,
-} from './core.js?v=0a85558493';
+  reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel,
+} from './core.js?v=0d06eec5b9';
 
 const ROUTE_LIMIT = 60;
 
@@ -531,6 +531,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     picker = { legIdx, step: 'search', query: '' };
     loadRoutes().then(r => { routes = r; render(); }).catch(e => { if (picker) picker.error = e.message || String(e); render(); });
     const prev = legIdx == null ? editing.form.transit.at(-1) : null;
+    // The line just ridden is left out of the lists until "Show …" or a search.
+    if (prev) picker.arrived = legRoutes(prev);
     const opened = picker;
     loadRailNetwork().then(net => {
       const st = prev && networkStation(net, prev.alight);
@@ -660,7 +662,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         if (picker.near) {
           const here = { lat: picker.near.lat, lon: picker.near.lon };
           const stations = (railNet?.stations ?? []).filter(st => st.lat != null && distanceMeters(here, st) <= NEARBY_STATION_METERS);
-          const nearRoutes = found.filter(r => picker.near.routeIds.includes(r.id));
+          const nearRoutes = found.filter(r => picker.near.routeIds.includes(r.id) && !picker.arrived?.includes(r.id));
           if (stations.length || nearRoutes.length) {
             return [
               h('div', { class: 'muted' }, `Near ${picker.near.name}`),
@@ -684,16 +686,21 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       // Station-first drop-off: stations reachable without a transfer, per line and direction;
       // on a line with branches, which ones stop ("Green B/C/D", or "Green (any)" for all).
       if (!railNet) return [h('div', { class: 'muted' }, 'Loading stations…')];
-      return reachableFrom(railNet, picker.from).flatMap(g => {
+      const all = reachableFrom(railNet, picker.from);
+      const { shown, hidden } = q.trim() || picker.showArrived ? { shown: all, hidden: [] } : withoutArrived(all, picker.arrived);
+      const label = id => railNet.lines.find(l => l.id === id)?.label ?? id;
+      const showArrived = hidden.length ? [h('div', { class: 'muted arrived-note' }, 'Hidden: the line you arrived on.'),
+        h('button', { type: 'button', class: 'add', onclick: () => { picker.showArrived = true; render(); } },
+          `Show ${lineLabel({ label: commonLabel(hidden.map(g => g.label)) })}`)] : [];
+      return [...shown.flatMap(g => {
         const found = searchStops(g.stations.map(st => ({ ...st, attributes: { name: st.name } })), q);
         if (!found.length) return [];
-        const label = id => railNet.lines.find(l => l.id === id)?.label ?? id;
         return [h('div', { class: 'muted section-head' }, dot(g.color), `${g.label} toward ${g.toward.join(' / ')}`),
           ...found.map(st => h('button', { type: 'button', class: 'item', onclick: () => chooseTo(st.id) },
             st.name,
             g.routes.length > 1 && h('span', { class: 'muted' }, ` · ${st.routes.length < g.routes.length ? commonLabel(st.routes.map(label)) : `${g.label} (any)`}`),
             ...stationLines(st.id, g.routes)))];
-      });
+      }), ...showArrived];
     }
     const docs = bothDocs(picker.route.id);
     if (picker.loading && picker.alight) return [h('div', { class: 'muted' }, 'Checking other routes…')];

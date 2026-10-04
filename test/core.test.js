@@ -10,7 +10,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, testPushText,
-  lineLabel, toward,
+  lineLabel, toward, withoutArrived,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -1148,4 +1148,16 @@ test('lineLabel: subway lines get "Line"', () => {
   assert.equal(l('Silver SL1'), 'Silver SL1');
   assert.equal(l('Mattapan Trolley'), 'Mattapan Trolley');
   assert.equal(l('Blueberry'), 'Blueberry');
+});
+
+test('withoutArrived: the next leg leaves out the routes just ridden', () => {
+  const g = (key, routes) => ({ key, routes });
+  const state = [g('Orange/0', ['Orange']), g('Orange/1', ['Orange']), g('Blue/0', ['Blue']), g('Blue/1', ['Blue'])];
+  const keys = r => ({ shown: r.shown.map(x => x.key), hidden: r.hidden.map(x => x.key) });
+  assert.deepEqual(keys(withoutArrived(state, ['Blue'])), { shown: ['Orange/0', 'Orange/1'], hidden: ['Blue/0', 'Blue/1'] });
+  assert.deepEqual(keys(withoutArrived(state, null)), { shown: ['Orange/0', 'Orange/1', 'Blue/0', 'Blue/1'], hidden: [] });
+  // Green-B at Kenmore: C and D stay; a B-only group goes; "any" needs every branch ridden.
+  const kenmore = [g('B', ['Green-B']), g('C', ['Green-C']), g('D', ['Green-D']), g('any', ['Green-B', 'Green-C', 'Green-D', 'Green-E'])];
+  assert.deepEqual(keys(withoutArrived(kenmore, ['Green-B'])), { shown: ['C', 'D', 'any'], hidden: ['B'] });
+  assert.deepEqual(withoutArrived(kenmore, ['Green-B', 'Green-C', 'Green-D', 'Green-E']).shown, []);
 });

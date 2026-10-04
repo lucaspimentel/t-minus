@@ -288,6 +288,7 @@
   .btns { display: flex; flex-wrap: wrap; gap: 6px; }
   .trip-btns, .io { margin-top: 12px; }
   .setup button.add { width: 100%; margin: 10px 0 0; }
+  .setup .arrived-note { margin-top: 12px; }
   .setup button.add.accent { border-color: var(--accent); color: var(--accent); }
   .legs-empty {
     border: 1px dashed var(--border); border-radius: 10px; padding: 12px; margin-top: 12px;
@@ -330,7 +331,7 @@
     <div class="update-card" id="newversion" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-03 · 9744c66953</footer>
+    <footer class="version">Version 2026-10-04 · a8fa495f5d</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -352,8 +353,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=0a85558493';
-import { openSetup } from './setup.js?v=7cf8cf6ff1';
+} from './core.js?v=0d06eec5b9';
+import { openSetup } from './setup.js?v=f26bddf44f';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';

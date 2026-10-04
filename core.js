@@ -326,6 +326,14 @@ export function searchStations(net, query = '') {
     .sort((a, b) => starts(a) - starts(b) || a.name.localeCompare(b.name));
 }
 
+// A next leg's groups (`reachableFrom`) without the line just ridden: a group is hidden when
+// every one of its routes is in `arrived` (riding Green-B to Kenmore still lists C and D).
+export function withoutArrived(groups, arrived) {
+  const rode = new Set(arrived ?? []);
+  const hidden = groups.filter(g => g.routes.length && g.routes.every(r => rode.has(r)));
+  return { shown: groups.filter(g => !hidden.includes(g)), hidden };
+}
+
 // Stations reachable from `fromId` without a transfer, grouped per line color and direction:
 // [{ key, routes, label, color, direction, toward: [last station names], stations: [{ id, name, routes }] }].
 // Only patterns that pass `fromId` count, so branches never mix (no Ashmont → Quincy).
