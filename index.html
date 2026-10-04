@@ -239,7 +239,8 @@
   .update-card { margin-top: 20px; border: 1px solid var(--accent); border-radius: 14px; padding: 14px; text-align: center; }
   .update-card .t { font-weight: 600; margin-bottom: 10px; }
   .update-card .big-btn { width: 100%; }
-  .empty button { margin-top: 8px; }
+  .empty .big-btn { width: 100%; }
+  .empty-help { margin: 0 0 12px; }
   /* Setup view (setup.js) */
   .setup button {
     padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
@@ -331,7 +332,7 @@
     <div class="update-card" id="newversion" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-04 · ac21544f3f</footer>
+    <footer class="version">Version 2026-10-04 · 1ae814fea4</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -957,6 +958,7 @@ const rowKey = r => `${r.key}${r.nextDay ? '@next' : ''}`;
 function render() {
   const now = Date.now();
   renderToggle();
+  $('refresh').hidden = !config; // nothing to refresh without trips
 
   const status = $('status');
   const statusText = $('status-text');
@@ -968,10 +970,13 @@ function render() {
     status.className = 'status';
     statusText.textContent = 'No trips set up yet.';
     $('alerts').replaceChildren();
+    $('enroute').hidden = true; // e.g. left from before the last trip was deleted
+    enRouteKey = null;
     const li = el('li', 'empty');
-    const btn = el('button', null, 'Set up a trip');
+    const btn = el('button', 'big-btn', 'Set up a trip');
+    btn.type = 'button';
     btn.onclick = showSetup;
-    li.append(btn);
+    li.append(el('p', 'empty-help', 'Add the bus and train legs you take, and T-Minus tells you when to leave.'), btn);
     $('rows').replaceChildren(li);
     return;
   }
@@ -1329,7 +1334,7 @@ function setPull(offset, text, settle) {
 
 document.addEventListener('touchstart', e => {
   pull = null;
-  if (setupView || pullHeld || e.touches.length !== 1 || scrollY > 0 || $('toast').contains(e.target)) return;
+  if (!config || setupView || pullHeld || e.touches.length !== 1 || scrollY > 0 || $('toast').contains(e.target)) return;
   pull = { x: e.touches[0].clientX, y: e.touches[0].clientY, dy: 0, active: false };
 }, { passive: true });
 

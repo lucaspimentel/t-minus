@@ -340,6 +340,15 @@ test('the last trip can be deleted: settings stay, Done shows the empty main scr
   await expect(page.locator('#setup-done')).toBeEnabled();
   await page.locator('#setup-done').click();
   await expect(page.locator('#status-text')).toHaveText('No trips set up yet.');
+  // The empty screen: a line of help and a large "Set up a trip"; no en-route bar or ↻.
+  await expect(page.locator('#enroute')).toBeHidden();
+  await expect(page.locator('#refresh')).toBeHidden();
+  await expect(page.locator('.empty-help')).toHaveText('Add the bus and train legs you take, and T-Minus tells you when to leave.');
+  const setUp = page.locator('.empty .big-btn');
+  await expect(setUp).toHaveText('Set up a trip');
+  expect((await setUp.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await setUp.click();
+  await expect(button(page, '+ Add transit leg')).toBeVisible(); // a new trip
   // Reopened with no trips: setup starts on a new trip, as on first run; the settings are kept.
   await page.reload();
   await expect(button(page, '+ Add transit leg')).toBeVisible();
