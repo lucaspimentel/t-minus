@@ -422,6 +422,9 @@ export function alightGroups(doc0, doc1, boardId) {
   }).filter(g => g.stops.length);
 }
 
+// The no-trips help line, on the main screen and in setup's empty trip list.
+export const NO_TRIPS_HELP = 'Add the bus and train legs you take, and T-Minus tells you when to leave.';
+
 export const CONNECTION_METERS = 200;
 
 // Rail lines at a stop (JSON:API stop with latitude/longitude). A rail station connects only to

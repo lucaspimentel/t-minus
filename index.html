@@ -241,6 +241,7 @@
   .update-card .big-btn { width: 100%; }
   .empty .big-btn { width: 100%; }
   .empty-help { margin: 0 0 12px; }
+  .empty .secondary-btn { width: 100%; min-height: 44px; margin-top: 10px; }
   /* Setup view (setup.js) */
   .setup button {
     padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
@@ -332,7 +333,7 @@
     <div class="update-card" id="newversion" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-04 · b5e0ff24c6</footer>
+    <footer class="version">Version 2026-10-04 · 0036248e0a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -352,10 +353,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
-  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
+  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=21319f8002';
-import { openSetup } from './setup.js?v=9918dad7f3';
+} from './core.js?v=4d1b880f65';
+import { openSetup } from './setup.js?v=6b48a08e52';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -975,8 +976,11 @@ function render() {
     const li = el('li', 'empty');
     const btn = el('button', 'big-btn', 'Set up a trip');
     btn.type = 'button';
-    btn.onclick = showSetup;
-    li.append(el('p', 'empty-help', 'Add the bus and train legs you take, and T-Minus tells you when to leave.'), btn);
+    btn.onclick = () => showSetup();
+    const imp = el('button', 'secondary-btn', 'Import trips');
+    imp.type = 'button';
+    imp.onclick = () => showSetup({ importOpen: true });
+    li.append(el('p', 'empty-help', NO_TRIPS_HELP), btn, imp);
     $('rows').replaceChildren(li);
     return;
   }
@@ -1260,7 +1264,7 @@ function setTrip(i, manual) {
 // ---------- setup ----------
 
 // Polling and rendering pause while setup is open; saving there replaces the config.
-function showSetup() {
+function showSetup({ importOpen = false } = {}) {
   if (setupView) return;
   clearTimeout(pollTimer);
   hideToast();
@@ -1275,6 +1279,7 @@ function showSetup() {
     testPush: PUSH_SERVER ? { supported: pushSupported, send: testPush } : null,
     onClose: closeSetup,
     onReset: resetApp,
+    startImport: importOpen,
     // Each trip saves on its own while setup stays open.
     onSave(cfg, warning) {
       savedConfig = cfg;
@@ -1311,7 +1316,7 @@ function closeSetup() {
   refresh({ force: !cache[tripIdx] });
 }
 
-$('open-setup').onclick = showSetup;
+$('open-setup').onclick = () => showSetup();
 
 // ---------- timers ----------
 
@@ -1447,8 +1452,7 @@ document.addEventListener('touchstart', () => {}, { passive: true });
 
 window.appStarted = true;
 render();
-if (config) { refresh({ force: true }); locate(); }
-else showSetup(); // first run: nothing to show until a trip is set up
+if (config) { refresh({ force: true }); locate(); } // no trips: the empty state (Set up a trip / Import trips)
 </script>
 </body>
 </html>

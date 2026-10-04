@@ -6,8 +6,8 @@ import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
-  reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel,
-} from './core.js?v=21319f8002';
+  reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
+} from './core.js?v=4d1b880f65';
 
 const ROUTE_LIMIT = 60;
 
@@ -50,8 +50,9 @@ const NEARBY_RADIUS = 0.003;
 // `timingFor(i)` returns the timing leg the app currently uses for saved trip i (or null).
 // `toast(text, action, onAction)` / `hideToast()`: the app's Undo toast.
 // `testPush`: { supported, send() } for "Send test notification" (null: no push server).
+// `startImport`: open on the list with the import box (the main screen's "Import trips").
 // `onReset(apiKey)`: "Delete all trips and settings" (after a confirm); the app reloads.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, onReset = null }) {
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, onReset = null, startImport = false }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -64,7 +65,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // The trip being edited: `idx` is its saved index (null for a new trip, inserted at `insertAt`).
   // `initial`: the form as opened (JSON), to tell whether Cancel discards edits (null: always).
   const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
-  let editing = savedTrips().length ? null : editor(null, 0, emptyTrip(0)); // first run, or no trips left
+  // "Set up a trip" with no trips opens a new trip; "Import trips" the list with the import box.
+  let editing = savedTrips().length || startImport ? null : editor(null, 0, emptyTrip(0));
   let routes = null;
   // { legIdx (null = new leg), step, query, near, ... }. Steps: 'search' (stations and routes);
   // station-first 'to' { from }; route-first 'board' → 'alight' → 'also' { route, board, alight,
@@ -226,7 +228,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // Saves the app-wide fields (if changed) and leaves setup.
   function done() {
-    const cfg = { ...saved, ...app, apiKey: app.apiKey.trim() };
+    const cfg = { trips: [], ...saved, ...app, apiKey: app.apiKey.trim() }; // settings alone are fine
     const errors = validateConfig(cfg);
     if (errors.length) { listMessages = errs(errors); return render(); }
     const before = appFields(saved);
@@ -236,7 +238,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     onClose();
   }
 
-  let ioArea = null; // { mode: 'export' | 'import', text }
+  let ioArea = startImport ? { mode: 'import', text: '' } : null; // { mode: 'export' | 'import', text }
 
   async function exportConfig() {
     const text = JSON.stringify(saved, null, 2);
@@ -297,13 +299,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('div', { class: 'setup-head' },
         h('span'),
         h('b', {}, 'Setup'),
-        h('button', { type: 'button', class: 'primary', id: 'setup-done', disabled: busy || !saved, onclick: done }, 'Done')),
+        h('button', { type: 'button', class: 'primary', id: 'setup-done', disabled: busy, onclick: done }, 'Done')),
       ...listMessages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)),
       h('div', { class: 'list trips' }, trips.map((t, i) => tripRow(t, i, trips.length))),
       // No trips (the last one deleted): the add button stands out, as in an empty trip's legs.
       trips.length
         ? h('button', { type: 'button', class: 'add', onclick: addTrip }, '+ Add trip')
-        : h('div', { class: 'legs-empty' }, 'No trips yet. Add the one you take, e.g. home to work.',
+        : h('div', { class: 'legs-empty' }, `No trips yet. ${NO_TRIPS_HELP}`,
           h('button', { type: 'button', class: 'primary add', onclick: addTrip }, '+ Add trip')),
       h('div', { class: 'muted section' }, 'Settings'),
       h('div', { class: 'card' },
@@ -370,6 +372,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // Cancel in the editor: edits are discarded, with Undo when there were any.
   function cancelEdit() {
+    // With no trips there is no list to go back to: back to the main screen's empty state.
+    if (!savedTrips().length) { editing = null; return onClose(); }
     const { idx, insertAt, form, initial } = editing;
     const changed = JSON.stringify(form) !== initial;
     editing = null;
@@ -496,10 +500,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const isSaved = editing.idx != null;
     return [
       h('div', { class: 'setup-head' },
-        savedTrips().length
-          ? h('button', { type: 'button', onclick: cancelEdit }, 'Cancel')
-          // First run: no list to cancel back to; offer the list's import box instead.
-          : h('button', { type: 'button', id: 'setup-import', onclick: () => { editing = null; ioArea = { mode: 'import', text: '' }; render(); } }, 'Import'),
+        h('button', { type: 'button', onclick: cancelEdit }, 'Cancel'),
         h('b', {}, isSaved ? 'Edit trip' : 'New trip'),
         h('button', { type: 'button', class: 'primary', id: 'setup-save', disabled: busy || !t.transit.length, onclick: saveTrip }, 'Save')),
       ...editing.messages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)),

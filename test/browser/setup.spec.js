@@ -20,6 +20,11 @@ const tripNames = page => setup(page).locator('.trip-row .item b').allInnerTexts
 const storedNames = page => page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')).trips.map(t => t.name));
 const button = (page, name) => setup(page).getByRole('button', { name, exact: true });
 
+// No trips: the main screen's empty state; "Set up a trip" opens a new trip.
+async function startFirstTrip(page) {
+  await page.locator('.empty .big-btn', { hasText: 'Set up a trip' }).click();
+}
+
 async function openSetup(page) {
   await openApp(page, { time: '07:00' });
   await page.locator('#open-setup').click();
@@ -28,7 +33,11 @@ async function openSetup(page) {
 
 test('first run: build a trip with the pickers, save it, and see its rows', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
-  await expect(button(page, 'Import')).toBeVisible(); // nothing to cancel back to
+  // No trips: the main screen's empty state, with Set up a trip and Import trips.
+  await expect(page.locator('.empty-help')).toHaveText('Add the bus and train legs you take, and T-Minus tells you when to leave.');
+  await expect(page.locator('.empty .secondary-btn')).toHaveText('Import trips');
+  await startFirstTrip(page);
+  await expect(button(page, 'Cancel')).toBeVisible();
   // An empty trip says what to do first; Save waits for a leg; the settings sit under "More".
   await expect(setup(page).locator('.legs-empty')).toContainText('No legs yet. Add the bus or train you take first.');
   await expect(button(page, 'Save')).toBeDisabled();
@@ -88,6 +97,7 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
 
 test('boarding at the end of a line asks for no direction', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('Orange');
   await setup(page).locator('.item', { hasText: 'Orange' }).first().click();
@@ -104,6 +114,7 @@ test('boarding at the end of a line asks for no direction', async ({ page }) => 
 
 test('the next leg lists the stations and routes near the transfer; a route boards at the nearest stop', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('132');
   await setup(page).locator('.item', { hasText: 'Bus 132' }).click();
@@ -125,6 +136,7 @@ test('the next leg lists the stations and routes near the transfer; a route boar
 
 test('station-first: from a station to any station reachable without a transfer', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('Oak Gro');
   await expect(setup(page).locator('.item.station')).toHaveText([/^Oak Grove\s*Orange$/]);
@@ -150,6 +162,7 @@ test('station-first: from a station to any station reachable without a transfer'
 
 test('after the Blue Line to State, the next leg lists the Orange Line; a search still finds Blue', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('Airport');
   await setup(page).locator('.item.station', { hasText: 'Airport' }).first().click();
@@ -168,6 +181,7 @@ test('after the Blue Line to State, the next leg lists the Orange Line; a search
 
 test('the picker\'s search stays at the top, uncovered, while the list scrolls', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('Oak Grove');
   await setup(page).locator('.item.station', { hasText: 'Oak Grove' }).click();
@@ -184,6 +198,7 @@ test('the picker\'s search stays at the top, uncovered, while the list scrolls',
 
 test('station-first takes every line that makes the ride; the editor trims them', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
   await setup(page).getByLabel('Trip name').fill('Green');
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('Government');
@@ -203,6 +218,7 @@ test('station-first takes every line that makes the ride; the editor trims them'
 
 test('route-first on a branching line offers only its branch (no Ashmont → Quincy)', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('Red');
   await setup(page).locator('.item', { hasText: 'Red' }).filter({ hasNot: page.locator('.conn') }).first().click();
@@ -214,6 +230,7 @@ test('route-first on a branching line offers only its branch (no Ashmont → Qui
 
 test('a rail station shows only its own lines, not a nearby station\'s', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('Blue');
   await setup(page).locator('.item', { hasText: 'Blue' }).first().click();
@@ -225,6 +242,7 @@ test('a rail station shows only its own lines, not a nearby station\'s', async (
 
 test('a leg can take any route between its stops (Green branches)', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
   await setup(page).getByLabel('Trip name').fill('Green');
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('Green B');
@@ -351,9 +369,12 @@ test('the last trip can be deleted: settings stay, Done shows the empty main scr
   expect((await setUp.boundingBox()).height).toBeGreaterThanOrEqual(44);
   await setUp.click();
   await expect(button(page, '+ Add transit leg')).toBeVisible(); // a new trip
-  // Reopened with no trips: setup starts on a new trip, as on first run; the settings are kept.
+  // Cancel on that new trip: back to the empty state. Reopened with no trips: the same; the
+  // settings are kept.
+  await button(page, 'Cancel').click();
+  await expect(page.locator('.empty .big-btn')).toBeVisible();
   await page.reload();
-  await expect(button(page, '+ Add transit leg')).toBeVisible();
+  await expect(page.locator('.empty .big-btn')).toBeVisible();
   expect(await stored()).toMatchObject({ trips: [], departureCount: 3, apiKey: 'k1' });
 });
 
@@ -372,11 +393,25 @@ test('Reset deletes all trips and saved data after a confirm, keeping the API ke
   let asked = null;
   page.answerDialog = d => { asked = d.message(); d.accept(); };
   await reset.click();
-  await expect(button(page, '+ Add transit leg')).toBeVisible(); // reloaded into first-run setup
+  await expect(page.locator('.empty .big-btn')).toBeVisible(); // reloaded into the empty main screen
   expect(asked).toBe('Delete all trips and settings?');
   const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('mbta-leave-by:')));
   expect(keys).toEqual(['mbta-leave-by:config']);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')))).toEqual({ trips: [], apiKey: 'k1' });
+});
+
+test('no trips: Import trips opens setup with the import box; the empty list shares the help line', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await page.locator('.empty .secondary-btn').click();
+  await expect(page.locator('#setup-io')).toBeVisible();
+  await expect(setup(page).locator('.legs-empty')).toHaveText(/^No trips yet\. Add the bus and train legs you take, and T-Minus tells you when to leave\./);
+  // Done with nothing set up: back to the empty state.
+  await page.locator('#setup-done').click();
+  await expect(page.locator('.empty .big-btn')).toBeVisible();
+  await page.locator('.empty .secondary-btn').click();
+  await setup(page).locator('textarea').fill(JSON.stringify(CONFIG));
+  await button(page, 'Load').click();
+  await expect(setup(page).locator('.trip-row .item b')).toHaveText(['Home to office', 'Office to home']);
 });
 
 test('Import over existing trips can be undone, settings included', async ({ page }) => {

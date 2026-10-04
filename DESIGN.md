@@ -359,18 +359,26 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Trip screen (tap a row, or "Add trip"): name, "Show automatically" (During a time window,
   with from/until fields / When I'm near its first stop / Never (only when chosen)), time to the first stop
   and from the last stop, transit legs with a transfer time between them, "Add return trip",
-  "Delete trip" (also for the only trip: the config keeps `trips: []` and the settings; Done
-  shows "No trips set up yet" with one line of help and a full-width "Set up a trip" (44 px;
-  no en-route bar, ↻ or pull-to-refresh without trips), and the next launch opens a new trip
-  as on first run). With no trips, the setup list shows "No trips yet. …" with an orange
-  "+ Add trip", as an empty trip shows its legs. Cancel discards the edits; Save checks and stores the whole config right
-  away, then returns to the list. First run opens an empty trip directly; its top-left button is Import (opens the list with
-  the import box) instead of Cancel.
+  "Delete trip" (also for the only trip: the config keeps `trips: []` and the settings). Cancel
+  discards the edits; Save checks and stores the whole config right away, then returns to the
+  list.
+- No trips (none saved, or the last one deleted): one home base, the main screen's empty state:
+  "No trips set up yet", the help line (`NO_TRIPS_HELP`: "Add the bus and train legs you take,
+  and T-Minus tells you when to leave."), a full-width "Set up a trip" (44 px) and "Import trips";
+  no en-route bar, ↻ or pull-to-refresh.
+
+  | Path | Lands on |
+  |---|---|
+  | First launch; launch with `trips: []`; Reset | the empty main screen |
+  | "Set up a trip" | a new trip; its Cancel returns to the empty main screen |
+  | "Import trips" | the setup list with the import box open |
+  | Deleting the last trip (in setup) | the setup list: "No trips yet. " + the help line, an orange "+ Add trip" |
+  | Done with no trips | the empty main screen (settings alone are saved as `trips: []`) |
 - Reordering and deleting trips also save right away.
 - Reset (last section of setup): "Delete all trips and settings" asks to confirm ("Delete all
   trips and settings?", no Undo), cancels pending reminders on the push server, removes every
-  `mbta-leave-by:*` key except the API key (kept as `{ trips: [], apiKey }`), and reloads into
-  first-run setup.
+  `mbta-leave-by:*` key except the API key (kept as `{ trips: [], apiKey }`), and reloads to
+  the empty main screen.
 - Undo toasts (the main screen's bottom toast, 5 s): Cancel with edits → "Edits discarded ·
   Undo" (reopens the editor with the form; messages and pickers not restored; a generated
   return trip counts as edited); Delete trip (no confirm dialog) → "Trip deleted · Undo";
