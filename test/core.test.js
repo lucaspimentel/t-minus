@@ -1002,20 +1002,21 @@ test('boardGroups and alightGroups: no direction step', () => {
   const orange0 = { data: [s('place-ogmnl', ['70036']), s('place-mlmnl'), s('place-welln'), s('place-forhl')] };
   const orange1 = { data: [s('place-forhl'), s('place-welln'), s('place-mlmnl'), s('place-ogmnl', ['70035'])] };
   const g = boardGroups(orange0, orange1);
-  assert.deepEqual(g.both.map(x => x.id), ['place-ogmnl', 'place-mlmnl', 'place-welln', 'place-forhl']);
-  assert.deepEqual(g.only, [[], []]);
+  // A terminus is boarded only toward the other end (not listed as served both ways).
+  assert.deepEqual(g.both.map(x => x.id), ['place-mlmnl', 'place-welln']);
+  assert.deepEqual(g.only.map(l => l.map(x => x.id)), [['place-ogmnl'], ['place-forhl']]);
   const fromOak = alightGroups(orange0, orange1, 'place-ogmnl');
   assert.deepEqual(fromOak.map(x => [x.direction, x.stops.map(y => y.id)]), [[0, ['place-mlmnl', 'place-welln', 'place-forhl']]]);
   assert.deepEqual(alightGroups(orange0, orange1, '70036')[0].stops.length, 3); // child platform id
   assert.deepEqual(alightGroups(orange0, orange1, 'place-mlmnl').map(x => [x.direction, x.stops.length]), [[0, 2], [1, 1]]);
-  // Bus: shared terminal, separate sides of the street.
+  // Bus: shared terminals (each boarded one way only), separate sides of the street.
   const bus0 = { data: [s('T'), s('a0'), s('b0'), s('M')] };
   const bus1 = { data: [s('M'), s('b1'), s('a1'), s('T')] };
   const b = boardGroups(bus0, bus1);
-  assert.deepEqual([b.both.map(x => x.id), b.only.map(l => l.map(x => x.id))], [['T', 'M'], [['a0', 'b0'], ['b1', 'a1']]]);
+  assert.deepEqual([b.both.map(x => x.id), b.only.map(l => l.map(x => x.id))], [[], [['T', 'a0', 'b0'], ['M', 'b1', 'a1']]]);
   assert.deepEqual(alightGroups(bus0, bus1, 'b1').map(x => [x.direction, x.stops.map(y => y.id)]), [[1, ['a1', 'T']]]);
   assert.deepEqual(alightGroups(bus0, bus1, 'nope'), []);
-  assert.deepEqual(boardGroups(null, bus1).only[1].length, 4);
+  assert.deepEqual(boardGroups(null, bus1).only[1].length, 3); // not its last stop
 });
 
 test('searchStops, stopsAfter, and defaultTransferMinutes', () => {

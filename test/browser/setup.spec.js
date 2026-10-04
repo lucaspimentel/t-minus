@@ -46,6 +46,12 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('132');
   await setup(page).locator('.item', { hasText: 'Bus 132' }).click();
+  // The ends of the line: Malden Center is boarded only toward Redstone (first under it), not
+  // listed as served both ways.
+  await setup(page).locator('#picker-search').fill('Malden');
+  const listed = () => setup(page).locator('.section-head, .item').allInnerTexts().then(t => t.map(x => x.replace(/\s+/g, ' ').trim()));
+  expect((await listed())[0]).toBe('toward Redstone Shopping Center');
+  expect((await listed()).filter(x => x.startsWith('Malden Center'))).toHaveLength(1);
   await setup(page).locator('#picker-search').fill('Main St @ South');
   // No direction step: stops on each side of the street are listed under their direction.
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Redstone Shopping Center', 'toward Malden Center Station']);

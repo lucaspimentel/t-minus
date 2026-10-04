@@ -397,11 +397,13 @@ export function servesInOrder(doc, boardId, alightId) {
   return i >= 0 && j > i;
 }
 
-// Board picker for a route without a chosen direction: stops served in both directions (most
-// subway stations; direction 0's order) and those served by one direction only (the two sides
-// of a bus street), from the two directions' /stops docs.
+// Board picker for a route without a chosen direction: stops you can board in both directions
+// (most subway stations; direction 0's order) and those in one direction only (the two sides
+// of a bus street), from the two directions' /stops docs. A direction's last stop can't be
+// boarded, so a terminus goes under the direction leaving from it (Malden Center: toward
+// Redstone only).
 export function boardGroups(doc0, doc1) {
-  const lists = [doc0?.data ?? [], doc1?.data ?? []];
+  const lists = [doc0?.data ?? [], doc1?.data ?? []].map(l => l.slice(0, -1));
   const ids = lists.map(l => new Set(l.map(s => s.id)));
   return {
     both: lists[0].filter(s => ids[1].has(s.id)),

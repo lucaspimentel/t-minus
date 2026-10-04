@@ -411,7 +411,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   no direction step (both directions' stop lists are loaded). The board list (`boardGroups`)
   has the stops served both ways first (most subway stations, direction 0's order), then each
   direction's own stops under "toward <direction_destinations>" (the two sides of a bus
-  street). The drop-off list (`alightGroups`) has, per direction serving the board stop, the
+  street). A direction's last stop can't be boarded, so a terminus is listed only under the
+  direction leaving from it (Malden Center: "toward Redstone"). The drop-off list (`alightGroups`) has, per direction serving the board stop, the
   stops after it under "toward …"; at the end of a line there is one group. The drop-off pick
   sets `direction_id`. Then other routes that also go from the board stop to the drop-off in
   that direction (`findAlso`: `/routes?filter[stop]` at both stops, then each candidate's stop
