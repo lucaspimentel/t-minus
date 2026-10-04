@@ -329,12 +329,14 @@ test('the last trip can be deleted: settings stay, Done shows the empty main scr
   await setup(page).locator('.trip-row .item').first().click();
   await button(page, 'Delete trip').click();
   await expect(setup(page).locator('.trip-row')).toHaveCount(0);
-  await expect(button(page, '+ Add trip')).toBeVisible();
+  await expect(button(page, '+ Add trip')).toHaveClass(/primary/); // stands out with no trips
+  await expect(setup(page).locator('.legs-empty')).toContainText('No trips yet.');
   await expect(toast(page)).toContainText('Trip deleted');
   const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')));
   expect(await stored()).toMatchObject({ trips: [], departureCount: 3, apiKey: 'k1' });
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(setup(page).locator('.trip-row')).toHaveCount(1);
+  await expect(button(page, '+ Add trip')).not.toHaveClass(/primary/);
   await setup(page).locator('.trip-row .item').first().click();
   await button(page, 'Delete trip').click();
   await expect(page.locator('#setup-done')).toBeEnabled();

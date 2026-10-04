@@ -300,7 +300,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         h('button', { type: 'button', class: 'primary', id: 'setup-done', disabled: busy || !saved, onclick: done }, 'Done')),
       ...listMessages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)),
       h('div', { class: 'list trips' }, trips.map((t, i) => tripRow(t, i, trips.length))),
-      h('button', { type: 'button', class: 'add', onclick: addTrip }, '+ Add trip'),
+      // No trips (the last one deleted): the add button stands out, as in an empty trip's legs.
+      trips.length
+        ? h('button', { type: 'button', class: 'add', onclick: addTrip }, '+ Add trip')
+        : h('div', { class: 'legs-empty' }, 'No trips yet. Add the one you take, e.g. home to work.',
+          h('button', { type: 'button', class: 'primary add', onclick: addTrip }, '+ Add trip')),
       h('div', { class: 'muted section' }, 'Settings'),
       h('div', { class: 'card' },
         numberField('Departures shown (1-8)', app.departureCount, v => { app.departureCount = v; }, { min: '1', max: '8' }),
