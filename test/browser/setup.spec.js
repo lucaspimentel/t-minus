@@ -5,7 +5,13 @@ import { openApp, CONFIG } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
-  page.on('dialog', d => { throw new Error(`unexpected dialog: ${d.message()}`); });
+  // Dialogs only where a test expects one (`page.answerDialog`, used once).
+  page.on('dialog', d => {
+    const answer = page.answerDialog;
+    page.answerDialog = null;
+    if (!answer) throw new Error(`unexpected dialog: ${d.message()}`);
+    answer(d);
+  });
 });
 
 const setup = page => page.locator('#setup');
@@ -314,6 +320,52 @@ test('Delete removes the trip at once, with Undo; a later save hides the toast',
   await button(page, 'Save').click();
   await expect(setup(page).locator('.trip-row')).toHaveCount(1);
   await expect(toast(page)).toBeHidden();
+});
+
+test('the last trip can be deleted: settings stay, Done shows the empty main screen, setup reopens as first run', async ({ page }) => {
+  const one = { ...CONFIG, trips: [CONFIG.trips[0]], departureCount: 3, apiKey: 'k1' };
+  await openApp(page, { time: '07:00', config: one });
+  await page.locator('#open-setup').click();
+  await setup(page).locator('.trip-row .item').first().click();
+  await button(page, 'Delete trip').click();
+  await expect(setup(page).locator('.trip-row')).toHaveCount(0);
+  await expect(button(page, '+ Add trip')).toBeVisible();
+  await expect(toast(page)).toContainText('Trip deleted');
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')));
+  expect(await stored()).toMatchObject({ trips: [], departureCount: 3, apiKey: 'k1' });
+  await toast(page).getByRole('button', { name: 'Undo' }).click();
+  await expect(setup(page).locator('.trip-row')).toHaveCount(1);
+  await setup(page).locator('.trip-row .item').first().click();
+  await button(page, 'Delete trip').click();
+  await expect(page.locator('#setup-done')).toBeEnabled();
+  await page.locator('#setup-done').click();
+  await expect(page.locator('#status-text')).toHaveText('No trips set up yet.');
+  // Reopened with no trips: setup starts on a new trip, as on first run; the settings are kept.
+  await page.reload();
+  await expect(button(page, '+ Add transit leg')).toBeVisible();
+  expect(await stored()).toMatchObject({ trips: [], departureCount: 3, apiKey: 'k1' });
+});
+
+test('Reset deletes all trips and saved data after a confirm, keeping the API key', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: { ...CONFIG, apiKey: 'k1', departureCount: 3 } });
+  await page.evaluate(() => {
+    localStorage.setItem('mbta-leave-by:trip-override', JSON.stringify({ index: 1, setAt: Date.now() }));
+    localStorage.setItem('mbta-leave-by:last-trip', '1');
+  });
+  await page.locator('#open-setup').click();
+  const reset = button(page, 'Delete all trips and settings');
+  // Cancelled: nothing changes.
+  page.answerDialog = d => d.dismiss();
+  await reset.click();
+  await expect(setup(page).locator('.trip-row')).toHaveCount(2);
+  let asked = null;
+  page.answerDialog = d => { asked = d.message(); d.accept(); };
+  await reset.click();
+  await expect(button(page, '+ Add transit leg')).toBeVisible(); // reloaded into first-run setup
+  expect(asked).toBe('Delete all trips and settings?');
+  const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('mbta-leave-by:')));
+  expect(keys).toEqual(['mbta-leave-by:config']);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')))).toEqual({ trips: [], apiKey: 'k1' });
 });
 
 test('Import over existing trips can be undone, settings included', async ({ page }) => {

@@ -359,10 +359,15 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Trip screen (tap a row, or "Add trip"): name, "Show automatically" (During a time window,
   with from/until fields / When I'm near its first stop / Never (only when chosen)), time to the first stop
   and from the last stop, transit legs with a transfer time between them, "Add return trip",
-  "Delete trip" (hidden for the only trip). Cancel discards the edits; Save checks and stores the whole config right
+  "Delete trip" (also for the only trip: the config keeps `trips: []` and the settings; Done
+  shows "No trips set up yet", and the next launch opens a new trip as on first run). Cancel discards the edits; Save checks and stores the whole config right
   away, then returns to the list. First run opens an empty trip directly; its top-left button is Import (opens the list with
   the import box) instead of Cancel.
 - Reordering and deleting trips also save right away.
+- Reset (last section of setup): "Delete all trips and settings" asks to confirm ("Delete all
+  trips and settings?", no Undo), cancels pending reminders on the push server, removes every
+  `mbta-leave-by:*` key except the API key (kept as `{ trips: [], apiKey }`), and reloads into
+  first-run setup.
 - Undo toasts (the main screen's bottom toast, 5 s): Cancel with edits → "Edits discarded ·
   Undo" (reopens the editor with the form; messages and pickers not restored; a generated
   return trip counts as edited); Delete trip (no confirm dialog) → "Trip deleted · Undo";

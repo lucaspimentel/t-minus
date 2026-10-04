@@ -39,6 +39,11 @@ test('example config is valid', () => {
   assert.deepEqual(validateConfig(EXAMPLE), []);
 });
 
+test('validateConfig: no trips is valid (settings kept); trips must be an array', () => {
+  assert.deepEqual(validateConfig({ trips: [], apiKey: 'k', departureCount: 3 }), []);
+  assert.deepEqual(validateConfig({ apiKey: 'k' }), ['trips must be an array.']);
+});
+
 test('validateConfig rejects the old format and bad legs, windows, timingLeg', () => {
   assert.deepEqual(validateConfig({ commutes: [] }),
     ['This is the old config format (commutes); rebuild it as trips in setup.']);

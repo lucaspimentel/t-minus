@@ -7,7 +7,7 @@ import {
   searchRoutes, searchStops, boardGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel,
-} from './core.js?v=724a006035';
+} from './core.js?v=21319f8002';
 
 const ROUTE_LIMIT = 60;
 
@@ -50,7 +50,8 @@ const NEARBY_RADIUS = 0.003;
 // `timingFor(i)` returns the timing leg the app currently uses for saved trip i (or null).
 // `toast(text, action, onAction)` / `hideToast()`: the app's Undo toast.
 // `testPush`: { supported, send() } for "Send test notification" (null: no push server).
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null }) {
+// `onReset(apiKey)`: "Delete all trips and settings" (after a confirm); the app reloads.
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, onReset = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -63,7 +64,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // The trip being edited: `idx` is its saved index (null for a new trip, inserted at `insertAt`).
   // `initial`: the form as opened (JSON), to tell whether Cancel discards edits (null: always).
   const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
-  let editing = saved ? null : editor(null, 0, emptyTrip(0));
+  let editing = savedTrips().length ? null : editor(null, 0, emptyTrip(0)); // first run, or no trips left
   let routes = null;
   // { legIdx (null = new leg), step, query, near, ... }. Steps: 'search' (stations and routes);
   // station-first 'to' { from }; route-first 'board' → 'alight' → 'also' { route, board, alight,
@@ -321,6 +322,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       testPush && h('div', { class: 'btns' },
         h('button', { type: 'button', disabled: !testPush.supported, onclick: () => testPush.send() }, 'Send test notification in 10 s')),
       testPush && !testPush.supported && h('div', { class: 'push-hint' }, 'Add to Home Screen to get notifications.'),
+      onReset && h('div', { class: 'muted section' }, 'Reset'),
+      onReset && h('div', { class: 'btns' }, h('button', { type: 'button', class: 'danger', onclick: () => {
+        if (confirm('Delete all trips and settings?')) onReset(app.apiKey.trim() || saved?.apiKey || '');
+      } }, 'Delete all trips and settings')),
+      onReset && h('div', { class: 'push-hint reset-note' }, 'Removes trips, settings and saved data. Keeps the MBTA API key.'),
     ];
   }
 
@@ -519,7 +525,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
           timing)),
       isSaved && h('div', { class: 'btns trip-btns' },
         t.transit.length > 0 && h('button', { type: 'button', onclick: addReturnTrip }, 'Add return trip'),
-        savedTrips().length > 1 && h('button', { type: 'button', class: 'danger', onclick: deleteTrip }, 'Delete trip')),
+        h('button', { type: 'button', class: 'danger', onclick: deleteTrip }, 'Delete trip')),
     ];
   }
 

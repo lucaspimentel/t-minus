@@ -41,10 +41,11 @@ export function validateConfig(cfg) {
       !(Number.isInteger(cfg.departureCount) && cfg.departureCount >= 1 && cfg.departureCount <= MAX_DEPARTURE_COUNT)) {
     errors.push(`departureCount must be an integer from 1 to ${MAX_DEPARTURE_COUNT}.`);
   }
-  if (!Array.isArray(cfg.trips) || cfg.trips.length < 1) {
+  // No trips is valid: the settings stay after the last trip is deleted.
+  if (!Array.isArray(cfg.trips)) {
     errors.push(cfg.commutes
       ? 'This is the old config format (commutes); rebuild it as trips in setup.'
-      : 'trips must be a non-empty array.');
+      : 'trips must be an array.');
     return errors;
   }
   cfg.trips.forEach((t, i) => {

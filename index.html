@@ -331,7 +331,7 @@
     <div class="update-card" id="newversion" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-04 · e63a286b8a</footer>
+    <footer class="version">Version 2026-10-04 · ac21544f3f</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -353,8 +353,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=724a006035';
-import { openSetup } from './setup.js?v=b0145f9da2';
+} from './core.js?v=21319f8002';
+import { openSetup } from './setup.js?v=1b11829222';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 'mbta-leave-by:config';
@@ -380,7 +380,9 @@ function loadConfig() {
 }
 
 store.del('mbta-leave-by:direction'); // override key from the old format
-let config = loadConfig();
+// The stored config (it may have no trips, keeping the settings); `config` is set only with trips.
+let savedConfig = loadConfig();
+let config = savedConfig?.trips.length ? savedConfig : null;
 let tripIdx = config ? pickTrip(Date.now(), config, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP)) : 0;
 // Per-trip cache, one doc per transit leg:
 // { predictions: [doc], schedules: {docs, date, coversEndOfService, at}, alerts: {doc, at},
@@ -1260,26 +1262,39 @@ function showSetup() {
   $('app').hidden = true;
   setupView = openSetup({
     root: $('setup'),
-    config,
+    config: savedConfig,
     api,
     timingFor: i => cache[i]?.timing ?? null,
     toast: showToast,
     hideToast,
     testPush: PUSH_SERVER ? { supported: pushSupported, send: testPush } : null,
     onClose: closeSetup,
+    onReset: resetApp,
     // Each trip saves on its own while setup stays open.
     onSave(cfg, warning) {
-      config = cfg;
-      store.set(KEY_CONFIG, config);
+      savedConfig = cfg;
+      config = cfg.trips.length ? cfg : null;
+      store.set(KEY_CONFIG, cfg);
       store.del(KEY_OVERRIDE);
       store.del(KEY_EN_ROUTE);
       cache = {};
       lastTiming.clear();
       notice = warning;
-      tripIdx = pickTrip(Date.now(), config, null, store.get(KEY_LAST_TRIP), located());
-      locate(); // the saved trips may now use location
+      tripIdx = config ? pickTrip(Date.now(), config, null, store.get(KEY_LAST_TRIP), located()) : 0;
+      if (config) locate(); // the saved trips may now use location
     },
   });
+}
+
+// Setup's "Delete all trips and settings": cancels pending reminders, clears everything the app
+// stored except the API key (and the tests' push-server override), and reloads to first run.
+function resetApp(apiKey) {
+  for (const rem of Object.values(reminders)) pushApi('DELETE', `/reminders/${rem.id}`).catch(() => {});
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('mbta-leave-by:') && k !== 'mbta-leave-by:push-server') localStorage.removeItem(k);
+  } catch {}
+  if (apiKey) store.set(KEY_CONFIG, { trips: [], apiKey });
+  location.reload();
 }
 
 function closeSetup() {
