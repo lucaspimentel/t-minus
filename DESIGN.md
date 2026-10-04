@@ -360,10 +360,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   with from/until fields / When I'm near its first stop / Never (only when chosen)), time to the first stop
   and from the last stop, transit legs with a transfer time between them, "Add return trip",
   "Delete trip" (also for the only trip: the config keeps `trips: []` and the settings; Done
-  shows "No trips set up yet" with one line of help; the setup list then shows "No trips yet. …"
-  with an orange "+ Add trip", as an empty trip shows its legs and a full-width "Set up a trip" (44 px;
+  shows "No trips set up yet" with one line of help and a full-width "Set up a trip" (44 px;
   no en-route bar, ↻ or pull-to-refresh without trips), and the next launch opens a new trip
-  as on first run). Cancel discards the edits; Save checks and stores the whole config right
+  as on first run). With no trips, the setup list shows "No trips yet. …" with an orange
+  "+ Add trip", as an empty trip shows its legs. Cancel discards the edits; Save checks and stores the whole config right
   away, then returns to the list. First run opens an empty trip directly; its top-left button is Import (opens the list with
   the import box) instead of Cancel.
 - Reordering and deleting trips also save right away.
