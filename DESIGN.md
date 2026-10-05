@@ -416,7 +416,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   makes the leg with every route that passes both stations in order (`legBetween`): Government
   Center → Park Street is Green-B plus `also` C, D, E, with no extra step. Stop ids are parent
   stations. A later leg whose previous leg ended at a rail station opens on the To list from it
-  ("From Downtown Crossing · Change"; Change leads to the search). A new leg leaves out the
+  ("From Downtown Crossing · Change"; Change leads to the search) when another line leaves from
+  there; otherwise (Oak Grove after the Orange Line) on the nearby stations and routes, so the
+  buses there show (without the line just ridden, or a station served only by it). The To list
+  ends with "Buses near <station>" when buses stop within ~300 m (`NEARBY_RADIUS`). A new leg leaves out the
   routes of the leg before it (`withoutArrived`: a group goes only when all its routes were
   ridden, so Green-B to Kenmore still lists C and D), with "Hidden: the line you arrived on." and
   "Show Blue Line" at the end; typing a search lists everything. The "Near …" routes after a bus

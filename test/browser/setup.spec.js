@@ -134,6 +134,25 @@ test('the next leg lists the stations and routes near the transfer; a route boar
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Forest Hills']);
 });
 
+test('after the Orange Line to Oak Grove, the next leg lists the buses there; elsewhere one tap away', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('State');
+  await setup(page).locator('.item.station', { hasText: /^State/ }).first().click();
+  await setup(page).locator('#picker-search').fill('Oak Grove');
+  await setup(page).locator('.item', { hasText: 'Oak Grove' }).first().click();
+  await expect(setup(page)).toContainText('· State → Oak Grove');
+  // Oak Grove has only the Orange Line: the nearby routes instead (no Orange, no Oak Grove station).
+  await button(page, '+ Add transit leg').click();
+  await expect(setup(page)).toContainText('Near Oak Grove');
+  await expect(setup(page).locator('.item b', { hasText: /^Bus 132$/ })).toBeVisible();
+  await expect(setup(page).locator('.item b', { hasText: /^Orange$/ })).toHaveCount(0);
+  await expect(setup(page).locator('.item.station')).toHaveCount(0);
+  await button(page, 'Show all routes').click();
+  await expect(setup(page).locator('.item b', { hasText: /^Orange$/ })).toBeVisible();
+});
+
 test('station-first: from a station to any station reachable without a transfer', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
   await startFirstTrip(page);
@@ -177,6 +196,24 @@ test('after the Blue Line to State, the next leg lists the Orange Line; a search
   await expect(button(page, 'Show Blue Line')).toBeVisible();
   await button(page, 'Show Blue Line').click();
   await expect(setup(page).locator('.section-head')).toHaveText(['Orange toward Forest Hills', 'Orange toward Oak Grove', 'Blue toward Bowdoin', 'Blue toward Wonderland']);
+});
+
+test('a station list offers the buses near the drop-off', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  // The recorded stop lists have no bus near State: say bus 132 stops there.
+  await page.route(/\/routes\?.*filter%5Bstop%5D/, route => route.fulfill({ json: { data: [
+    { type: 'route', id: '132', attributes: { short_name: '132' } }, { type: 'route', id: 'Blue', attributes: { short_name: '' } }] } }));
+  await startFirstTrip(page);
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('Airport');
+  await setup(page).locator('.item.station', { hasText: 'Airport' }).first().click();
+  await setup(page).locator('#picker-search').fill('State');
+  await setup(page).locator('.item', { hasText: 'State' }).first().click();
+  await button(page, '+ Add transit leg').click();
+  await expect(setup(page).locator('.section-head')).toHaveText(['Orange toward Forest Hills', 'Orange toward Oak Grove']);
+  await button(page, 'Buses near State').click();
+  await expect(setup(page)).toContainText('Near State');
+  await expect(setup(page).locator('.item b', { hasText: /^Bus 132$/ })).toBeVisible();
 });
 
 test('the picker\'s search stays at the top, uncovered, while the list scrolls', async ({ page }) => {

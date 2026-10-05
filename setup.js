@@ -547,7 +547,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const opened = picker;
     loadRailNetwork().then(net => {
       const st = prev && networkStation(net, prev.alight);
-      if (st && picker === opened && !picker.query) picker = { ...picker, step: 'to', from: st.id };
+      // Only if another line leaves from there (at Oak Grove after the Orange Line, the nearby
+      // stations and routes instead: the buses).
+      const other = st && withoutArrived(reachableFrom(net, st.id), picker.arrived).shown.length > 0;
+      if (other && picker === opened && !picker.query) picker = { ...picker, step: 'to', from: st.id, dropOff: st.id };
       if (picker) render();
     }, () => {});
     if (prev) {
@@ -672,7 +675,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         if (picker.nearLoading) return [h('div', { class: 'muted' }, 'Finding routes nearby…')];
         if (picker.near) {
           const here = { lat: picker.near.lat, lon: picker.near.lon };
-          const stations = (railNet?.stations ?? []).filter(st => st.lat != null && distanceMeters(here, st) <= NEARBY_STATION_METERS);
+          // Not a station whose only lines are the one just ridden (it would list nothing).
+          const stations = (railNet?.stations ?? []).filter(st => st.lat != null && distanceMeters(here, st) <= NEARBY_STATION_METERS
+            && withoutArrived(reachableFrom(railNet, st.id), picker.arrived).shown.length > 0);
           const nearRoutes = found.filter(r => picker.near.routeIds.includes(r.id) && !picker.arrived?.includes(r.id));
           if (stations.length || nearRoutes.length) {
             return [
@@ -703,6 +708,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const showArrived = hidden.length ? [h('div', { class: 'muted arrived-note' }, 'Hidden: the line you arrived on.'),
         h('button', { type: 'button', class: 'add', onclick: () => { picker.showArrived = true; render(); } },
           `Show ${lineLabel({ label: commonLabel(hidden.map(g => g.label)) })}`)] : [];
+      // A next leg: the buses near the drop-off, one tap away (the "Near …" list).
+      const buses = picker.near && picker.from === picker.dropOff && (routes ?? []).some(r => r.attributes?.type === 3 && picker.near.routeIds.includes(r.id) && !picker.arrived?.includes(r.id));
+      const fromName = networkStation(railNet, picker.from)?.name ?? picker.from;
+      const busesNear = buses ? [h('button', { type: 'button', class: 'add', onclick: () => { picker = { ...picker, step: 'search', query: '' }; render(); } }, `Buses near ${fromName}`)] : [];
       return [...shown.flatMap(g => {
         const found = searchStops(g.stations.map(st => ({ ...st, attributes: { name: st.name } })), q);
         if (!found.length) return [];
@@ -711,7 +720,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
             st.name,
             g.routes.length > 1 && h('span', { class: 'muted' }, ` · ${st.routes.length < g.routes.length ? commonLabel(st.routes.map(label)) : `${g.label} (any)`}`),
             ...stationLines(st.id, g.routes)))];
-      }), ...showArrived];
+      }), ...showArrived, ...busesNear];
     }
     const docs = bothDocs(picker.route.id);
     if (picker.loading && picker.alight) return [h('div', { class: 'muted' }, 'Checking other routes…')];
