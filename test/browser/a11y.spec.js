@@ -9,18 +9,21 @@ test.beforeEach(({ page }) => {
 });
 
 // Axe violations on the page. Disabled: `meta-viewport`, since iOS ignores `user-scalable=no`
-// for pinch zoom and `maximum-scale=1` stops its zoom on focusing a small input; `color-contrast`, known
-// (TODO: a few colors in the light theme are under 4.5:1).
-const violations = async page => (await new AxeBuilder({ page }).disableRules(['meta-viewport', 'color-contrast']).analyze())
+// for pinch zoom and `maximum-scale=1` stops its zoom on focusing a small input.
+const violations = async page => (await new AxeBuilder({ page }).disableRules(['meta-viewport']).analyze())
   .violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`);
 
 for (const scheme of ['light', 'dark']) {
-  test(`axe finds nothing on the main list, an expanded row, and setup (${scheme})`, async ({ page }) => {
+  test(`axe finds nothing on the main list (each row state), an expanded row, and setup (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await openApp(page, { time: '06:55' });
     expect(await violations(page)).toEqual([]);
     await page.locator('.row-toggle').first().click();
     expect(await violations(page)).toEqual([]);
+    for (const t of ['06:59:30', '07:02:30', '07:03:30']) { // amber, red, missed
+      await tickTo(page, t);
+      expect(await violations(page)).toEqual([]);
+    }
     await page.locator('#open-setup').click();
     expect(await violations(page)).toEqual([]);
     await page.locator('#setup .trip-row .item').first().click();
@@ -31,17 +34,20 @@ for (const scheme of ['light', 'dark']) {
   });
 }
 
-test('axe finds nothing on the ride card and the no-trips screen', async ({ page }) => {
-  await openApp(page, { time: '07:00' });
-  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
-  await tickTo(page, '07:08:30');
-  await expect(page.locator('.ride-head')).toBeVisible();
-  expect(await violations(page)).toEqual([]);
-  await page.evaluate(() => localStorage.setItem('mbta-leave-by:config', JSON.stringify({ trips: [] })));
-  await page.reload();
-  await expect(page.locator('.empty .big-btn')).toBeVisible();
-  expect(await violations(page)).toEqual([]);
-});
+for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on the ride card and the no-trips screen (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openApp(page, { time: '07:00' });
+    await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+    await tickTo(page, '07:08:30');
+    await expect(page.locator('.ride-head')).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+    await page.evaluate(() => localStorage.setItem('mbta-leave-by:config', JSON.stringify({ trips: [] })));
+    await page.reload();
+    await expect(page.locator('.empty .big-btn')).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+  });
+}
 
 test('a row is a button: its name says when to leave, and Enter expands it', async ({ page }) => {
   await openApp(page, { time: '06:55' });

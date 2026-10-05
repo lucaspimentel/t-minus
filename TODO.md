@@ -13,9 +13,6 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 
 ## UI
 
-- Light-theme contrast under WCAG AA 4.5:1 (axe; `color-contrast` is off in `a11y.spec.js`):
-  green leave times `#1f8a4c` on white 4.37:1, amber `#b86e00` 3.98:1, and the accent `#ed8b00`
-  as text ("+ Add transit leg") 2.53:1. Dark theme passes.
 
 ## Notifications
 

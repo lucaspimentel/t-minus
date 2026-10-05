@@ -253,7 +253,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   (`stopNames`, `fields[stop]=name,parent_station`; a parent station takes its platform's
   name; no extra requests); until known they show "—". Long names are cut with "…"; tapping a
   stop shows it in full (kept across re-renders) without collapsing the row. On the ride
-  card, what's done is dimmed and the current step is bold (riding: the ride and its
+  card, what's done is dimmed (muted text; faded nodes, bars and walking figures) and the current step is bold (riding: the ride and its
   drop-off; transfer: the transfer and the next boarding stop; walking: the last walk and
   Arrive). The ride card shows Arrive but no Leave.
   A muted ▾ at the bottom-right of a collapsed row
@@ -317,9 +317,12 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - A visually hidden `<h1>T-Minus</h1>` names the page.
 - `test/browser/a11y.spec.js` runs axe (`@axe-core/playwright`) on the main list, an expanded
   row, setup (list, editor, picker) in both themes, the ride card, and the no-trips screen, and
-  checks the row buttons, focus, and announcements. Two rules are off: `meta-viewport` (iOS
+  checks the row buttons, focus, and announcements. One rule is off: `meta-viewport` (iOS
   ignores `user-scalable=no` for pinch zoom, and `maximum-scale=1` stops its zoom when focusing
-  an input) and `color-contrast` (light-theme colors under 4.5:1, in `TODO.md`).
+  an input).
+- Contrast: text passes WCAG AA 4.5:1 in both themes. The light theme's green (`#1b7f45`) and
+  amber (`#a35f00`) are darker than the dark theme's; the accent as text uses `--accent-text`
+  (`#a85a00` in light), while `#ed8b00` fills (with dark text) stay.
 
 ## Configuration schema
 
