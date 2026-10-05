@@ -19,7 +19,7 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   await expect(page.locator('#status-text')).toHaveText('Updated 6:55am');
 
   await first.click();
-  await expect(first).toHaveAttribute('aria-expanded', 'true');
+  await expect(first.locator('.row-toggle')).toHaveAttribute('aria-expanded', 'true');
   // Stops as the rail's nodes (names from the responses' included stops), each with its time;
   // each ride between its stops, as a bar in the route's color; walks and transfers short.
   const tl = first.locator('.timeline');
@@ -38,7 +38,7 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   const drop = tl.locator('.step.stop').nth(1);
   await drop.click();
   await expect(drop).toHaveClass(/\bfull\b/);
-  await expect(first).toHaveAttribute('aria-expanded', 'true');
+  await expect(first.locator('.row-toggle')).toHaveAttribute('aria-expanded', 'true');
   await tick(page, 1500);
   await expect(tl.locator('.step.stop').nth(1)).toHaveClass(/\bfull\b/);
   await tl.locator('.step.stop').nth(1).click();

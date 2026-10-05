@@ -298,6 +298,29 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   queries return line-wide Orange alerts (e.g. Jackson Square platform work).
 - Timestamp of last successful fetch; stale indicator if fetch fails.
 
+### Accessibility (VoiceOver and keyboard)
+
+- **Rows:** each row's head (with the collapsed summary) is a `<button class="row-toggle"
+  aria-expanded>`, named by `rowAriaLabel` ("Leave in 5 min, 7:04am, arrive 7:50am", plus
+  ", reminder set"). A tap anywhere on the row still toggles it (the button's click bubbles to
+  the row). Track, Notify, and the ride card's controls are buttons of their own.
+- **Focus across the redraw:** the rows are rebuilt every second, so focusable controls carry
+  `data-focus` (`row:<key>`, `track:<key>`, `notify:<key>`, `ride:<label>`, `bar:<label>`) and
+  `setRows` refocuses the same one after the rebuild. Keyboard focus shows a 2 px ring
+  (`:focus-visible`, the text color).
+- **Announcements** (`#announce`, a visually hidden polite `role=status`):
+  - status problems, once each as they appear (`statusProblem`: error, Stale, Rate limited,
+    the save notice, Location off, Saved copy); not "Updated …" nor the retry countdown;
+  - the first row's leave state changing (green → amber → red → missed), e.g. "Hurry · <1 min ·
+    7:03am"; a new first row (one left, another trip) only resets the baseline.
+  - The "New version available" card is a `role=status` too; toasts already were.
+- A visually hidden `<h1>T-Minus</h1>` names the page.
+- `test/browser/a11y.spec.js` runs axe (`@axe-core/playwright`) on the main list, an expanded
+  row, setup (list, editor, picker) in both themes, the ride card, and the no-trips screen, and
+  checks the row buttons, focus, and announcements. Two rules are off: `meta-viewport` (iOS
+  ignores `user-scalable=no` for pinch zoom, and `maximum-scale=1` stops its zoom when focusing
+  an input) and `color-contrast` (light-theme colors under 4.5:1, in `TODO.md`).
+
 ## Configuration schema
 
 ```json
@@ -690,7 +713,7 @@ too is a likely later step.
   (`fake-mbta.js`) from scenarios (trips with stop times, optional live delays, alerts) plus
   recorded route/stop lists for setup (`test/browser/fixtures/`, refreshed by
   `scripts/record-fixtures.mjs`). The page clock is faked; specs move it with `tick` /
-  `tickTo`. The only devDependency is `@playwright/test`; the app itself has none.
+  `tickTo`. The devDependencies are `@playwright/test` and `@axe-core/playwright`; the app itself has none.
 - Push server: `test/server.test.js` (part of `npm test`) runs `server/app.mjs` against a fake
   MBTA, a recording sender, a temp store, and a fake clock. Locally:
   `npm --prefix server ci`, then `node server/main.mjs` with the env vars from

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
-  filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel,
+  filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
@@ -1191,4 +1191,19 @@ test('stopConnections: each station tags only the nearest stop of the list (or i
   assert.equal(stopConnections([stop('x', 42.3627, -71.0624)], rail).size, 0);
   // A station in the list: its lines, branches merged.
   assert.deepEqual(stopConnections([stop('place-haecl')], rail).get('place-haecl'), [{ label: 'Green C/D', color: '00843D' }]);
+});
+
+test('statusProblem: errors, the rate limit and notices, without times', () => {
+  assert.equal(statusProblem({}), '');
+  assert.equal(statusProblem({ lastOk: 1 }), '');
+  assert.equal(statusProblem({ lastError: 'HTTP 500' }), 'Error: HTTP 500');
+  assert.equal(statusProblem({ lastError: 'HTTP 500', lastOk: 1 }), 'Stale (HTTP 500)');
+  assert.equal(statusProblem({ lastError: 'HTTP 429', lastOk: 1, rateLimited: true }), 'Rate limited');
+  assert.equal(statusProblem({ notice: 'No service', locationOff: true, savedCopy: true }), 'No service · Location off · Saved copy');
+  assert.equal(statusProblem({ lastError: 'x', lastOk: 1, savedCopy: true }), 'Stale (x)'); // as the status line shows it
+});
+
+test('rowAriaLabel', () => {
+  assert.equal(rowAriaLabel('Leave in 5 min', '7:04am', '7:50am'), 'Leave in 5 min, 7:04am, arrive 7:50am');
+  assert.equal(rowAriaLabel('Hurry · 1 min', '7:06am', '7:50am', true), 'Hurry · 1 min, 7:06am, arrive 7:50am, reminder set');
 });

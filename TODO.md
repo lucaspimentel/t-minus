@@ -9,12 +9,13 @@ timing-leg override, collapsed rows, the trip list with one-at-a-time editing, s
 route labels with MBTA color dots, a sticky picker search, boxed legs in the trip editor, stop names in the timeline, trip tracking, service worker fallbacks (5xx, 3 s
 timeout, "Saved copy", reload banner), and UI affordances: loading indicators, the old-data
 age, Retry / backoff / rate-limit countdown, expand hints, pressed states, Undo toasts on
-the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop list with the stop before the drop-off, and browser tests in CI against a fake MBTA API, and leave-time push reminders ("Notify me", `server/`) deployed on Railway (see `DESIGN.md`).
+the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop list with the stop before the drop-off, and browser tests in CI against a fake MBTA API, and leave-time push reminders ("Notify me", `server/`) deployed on Railway, and accessibility (row buttons, focus kept across redraws, screen-reader announcements; see `DESIGN.md`).
 
 ## UI
 
-- Accessibility: rows are not focusable or announced as buttons (`li` + click handler); the
-  status line and countdown changes are not announced (`aria-live`).
+- Light-theme contrast under WCAG AA 4.5:1 (axe; `color-contrast` is off in `a11y.spec.js`):
+  green leave times `#1f8a4c` on white 4.37:1, amber `#b86e00` 3.98:1, and the accent `#ed8b00`
+  as text ("+ Add transit leg") 2.53:1. Dark theme passes.
 
 ## Notifications
 

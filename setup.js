@@ -7,7 +7,7 @@ import {
   searchRoutes, searchStops, boardGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
-} from './core.js?v=4d1b880f65';
+} from './core.js?v=4569a05b55';
 
 const ROUTE_LIMIT = 60;
 

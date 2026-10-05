@@ -34,7 +34,9 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   `npm ci` first). MBTA calls go to a fake API built from scenarios (`test/browser/fake-mbta.js`,
   `helpers.js`), so they need no key, relay, or network; CI runs them on every push. Add or
   update a spec when UI behavior changes. For a new spec, briefly break the feature (comment out
-  its key line) and confirm the spec fails, then restore it.
+  its key line) and confirm the spec fails, then restore it. `a11y.spec.js` runs axe on each
+  screen: new UI must pass it (buttons for anything tappable, a `data-focus` key on controls
+  inside the once-a-second redraw).
 - The page clock from `page.clock.install` keeps running in real time; before asserting on short
   timers (the ↻ spin, the pull-to-refresh hold), call `page.clock.pauseAt(...)` or test latency
   makes them flaky.

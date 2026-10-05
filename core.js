@@ -1399,6 +1399,18 @@ export function windowLabel(window) {
   return `${clock(window.from)}–${clock(window.to)}`;
 }
 
+// The parts of the status line worth announcing to a screen reader: errors, the rate limit,
+// and notices, without the times and counts that change every second or poll.
+export function statusProblem({ lastError, lastOk, rateLimited, notice, locationOff, savedCopy }) {
+  if (lastError) return rateLimited ? 'Rate limited' : lastOk ? `Stale (${lastError})` : `Error: ${lastError}`;
+  return [notice, locationOff && 'Location off', savedCopy && 'Saved copy'].filter(Boolean).join(' · ');
+}
+
+// The spoken name of a row's expand button: "Leave in 5 min, 7:04am, arrive 7:50am".
+export function rowAriaLabel(countdown, at, eta, reminder = false) {
+  return `${countdown}, ${at}, arrive ${eta}${reminder ? ', reminder set' : ''}`;
+}
+
 // Headline for a departure row, given its countdownState and the time left until leave-by
 // (green, amber), the last chance (red), or the first departure (missed).
 export function countdownLabel(state, msLeft, label = '') {

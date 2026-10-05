@@ -31,7 +31,7 @@ test('a short pull springs back without refreshing', async ({ page }) => {
   await expect.poll(() => offset(page)).toBe('');
   await tick(page, 1000);
   expect(dataHits(mbta)).toHaveLength(0);
-  await expect(page.locator('.row').first()).toHaveAttribute('aria-expanded', 'false'); // the drag is not a tap
+  await expect(page.locator('.row-toggle').first()).toHaveAttribute('aria-expanded', 'false'); // the drag is not a tap
 });
 
 test('a long pull refreshes, holding the gap until the ↻ stops', async ({ page }) => {
@@ -54,7 +54,7 @@ test('a long pull refreshes, holding the gap until the ↻ stops', async ({ page
   await expect.poll(() => offset(page)).toBe('');
   await expect(page.locator('#ptr')).not.toHaveClass(/busy/);
   await expect(page.locator('#ptr')).not.toHaveClass(/ready/);
-  await expect(page.locator('.row').first()).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.row-toggle').first()).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('a pull while a refresh is in flight waits for it', async ({ page }) => {
