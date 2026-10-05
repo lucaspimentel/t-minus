@@ -1,4 +1,4 @@
-// Railway entry point: env, web-push, the store file, and the 5 s loop.
+// Railway entry point: env, web-push, the SQLite store, and the 5 s loop.
 import { createServer } from 'node:http';
 import webpush from 'web-push';
 import { createApp } from './app.mjs';
@@ -18,7 +18,7 @@ const send = env.DRY_RUN
 const app = createApp({
   fetch,
   send,
-  store: await openStore(env.DATA_DIR ?? './data'),
+  store: openStore(env.DATA_DIR ?? './data'),
   apiKey: env.MBTA_API_KEY,
   publicKey: env.VAPID_PUBLIC_KEY,
   allowedOrigins: (env.ALLOWED_ORIGINS ?? 'https://lucaspimentel.github.io').split(',').map(s => s.trim()),

@@ -625,8 +625,11 @@ too is a likely later step.
     - 5 active reminders per push subscription.
     - A 16 KB body.
     - A 404/410 from the push service drops the reminder.
-- **Storage:** `server/store.mjs` keeps the reminders in one JSON file (`$DATA_DIR/reminders.json`,
-  a Railway volume), rewritten whole via a temp file and rename. A database can replace it later.
+- **Storage:** `server/store.mjs` keeps the reminders in SQLite (`node:sqlite`, no dependency) at
+  `$DATA_DIR/reminders.db` on a Railway volume: columns for what the server queries (`id`,
+  `endpoint`, `next_poll_at`) and the whole reminder as JSON (`body`), so its shape can change
+  without a migration. Writes are per row; a tick's update never inserts, so a reminder deleted
+  while the tick waited on the MBTA stays deleted. The old `reminders.json` was not imported.
 - **Deployment:** Railway service sourced from `lucaspimentel/mbta-leave-by` @ `main`. Deploy
   settings (build `npm ci --prefix server`, start `node server/main.mjs`, health check
   `/health`, watch paths `server/**` and `core.js`) live in the service's Railway settings, not

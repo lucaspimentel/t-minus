@@ -12,7 +12,8 @@ heads-up, "Leave now", or "Ride cancelled" (see `DESIGN.md`, Notifications).
    build command `npm ci --prefix server`, start command `node server/main.mjs`, health check
    `/health`, watch paths `server/**` and `core.js` (only those change redeploying).
 2. **Volume:** right-click the service → Attach volume, mounted at `/data`. Reminders are kept
-   there in `reminders.json`.
+   there in `reminders.db` (SQLite). An old `reminders.json`
+   from before the move can be deleted.
 3. **VAPID keys:** run this once, anywhere with Node:
    ```
    npx web-push generate-vapid-keys
@@ -51,5 +52,6 @@ VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:you@example.com 
 ```
 
 - `DRY_RUN=1` logs pushes instead of sending them.
+- Node 22.13+ (`node:sqlite`). Node 22 logs a one-line SQLite `ExperimentalWarning` at startup.
 - In the Claude Code cloud sandbox, add `NODE_USE_ENV_PROXY=1` so `fetch` uses the proxy.
 - Tests: `node --test test/server.test.js` (part of `npm test`).

@@ -1,5 +1,5 @@
 // Leave-time reminders: the HTTP API and the polling loop. No npm imports, so tests load it
-// directly; main.mjs wires in web-push, the store file, and the clock.
+// directly; main.mjs wires in web-push, the store, and the clock.
 import { randomUUID } from 'node:crypto';
 import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
@@ -85,7 +85,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     if (limited(ip, t)) return reply(res, 429, { error: 'Too many requests' }, cors);
     const url = new URL(req.url, 'http://x');
 
-    if (req.method === 'GET' && url.pathname === '/health') return reply(res, 200, { ok: true, reminders: store.all().length }, cors);
+    if (req.method === 'GET' && url.pathname === '/health') return reply(res, 200, { ok: true, reminders: store.count() }, cors);
     if (req.method === 'GET' && url.pathname === '/vapid') return reply(res, 200, { publicKey }, cors);
 
     let body;
@@ -106,7 +106,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     if (req.method === 'POST' && url.pathname === '/reminders') {
       const err = checkReminder(body, t);
       if (err) return reply(res, 400, { error: err }, cors);
-      if (store.all().filter(r => r.subscription.endpoint === body.subscription.endpoint).length >= MAX_PER_SUBSCRIPTION) {
+      if (store.countFor(body.subscription.endpoint) >= MAX_PER_SUBSCRIPTION) {
         return reply(res, 429, { error: `At most ${MAX_PER_SUBSCRIPTION} reminders at a time` }, cors);
       }
       const rem = {
@@ -114,8 +114,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
         stopSlackMinutes: body.stopSlackMinutes ?? 1, timingIdx: body.timingIdx, key: body.key,
         leaveBy: body.leaveBy, headsUp: headsUpDue(body.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
       };
-      store.put(rem);
-      await store.save();
+      store.add(rem);
       log(`reminder ${rem.id} for ${rem.key}, leave by ${new Date(rem.leaveBy).toISOString()}`);
       return reply(res, 201, { id: rem.id, headsUp: rem.headsUp }, cors);
     }
@@ -124,7 +123,6 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     if (req.method === 'DELETE' && m) {
       const found = store.delete(m[1]);
       schedules.delete(m[1]);
-      if (found) await store.save();
       return reply(res, found ? 204 : 404, undefined, cors);
     }
     return reply(res, 404, { error: 'Not found' }, cors);
@@ -161,15 +159,17 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
   function drop(rem) {
     store.delete(rem.id);
     schedules.delete(rem.id);
+    return true;
   }
 
+  // Updates rem for its next poll; returns true when it was dropped.
   async function check(rem) {
     const t = now();
     let docs;
     try { docs = await fetchDocs(rem, t); } catch (e) {
       log(`${rem.id}: ${e.message}`);
       rem.nextPollAt = t + RETRY_MS;
-      return;
+      return false;
     }
     const row = rowsFromDocs(rem.trip, docs.predictions, docs.schedules, rem.timingIdx, t, rem.stopSlackMinutes).find(r => r.key === rem.key) ?? null;
     const step = reminderStep(rem, row, t);
@@ -188,6 +188,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     const due = rem.headsUp ? rem.leaveBy - HEADS_UP_MIN * MIN : rem.leaveBy;
     const next = t + reminderPollMs(rem.leaveBy, t);
     rem.nextPollAt = due > t ? Math.min(next, due) : next;
+    return false;
   }
 
   async function sendTests(t) {
@@ -210,9 +211,9 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     ticking = true;
     try {
       await sendTests(now());
-      const due = store.all().filter(r => r.nextPollAt <= now());
-      for (const rem of due) await check(rem);
-      if (due.length) await store.save();
+      for (const rem of store.due(now())) {
+        if (!(await check(rem))) store.update(rem);
+      }
     } finally {
       ticking = false;
     }

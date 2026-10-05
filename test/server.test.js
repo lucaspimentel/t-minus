@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
@@ -26,6 +26,7 @@ async function setup() {
   const mbtaFetch = async url => {
     const u = new URL(url);
     world.calls.push(u.pathname);
+    await world.gate;
     if (world.failing) return { ok: false, status: 500 };
     const route = u.searchParams.get('filter[route]');
     let data = [];
@@ -42,7 +43,7 @@ async function setup() {
     sent.push(payload);
   };
   const dir = await mkdtemp(join(tmpdir(), 'leave-by-'));
-  const store = await openStore(dir);
+  const store = openStore(dir);
   const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', allowedOrigins: [ORIGIN] });
   const server = createServer(app.handler);
   await new Promise(r => server.listen(0, r));
@@ -50,7 +51,7 @@ async function setup() {
   const call = (method, path, body, origin = ORIGIN) => fetch(`${base}${path}`, {
     method, headers: { 'content-type': 'application/json', ...(origin && { origin }) }, body: body && JSON.stringify(body),
   });
-  return { world, sent, store, dir, app, call, close: () => new Promise(r => server.close(r)) };
+  return { world, sent, store, dir, app, call, close: () => new Promise(r => server.close(r)).then(() => store.close()) };
 }
 
 const subscription = (n = 1) => ({ endpoint: `https://push.example/${n}`, keys: { p256dh: 'k', auth: 'a' } });
@@ -79,8 +80,6 @@ test('a reminder sends the heads-up, then "Leave now", then is gone', async () =
     await s.app.tick();
     assert.deepEqual(s.sent.map(p => p.title), ['Leave in 5 min · Home to office', 'Leave now · Home to office']);
     assert.equal(s.store.all().length, 0);
-    const saved = JSON.parse(await readFile(join(s.dir, 'reminders.json'), 'utf8'));
-    assert.deepEqual(saved, []);
   } finally { await s.close(); }
 });
 
@@ -181,7 +180,36 @@ test('reminders survive a restart', async () => {
   try {
     s.world.clock = at('06:50');
     const { id } = await (await s.call('POST', '/reminders', reminder())).json();
-    const reopened = await openStore(s.dir);
-    assert.deepEqual(reopened.all().map(r => r.id), [id]);
+    await s.app.tick();
+    const [rem] = s.store.all();
+    assert.ok(rem.nextPollAt > at('06:50'));
+    const reopened = openStore(s.dir);
+    try {
+      assert.deepEqual(reopened.all().map(r => [r.id, r.nextPollAt]), [[id, rem.nextPollAt]]);
+    } finally { reopened.close(); }
   } finally { await s.close(); }
+});
+
+test('a reminder deleted during a tick is not restored', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('06:50');
+    const { id } = await (await s.call('POST', '/reminders', reminder())).json();
+    let release;
+    s.world.gate = new Promise(r => { release = r; });
+    const ticking = s.app.tick();
+    assert.equal((await s.call('DELETE', `/reminders/${id}`)).status, 204);
+    release();
+    await ticking;
+    assert.equal(s.store.count(), 0);
+  } finally { await s.close(); }
+});
+
+test('an old reminders.json is ignored', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'leave-by-'));
+  await writeFile(join(dir, 'reminders.json'), JSON.stringify([{ id: 'old', nextPollAt: 0 }]));
+  const store = openStore(dir);
+  try {
+    assert.equal(store.count(), 0);
+  } finally { store.close(); }
 });

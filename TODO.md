@@ -18,7 +18,6 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 
 ## Notifications
 
-- Move the reminder store from a JSON file to a database.
 - Serve the app from the Railway service too (one origin; reinstall the Home Screen app).
 
 ## Rename
