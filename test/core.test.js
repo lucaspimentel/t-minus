@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
-  filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel,
+  filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
@@ -1206,4 +1206,34 @@ test('statusProblem: errors, the rate limit and notices, without times', () => {
 test('rowAriaLabel', () => {
   assert.equal(rowAriaLabel('Leave in 5 min', '7:04am', '7:50am'), 'Leave in 5 min, 7:04am, arrive 7:50am');
   assert.equal(rowAriaLabel('Hurry · 1 min', '7:06am', '7:50am', true), 'Hurry · 1 min, 7:06am, arrive 7:50am, reminder set');
+});
+
+test('formatDistance: meters to 10 m under a kilometer, else km', () => {
+  assert.equal(formatDistance(0), '0 m');
+  assert.equal(formatDistance(124), '120 m');
+  assert.equal(formatDistance(126), '130 m');
+  assert.equal(formatDistance(994), '990 m');
+  assert.equal(formatDistance(996), '1.0 km');
+  assert.equal(formatDistance(3420), '3.4 km');
+});
+
+test('routeDistances: each route at its nearest stop; unknown stops ignored', () => {
+  const here = { lat: 42.4385, lon: -71.0711 };
+  const stop = (id, lat, lon) => ({ id, attributes: { latitude: lat, longitude: lon } });
+  const stops = [stop('a', 42.4385, -71.0711), stop('b', 42.4367, -71.0711), stop('c', null, null)];
+  const sch = (route, s) => ({ relationships: { route: { data: { id: route } }, stop: { data: { id: s } } } });
+  const d = routeDistances(stops, [sch('132', 'b'), sch('132', 'a'), sch('136', 'b'), sch('99', 'zzz'), sch('101', 'c')], here);
+  assert.equal(d.get('132'), 0);
+  assert.ok(Math.abs(d.get('136') - 200) < 5);
+  assert.equal(d.has('99'), false);
+  assert.equal(d.has('101'), false);
+});
+
+test('byDistance: nearest first, stable, items without coordinates last', () => {
+  const here = { lat: 42.4385, lon: -71.0711 };
+  const items = [{ id: 'far', lat: 42.45, lon: -71.0711 }, { id: 'none' }, { id: 'near', lat: 42.4386, lon: -71.0711 }, { id: 'near2', lat: 42.4386, lon: -71.0711 }];
+  const out = byDistance(items, here, x => (x.lat == null ? null : x));
+  assert.deepEqual(out.map(x => x.item.id), ['near', 'near2', 'far', 'none']);
+  assert.equal(out[3].meters, null);
+  assert.ok(out[0].meters > 10 && out[0].meters < 12);
 });

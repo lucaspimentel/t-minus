@@ -532,6 +532,41 @@ export function distanceMeters(a, b) {
 
 export const NEAR_METERS = 1000;
 
+// "Show nearby" in the first leg's picker: about a 10-minute walk, and the same radius in
+// degrees for the API's nearby stop search (filter[radius]).
+export const NEARBY_ME_METERS = 800;
+export const NEARBY_ME_DEGREES = 0.0072;
+
+// "120 m" (to 10 m) under a kilometer, else "1.2 km".
+export function formatDistance(m) {
+  return m < 995 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
+// Route id → meters to its nearest stop among `stops` (JSON:API stops with latitude/longitude),
+// from schedule records linking routes to stops. Records at other stops are ignored.
+export function routeDistances(stops, schedules, here) {
+  const at = new Map(stops.filter(s => s.attributes?.latitude != null)
+    .map(s => [s.id, distanceMeters(here, { lat: s.attributes.latitude, lon: s.attributes.longitude })]));
+  const out = new Map();
+  for (const r of schedules) {
+    const d = at.get(r.relationships?.stop?.data?.id);
+    const route = r.relationships?.route?.data?.id;
+    if (d == null || !route) continue;
+    if (!(out.get(route) <= d)) out.set(route, d);
+  }
+  return out;
+}
+
+// Items with their distance from `here`, nearest first (stable); `coords(item)` gives
+// { lat, lon } or null, and items without one go last with meters null.
+export function byDistance(items, here, coords) {
+  return items.map((item, i) => {
+    const c = coords(item);
+    return { item, i, meters: c && c.lat != null && c.lon != null ? distanceMeters(here, c) : null };
+  }).sort((a, b) => (a.meters ?? Infinity) - (b.meters ?? Infinity) || a.i - b.i)
+    .map(({ item, meters }) => ({ item, meters }));
+}
+
 // Trip to show for a position `{ lat, lon }`, or -1: among `near` trips with first-stop
 // coordinates, the nearest within NEAR_METERS that is at least 2x closer than any `near` trip
 // with a different first stop. Trips sharing the first stop go by list order.

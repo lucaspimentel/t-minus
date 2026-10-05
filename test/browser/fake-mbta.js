@@ -38,7 +38,7 @@ function nearbyStops(lat, lon, radius) {
   for (const doc of STOP_DOCS.values()) {
     for (const s of doc.data) {
       const a = s.attributes;
-      if (Math.hypot(a.latitude - lat, a.longitude - lon) <= radius) out.set(s.id, { type: 'stop', id: s.id, attributes: { name: a.name } });
+      if (Math.hypot(a.latitude - lat, a.longitude - lon) <= radius) out.set(s.id, { type: 'stop', id: s.id, attributes: { name: a.name, latitude: a.latitude, longitude: a.longitude } });
     }
   }
   return [...out.values()];
@@ -120,8 +120,10 @@ export async function fakeMbta(context, scenario, { now }) {
     const data = [];
     const inc = new Set();
     const trips = new Set();
+    // Without filter[route] (the setup's "Show nearby"): every route and direction at the stops.
+    const anyRoute = !q.has('filter[route]');
     for (const t of scenario.trips) {
-      if (!routesOf(q).has(t.route) || String(t.direction) !== q.get('filter[direction_id]')) continue;
+      if (!anyRoute && (!routesOf(q).has(t.route) || String(t.direction) !== q.get('filter[direction_id]'))) continue;
       for (const [stopId, hhmm] of t.stops) {
         const m = minutesOf(hhmm);
         if (!matchesStop(stopId, wanted) || m < lo || m > hi) continue;

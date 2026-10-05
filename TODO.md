@@ -16,6 +16,8 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 
 ## Notifications
 
+- Look into caching MBTA data in the push server's database (SQLite), e.g. route/stop lists and
+  schedules shared across users, to cut API calls and the nearby-search payloads.
 - Serve the app from the Railway service too (one origin; reinstall the Home Screen app).
 
 ## Rename
@@ -27,7 +29,7 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 
 ## Deferred
 
-- "Near me" / GPS features (sorting stops by distance from the phone).
+- "Near me" on the main screen (setup's first-leg picker has "Show nearby"; see `DESIGN.md`).
 - Default times to/from the stops and transfer times estimated from stop coordinates
   (a walking estimate; the user can change it, e.g. when getting a ride).
 - Commuter rail and ferry.

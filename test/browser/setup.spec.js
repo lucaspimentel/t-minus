@@ -482,3 +482,68 @@ test('Export shows the saved config; Done leaves setup and hides a pending toast
   await expect(page.locator('.row').first()).toBeVisible();
   await expect(toast(page)).toBeHidden();
 });
+
+// "Show nearby" on the first leg: ~200 m north of Oak Grove.
+const NEAR_OAK_GROVE = { latitude: 42.4385, longitude: -71.0711 };
+const meters = t => { const m = t.match(/([\d.]+) (m|km)$/); return m ? +m[1] * (m[2] === 'km' ? 1000 : 1) : Infinity; };
+
+test('Show nearby lists the stations and routes around you, nearest first; a route\'s stops sort by distance', async ({ page, context }) => {
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation(NEAR_OAK_GROVE);
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
+  await button(page, '+ Add transit leg').click();
+  await button(page, 'Show nearby').click();
+  await expect(setup(page).getByText('Near you · within 800 m')).toBeVisible();
+  const items = setup(page).locator('.list .item');
+  // Stations: Oak Grove (its recorded network position, ~90 m); Malden Center is ~1.3 km away.
+  await expect(setup(page).locator('.list .item.station')).toHaveText([/^Oak Grove.*90 m$/]);
+  // Routes: 132 (its stop on Washington St, from the schedules) and Orange (its station).
+  const routes = (await setup(page).locator('.list .item:not(.station)').allInnerTexts()).map(t => t.replace(/\s+/g, ' ').trim());
+  expect(routes).toHaveLength(2);
+  expect(routes).toContainEqual(expect.stringMatching(/^Orange .* 90 m$/));
+  expect(routes).toContainEqual(expect.stringMatching(/^Bus 132 .* 180 m$/)); // from the schedules
+  const ds = routes.map(meters);
+  expect(ds).toEqual([...ds].sort((a, b) => a - b));
+  // 132: the boarding stops nearest first, with distances, within each section.
+  await items.filter({ hasText: 'Bus 132' }).click();
+  await expect(setup(page).getByText('Where do you board?')).toBeVisible();
+  const sections = await setup(page).locator('.list').evaluate(list => {
+    const out = [[]];
+    for (const el of list.children) {
+      if (el.classList.contains('section-head')) out.push([]);
+      else if (el.classList.contains('item')) out.at(-1).push(el.innerText.replace(/\s+/g, ' ').trim());
+    }
+    return out.filter(s => s.length);
+  });
+  expect(sections.length).toBeGreaterThan(1);
+  for (const s of sections) {
+    const d = s.map(meters);
+    expect(d.every(Number.isFinite)).toBe(true);
+    expect(d).toEqual([...d].sort((a, b) => a - b));
+  }
+  // Sections by their nearest stop: the nearest of all is at the top.
+  const firsts = sections.map(s => meters(s[0]));
+  expect(firsts).toEqual([...firsts].sort((a, b) => a - b));
+  // Back twice: the plain first-leg list again.
+  await button(page, 'Back').click();
+  await button(page, 'Back').click();
+  await expect(button(page, 'Show nearby')).toBeVisible();
+});
+
+test('Show nearby without location permission says so and keeps the list', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await startFirstTrip(page);
+  await button(page, '+ Add transit leg').click();
+  await button(page, 'Show nearby').click();
+  await expect(setup(page).getByText('Location is off for this app.')).toBeVisible();
+  await expect(setup(page).locator('.list .item', { hasText: 'Forest Hills - Oak Grove' })).toBeVisible();
+});
+
+test('Show nearby is only on the first leg', async ({ page }) => {
+  await openSetup(page);
+  await setup(page).locator('.trip-row .item').first().click();
+  await button(page, '+ Add transit leg').click();
+  await expect(setup(page).locator('#picker-search')).toBeVisible();
+  await expect(button(page, 'Show nearby')).toHaveCount(0);
+});

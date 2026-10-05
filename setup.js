@@ -7,7 +7,8 @@ import {
   searchRoutes, searchStops, boardGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
-} from './core.js?v=4569a05b55';
+  scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES,
+} from './core.js?v=82c6ba5aff';
 
 const ROUTE_LIMIT = 60;
 
@@ -579,6 +580,45 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     return { name, lat, lon, routeIds: served.data.map(r => r.id) };
   }
 
+  // "Show nearby" (first leg): the routes at stops within NEARBY_ME_METERS of `here`, with each
+  // route's distance from the next hour's schedules at those stops (none if that fails).
+  async function loadNearMe(here) {
+    const nearby = await api('/stops', {
+      'filter[latitude]': here.lat, 'filter[longitude]': here.lon, 'filter[radius]': NEARBY_ME_DEGREES,
+      'filter[route_type]': '0,1,3', 'fields[stop]': 'name,latitude,longitude',
+    });
+    if (!nearby.data.length) return { here, routeIds: [], dist: new Map() };
+    const ids = nearby.data.map(s => s.id).join(',');
+    const served = await api('/routes', { 'filter[stop]': ids, 'filter[type]': '0,1,3', 'fields[route]': 'short_name' });
+    let dist = new Map();
+    try {
+      const w = scheduleWindow(Date.now(), 0, 60);
+      const sched = await api('/schedules', {
+        'filter[stop]': ids, 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime,
+        'fields[schedule]': 'stop_sequence',
+      });
+      dist = routeDistances(nearby.data, sched.data, here);
+    } catch { /* routes without distances */ }
+    return { here, routeIds: served.data.map(r => r.id), dist };
+  }
+
+  // Asks for the position (the permission prompt on first use), then loads what is near it.
+  function showNearMe() {
+    picker = { ...picker, meLoading: true, meError: null };
+    render();
+    const fail = msg => { if (picker) { picker = { ...picker, meLoading: false, meError: msg }; render(); } };
+    if (!navigator.geolocation) return fail("Couldn't get your location.");
+    const opened = picker;
+    navigator.geolocation.getCurrentPosition(pos => {
+      loadNearMe({ lat: pos.coords.latitude, lon: pos.coords.longitude }).then(me => {
+        if (picker?.legIdx !== opened.legIdx || picker.step !== 'search') return;
+        picker = { ...picker, me, here: me.here, meLoading: false };
+        render();
+      }, e => fail(e.message || String(e)));
+    }, err => fail(err.code === err.PERMISSION_DENIED ? 'Location is off for this app.' : "Couldn't get your location."),
+    { maximumAge: 60_000, timeout: 10_000 });
+  }
+
   // A route is chosen: load both directions' stops. For a new leg, board at the stop nearest
   // the previous drop-off (skipping to the drop-off step); Back still leads to the board list.
   async function chooseRoute(route) {
@@ -647,6 +687,12 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // Dot-labels for rail lines ("● Orange", "● Green B/C/D/E").
   const lineTags = list => list.flatMap(c => [' ', h('span', { class: 'tag conn' }, dot(c.color), c.label)]);
+  // A list button with its distance at the right ("120 m"), read after the name.
+  const withDist = (button, span) => {
+    button.replaceChildren(h('span', { class: 'main' }, ...button.childNodes), span);
+    button.classList.add('has-dist');
+    return button;
+  };
   const stationLines = (id, exclude = []) => lineTags(railConnections({ id }, railStops, exclude));
 
   function pickerList() {
@@ -661,6 +707,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         render();
       } }, h('b', {}, st.name), ...stationLines(st.id));
       const showAll = h('button', { type: 'button', class: 'add', onclick: () => { picker.allRoutes = true; render(); } }, 'Show all routes');
+      // The first leg of the trip (a new trip's first, or changing leg 1).
+      const firstLeg = picker.legIdx === 0 || (picker.legIdx == null && !editing.form.transit.length);
       if (q.trim()) {
         const stations = railNet ? searchStations(railNet, q).slice(0, 8) : [];
         return [
@@ -687,10 +735,35 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
               showAll,
             ].filter(Boolean);
           }
+        } else if (picker.me) {
+          // A first leg after "Show nearby": stations, then routes, nearest first.
+          const { here, dist } = picker.me;
+          const distSpan = m => h('span', { class: 'dist' }, m == null ? '—' : formatDistance(m));
+          const stations = byDistance(railNet?.stations ?? [], here, st => st)
+            .filter(x => x.meters != null && x.meters <= NEARBY_ME_METERS);
+          // A rail line without a scheduled stop nearby in the next hour: its nearest station.
+          const railDist = id => stations.find(x => x.item.routes.includes(id))?.meters ?? null;
+          const nearRoutes = found.filter(r => picker.me.routeIds.includes(r.id))
+            .map((r, i) => ({ r, i, m: dist.get(r.id) ?? railDist(r.id) }))
+            .sort((a, b) => (a.m ?? Infinity) - (b.m ?? Infinity) || a.i - b.i);
+          return [
+            h('div', { class: 'muted' }, `Near you · within ${formatDistance(NEARBY_ME_METERS)}`),
+            stations.length ? heading('Stations') : null,
+            ...stations.map(x => withDist(stationButton(x.item), distSpan(x.meters))),
+            nearRoutes.length ? heading('Routes') : null,
+            ...nearRoutes.map(x => withDist(routeButton(x.r), distSpan(x.m))),
+            !stations.length && !nearRoutes.length ? h('div', { class: 'muted' }, 'No stops found nearby.') : null,
+            showAll,
+          ].filter(Boolean);
         } else {
-          // A first leg: the rail lines; type to find a station or a bus route.
-          return [h('div', { class: 'muted' }, 'Type a station (e.g. Oak Grove) or a route (e.g. 132).'),
-            ...found.filter(r => r.attributes?.type <= 1).map(routeButton), showAll];
+          // A first leg: the rail lines; type to find a station or a bus route. "Show nearby"
+          // lists what is around you (location asked on tap, each time).
+          return [
+            firstLeg ? h('button', { type: 'button', class: 'add', disabled: !!picker.meLoading, onclick: showNearMe },
+              picker.meLoading ? 'Finding your location…' : 'Show nearby') : null,
+            picker.meError ? h('div', { class: 'muted' }, picker.meError) : null,
+            h('div', { class: 'muted' }, 'Type a station (e.g. Oak Grove) or a route (e.g. 132).'),
+            ...found.filter(r => r.attributes?.type <= 1).map(routeButton), showAll].filter(Boolean);
         }
       }
       return [
@@ -733,12 +806,18 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         picker = { ...picker, board: s.id, step: 'alight', query: '' };
         render();
       } }, s.attributes?.name ?? s.id);
-      const out = searchStops(both, q).map(pick);
-      only.forEach((list, d) => {
-        const found = searchStops(list, q);
-        if (found.length) out.push(heading(toward(d)), ...found.map(pick));
-      });
-      return out;
+      const sections = [{ head: null, stops: searchStops(both, q) },
+        ...only.map((list, d) => ({ head: heading(toward(d)), stops: searchStops(list, q) }))].filter(s => s.stops.length);
+      const here = picker.here;
+      if (!here) return sections.flatMap(s => [s.head, ...s.stops.map(pick)].filter(Boolean));
+      // After "Show nearby": nearest first, with distances; the section with the nearest stop
+      // comes first (at a terminal, the stop you'd board is often one direction's own).
+      const ranked = sections.map(s => ({ ...s, near: byDistance(s.stops, here, st => ({ lat: st.attributes?.latitude, lon: st.attributes?.longitude })) }))
+        .sort((a, b) => (a.near[0].meters ?? Infinity) - (b.near[0].meters ?? Infinity));
+      return ranked.flatMap((s, i) => [
+        // The both-ways section has no heading; moved below another, it gets one.
+        s.head ?? (i > 0 ? heading('Both directions') : null),
+        ...s.near.map(x => withDist(pick(x.item), h('span', { class: 'dist' }, x.meters == null ? '—' : formatDistance(x.meters))))].filter(Boolean));
     }
     // Drop-off: the stops after the board stop, per direction it serves (one at the end of a
     // line), each with the rail lines there (loaded in the background; none if that fails).
@@ -763,7 +842,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const titles = { search: picker.legIdx == null ? 'Add a leg' : 'Change leg', to: 'Where do you get off?', board: 'Where do you board?', alight: 'Where do you get off?', also: 'Also take' };
     const back = () => {
       const prev = { search: null, to: 'search', board: 'search', alight: 'board', also: 'alight' }[picker.step];
-      if (prev) { picker = { ...picker, step: prev, query: '' }; } else { picker = null; }
+      // The nearby list goes back to the plain first-leg list.
+      if (picker.step === 'search' && picker.me && !picker.allRoutes) picker = { ...picker, me: null, here: null, query: '' };
+      else if (prev) { picker = { ...picker, step: prev, query: '' }; } else { picker = null; }
       render();
     };
     const head = h('div', { class: 'setup-head' },

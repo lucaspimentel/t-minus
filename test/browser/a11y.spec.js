@@ -87,3 +87,21 @@ test('leave-state changes and status problems are announced', async ({ page }) =
   await page.locator('#refresh').click();
   await expect(announced).toHaveText('Stale (HTTP 503)');
 });
+
+for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on the Show nearby list and the sorted stops (${scheme})`, async ({ page, context }) => {
+    await context.grantPermissions(['geolocation']);
+    await context.setGeolocation({ latitude: 42.4385, longitude: -71.0711 });
+    await page.emulateMedia({ colorScheme: scheme });
+    await openApp(page, { time: '07:00', config: null, waitForRows: false });
+    await page.locator('.empty .big-btn').click();
+    const setup = page.locator('#setup');
+    await setup.getByRole('button', { name: '+ Add transit leg', exact: true }).click();
+    await setup.getByRole('button', { name: 'Show nearby' }).click();
+    await expect(setup.getByText('Near you · within 800 m')).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+    await setup.locator('.list .item', { hasText: 'Bus 132' }).click();
+    await expect(setup.locator('.list .item .dist').first()).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+  });
+}
