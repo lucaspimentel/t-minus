@@ -1,9 +1,9 @@
-// Leave-time reminders: the HTTP API and the polling loop. No npm imports, so tests load it
-// directly; main.mjs wires in web-push, the store, and the clock.
+// Leave-time reminders: the HTTP API and the polling loop; also setup's "Show nearby" (/nearby).
+// No npm imports, so tests load it directly; main.mjs wires in web-push, the store, and the clock.
 import { randomUUID } from 'node:crypto';
 import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
-  headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS,
+  headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -15,11 +15,17 @@ const RATE_LIMIT = 30; // requests per IP per minute
 const MAX_BODY = 16 * 1024;
 const RETRY_MS = 20_000; // after an MBTA error
 const MAX_TESTS = 100; // pending test notifications, in memory only
+const DAY = 24 * 60 * MIN;
+const NEARBY_CELL = 0.0005; // degrees (~50 m): nearby stop lists are cached per cell
+const MAX_NEARBY_STOPS = 500; // cached cells
+const MAX_NEARBY_SETS = 200; // cached stop sets (routes and the hour's schedules)
 
 export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, allowedOrigins = [], log = () => {} }) {
   const schedules = new Map(); // reminder id -> { at, docs }
   const hits = new Map(); // ip -> { minute, count }
   let tests = []; // pending test notifications: { subscription, at }
+  const nearbyStopsCache = new Map(); // cell -> { at, stops }
+  const nearbySetCache = new Map(); // stop ids + hour -> { routeIds, schedules }
   let ticking = false;
 
   async function mbta(path, params) {
@@ -87,6 +93,12 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
 
     if (req.method === 'GET' && url.pathname === '/health') return reply(res, 200, { ok: true, reminders: store.count() }, cors);
     if (req.method === 'GET' && url.pathname === '/vapid') return reply(res, 200, { publicKey }, cors);
+    if (req.method === 'GET' && url.pathname === '/nearby') {
+      const lat = Number(url.searchParams.get('lat'));
+      const lon = Number(url.searchParams.get('lon'));
+      if (!(lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5)) return reply(res, 400, { error: 'lat/lon must be near Boston' }, cors);
+      return reply(res, 200, await nearby(lat, lon, t), cors);
+    }
 
     let body;
     if (req.method === 'POST') {
@@ -126,6 +138,51 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       return reply(res, found ? 204 : 404, undefined, cors);
     }
     return reply(res, 404, { error: 'Not found' }, cors);
+  }
+
+  // ---------- nearby (setup's "Show nearby") ----------
+
+  // A Map used as a small cache: set, dropping the oldest entry past `max`.
+  function remember(map, key, value, max) {
+    map.delete(key);
+    map.set(key, value);
+    if (map.size > max) map.delete(map.keys().next().value);
+    return value;
+  }
+
+  // The routes at stops within NEARBY_ME_DEGREES of a point and each one's distance (meters,
+  // whole; null without a scheduled trip there in the next hour), from 3 MBTA requests: the
+  // stops (cached a day per ~50 m cell), and per stop set and hour their routes and schedules.
+  async function nearby(lat, lon, t) {
+    const cell = `${Math.round(lat / NEARBY_CELL)},${Math.round(lon / NEARBY_CELL)}`;
+    let hit = nearbyStopsCache.get(cell);
+    if (!hit || t - hit.at >= DAY) {
+      const doc = await mbta('/stops', {
+        'filter[latitude]': lat, 'filter[longitude]': lon, 'filter[radius]': NEARBY_ME_DEGREES,
+        'filter[route_type]': '0,1,3', 'fields[stop]': 'name,latitude,longitude',
+      });
+      hit = remember(nearbyStopsCache, cell, { at: t, stops: doc.data }, MAX_NEARBY_STOPS);
+    }
+    if (!hit.stops.length) return { routes: [] };
+    const ids = hit.stops.map(s => s.id).join(',');
+    const w = scheduleWindow(t, 0, 60);
+    const setKey = `${ids}@${w.date} ${w.minTime.slice(0, 2)}`;
+    let set = nearbySetCache.get(setKey);
+    if (!set) {
+      const routes = await mbta('/routes', { 'filter[stop]': ids, 'filter[type]': '0,1,3', 'fields[route]': 'short_name' });
+      let schedules = null;
+      try {
+        schedules = (await mbta('/schedules', {
+          'filter[stop]': ids, 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime,
+          'fields[schedule]': 'stop_sequence',
+        })).data;
+      } catch (e) { log(`nearby schedules: ${e.message}`); }
+      set = { routeIds: routes.data.map(r => r.id), schedules };
+      // Without schedules, not kept: the next call tries again.
+      if (schedules) remember(nearbySetCache, setKey, set, MAX_NEARBY_SETS);
+    }
+    const dist = set.schedules ? routeDistances(hit.stops, set.schedules, { lat, lon }) : new Map();
+    return { routes: set.routeIds.map(id => ({ id, meters: dist.has(id) ? Math.round(dist.get(id)) : null })) };
   }
 
   // ---------- loop ----------

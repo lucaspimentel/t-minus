@@ -69,7 +69,7 @@ const NEARBY_RADIUS = 0.003;
 // `testPush`: { supported, send() } for "Send test notification" (null: no push server).
 // `startImport`: open on the list with the import box (the main screen's "Import trips").
 // `onReset(apiKey)`: "Delete all trips and settings" (after a confirm); the app reloads.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, onReset = null, startImport = false }) {
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, nearby = null, onReset = null, startImport = false }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -590,14 +590,21 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   }
 
   // "Show nearby" (first leg): the routes at stops within NEARBY_ME_METERS of `here`, with each
-  // route's distance from the next hour's schedules at those stops (none if that fails).
+  // route's distance from the next hour's schedules at those stops (none if that fails). The
+  // push server's digest (`nearby`) first; on any failure, the 3 MBTA requests from here.
   async function loadNearMe(here) {
-    const nearby = await api('/stops', {
+    if (nearby) {
+      try {
+        const { routes: found } = await nearby(here);
+        return { here, routeIds: found.map(r => r.id), dist: new Map(found.filter(r => r.meters != null).map(r => [r.id, r.meters])) };
+      } catch { /* the MBTA directly */ }
+    }
+    const stops = await api('/stops', {
       'filter[latitude]': here.lat, 'filter[longitude]': here.lon, 'filter[radius]': NEARBY_ME_DEGREES,
       'filter[route_type]': '0,1,3', 'fields[stop]': 'name,latitude,longitude',
     });
-    if (!nearby.data.length) return { here, routeIds: [], dist: new Map() };
-    const ids = nearby.data.map(s => s.id).join(',');
+    if (!stops.data.length) return { here, routeIds: [], dist: new Map() };
+    const ids = stops.data.map(s => s.id).join(',');
     const served = await api('/routes', { 'filter[stop]': ids, 'filter[type]': '0,1,3', 'fields[route]': 'short_name' });
     let dist = new Map();
     try {
@@ -606,7 +613,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         'filter[stop]': ids, 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime,
         'fields[schedule]': 'stop_sequence',
       });
-      dist = routeDistances(nearby.data, sched.data, here);
+      dist = routeDistances(stops.data, sched.data, here);
     } catch { /* routes without distances */ }
     return { here, routeIds: served.data.map(r => r.id), dist };
   }

@@ -494,7 +494,11 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   network) and routes, each nearest first with its distance (`formatDistance`). The API's
   `/routes?filter[stop]` doesn't say which stop a route uses, so route distances come from the
   next hour's `/schedules?filter[stop]=<nearby stops>` (`routeDistances`; verified 2026-10-05:
-  Malden ~200 records / ~50 KB, downtown ~780 / ~210 KB); a rail line falls back to its nearest
+  Malden ~200 records / ~50 KB, downtown ~780 / ~210 KB). The push server does that work
+  (`GET /nearby?lat&lon` → `{ routes: [{ id, meters }] }`, a few KB, with the server's key; the
+  nearby stop list is cached a day per ~50 m cell, a stop set's routes and schedules for the
+  hour, in memory); setup asks it first (3 s timeout) and on any failure, or without a push
+  server, makes the 3 requests itself. A rail line falls back to its nearest
   station, and a route with no trip in that hour shows "—" at the end. Choosing a route then
   sorts its boarding stops nearest first with distances (`byDistance`); the direction
   sections stay, ordered by their nearest stop (at Malden Center the 101's busway stop is in
@@ -604,8 +608,9 @@ To stay well inside it:
   still uses the copy at once and fetches a fresh one in the background for next time; with
   the API down, setup works from the copies. Stop lists are kept trimmed (`trimStopsDoc`: ids,
   names, coordinates, child ids; no `included` records): Orange 321 → 27 KB, Red 422 → 35 KB,
-  132 23 → 6 KB (measured 2026-10-06). Adding a leg after another costs 2 more (nearby stops, their routes); "Show nearby" costs 3
-  (nearby stops, their routes, the next hour's schedules there). The drop-off
+  132 23 → 6 KB (measured 2026-10-06). Adding a leg after another costs 2 more (nearby stops, their routes); "Show nearby" costs 1
+  request to the push server (which makes the 3 below with its key, fewer when cached), or 3
+  without it (nearby stops, their routes, the next hour's schedules there). The drop-off
   list's connections and station-first legs use the rail network: one `/route_patterns`
   request, kept on the phone the same way. A station-first leg costs nothing more. Choosing a drop-off costs 2 (`/routes` at both stops) plus one
   `/stops` per other route serving both (e.g. 3 for the Green branches).
@@ -646,8 +651,8 @@ too is a likely later step.
   works. Sent 7:41am." from its loop (so up to 5 s late); it keeps pending tests in memory only
   (lost on restart), one per subscription, at most 100.
 - **Server (`server/app.mjs`):**
-  - **Endpoints:** `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id` and
-    `POST /test-push`.
+  - **Endpoints:** `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id`,
+    `POST /test-push`, and `GET /nearby` (setup's "Show nearby").
   - **What a reminder holds:** the subscription, the trip (checked with `validateConfig`), its
     slack, the timing leg, the row key (the timing-leg vehicle's trip id) and leave-by. Leave-by
     must be ahead and within 12 h.
@@ -746,8 +751,9 @@ Steady use is ~1–2 requests/min; only bursts (several reloads, setup) approach
   session after the first costs only the requests it has never made. Covers "faster setup"
   for repeat use; does nothing for rate limits or outages of realtime data.
 
-**Status:** step 1 (C) is done (see the request budget: route and stop lists kept on the
-phone, trimmed, refreshed in the background).
+**Status:** steps 1 (C) and 2 (B, `/nearby` only; see "Show nearby") are done: route and
+stop lists kept on the phone, trimmed, refreshed in the background, and the server's nearby
+digest.
 
 **Recommendation:** not worth a general cache for one user with a key: realtime dominates and
 the setup data is small on the wire. In order, if more people use the app keyless:

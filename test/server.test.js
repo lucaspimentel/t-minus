@@ -30,6 +30,16 @@ async function setup() {
     if (world.failing) return { ok: false, status: 500 };
     const route = u.searchParams.get('filter[route]');
     let data = [];
+    // "Show nearby" around Oak Grove: bus stops 5991 and 9326 and the station; 132 runs at 5991.
+    if (u.searchParams.has('filter[latitude]')) {
+      const stop = (id, lat, lon) => ({ type: 'stop', id, attributes: { name: id, latitude: lat, longitude: lon } });
+      data = [stop('5991', 42.436927, -71.071292), stop('9326', 42.436901, -71.071145), stop('place-ogmnl', 42.43668, -71.071097)];
+    }
+    if (u.pathname === '/routes' && u.searchParams.has('filter[stop]')) data = [{ type: 'route', id: '132' }, { type: 'route', id: 'Orange' }];
+    if (u.pathname === '/schedules' && !route) {
+      if (world.nearbySchedulesFail) return { ok: false, status: 500 };
+      data = [rec('schedule', 'b9', '5991', '07:20')].map(r => ({ ...r, relationships: { ...r.relationships, route: { data: { id: '132' } } } }));
+    }
     if (route === '132' && u.pathname === '/schedules') data = [rec('schedule', 'b1', '25996', world.bus), rec('schedule', 'b1', '5991', '07:25')];
     if (route === 'Orange' && u.pathname === '/predictions' && !world.cancelled) data = [rec('prediction', 'o1', 'place-ogmnl', world.orange), rec('prediction', 'o1', 'place-state', '07:50')];
     // The bus's schedules carry its headsign (an included trip); Orange's predictions don't.
@@ -212,4 +222,45 @@ test('an old reminders.json is ignored', async () => {
   try {
     assert.equal(store.count(), 0);
   } finally { store.close(); }
+});
+
+test('/nearby: the routes around a point with distances, cached per cell and hour', async () => {
+  const s = await setup();
+  try {
+    const res = await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711');
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN);
+    const body = await res.json();
+    // 132 from its schedule at 5991 (~175 m); Orange has no schedule there (its platforms aren't in the list).
+    assert.deepEqual(body.routes.map(r => r.id), ['132', 'Orange']);
+    assert.ok(Math.abs(body.routes[0].meters - 175) < 10, `${body.routes[0].meters}`);
+    assert.equal(Number.isInteger(body.routes[0].meters), true);
+    assert.equal(body.routes[1].meters, null);
+    assert.deepEqual(s.world.calls, ['/stops', '/routes', '/schedules']);
+    // Again, a few meters away within the hour: no MBTA requests, distances from the new point.
+    const again = await (await s.call('GET', '/nearby?lat=42.43852&lon=-71.0711')).json();
+    assert.equal(s.world.calls.length, 3);
+    assert.ok(again.routes[0].meters > body.routes[0].meters);
+    // The next hour: the stop list is reused, routes and schedules fetched again.
+    s.world.clock = at('08:01');
+    await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711');
+    assert.deepEqual(s.world.calls.slice(3), ['/routes', '/schedules']);
+  } finally { await s.close(); }
+});
+
+test('/nearby: bad coordinates, other origins, and failed schedules', async () => {
+  const s = await setup();
+  try {
+    for (const q of ['', '?lat=abc&lon=1', '?lat=40.7&lon=-74', '?lat=42.4&lon=']) {
+      assert.equal((await s.call('GET', `/nearby${q}`)).status, 400, q);
+    }
+    assert.equal((await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711', undefined, 'https://evil.example')).status, 403);
+    s.world.nearbySchedulesFail = true;
+    const body = await (await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711')).json();
+    assert.deepEqual(body.routes, [{ id: '132', meters: null }, { id: 'Orange', meters: null }]);
+    // Not kept: the next call asks for the schedules again.
+    s.world.nearbySchedulesFail = false;
+    const next = await (await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711')).json();
+    assert.ok(next.routes[0].meters > 0);
+  } finally { await s.close(); }
 });

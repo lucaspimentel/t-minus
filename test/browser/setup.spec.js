@@ -617,3 +617,24 @@ test('with saved lists, setup works while the API is down', async ({ page }) => 
   await expect(setup(page).locator('.trip-row')).toHaveCount(2);
   await expect(setup(page).locator('.msg.error, .errors')).toHaveCount(0);
 });
+
+test('Show nearby uses the push server\'s digest when it answers, and no MBTA schedules', async ({ page, context }) => {
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation(NEAR_OAK_GROVE);
+  const mbta = await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  const asked = [];
+  await page.route(/\/nearby\?/, route => {
+    asked.push(new URL(route.request().url()).searchParams.toString());
+    route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify({ routes: [{ id: '132', meters: 180 }, { id: 'Orange', meters: null }] }) });
+  });
+  await startFirstTrip(page);
+  await button(page, '+ Add transit leg').click();
+  await button(page, 'Show nearby').click();
+  await expect(setup(page).getByText('Near you · within 800 m')).toBeVisible();
+  expect(asked).toEqual(['lat=42.4385&lon=-71.0711']);
+  const routes = (await setup(page).locator('.list .item:not(.station)').allInnerTexts()).map(t => t.replace(/\s+/g, ' ').trim());
+  // Orange: no distance from the server, so its station's (the rail network).
+  expect(routes).toEqual([expect.stringMatching(/^Orange .* 90 m$/), expect.stringMatching(/^Bus 132 .* 180 m$/)]);
+  expect(mbta.hits.filter(h => h.query.has('filter[latitude]') || (h.path === '/schedules' && !h.query.has('filter[route]')))).toEqual([]);
+});

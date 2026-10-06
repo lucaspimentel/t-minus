@@ -44,7 +44,8 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   (`NODE_USE_ENV_PROXY=1`; paced for the keyless limit, ~2 min). Add a route there when a spec
   needs its stop lists.
 - Local run: `python3 -m http.server 8765`, open `http://localhost:8765/`.
-- Push server (`server/`, the only backend and the only runtime dependency, `web-push`):
+- Push server (`server/`, the only backend and the only runtime dependency, `web-push`; it also
+  answers setup's "Show nearby", `GET /nearby`):
   `npm --prefix server ci`, then see `server/README.md` (env vars, `DRY_RUN=1`). `server/app.mjs`
   has no npm imports so `test/server.test.js` runs in `npm test`. The MBTA key goes only into
   Railway variables or a process env, never into a file. The Railway deploy config (build/start

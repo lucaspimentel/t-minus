@@ -49,6 +49,9 @@ export const WAKE_STUB = () => {
 export async function openApp(page, { time = '07:00', date = MONDAY, config = CONFIG, scenario = commute(), waitForRows = true, init } = {}) {
   const now = at(time, date);
   const mbta = await fakeMbta(page.context(), scenario, { now });
+  // The push server's "Show nearby" digest is unreachable unless a spec stubs it (page.route),
+  // so specs never call Railway and setup takes its MBTA fallback.
+  await page.context().route(/\/nearby\?/, route => route.abort());
   await page.addInitScript(c => { if (c && !localStorage.getItem('mbta-leave-by:config')) localStorage.setItem('mbta-leave-by:config', c); },
     config ? JSON.stringify(config) : null);
   if (init) await page.addInitScript(init);

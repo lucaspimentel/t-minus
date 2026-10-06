@@ -2,7 +2,8 @@
 
 A small Node service that sends the "Notify me" pushes. The app stays on GitHub Pages; this
 service only takes reminders (`POST /reminders`), polls the MBTA for each ride, and pushes the
-heads-up, "Leave now", or "Ride cancelled" (see `DESIGN.md`, Notifications).
+heads-up, "Leave now", or "Ride cancelled" (see `DESIGN.md`, Notifications). It also answers
+setup's "Show nearby" (`GET /nearby?lat&lon`: the routes around a point with their distances).
 
 ## Railway setup
 

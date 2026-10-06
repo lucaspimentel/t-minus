@@ -16,11 +16,9 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 
 ## Notifications
 
-- MBTA data caching (investigated 2026-10-06, see `DESIGN.md`; route and stop lists are now
-  kept on the phone), next in order:
-  1. A server `/nearby?lat&lon` digest for "Show nearby" (instead of up to 227 KB / ~0.9 s).
-  2. A read-through `/mbta/*` proxy (server key, shared cache, stale copies with their age),
-     once the app has keyless users.
+- MBTA data caching (investigated 2026-10-06, see `DESIGN.md`; route and stop lists are kept on
+  the phone, and the server answers "Show nearby"), next: a read-through `/mbta/*` proxy
+  (server key, shared cache, stale copies with their age), once the app has keyless users.
 - Serve the app from the Railway service too (one origin; reinstall the Home Screen app).
 
 ## Rename
