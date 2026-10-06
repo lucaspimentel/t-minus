@@ -32,7 +32,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 |---|---|
 | Form factor | Static files, no build step, no dependencies (the optional push server in `server/` is the only backend; see Notifications): `index.html` (markup, CSS, UI/fetch/timers), `setup.js` (setup view), `core.js` (pure logic ES module, unit tested), PWA `manifest.json` + `sw.js` |
 | Target device | Phone first; installable PWA (add to home screen) |
-| Hosting | GitHub Pages (HTTPS; required for service worker, enables Notifications API later) |
+| Hosting | The Railway service (`server/`) at `https://t-minus.lucasp.net/`: the app's files and its API under `/api/` on one origin (see Hosting). The old GitHub Pages copy shows a "moved" banner until the move is done |
 | API calls | Direct from browser to `api-v3.mbta.com` (CORS verified: `access-control-allow-origin: *`) |
 | API key | Keyless by default; optional key field in settings, sent as the `api_key` query parameter (a custom header would add a CORS preflight). Stored in `localStorage` on the shared `lucaspimentel.github.io` origin; accepted (low-value key) |
 | Persistence | `localStorage` per browser; sharing = app URL + self-serve config |
@@ -216,7 +216,7 @@ For leaving earlier or later than leave-by. A bar under the status line always o
 - Cancel (the bar or the trip card) ends the mode at once (the list returns) and shows a
   bottom toast "Tracking cancelled · Undo" for 5 s (a tap elsewhere on it dismisses it); Undo restores the saved state (switching
   back to its trip if needed). "Done" after arrival has no undo.
-- Stored per trip index in `localStorage` (`mbta-leave-by:en-route`, with the trip name; a
+- Stored per trip index in `localStorage` (`t-minus:en-route`, with the trip name; a
   renamed trip drops it; cleared when setup saves). Polls every 60 s while active.
 
 Screen stays on (Screen Wake Lock, `keepAwake`) while the app is open and any upcoming row is
@@ -403,7 +403,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Reordering and deleting trips also save right away.
 - Reset (last section of setup): "Delete all trips and settings" asks to confirm ("Delete all
   trips and settings?", no Undo), cancels pending reminders on the push server, removes every
-  `mbta-leave-by:*` key except the API key (kept as `{ trips: [], apiKey }`), and reloads to
+  `t-minus:*` key except the API key (kept as `{ trips: [], apiKey }`), and reloads to
   the empty main screen.
 - Undo toasts (the main screen's bottom toast, 5 s): Cancel with edits → "Edits discarded ·
   Undo" (reopens the editor with the form; messages and pickers not restored; a generated
@@ -476,7 +476,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Rail network (`railNetwork`): one `/route_patterns?filter[route]=<rail routes>&filter[canonical]=true
   &include=representative_trip.stops` request (~100 KB; 18 patterns, each branch and direction,
   stations in order via the platforms' `parent_station`), cached in `localStorage`
-  (`mbta-leave-by:rail-network`; `keptCopy`: used at once, refreshed in the background after 7 days). It drives station search, station-first legs, and the
+  (`t-minus:rail-network`; `keptCopy`: used at once, refreshed in the background after 7 days). It drives station search, station-first legs, and the
   connections (`railStopsFrom`). If it fails, the search shows routes only and no connections. A new leg's transfer time defaults to 3 min within the
   same station, else 5 (`defaultTransferMinutes`).
 - Next-leg suggestions: adding a leg after another lists only the routes serving stops within
@@ -603,7 +603,7 @@ To stay well inside it:
 - Setup: one `/routes` request (also the source of the stored route labels and colors), one
   `/stops` request per route/direction pair (choosing a route loads both directions; 4 for the
   example); Save and "Add return trip" reuse them. Both are kept on the phone (`keptCopy`,
-  localStorage `{ at, data }` under `mbta-leave-by:routes` and `mbta-leave-by:stops:<route>/<dir>`)
+  localStorage `{ at, data }` under `t-minus:routes` and `t-minus:stops:<route>/<dir>`)
   like the rail network: a later session uses the copy and makes no request; past 7 days it
   still uses the copy at once and fetches a fresh one in the background for next time; with
   the API down, setup works from the copies. Stop lists are kept trimmed (`trimStopsDoc`: ids,
@@ -623,18 +623,17 @@ minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 
 iOS wakes a Home Screen app only with Web Push from a server (no scheduled local
 notifications; page timers stop in the background), so reminders come from a small Node
-service on Railway (`server/`). The app itself stays on GitHub Pages; serving it from Railway
-too is a likely later step.
+service on Railway (`server/`), which also serves the app (see Hosting).
 
 - **App:** "Notify me" sits next to "Track this trip" in an expanded row, shown only once
-  `PUSH_SERVER` is set in `index.html` (it is: the deployed Railway URL), for today's rows
+  `SERVER_API` is set in `index.html` (`/api`, same origin), for today's rows
   whose leave-by is ahead.
   - Tapping it asks for notification permission, subscribes the service worker
     (`pushManager.subscribe` with the server's VAPID key from `GET /vapid`), and posts the ride.
   - Set, the button shows the heads-up and leave times ("6:57am · 7:02am ✕", from the current
     row) and a bell sits before the row's leave time. Tapping the button again cancels it
     (`DELETE`).
-  - Reminders are kept in `localStorage` (`mbta-leave-by:reminders`, keyed by trip and row) and
+  - Reminders are kept in `localStorage` (`t-minus:reminders`, keyed by trip and row) and
     stop showing once leave-by passes.
   - Without the Push API (iOS outside the Home Screen app), the button is disabled with "Add
     to Home Screen to get notifications."
@@ -645,13 +644,14 @@ too is a likely later step.
     for the same ride replaces the earlier one.
   - Tapping a notification focuses or opens the app.
 - **Test notification:** setup ends with a "Notifications" section and one button, "Send test
-  notification in 10 s" (hidden without `PUSH_SERVER`; disabled with the Home Screen hint
+  notification in 10 s" (hidden without `SERVER_API`; disabled with the Home Screen hint
   without push). It subscribes like "Notify me", posts to `POST /test-push`, and toasts "Test
   notification in 10 s. Lock the phone to check." The server sends "Test notification" / "Push
   works. Sent 7:41am." from its loop (so up to 5 s late); it keeps pending tests in memory only
   (lost on restart), one per subscription, at most 100.
 - **Server (`server/app.mjs`):**
-  - **Endpoints:** `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id`,
+  - **Endpoints** (under `/api/`; the root paths still answer for the GitHub Pages copy until
+    phase 2): `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id`,
     `POST /test-push`, and `GET /nearby` (setup's "Show nearby").
   - **What a reminder holds:** the subscription, the trip (checked with `validateConfig`), its
     slack, the timing leg, the row key (the timing-leg vehicle's trip id) and leave-by. Leave-by
@@ -671,8 +671,9 @@ too is a likely later step.
   - **Request budget (author's key, 1,000 req/min):** about 3 requests/min per leg per
     reminder, plus schedules every 15 min.
   - **Limits:**
-    - CORS only for `ALLOWED_ORIGINS` (default `https://lucaspimentel.github.io`).
-    - 30 requests/min per IP.
+    - Same-origin requests, plus CORS for `ALLOWED_ORIGINS` (default
+      `https://lucaspimentel.github.io`, the old Pages copy).
+    - 30 API requests/min per IP (the app's files don't count).
     - 5 active reminders per push subscription.
     - A 16 KB body.
     - A 404/410 from the push service drops the reminder.
@@ -683,9 +684,27 @@ too is a likely later step.
   while the tick waited on the MBTA stays deleted. The old `reminders.json` was not imported.
 - **Deployment:** Railway service sourced from `lucaspimentel/mbta-leave-by` @ `main`. Deploy
   settings (build `npm ci --prefix server`, start `node server/main.mjs`, health check
-  `/health`, watch paths `server/**` and `core.js`) live in the service's Railway settings, not
+  `/health`, watch paths `server/**`, `core.js`, `index.html`, `setup.js`, `sw.js`,
+  `manifest.json` and `icons/**`) live in the service's Railway settings, not
   the repo. Setup steps are in `server/README.md`. `web-push` is the only dependency, in
   `server/package.json`; the app has none.
+
+## Hosting
+
+- **One origin:** the Railway service serves the app at `https://t-minus.lucasp.net/` (a custom
+  domain) and its API under `/api/`, so the app's requests to its server are same-origin.
+- **The app's files:** an allowlist from the repo root (`/` → `index.html`, `core.js`,
+  `setup.js`, `sw.js`, `manifest.json`, the three icons); anything else is a 404. Read once
+  per process and kept in memory, with a content-hash `ETag` (304 on `If-None-Match`).
+- **`Cache-Control`:** `no-cache` for the page, `sw.js` and `manifest.json` (revalidated each
+  time); `public, max-age=31536000, immutable` for `?v=<hash>` modules; a day for icons. The
+  page also gets `nosniff`, `no-referrer` and `x-frame-options: DENY`.
+- **The move from GitHub Pages (phase 1 of 2):** on `lucaspimentel.github.io` the app calls
+  `https://t-minus.lucasp.net/api`, copies data saved under the old `mbta-leave-by:` key prefix
+  to `t-minus:` once, and shows a "moved" banner on the main screen ("Copy trips" copies the
+  Export JSON; "Open T-Minus" links to the new address). Storage is per origin, so trips move
+  by Export/Import. Phase 2 (after the move): rename the repo to `t-minus`, turn Pages off,
+  and remove the root API paths, CORS and the banner.
 
 ## MBTA data caching (investigation, 2026-10-06)
 
@@ -766,7 +785,7 @@ the setup data is small on the wire. In order, if more people use the app keyles
 
 - `manifest.json`: name, icons, `display: standalone`, start URL.
 - `sw.js`: network-first for same-origin files, revalidating with the server
-  (`cache: 'no-cache'`) rather than trusting GitHub Pages' 10-minute HTTP cache; precaches the
+  (`cache: 'no-cache'`) rather than trusting the browser's HTTP cache; precaches the
   app shell. `api-v3.mbta.com` is never cached. The cache is the fallback when the server
   answers 5xx (4xx is shown as is), takes over 3 s (the request keeps running and still
   updates the cache), or is unreachable. The 5xx and timeout fallbacks match exactly (with the
@@ -821,8 +840,9 @@ the setup data is small on the wire. In order, if more people use the app keyles
   MBTA, a recording sender, a temp store, and a fake clock. Locally:
   `npm --prefix server ci`, then `node server/main.mjs` with the env vars from
   `server/README.md` (`DRY_RUN=1` logs pushes instead of sending them).
-- Local run: `python3 -m http.server` in the repo root, open `http://localhost:8000/`.
-- Deploy: GitHub Pages from `main`, repository root.
+- Local run: the push server (`node server/main.mjs` with the env vars from `server/README.md`)
+  serves the app and `/api`; open `http://localhost:8790/`.
+- Deploy: Railway redeploys on pushes to `main` that touch its watch paths.
 - Icons: `icons/icon.svg` is the source; PNGs are rendered from it.
 
 ## Future extensions

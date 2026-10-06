@@ -5,8 +5,10 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 
 ## Conventions
 
-- No build step, no runtime dependencies. Static files served by GitHub Pages from `main` root:
-  https://lucaspimentel.github.io/mbta-leave-by/
+- No build step, no runtime dependencies. Static files served by the Railway service
+  (`server/`) from `main`'s root, with its API under `/api/`: https://t-minus.lucasp.net/
+  (the old GitHub Pages copy shows a "moved" banner until phase 2 of the move; see `TODO.md`).
+  Storage keys use the `t-minus:` prefix.
 - `core.js`: pure logic only (no DOM, no fetch); every change there gets a unit test.
 - After changing any shell file (`index.html`, `core.js`, `setup.js`, `sw.js`, `manifest.json`),
   run `npm run stamp` (updates the footer version and the `?v=<hash>`
@@ -43,14 +45,15 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - `node scripts/record-fixtures.mjs` refreshes the recorded route/stop lists and rail network
   (`NODE_USE_ENV_PROXY=1`; paced for the keyless limit, ~2 min). Add a route there when a spec
   needs its stop lists.
-- Local run: `python3 -m http.server 8765`, open `http://localhost:8765/`.
+- Local run: the push server serves the app and `/api` on one port (see `server/README.md`,
+  `DRY_RUN=1`), open `http://localhost:8790/`.
 - Push server (`server/`, the only backend and the only runtime dependency, `web-push`; it also
-  answers setup's "Show nearby", `GET /nearby`):
+  serves the app's files and answers setup's "Show nearby", `GET /api/nearby`):
   `npm --prefix server ci`, then see `server/README.md` (env vars, `DRY_RUN=1`). `server/app.mjs`
   has no npm imports so `test/server.test.js` runs in `npm test`. The MBTA key goes only into
   Railway variables or a process env, never into a file. The Railway deploy config (build/start
   commands, healthcheck, watch paths) lives in the service's Railway settings, not the repo.
-  `PUSH_SERVER` in `index.html` is the deployed URL (empty hides "Notify me").
+  `SERVER_API` in `index.html` is `/api` (same origin; empty hides "Notify me").
 - Icons: `icons/icon.svg` is the source; re-render the PNGs (192, 512) from it with Playwright.
 
 ## Local testing with an MBTA API key

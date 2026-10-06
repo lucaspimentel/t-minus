@@ -17,7 +17,7 @@ test.beforeEach(({ page }) => {
 const setup = page => page.locator('#setup');
 const toast = page => page.locator('#toast');
 const tripNames = page => setup(page).locator('.trip-row .item b').allInnerTexts();
-const storedNames = page => page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')).trips.map(t => t.name));
+const storedNames = page => page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips.map(t => t.name));
 const button = (page, name) => setup(page).getByRole('button', { name, exact: true });
 
 // No trips: the main screen's empty state; "Set up a trip" opens a new trip.
@@ -249,7 +249,7 @@ test('station-first takes every line that makes the ride; the editor trims them'
   await expect(setup(page)).toContainText('Green B/C/E toward');
   await button(page, 'Save').click();
   await expect(setup(page).locator('.trip-row')).toHaveCount(1);
-  const leg = await page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')).trips[0].legs.find(l => l.kind === 'transit'));
+  const leg = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips[0].legs.find(l => l.kind === 'transit'));
   expect([leg.route, leg.also, leg.direction_id, leg.stop, leg.alight]).toEqual(['Green-B', ['Green-C', 'Green-E'], 0, 'place-gover', 'place-pktrm']);
 });
 
@@ -298,7 +298,7 @@ test('a leg can take any route between its stops (Green branches)', async ({ pag
   await expect(setup(page)).toContainText('Green B/C/E toward Boston College · Government Center → Park Street');
   await button(page, 'Save').click();
   await expect(setup(page).locator('.trip-row')).toHaveCount(1);
-  const leg = await page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')).trips[0].legs.find(l => l.kind === 'transit'));
+  const leg = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips[0].legs.find(l => l.kind === 'transit'));
   expect([leg.route, leg.also, leg.label, leg.routeLabels]).toEqual(['Green-B', ['Green-C', 'Green-E'], 'Green', { 'Green-B': 'Green B', 'Green-C': 'Green C', 'Green-E': 'Green E' }]);
 });
 
@@ -387,7 +387,7 @@ test('the last trip can be deleted: settings stay, Done shows the empty main scr
   await expect(button(page, '+ Add trip')).toHaveClass(/primary/); // stands out with no trips
   await expect(setup(page).locator('.legs-empty')).toContainText('No trips yet.');
   await expect(toast(page)).toContainText('Trip deleted');
-  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')));
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')));
   expect(await stored()).toMatchObject({ trips: [], departureCount: 3, apiKey: 'k1' });
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(setup(page).locator('.trip-row')).toHaveCount(1);
@@ -418,8 +418,8 @@ test('the last trip can be deleted: settings stay, Done shows the empty main scr
 test('Reset deletes all trips and saved data after a confirm, keeping the API key', async ({ page }) => {
   await openApp(page, { time: '07:00', config: { ...CONFIG, apiKey: 'k1', departureCount: 3 } });
   await page.evaluate(() => {
-    localStorage.setItem('mbta-leave-by:trip-override', JSON.stringify({ index: 1, setAt: Date.now() }));
-    localStorage.setItem('mbta-leave-by:last-trip', '1');
+    localStorage.setItem('t-minus:trip-override', JSON.stringify({ index: 1, setAt: Date.now() }));
+    localStorage.setItem('t-minus:last-trip', '1');
   });
   await page.locator('#open-setup').click();
   const reset = button(page, 'Delete all trips and settings');
@@ -432,9 +432,9 @@ test('Reset deletes all trips and saved data after a confirm, keeping the API ke
   await reset.click();
   await expect(page.locator('.empty .big-btn')).toBeVisible(); // reloaded into the empty main screen
   expect(asked).toBe('Delete all trips and settings?');
-  const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('mbta-leave-by:')));
-  expect(keys).toEqual(['mbta-leave-by:config']);
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')))).toEqual({ trips: [], apiKey: 'k1' });
+  const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('t-minus:')));
+  expect(keys).toEqual(['t-minus:config']);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')))).toEqual({ trips: [], apiKey: 'k1' });
 });
 
 test('no trips: Import trips opens setup with the import box; the empty list shares the help line', async ({ page }) => {
@@ -471,7 +471,7 @@ test('Export shows the saved config; Done leaves setup and hides a pending toast
   await openSetup(page);
   await button(page, 'Export').click();
   const exported = JSON.parse(await setup(page).locator('textarea').inputValue());
-  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:config')));
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')));
   expect(exported).toEqual(stored);
 
   await setup(page).locator('.trip-row .item').first().click();
@@ -555,7 +555,7 @@ const listHits = mbta => mbta.hits.filter(h => (h.path === '/routes' && !h.query
 async function warmLists(page) {
   await page.locator('#open-setup').click();
   await expect(setup(page).locator('.trip-row .item').first()).toContainText('Bus 132');
-  await page.waitForFunction(() => localStorage.getItem('mbta-leave-by:stops:132/1') && localStorage.getItem('mbta-leave-by:routes'));
+  await page.waitForFunction(() => localStorage.getItem('t-minus:stops:132/1') && localStorage.getItem('t-minus:routes'));
 }
 
 test('route and stop lists are kept on the phone: a later session makes no list requests', async ({ page }) => {
@@ -570,8 +570,8 @@ test('route and stop lists are kept on the phone: a later session makes no list 
     await expect(setup(page).locator('.list .item').first()).toBeVisible();
   };
   await session();
-  await page.waitForFunction(() => localStorage.getItem('mbta-leave-by:rail-network'));
-  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:stops:132/1')));
+  await page.waitForFunction(() => localStorage.getItem('t-minus:rail-network'));
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:stops:132/1')));
   expect(kept.data.data[0]).toEqual({ type: 'stop', id: expect.any(String), attributes: expect.objectContaining({ name: expect.any(String) }), relationships: { child_stops: { data: expect.any(Array) } } });
   await page.reload();
   await page.locator('.row').first().waitFor();
@@ -584,7 +584,7 @@ test('a copy past 7 days is used at once and refreshed in the background', async
   const mbta = await openApp(page, { time: '07:00' });
   await warmLists(page);
   await page.evaluate(() => {
-    const k = 'mbta-leave-by:stops:132/1';
+    const k = 't-minus:stops:132/1';
     const c = JSON.parse(localStorage.getItem(k));
     localStorage.setItem(k, JSON.stringify({ ...c, at: Date.now() - 8 * 24 * 60 * 60_000 }));
   });
@@ -597,7 +597,7 @@ test('a copy past 7 days is used at once and refreshed in the background', async
   await expect(setup(page).locator('.trip-row .item').first()).toContainText('Bus 132');
   await expect.poll(() => mbta.hits.slice(before).filter(h => h.path === '/stops' && h.query.get('filter[route]') === '132' && h.query.get('filter[direction_id]') === '1').length).toBe(1);
   mbta.release();
-  await expect.poll(() => page.evaluate(() => Date.now() - JSON.parse(localStorage.getItem('mbta-leave-by:stops:132/1')).at)).toBeLessThan(60_000);
+  await expect.poll(() => page.evaluate(() => Date.now() - JSON.parse(localStorage.getItem('t-minus:stops:132/1')).at)).toBeLessThan(60_000);
 });
 
 test('with saved lists, setup works while the API is down', async ({ page }) => {

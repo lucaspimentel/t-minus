@@ -254,6 +254,14 @@
   .update-card .t { font-weight: 600; margin-bottom: 10px; }
   .update-card .big-btn { width: 100%; }
   .empty .big-btn { width: 100%; }
+  /* The old GitHub Pages copy only: the app moved to t-minus.lucasp.net. */
+  .moved { margin: 0 0 12px; border: 1px solid var(--accent); border-radius: 14px; padding: 12px 14px; background: var(--card); }
+  .moved p { margin: 0 0 10px; font-size: 14px; line-height: 1.4; }
+  .moved strong { color: var(--accent-text); }
+  .moved-btns { display: flex; gap: 8px; }
+  .moved-btns > * { flex: 1; min-height: 44px; font-size: 15px; display: flex; align-items: center; justify-content: center;
+    text-decoration: none; padding: 0 10px; }
+  .moved .secondary-btn { border-radius: 12px; border: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
   .empty-help { margin: 0 0 12px; }
   .empty .secondary-btn { width: 100%; min-height: 44px; margin-top: 10px; }
   /* Setup view (setup.js) */
@@ -342,6 +350,11 @@
       <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh"><span>&#x21bb;</span></button>
       <button class="icon-btn" id="open-setup" aria-label="Setup" title="Setup">&#x2699;</button>
     </header>
+    <section class="moved" id="moved" aria-labelledby="moved-title" hidden>
+      <p><strong id="moved-title">T-Minus moved to t-minus.lucasp.net.</strong> Copy your trips, open the new address,
+        add it to your Home Screen, and paste them in Setup → Import.</p>
+      <div class="moved-btns"><button class="secondary-btn" id="copy-trips" type="button">Copy trips</button><a
+        class="big-btn" href="https://t-minus.lucasp.net/">Open T-Minus</a></div></section>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
     <div class="enroute-bar" id="enroute" hidden></div>
     <p class="status stale" id="loadfail" hidden>The app failed to start, probably a partial update.
@@ -351,7 +364,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-06 · 0cd1130983</footer>
+    <footer class="version">Version 2026-10-06 · 28aca39674</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -375,14 +388,14 @@ import {
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
 } from './core.js?v=163f73b473';
-import { openSetup } from './setup.js?v=be66d80f5d';
+import { openSetup } from './setup.js?v=ff0f66b885';
 
 const API = 'https://api-v3.mbta.com';
-const KEY_CONFIG = 'mbta-leave-by:config';
-const KEY_OVERRIDE = 'mbta-leave-by:trip-override';
-const KEY_LAST_TRIP = 'mbta-leave-by:last-trip';
+const KEY_CONFIG = 't-minus:config';
+const KEY_OVERRIDE = 't-minus:trip-override';
+const KEY_LAST_TRIP = 't-minus:last-trip';
 // "Leaving now" / "At the stop" per trip index: { [idx]: { name, kind, at, atStop, key, dep } }.
-const KEY_EN_ROUTE = 'mbta-leave-by:en-route';
+const KEY_EN_ROUTE = 't-minus:en-route';
 const SCHEDULE_TTL = 15 * 60_000;
 const ALERT_TTL = 5 * 60_000;
 const NEXT_DAY_TTL = 60 * 60_000;
@@ -394,13 +407,26 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch {} },
 };
 
+// The old GitHub Pages copy (until the move to t-minus.lucasp.net is done): it shows the "moved"
+// banner, and its data, saved under the old key prefix, is copied to the new one once.
+const NEW_HOME = 'https://t-minus.lucasp.net/';
+const ON_PAGES = location.hostname === 'lucaspimentel.github.io';
+if (ON_PAGES) {
+  try {
+    for (const k of Object.keys(localStorage)) {
+      const nk = k.replace(/^mbta-leave-by:/, 't-minus:');
+      if (nk !== k && localStorage.getItem(nk) == null) localStorage.setItem(nk, localStorage.getItem(k));
+    }
+  } catch {}
+}
+
 // Saved configs in the old two-commute format fail validation and are ignored.
 function loadConfig() {
   const saved = store.get(KEY_CONFIG);
   return saved && validateConfig(saved).length === 0 ? saved : null;
 }
 
-store.del('mbta-leave-by:direction'); // override key from the old format
+store.del('t-minus:direction'); // override key from the old format
 // The stored config (it may have no trips, keeping the settings); `config` is set only with trips.
 let savedConfig = loadConfig();
 let config = savedConfig?.trips.length ? savedConfig : null;
@@ -781,7 +807,7 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
   }
   // "Notify me": a push at leave-by (and a heads-up before), once the push server exists.
   let hint = null;
-  if (PUSH_SERVER && !r.nextDay && (reminder || r.leaveBy > now)) {
+  if (SERVER_API && !r.nextDay && (reminder || r.leaveBy > now)) {
     const b = el('button', `track-btn${reminder ? ' on' : ''}`);
     b.type = 'button';
     b.innerHTML = BELL_SVG;
@@ -805,14 +831,15 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
 
 // ---------- leave-time reminders ----------
 
-// The push server (server/, on Railway). On localhost, tests can override it in storage; '' hides
+// The app's server API (server/, on Railway, which also serves this page): same origin, except
+// from the old GitHub Pages copy. On localhost, tests can override it in storage; '' hides
 // "Notify me".
-const pushOverride = location.hostname === 'localhost' ? store.get('mbta-leave-by:push-server') : null;
-const PUSH_SERVER = pushOverride ?? 'https://push-server-production-7b87.up.railway.app';
+const pushOverride = location.hostname === 'localhost' ? store.get('t-minus:push-server') : null;
+const SERVER_API = pushOverride ?? (ON_PAGES ? `${NEW_HOME}api` : '/api');
 // iOS has push only in the Home Screen app.
 const pushSupported = 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
 // Set reminders: { ["<trip>/<row key>"]: { id, leaveBy, headsUp } }, until their leave-by passes.
-const KEY_REMINDERS = 'mbta-leave-by:reminders';
+const KEY_REMINDERS = 't-minus:reminders';
 let reminders = store.get(KEY_REMINDERS) ?? {};
 let reminderBusy = null; // the row key while a request is in flight
 const BELL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
@@ -830,7 +857,7 @@ function saveReminders() {
 }
 
 async function pushApi(method, path, body) {
-  const res = await fetch(`${PUSH_SERVER}${path}`, {
+  const res = await fetch(`${SERVER_API}${path}`, {
     method, ...(body && { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
   });
   if (method === 'DELETE' && res.status === 404) return null; // already sent or expired
@@ -841,7 +868,7 @@ async function pushApi(method, path, body) {
 // Setup's "Show nearby" from the push server ({ routes: [{ id, meters }] }, a few KB instead of
 // up to ~230 KB of schedules); setup falls back to the MBTA when this fails or takes over 3 s.
 async function nearbyFromServer({ lat, lon }) {
-  const res = await fetch(`${PUSH_SERVER}/nearby?lat=${lat}&lon=${lon}`, { signal: AbortSignal.timeout(3000) });
+  const res = await fetch(`${SERVER_API}/nearby?lat=${lat}&lon=${lon}`, { signal: AbortSignal.timeout(3000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -1350,8 +1377,8 @@ function showSetup({ importOpen = false } = {}) {
     timingFor: i => cache[i]?.timing ?? null,
     toast: showToast,
     hideToast,
-    testPush: PUSH_SERVER ? { supported: pushSupported, send: testPush } : null,
-    nearby: PUSH_SERVER ? nearbyFromServer : null,
+    testPush: SERVER_API ? { supported: pushSupported, send: testPush } : null,
+    nearby: SERVER_API ? nearbyFromServer : null,
     onClose: closeSetup,
     onReset: resetApp,
     startImport: importOpen,
@@ -1376,7 +1403,7 @@ function showSetup({ importOpen = false } = {}) {
 function resetApp(apiKey) {
   for (const rem of Object.values(reminders)) pushApi('DELETE', `/reminders/${rem.id}`).catch(() => {});
   try {
-    for (const k of Object.keys(localStorage)) if (k.startsWith('mbta-leave-by:') && k !== 'mbta-leave-by:push-server') localStorage.removeItem(k);
+    for (const k of Object.keys(localStorage)) if (k.startsWith('t-minus:') && k !== 't-minus:push-server') localStorage.removeItem(k);
   } catch {}
   if (apiKey) store.set(KEY_CONFIG, { trips: [], apiKey });
   location.reload();
@@ -1522,6 +1549,20 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   navigator.serviceWorker.controller?.postMessage('nav-status');
 }
 $('reload-new').onclick = () => location.reload();
+// The "moved" banner (GitHub Pages copy only): "Copy trips" copies what Setup → Export shows.
+if (ON_PAGES) {
+  $('moved').hidden = false;
+  $('copy-trips').onclick = async () => {
+    const cfg = store.get(KEY_CONFIG);
+    if (!cfg) return showToast('No trips to copy.');
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(cfg, null, 2));
+      showToast('Trips copied. Paste them in Setup → Import on t-minus.lucasp.net.');
+    } catch {
+      showToast("Couldn't copy. Use Setup → Export instead.");
+    }
+  };
+}
 // iOS Safari applies :active on touch only when a touch listener exists.
 document.addEventListener('touchstart', () => {}, { passive: true });
 

@@ -1,6 +1,9 @@
-// Leave-time reminders: the HTTP API and the polling loop; also setup's "Show nearby" (/nearby).
-// No npm imports, so tests load it directly; main.mjs wires in web-push, the store, and the clock.
-import { randomUUID } from 'node:crypto';
+// Leave-time reminders: the HTTP API (/api/*) and the polling loop; also setup's "Show nearby"
+// (/api/nearby) and the app's own files. No npm imports, so tests load it directly; main.mjs wires
+// in web-push, the store, and the clock.
+import { randomUUID, createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
@@ -20,12 +23,22 @@ const NEARBY_CELL = 0.0005; // degrees (~50 m): nearby stop lists are cached per
 const MAX_NEARBY_STOPS = 500; // cached cells
 const MAX_NEARBY_SETS = 200; // cached stop sets (routes and the hour's schedules)
 
-export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, allowedOrigins = [], log = () => {} }) {
+// The app's files (an allowlist: nothing else under the repo root is served).
+const STATIC = {
+  '/': 'index.html', '/index.html': 'index.html', '/core.js': 'core.js', '/setup.js': 'setup.js', '/sw.js': 'sw.js',
+  '/manifest.json': 'manifest.json', '/icons/icon.svg': 'icons/icon.svg', '/icons/icon-192.png': 'icons/icon-192.png',
+  '/icons/icon-512.png': 'icons/icon-512.png',
+};
+const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
+const API_PATHS = new Set(['/health', '/vapid', '/nearby', '/test-push', '/reminders']);
+
+export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, allowedOrigins = [], staticRoot = null, log = () => {} }) {
   const schedules = new Map(); // reminder id -> { at, docs }
   const hits = new Map(); // ip -> { minute, count }
   let tests = []; // pending test notifications: { subscription, at }
   const nearbyStopsCache = new Map(); // cell -> { at, stops }
   const nearbySetCache = new Map(); // stop ids + hour -> { routeIds, schedules }
+  const files = new Map(); // file -> { body, etag }
   let ticking = false;
 
   async function mbta(path, params) {
@@ -79,21 +92,53 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     return null;
   }
 
+  // ---------- the app's files ----------
+
+  // Cache-Control: the page, the service worker and the manifest are revalidated each time;
+  // `?v=<hash>` modules never change; icons for a day.
+  function cacheControl(url, file) {
+    if (url.searchParams.has('v') && file.endsWith('.js')) return 'public, max-age=31536000, immutable';
+    if (file.startsWith('icons/')) return 'public, max-age=86400';
+    return 'no-cache';
+  }
+
+  async function serveFile(req, res, url) {
+    const file = STATIC[url.pathname];
+    if (!file) return reply(res, 404, { error: 'Not found' });
+    let f = files.get(file);
+    if (!f) {
+      const body = await readFile(join(staticRoot, file));
+      f = { body, etag: `"${createHash('sha256').update(body).digest('base64url').slice(0, 22)}"` };
+      files.set(file, f);
+    }
+    const headers = { 'content-type': TYPES[file.split('.').pop()], 'cache-control': cacheControl(url, file), etag: f.etag };
+    if (file.endsWith('.html')) Object.assign(headers, { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' });
+    if (req.headers['if-none-match'] === f.etag) { res.writeHead(304, headers); return res.end(); }
+    res.writeHead(200, { ...headers, 'content-length': f.body.length });
+    res.end(req.method === 'HEAD' ? undefined : f.body);
+  }
+
   async function handle(req, res) {
     const t = now();
+    const url = new URL(req.url, 'http://x');
+    // The API lives under /api/; the root paths remain for the GitHub Pages build (phase 1).
+    const path = url.pathname.startsWith('/api/') ? url.pathname.slice(4) : url.pathname;
+    const isApi = url.pathname.startsWith('/api/') || API_PATHS.has(path) || path.startsWith('/reminders/');
+    if (!isApi && staticRoot && (req.method === 'GET' || req.method === 'HEAD')) return serveFile(req, res, url);
     const origin = req.headers.origin;
-    if (origin && !allowedOrigins.includes(origin)) return reply(res, 403, { error: 'Origin not allowed' });
+    // Same-origin requests (the app served from here) send their own origin on POST and DELETE.
+    const sameOrigin = origin && req.headers.host && origin.replace(/^https?:\/\//, '') === req.headers.host;
+    if (origin && !sameOrigin && !allowedOrigins.includes(origin)) return reply(res, 403, { error: 'Origin not allowed' });
     const cors = origin ? { 'access-control-allow-origin': origin, vary: 'Origin' } : {};
     if (req.method === 'OPTIONS') {
       return reply(res, 204, undefined, { ...cors, 'access-control-allow-methods': 'GET, POST, DELETE', 'access-control-allow-headers': 'content-type', 'access-control-max-age': '86400' });
     }
     const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
     if (limited(ip, t)) return reply(res, 429, { error: 'Too many requests' }, cors);
-    const url = new URL(req.url, 'http://x');
 
-    if (req.method === 'GET' && url.pathname === '/health') return reply(res, 200, { ok: true, reminders: store.count() }, cors);
-    if (req.method === 'GET' && url.pathname === '/vapid') return reply(res, 200, { publicKey }, cors);
-    if (req.method === 'GET' && url.pathname === '/nearby') {
+    if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true, reminders: store.count() }, cors);
+    if (req.method === 'GET' && path === '/vapid') return reply(res, 200, { publicKey }, cors);
+    if (req.method === 'GET' && path === '/nearby') {
       const lat = Number(url.searchParams.get('lat'));
       const lon = Number(url.searchParams.get('lon'));
       if (!(lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5)) return reply(res, 400, { error: 'lat/lon must be near Boston' }, cors);
@@ -106,7 +151,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     }
 
     // The setup's test notification, sent TEST_PUSH_DELAY_MS later; one pending per subscription.
-    if (req.method === 'POST' && url.pathname === '/test-push') {
+    if (req.method === 'POST' && path === '/test-push') {
       if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' }, cors);
       if (tests.length >= MAX_TESTS || tests.some(x => x.subscription.endpoint === body.subscription.endpoint)) {
         return reply(res, 429, { error: 'A test notification is already on its way' }, cors);
@@ -115,7 +160,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       return reply(res, 202, { at: t + TEST_PUSH_DELAY_MS }, cors);
     }
 
-    if (req.method === 'POST' && url.pathname === '/reminders') {
+    if (req.method === 'POST' && path === '/reminders') {
       const err = checkReminder(body, t);
       if (err) return reply(res, 400, { error: err }, cors);
       if (store.countFor(body.subscription.endpoint) >= MAX_PER_SUBSCRIPTION) {
@@ -131,7 +176,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       return reply(res, 201, { id: rem.id, headsUp: rem.headsUp }, cors);
     }
 
-    const m = url.pathname.match(/^\/reminders\/([\w-]{1,64})$/);
+    const m = path.match(/^\/reminders\/([\w-]{1,64})$/);
     if (req.method === 'DELETE' && m) {
       const found = store.delete(m[1]);
       schedules.delete(m[1]);

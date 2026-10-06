@@ -21,7 +21,7 @@ const rec = (type, tripId, stop, t) => ({
 });
 
 // Bus b1 7:10 (`bus` can change) → 7:25 (schedules); Orange o1 7:33 → 7:50 (predictions; `orange` can change).
-async function setup() {
+async function setup({ staticRoot = null } = {}) {
   const world = { clock: at('07:00'), bus: '07:10', orange: '07:33', cancelled: false, failing: false, calls: [] };
   const mbtaFetch = async url => {
     const u = new URL(url);
@@ -54,12 +54,12 @@ async function setup() {
   };
   const dir = await mkdtemp(join(tmpdir(), 'leave-by-'));
   const store = openStore(dir);
-  const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', allowedOrigins: [ORIGIN] });
+  const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', allowedOrigins: [ORIGIN], staticRoot });
   const server = createServer(app.handler);
   await new Promise(r => server.listen(0, r));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const call = (method, path, body, origin = ORIGIN) => fetch(`${base}${path}`, {
-    method, headers: { 'content-type': 'application/json', ...(origin && { origin }) }, body: body && JSON.stringify(body),
+  const call = (method, path, body, origin = ORIGIN, headers = {}) => fetch(`${base}${path}`, {
+    method, headers: { 'content-type': 'application/json', ...(origin && { origin }), ...headers }, body: body && JSON.stringify(body),
   });
   return { world, sent, store, dir, app, call, close: () => new Promise(r => server.close(r)).then(() => store.close()) };
 }
@@ -262,5 +262,46 @@ test('/nearby: bad coordinates, other origins, and failed schedules', async () =
     s.world.nearbySchedulesFail = false;
     const next = await (await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711')).json();
     assert.ok(next.routes[0].meters > 0);
+  } finally { await s.close(); }
+});
+
+test('the app\'s files: an allowlist from the repo root, with cache headers and ETags', async () => {
+  const s = await setup({ staticRoot: process.cwd() });
+  try {
+    const page = await s.call('GET', '/', undefined, null);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-type'), /text\/html/);
+    assert.equal(page.headers.get('cache-control'), 'no-cache');
+    assert.equal(page.headers.get('x-frame-options'), 'DENY');
+    assert.match(await page.text(), /<title>T-Minus/);
+    const again = await s.call('GET', '/index.html', undefined, null, { 'if-none-match': page.headers.get('etag') });
+    assert.equal(again.status, 304);
+    const mod = await s.call('GET', '/core.js?v=abc', undefined, null);
+    assert.equal(mod.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+    assert.match(mod.headers.get('content-type'), /text\/javascript/);
+    assert.equal((await s.call('GET', '/sw.js', undefined, null)).headers.get('cache-control'), 'no-cache');
+    assert.equal((await s.call('GET', '/icons/icon-192.png', undefined, null)).headers.get('cache-control'), 'public, max-age=86400');
+    for (const p of ['/package.json', '/server/app.mjs', '/.git/config', '/%2e%2e/package.json', '/test/server.test.js', '/DESIGN.md']) {
+      assert.equal((await s.call('GET', p, undefined, null)).status, 404, p);
+    }
+    // Loading the app doesn't count toward the API's 30 requests a minute.
+    for (let i = 0; i < 40; i++) await (await s.call('GET', '/manifest.json', undefined, null)).arrayBuffer();
+    assert.equal((await s.call('GET', '/api/vapid', undefined, null)).status, 200);
+  } finally { await s.close(); }
+});
+
+test('/api/* answers like the root paths; the app\'s own origin may POST', async () => {
+  const s = await setup({ staticRoot: process.cwd() });
+  try {
+    assert.deepEqual(await (await s.call('GET', '/api/vapid')).json(), { publicKey: 'PUB' });
+    assert.equal((await s.call('GET', '/api/health')).status, 200);
+    assert.equal((await s.call('GET', '/api/nearby?lat=42.4385&lon=-71.0711')).status, 200);
+    assert.equal((await s.call('GET', '/api/nope')).status, 404);
+    const own = `http://127.0.0.1:${new URL((await s.call('GET', '/api/health')).url).port}`;
+    const created = await s.call('POST', '/api/reminders', reminder(), own);
+    assert.equal(created.status, 201);
+    const { id } = await created.json();
+    assert.equal((await s.call('DELETE', `/api/reminders/${id}`, undefined, own)).status, 204);
+    assert.equal((await s.call('POST', '/api/reminders', reminder(), 'https://evil.example')).status, 403);
   } finally { await s.close(); }
 });

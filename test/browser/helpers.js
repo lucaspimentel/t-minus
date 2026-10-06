@@ -45,18 +45,19 @@ export const WAKE_STUB = () => {
 };
 
 // Opens the app at `time` (local, on `date`) with `config` saved and the fake MBTA serving
-// `scenario`; waits for the first rows unless `waitForRows` is false.
-export async function openApp(page, { time = '07:00', date = MONDAY, config = CONFIG, scenario = commute(), waitForRows = true, init } = {}) {
+// `scenario`; waits for the first rows unless `waitForRows` is false. `url` can be another
+// address served from the local files (see moved.spec.js).
+export async function openApp(page, { time = '07:00', date = MONDAY, config = CONFIG, scenario = commute(), waitForRows = true, init, url = '/' } = {}) {
   const now = at(time, date);
   const mbta = await fakeMbta(page.context(), scenario, { now });
   // The push server's "Show nearby" digest is unreachable unless a spec stubs it (page.route),
   // so specs never call Railway and setup takes its MBTA fallback.
   await page.context().route(/\/nearby\?/, route => route.abort());
-  await page.addInitScript(c => { if (c && !localStorage.getItem('mbta-leave-by:config')) localStorage.setItem('mbta-leave-by:config', c); },
+  await page.addInitScript(c => { if (c && !localStorage.getItem('t-minus:config')) localStorage.setItem('t-minus:config', c); },
     config ? JSON.stringify(config) : null);
-  if (init) await page.addInitScript(init);
+  if (init) await (Array.isArray(init) ? page.addInitScript(...init) : page.addInitScript(init));
   await page.clock.install({ time: now });
-  await page.goto('/');
+  await page.goto(url);
   if (waitForRows) {
     await page.locator('.row').first().waitFor();
     await tick(page, 1000);

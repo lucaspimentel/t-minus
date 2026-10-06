@@ -18,7 +18,7 @@ let routesPromise = null;
 const stopDocs = new Map(); // stopsKey → /stops doc (trip order, with child_stops; trimmed)
 // The subway and light-rail network (railNetwork): station-first legs and the connections shown
 // in the drop-off lists. One request.
-const RAIL_KEY = 'mbta-leave-by:rail-network';
+const RAIL_KEY = 't-minus:rail-network';
 const SAVED_TTL = 7 * 24 * 60 * 60_000;
 
 // Data kept on the phone (localStorage `{ at, data }`): the saved copy at once, and past `ttl`
@@ -93,7 +93,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let listMessages = [];
   let busy = false;
 
-  const loadRoutes = () => (routesPromise ??= keptCopy('mbta-leave-by:routes', SAVED_TTL, () => api('/routes', {
+  const loadRoutes = () => (routesPromise ??= keptCopy('t-minus:routes', SAVED_TTL, () => api('/routes', {
     'filter[type]': '0,1,3',
     'fields[route]': 'short_name,long_name,type,color,direction_names,direction_destinations,sort_order',
   }).then(doc => doc.data)).catch(e => { routesPromise = null; throw e; }));
@@ -101,7 +101,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   async function loadStops(route, direction) {
     const key = stopsKey(route, direction);
     if (!stopDocs.has(key)) {
-      stopDocs.set(key, await keptCopy(`mbta-leave-by:stops:${key}`, SAVED_TTL, () => api('/stops', {
+      stopDocs.set(key, await keptCopy(`t-minus:stops:${key}`, SAVED_TTL, () => api('/stops', {
         'filter[route]': route,
         'filter[direction_id]': direction,
         'fields[stop]': 'name,latitude,longitude',

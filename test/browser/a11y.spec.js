@@ -42,7 +42,7 @@ for (const scheme of ['light', 'dark']) {
     await tickTo(page, '07:08:30');
     await expect(page.locator('.ride-head')).toBeVisible();
     expect(await violations(page)).toEqual([]);
-    await page.evaluate(() => localStorage.setItem('mbta-leave-by:config', JSON.stringify({ trips: [] })));
+    await page.evaluate(() => localStorage.setItem('t-minus:config', JSON.stringify({ trips: [] })));
     await page.reload();
     await expect(page.locator('.empty .big-btn')).toBeVisible();
     expect(await violations(page)).toEqual([]);
