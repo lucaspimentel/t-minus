@@ -21,7 +21,6 @@ const app = createApp({
   store: openStore(env.DATA_DIR ?? './data'),
   apiKey: env.MBTA_API_KEY,
   publicKey: env.VAPID_PUBLIC_KEY,
-  allowedOrigins: (env.ALLOWED_ORIGINS ?? 'https://lucaspimentel.github.io').split(',').map(s => s.trim()),
   staticRoot: new URL('..', import.meta.url).pathname,
   log,
 });

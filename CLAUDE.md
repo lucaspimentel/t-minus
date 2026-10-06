@@ -1,14 +1,13 @@
 # CLAUDE.md
 
-T-Minus (repo `mbta-leave-by`): a phone-first PWA that answers "when do I leave?" for a bus + Orange Line commute.
+T-Minus (repo `t-minus`): a phone-first PWA that answers "when do I leave?" for a bus + Orange Line commute.
 Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pending work.
 
 ## Conventions
 
 - No build step, no runtime dependencies. Static files served by the Railway service
   (`server/`) from `main`'s root, with its API under `/api/`: https://t-minus.lucasp.net/
-  (the old GitHub Pages copy shows a "moved" banner until phase 2 of the move; see `TODO.md`).
-  Storage keys use the `t-minus:` prefix.
+  (same origin only, no CORS). Storage keys use the `t-minus:` prefix.
 - `core.js`: pure logic only (no DOM, no fetch); every change there gets a unit test.
 - After changing any shell file (`index.html`, `core.js`, `setup.js`, `sw.js`, `manifest.json`),
   run `npm run stamp` (updates the footer version and the `?v=<hash>`

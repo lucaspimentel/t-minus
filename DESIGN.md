@@ -1,4 +1,4 @@
-# DESIGN.md — T-Minus (repo: mbta-leave-by)
+# DESIGN.md — T-Minus (repo: t-minus)
 
 Status: N-leg engine and setup UI implemented. API verified against live data (2026-09-30).
 
@@ -32,9 +32,9 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 |---|---|
 | Form factor | Static files, no build step, no dependencies (the optional push server in `server/` is the only backend; see Notifications): `index.html` (markup, CSS, UI/fetch/timers), `setup.js` (setup view), `core.js` (pure logic ES module, unit tested), PWA `manifest.json` + `sw.js` |
 | Target device | Phone first; installable PWA (add to home screen) |
-| Hosting | The Railway service (`server/`) at `https://t-minus.lucasp.net/`: the app's files and its API under `/api/` on one origin (see Hosting). The old GitHub Pages copy shows a "moved" banner until the move is done |
+| Hosting | The Railway service (`server/`) at `https://t-minus.lucasp.net/`: the app's files and its API under `/api/` on one origin (see Hosting) |
 | API calls | Direct from browser to `api-v3.mbta.com` (CORS verified: `access-control-allow-origin: *`) |
-| API key | Keyless by default; optional key field in settings, sent as the `api_key` query parameter (a custom header would add a CORS preflight). Stored in `localStorage` on the shared `lucaspimentel.github.io` origin; accepted (low-value key) |
+| API key | Keyless by default; optional key field in settings, sent as the `api_key` query parameter (a custom header would add a CORS preflight). Stored in `localStorage` on the app's own origin (`t-minus.lucasp.net`; on GitHub Pages it was the shared `lucaspimentel.github.io` origin) |
 | Persistence | `localStorage` per browser; sharing = app URL + self-serve config |
 | Default config | None: first run opens the setup view |
 | Trips | Any number of named trips, each with any number of transit legs; optional time window per trip picks the trip shown |
@@ -650,8 +650,8 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   works. Sent 7:41am." from its loop (so up to 5 s late); it keeps pending tests in memory only
   (lost on restart), one per subscription, at most 100.
 - **Server (`server/app.mjs`):**
-  - **Endpoints** (under `/api/`; the root paths still answer for the GitHub Pages copy until
-    phase 2): `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id`,
+  - **Endpoints** (under `/api/`; `GET /health` also at the root, for Railway's health check):
+    `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id`,
     `POST /test-push`, and `GET /nearby` (setup's "Show nearby").
   - **What a reminder holds:** the subscription, the trip (checked with `validateConfig`), its
     slack, the timing leg, the row key (the timing-leg vehicle's trip id) and leave-by. Leave-by
@@ -671,8 +671,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   - **Request budget (author's key, 1,000 req/min):** about 3 requests/min per leg per
     reminder, plus schedules every 15 min.
   - **Limits:**
-    - Same-origin requests, plus CORS for `ALLOWED_ORIGINS` (default
-      `https://lucaspimentel.github.io`, the old Pages copy).
+    - Same origin only: a request whose `Origin` isn't this host gets 403 (no CORS).
     - 30 API requests/min per IP (the app's files don't count).
     - 5 active reminders per push subscription.
     - A 16 KB body.
@@ -682,7 +681,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   `endpoint`, `next_poll_at`) and the whole reminder as JSON (`body`), so its shape can change
   without a migration. Writes are per row; a tick's update never inserts, so a reminder deleted
   while the tick waited on the MBTA stays deleted. The old `reminders.json` was not imported.
-- **Deployment:** Railway service sourced from `lucaspimentel/mbta-leave-by` @ `main`. Deploy
+- **Deployment:** Railway service sourced from `lucaspimentel/t-minus` @ `main`. Deploy
   settings (build `npm ci --prefix server`, start `node server/main.mjs`, health check
   `/health`, watch paths `server/**`, `core.js`, `index.html`, `setup.js`, `sw.js`,
   `manifest.json` and `icons/**`) live in the service's Railway settings, not
@@ -699,12 +698,10 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 - **`Cache-Control`:** `no-cache` for the page, `sw.js` and `manifest.json` (revalidated each
   time); `public, max-age=31536000, immutable` for `?v=<hash>` modules; a day for icons. The
   page also gets `nosniff`, `no-referrer` and `x-frame-options: DENY`.
-- **The move from GitHub Pages (phase 1 of 2):** on `lucaspimentel.github.io` the app calls
-  `https://t-minus.lucasp.net/api`, copies data saved under the old `mbta-leave-by:` key prefix
-  to `t-minus:` once, and shows a "moved" banner on the main screen ("Copy trips" copies the
-  Export JSON; "Open T-Minus" links to the new address). Storage is per origin, so trips move
-  by Export/Import. Phase 2 (after the move): rename the repo to `t-minus`, turn Pages off,
-  and remove the root API paths, CORS and the banner.
+- **History:** the app was on GitHub Pages (`lucaspimentel.github.io/mbta-leave-by/`) until
+  2026-10-06; it moved here in two steps (a "moved" banner on the Pages copy, then the repo
+  rename to `t-minus` and Pages off). Storage is per origin, so trips moved by Export/Import,
+  and the key prefix changed from `mbta-leave-by:` to `t-minus:`.
 
 ## MBTA data caching (investigation, 2026-10-06)
 

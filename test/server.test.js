@@ -12,7 +12,6 @@ import { openStore } from '../server/store.mjs';
 
 const at = hhmm => Date.parse(`2026-09-30T${hhmm}:00-04:00`);
 const iso = hhmm => `2026-09-30T${hhmm}:00-04:00`;
-const ORIGIN = 'https://lucaspimentel.github.io';
 const [trip] = JSON.parse(readFileSync('test/fixtures/bus-orange.json', 'utf8')).trips;
 
 const rec = (type, tripId, stop, t) => ({
@@ -54,11 +53,11 @@ async function setup({ staticRoot = null } = {}) {
   };
   const dir = await mkdtemp(join(tmpdir(), 'leave-by-'));
   const store = openStore(dir);
-  const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', allowedOrigins: [ORIGIN], staticRoot });
+  const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', staticRoot });
   const server = createServer(app.handler);
   await new Promise(r => server.listen(0, r));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const call = (method, path, body, origin = ORIGIN, headers = {}) => fetch(`${base}${path}`, {
+  const call = (method, path, body, origin = null, headers = {}) => fetch(`${base}${path}`, {
     method, headers: { 'content-type': 'application/json', ...(origin && { origin }), ...headers }, body: body && JSON.stringify(body),
   });
   return { world, sent, store, dir, app, call, close: () => new Promise(r => server.close(r)).then(() => store.close()) };
@@ -70,11 +69,10 @@ const reminder = (extra = {}) => ({ subscription: subscription(), trip, tripName
 test('a reminder sends the heads-up, then "Leave now", then is gone', async () => {
   const s = await setup();
   try {
-    assert.deepEqual(await (await s.call('GET', '/vapid')).json(), { publicKey: 'PUB' });
+    assert.deepEqual(await (await s.call('GET', '/api/vapid')).json(), { publicKey: 'PUB' });
     s.world.clock = at('06:50');
-    const res = await s.call('POST', '/reminders', reminder());
+    const res = await s.call('POST', '/api/reminders', reminder());
     assert.equal(res.status, 201);
-    assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN);
     const { id, headsUp } = await res.json();
     assert.ok(id);
     assert.equal(headsUp, true);
@@ -97,7 +95,7 @@ test('a reminder follows the ride: a later bus moves leave-by and the next poll'
   const s = await setup();
   try {
     s.world.clock = at('06:50');
-    await s.call('POST', '/reminders', reminder());
+    await s.call('POST', '/api/reminders', reminder());
     s.world.bus = '07:12';
     await s.app.tick();
     const [rem] = s.store.all();
@@ -114,7 +112,7 @@ test('a vanished ride is reported cancelled after three polls; MBTA errors do no
   const s = await setup();
   try {
     s.world.clock = at('06:40');
-    await s.call('POST', '/reminders', reminder());
+    await s.call('POST', '/api/reminders', reminder());
     s.world.failing = true;
     await s.app.tick();
     assert.equal(s.store.all()[0].missing, 0);
@@ -133,11 +131,11 @@ test('DELETE removes a reminder; a dead subscription (410) drops it', async () =
   const s = await setup();
   try {
     s.world.clock = at('06:50');
-    const { id } = await (await s.call('POST', '/reminders', reminder())).json();
-    assert.equal((await s.call('DELETE', `/reminders/${id}`)).status, 204);
-    assert.equal((await s.call('DELETE', `/reminders/${id}`)).status, 404);
+    const { id } = await (await s.call('POST', '/api/reminders', reminder())).json();
+    assert.equal((await s.call('DELETE', `/api/reminders/${id}`)).status, 204);
+    assert.equal((await s.call('DELETE', `/api/reminders/${id}`)).status, 404);
     assert.equal(s.store.all().length, 0);
-    await s.call('POST', '/reminders', reminder());
+    await s.call('POST', '/api/reminders', reminder());
     s.world.sendStatus = 410;
     s.world.clock = at('07:00');
     await s.app.tick();
@@ -148,20 +146,20 @@ test('DELETE removes a reminder; a dead subscription (410) drops it', async () =
 test('origins, validation, and per-subscription cap', async () => {
   const s = await setup();
   try {
-    assert.equal((await s.call('POST', '/reminders', reminder(), 'https://evil.example')).status, 403);
-    const pre = await s.call('OPTIONS', '/reminders');
-    assert.equal(pre.status, 204);
-    assert.match(pre.headers.get('access-control-allow-methods'), /DELETE/);
-    assert.equal((await s.call('POST', '/reminders', reminder({ leaveBy: at('06:00') }))).status, 400); // passed
-    assert.equal((await s.call('POST', '/reminders', reminder({ timingIdx: 2 }))).status, 400);
-    assert.equal((await s.call('POST', '/reminders', reminder({ subscription: { endpoint: 'http://x' } }))).status, 400);
-    assert.equal((await s.call('POST', '/reminders', reminder({ trip: { name: 'x', legs: [] } }))).status, 400);
-    for (let i = 0; i < 5; i++) assert.equal((await s.call('POST', '/reminders', reminder())).status, 201);
-    assert.equal((await s.call('POST', '/reminders', reminder())).status, 429);
-    assert.equal((await s.call('POST', '/reminders', reminder({ subscription: subscription(2) }))).status, 201);
+    assert.equal((await s.call('POST', '/api/reminders', reminder(), 'https://evil.example')).status, 403);
+    // Same origin only: no CORS preflight, and the old root paths are gone.
+    assert.equal((await s.call('OPTIONS', '/api/reminders', undefined, 'https://evil.example')).status, 403);
+    assert.equal((await s.call('POST', '/reminders', reminder())).status, 404);
+    assert.equal((await s.call('POST', '/api/reminders', reminder({ leaveBy: at('06:00') }))).status, 400); // passed
+    assert.equal((await s.call('POST', '/api/reminders', reminder({ timingIdx: 2 }))).status, 400);
+    assert.equal((await s.call('POST', '/api/reminders', reminder({ subscription: { endpoint: 'http://x' } }))).status, 400);
+    assert.equal((await s.call('POST', '/api/reminders', reminder({ trip: { name: 'x', legs: [] } }))).status, 400);
+    for (let i = 0; i < 5; i++) assert.equal((await s.call('POST', '/api/reminders', reminder())).status, 201);
+    assert.equal((await s.call('POST', '/api/reminders', reminder())).status, 429);
+    assert.equal((await s.call('POST', '/api/reminders', reminder({ subscription: subscription(2) }))).status, 201);
     // Set inside the heads-up window: no heads-up.
     s.world.clock = at('07:00');
-    const late = await (await s.call('POST', '/reminders', reminder({ subscription: subscription(3) }))).json();
+    const late = await (await s.call('POST', '/api/reminders', reminder({ subscription: subscription(3) }))).json();
     assert.equal(late.headsUp, false);
   } finally { await s.close(); }
 });
@@ -170,10 +168,10 @@ test('a test notification is sent 10 s later, once per subscription at a time', 
   const s = await setup();
   try {
     s.world.clock = at('07:41');
-    assert.equal((await s.call('POST', '/test-push', { subscription: subscription() }, 'https://evil.example')).status, 403);
-    assert.equal((await s.call('POST', '/test-push', { subscription: { endpoint: 'http://x' } })).status, 400);
-    assert.equal((await s.call('POST', '/test-push', { subscription: subscription() })).status, 202);
-    assert.equal((await s.call('POST', '/test-push', { subscription: subscription() })).status, 429);
+    assert.equal((await s.call('POST', '/api/test-push', { subscription: subscription() }, 'https://evil.example')).status, 403);
+    assert.equal((await s.call('POST', '/api/test-push', { subscription: { endpoint: 'http://x' } })).status, 400);
+    assert.equal((await s.call('POST', '/api/test-push', { subscription: subscription() })).status, 202);
+    assert.equal((await s.call('POST', '/api/test-push', { subscription: subscription() })).status, 429);
     s.world.clock += 9_000;
     await s.app.tick();
     assert.equal(s.sent.length, 0);
@@ -181,7 +179,7 @@ test('a test notification is sent 10 s later, once per subscription at a time', 
     await s.app.tick();
     assert.deepEqual(s.sent, [{ kind: 'test', title: 'Test notification', body: 'Push works. Sent 7:41am.', tag: 'test' }]);
     assert.equal(s.store.all().length, 0); // not stored
-    assert.equal((await s.call('POST', '/test-push', { subscription: subscription() })).status, 202);
+    assert.equal((await s.call('POST', '/api/test-push', { subscription: subscription() })).status, 202);
   } finally { await s.close(); }
 });
 
@@ -189,7 +187,7 @@ test('reminders survive a restart', async () => {
   const s = await setup();
   try {
     s.world.clock = at('06:50');
-    const { id } = await (await s.call('POST', '/reminders', reminder())).json();
+    const { id } = await (await s.call('POST', '/api/reminders', reminder())).json();
     await s.app.tick();
     const [rem] = s.store.all();
     assert.ok(rem.nextPollAt > at('06:50'));
@@ -204,11 +202,11 @@ test('a reminder deleted during a tick is not restored', async () => {
   const s = await setup();
   try {
     s.world.clock = at('06:50');
-    const { id } = await (await s.call('POST', '/reminders', reminder())).json();
+    const { id } = await (await s.call('POST', '/api/reminders', reminder())).json();
     let release;
     s.world.gate = new Promise(r => { release = r; });
     const ticking = s.app.tick();
-    assert.equal((await s.call('DELETE', `/reminders/${id}`)).status, 204);
+    assert.equal((await s.call('DELETE', `/api/reminders/${id}`)).status, 204);
     release();
     await ticking;
     assert.equal(s.store.count(), 0);
@@ -227,9 +225,8 @@ test('an old reminders.json is ignored', async () => {
 test('/nearby: the routes around a point with distances, cached per cell and hour', async () => {
   const s = await setup();
   try {
-    const res = await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711');
+    const res = await s.call('GET', '/api/nearby?lat=42.4385&lon=-71.0711');
     assert.equal(res.status, 200);
-    assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN);
     const body = await res.json();
     // 132 from its schedule at 5991 (~175 m); Orange has no schedule there (its platforms aren't in the list).
     assert.deepEqual(body.routes.map(r => r.id), ['132', 'Orange']);
@@ -238,12 +235,12 @@ test('/nearby: the routes around a point with distances, cached per cell and hou
     assert.equal(body.routes[1].meters, null);
     assert.deepEqual(s.world.calls, ['/stops', '/routes', '/schedules']);
     // Again, a few meters away within the hour: no MBTA requests, distances from the new point.
-    const again = await (await s.call('GET', '/nearby?lat=42.43852&lon=-71.0711')).json();
+    const again = await (await s.call('GET', '/api/nearby?lat=42.43852&lon=-71.0711')).json();
     assert.equal(s.world.calls.length, 3);
     assert.ok(again.routes[0].meters > body.routes[0].meters);
     // The next hour: the stop list is reused, routes and schedules fetched again.
     s.world.clock = at('08:01');
-    await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711');
+    await s.call('GET', '/api/nearby?lat=42.4385&lon=-71.0711');
     assert.deepEqual(s.world.calls.slice(3), ['/routes', '/schedules']);
   } finally { await s.close(); }
 });
@@ -252,15 +249,15 @@ test('/nearby: bad coordinates, other origins, and failed schedules', async () =
   const s = await setup();
   try {
     for (const q of ['', '?lat=abc&lon=1', '?lat=40.7&lon=-74', '?lat=42.4&lon=']) {
-      assert.equal((await s.call('GET', `/nearby${q}`)).status, 400, q);
+      assert.equal((await s.call('GET', `/api/nearby${q}`)).status, 400, q);
     }
-    assert.equal((await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711', undefined, 'https://evil.example')).status, 403);
+    assert.equal((await s.call('GET', '/api/nearby?lat=42.4385&lon=-71.0711', undefined, 'https://evil.example')).status, 403);
     s.world.nearbySchedulesFail = true;
-    const body = await (await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711')).json();
+    const body = await (await s.call('GET', '/api/nearby?lat=42.4385&lon=-71.0711')).json();
     assert.deepEqual(body.routes, [{ id: '132', meters: null }, { id: 'Orange', meters: null }]);
     // Not kept: the next call asks for the schedules again.
     s.world.nearbySchedulesFail = false;
-    const next = await (await s.call('GET', '/nearby?lat=42.4385&lon=-71.0711')).json();
+    const next = await (await s.call('GET', '/api/nearby?lat=42.4385&lon=-71.0711')).json();
     assert.ok(next.routes[0].meters > 0);
   } finally { await s.close(); }
 });
@@ -290,18 +287,22 @@ test('the app\'s files: an allowlist from the repo root, with cache headers and 
   } finally { await s.close(); }
 });
 
-test('/api/* answers like the root paths; the app\'s own origin may POST', async () => {
+test('the API is under /api/ (and /health at the root), same origin only', async () => {
   const s = await setup({ staticRoot: process.cwd() });
   try {
     assert.deepEqual(await (await s.call('GET', '/api/vapid')).json(), { publicKey: 'PUB' });
     assert.equal((await s.call('GET', '/api/health')).status, 200);
     assert.equal((await s.call('GET', '/api/nearby?lat=42.4385&lon=-71.0711')).status, 200);
     assert.equal((await s.call('GET', '/api/nope')).status, 404);
+    assert.equal((await s.call('GET', '/health')).status, 200);
+    for (const p of ['/vapid', '/nearby?lat=42.4385&lon=-71.0711']) assert.equal((await s.call('GET', p)).status, 404, p);
     const own = `http://127.0.0.1:${new URL((await s.call('GET', '/api/health')).url).port}`;
     const created = await s.call('POST', '/api/reminders', reminder(), own);
     assert.equal(created.status, 201);
     const { id } = await created.json();
     assert.equal((await s.call('DELETE', `/api/reminders/${id}`, undefined, own)).status, 204);
-    assert.equal((await s.call('POST', '/api/reminders', reminder(), 'https://evil.example')).status, 403);
+    const foreign = await s.call('POST', '/api/reminders', reminder(), 'https://evil.example');
+    assert.equal(foreign.status, 403);
+    assert.equal(foreign.headers.get('access-control-allow-origin'), null);
   } finally { await s.close(); }
 });

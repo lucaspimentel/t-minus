@@ -1,4 +1,4 @@
-// Pure logic for mbta-leave-by. No DOM, no network; unit tested with `node --test`.
+// Pure logic for T-Minus. No DOM, no network; unit tested with `node --test`.
 
 export const TZ = 'America/New_York';
 const MIN = 60_000;

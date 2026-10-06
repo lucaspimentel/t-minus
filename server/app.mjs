@@ -30,9 +30,8 @@ const STATIC = {
   '/icons/icon-512.png': 'icons/icon-512.png',
 };
 const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
-const API_PATHS = new Set(['/health', '/vapid', '/nearby', '/test-push', '/reminders']);
 
-export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, allowedOrigins = [], staticRoot = null, log = () => {} }) {
+export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, staticRoot = null, log = () => {} }) {
   const schedules = new Map(); // reminder id -> { at, docs }
   const hits = new Map(); // ip -> { minute, count }
   let tests = []; // pending test notifications: { subscription, at }
@@ -121,50 +120,49 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
   async function handle(req, res) {
     const t = now();
     const url = new URL(req.url, 'http://x');
-    // The API lives under /api/; the root paths remain for the GitHub Pages build (phase 1).
-    const path = url.pathname.startsWith('/api/') ? url.pathname.slice(4) : url.pathname;
-    const isApi = url.pathname.startsWith('/api/') || API_PATHS.has(path) || path.startsWith('/reminders/');
-    if (!isApi && staticRoot && (req.method === 'GET' || req.method === 'HEAD')) return serveFile(req, res, url);
-    const origin = req.headers.origin;
-    // Same-origin requests (the app served from here) send their own origin on POST and DELETE.
-    const sameOrigin = origin && req.headers.host && origin.replace(/^https?:\/\//, '') === req.headers.host;
-    if (origin && !sameOrigin && !allowedOrigins.includes(origin)) return reply(res, 403, { error: 'Origin not allowed' });
-    const cors = origin ? { 'access-control-allow-origin': origin, vary: 'Origin' } : {};
-    if (req.method === 'OPTIONS') {
-      return reply(res, 204, undefined, { ...cors, 'access-control-allow-methods': 'GET, POST, DELETE', 'access-control-allow-headers': 'content-type', 'access-control-max-age': '86400' });
+    // The API lives under /api/; /health also answers at the root (Railway's health check).
+    const isApi = url.pathname.startsWith('/api/') || url.pathname === '/health';
+    if (!isApi) {
+      if (staticRoot && (req.method === 'GET' || req.method === 'HEAD')) return serveFile(req, res, url);
+      return reply(res, 404, { error: 'Not found' });
     }
+    const path = url.pathname === '/health' ? '/health' : url.pathname.slice(4);
+    // Same origin only: the app is served from here and sends its own origin on POST and DELETE;
+    // other sites can't make a visitor's browser set or cancel reminders.
+    const origin = req.headers.origin;
+    if (origin && origin.replace(/^https?:\/\//, '') !== req.headers.host) return reply(res, 403, { error: 'Origin not allowed' });
     const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
-    if (limited(ip, t)) return reply(res, 429, { error: 'Too many requests' }, cors);
+    if (limited(ip, t)) return reply(res, 429, { error: 'Too many requests' });
 
-    if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true, reminders: store.count() }, cors);
-    if (req.method === 'GET' && path === '/vapid') return reply(res, 200, { publicKey }, cors);
+    if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true, reminders: store.count() });
+    if (req.method === 'GET' && path === '/vapid') return reply(res, 200, { publicKey });
     if (req.method === 'GET' && path === '/nearby') {
       const lat = Number(url.searchParams.get('lat'));
       const lon = Number(url.searchParams.get('lon'));
-      if (!(lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5)) return reply(res, 400, { error: 'lat/lon must be near Boston' }, cors);
-      return reply(res, 200, await nearby(lat, lon, t), cors);
+      if (!(lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5)) return reply(res, 400, { error: 'lat/lon must be near Boston' });
+      return reply(res, 200, await nearby(lat, lon, t));
     }
 
     let body;
     if (req.method === 'POST') {
-      try { body = JSON.parse(await readBody(req)); } catch (e) { return reply(res, e.status ?? 400, { error: e.status ? 'Body too large' : 'Invalid JSON' }, cors); }
+      try { body = JSON.parse(await readBody(req)); } catch (e) { return reply(res, e.status ?? 400, { error: e.status ? 'Body too large' : 'Invalid JSON' }); }
     }
 
     // The setup's test notification, sent TEST_PUSH_DELAY_MS later; one pending per subscription.
     if (req.method === 'POST' && path === '/test-push') {
-      if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' }, cors);
+      if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' });
       if (tests.length >= MAX_TESTS || tests.some(x => x.subscription.endpoint === body.subscription.endpoint)) {
-        return reply(res, 429, { error: 'A test notification is already on its way' }, cors);
+        return reply(res, 429, { error: 'A test notification is already on its way' });
       }
       tests.push({ subscription: body.subscription, at: t + TEST_PUSH_DELAY_MS });
-      return reply(res, 202, { at: t + TEST_PUSH_DELAY_MS }, cors);
+      return reply(res, 202, { at: t + TEST_PUSH_DELAY_MS });
     }
 
     if (req.method === 'POST' && path === '/reminders') {
       const err = checkReminder(body, t);
-      if (err) return reply(res, 400, { error: err }, cors);
+      if (err) return reply(res, 400, { error: err });
       if (store.countFor(body.subscription.endpoint) >= MAX_PER_SUBSCRIPTION) {
-        return reply(res, 429, { error: `At most ${MAX_PER_SUBSCRIPTION} reminders at a time` }, cors);
+        return reply(res, 429, { error: `At most ${MAX_PER_SUBSCRIPTION} reminders at a time` });
       }
       const rem = {
         id: randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
@@ -173,16 +171,16 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       };
       store.add(rem);
       log(`reminder ${rem.id} for ${rem.key}, leave by ${new Date(rem.leaveBy).toISOString()}`);
-      return reply(res, 201, { id: rem.id, headsUp: rem.headsUp }, cors);
+      return reply(res, 201, { id: rem.id, headsUp: rem.headsUp });
     }
 
     const m = path.match(/^\/reminders\/([\w-]{1,64})$/);
     if (req.method === 'DELETE' && m) {
       const found = store.delete(m[1]);
       schedules.delete(m[1]);
-      return reply(res, found ? 204 : 404, undefined, cors);
+      return reply(res, found ? 204 : 404, undefined);
     }
-    return reply(res, 404, { error: 'Not found' }, cors);
+    return reply(res, 404, { error: 'Not found' });
   }
 
   // ---------- nearby (setup's "Show nearby") ----------

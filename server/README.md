@@ -9,7 +9,7 @@ point with their distances).
 ## Railway setup
 
 1. **Project:** in Railway, create a project with a service sourced from
-   `lucaspimentel/mbta-leave-by`, branch `main` (repo root, so `server/` can import
+   `lucaspimentel/t-minus`, branch `main` (repo root, so `server/` can import
    `../core.js`). The deploy config lives in the service's Railway settings, not the repo:
    build command `npm ci --prefix server`, start command `node server/main.mjs`, health check
    `/health`, watch paths `server/**`, `core.js`, `index.html`, `setup.js`, `sw.js`,
@@ -32,7 +32,6 @@ point with their distances).
    | `VAPID_SUBJECT` | `mailto:<your email>` |
    | `MBTA_API_KEY` | the key from 1Password (`op item get ai4cbcfsnlhcflmjczne6wipey --fields label=api-key --reveal`) |
    | `DATA_DIR` | `/data` |
-   | `ALLOWED_ORIGINS` | `https://lucaspimentel.github.io` (the default; the old Pages copy, until phase 2) |
 
    `PORT` is set by Railway.
 5. **Always on:** in Settings, leave Serverless (app sleeping) **off**, so the 5-second loop
