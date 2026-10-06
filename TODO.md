@@ -13,9 +13,16 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 
 ## UI
 
+- Missed rides: keep a missed ride on the list longer, and let the user say "I got on" (it
+  wasn't missed), which starts tracking that ride.
+- Ride card at the last stop repeats the drop-off stop three times (seen 2026-10-06, Bus 132 to
+  Main St @ South St): the "Next: … · 1 stop to go" line, the next-stop row, and the timeline.
+  Show it once when the next stop is the drop-off.
 
 ## Notifications
 
+- Get-off alert: while riding (tracking), a push shortly before the drop-off stop (the server
+  follows the tracked vehicle).
 - MBTA data caching (investigated 2026-10-06, see `DESIGN.md`; route and stop lists are kept on
   the phone, and the server answers "Show nearby"), next: a read-through `/mbta/*` proxy
   (server key, shared cache, stale copies with their age), once the app has keyless users.
