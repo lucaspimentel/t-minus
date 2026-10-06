@@ -7,18 +7,34 @@ import {
   searchRoutes, searchStops, boardGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
-  scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES,
-} from './core.js?v=82c6ba5aff';
+  scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
+} from './core.js?v=163f73b473';
 
 const ROUTE_LIMIT = 60;
 
-// Session caches (kept across openSetup calls; route and stop lists rarely change).
+// Session caches (kept across openSetup calls; route and stop lists rarely change), backed by
+// copies kept on the phone (`keptCopy`).
 let routesPromise = null;
-const stopDocs = new Map(); // stopsKey → /stops doc (trip order, with child_stops)
+const stopDocs = new Map(); // stopsKey → /stops doc (trip order, with child_stops; trimmed)
 // The subway and light-rail network (railNetwork): station-first legs and the connections shown
-// in the drop-off lists. One request, cached for a week.
+// in the drop-off lists. One request.
 const RAIL_KEY = 'mbta-leave-by:rail-network';
-const RAIL_TTL = 7 * 24 * 60 * 60_000;
+const SAVED_TTL = 7 * 24 * 60 * 60_000;
+
+// Data kept on the phone (localStorage `{ at, data }`): the saved copy at once, and past `ttl`
+// a fresh one fetched in the background for next time (a failure there is ignored). Without a
+// copy, the fetch is awaited and saved. Storage errors (quota, private mode) are ignored.
+function keptCopy(key, ttl, fetcher) {
+  let copy = null;
+  try { copy = JSON.parse(localStorage.getItem(key)); } catch {}
+  const fetchAndKeep = () => fetcher().then(data => {
+    try { localStorage.setItem(key, JSON.stringify({ at: Date.now(), data })); } catch {}
+    return data;
+  });
+  if (copy?.data == null) return fetchAndKeep();
+  if (isStale(copy.at, Date.now(), ttl)) fetchAndKeep().catch(() => {});
+  return Promise.resolve(copy.data);
+}
 let railNet = null;
 let railStops = null; // railStopsFrom(railNet), for railConnections
 let railPromise = null;
@@ -77,34 +93,30 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let listMessages = [];
   let busy = false;
 
-  const loadRoutes = () => (routesPromise ??= api('/routes', {
+  const loadRoutes = () => (routesPromise ??= keptCopy('mbta-leave-by:routes', SAVED_TTL, () => api('/routes', {
     'filter[type]': '0,1,3',
     'fields[route]': 'short_name,long_name,type,color,direction_names,direction_destinations,sort_order',
-  }).then(doc => doc.data).catch(e => { routesPromise = null; throw e; }));
+  }).then(doc => doc.data)).catch(e => { routesPromise = null; throw e; }));
 
   async function loadStops(route, direction) {
     const key = stopsKey(route, direction);
     if (!stopDocs.has(key)) {
-      stopDocs.set(key, await api('/stops', {
+      stopDocs.set(key, await keptCopy(`mbta-leave-by:stops:${key}`, SAVED_TTL, () => api('/stops', {
         'filter[route]': route,
         'filter[direction_id]': direction,
         'fields[stop]': 'name,latitude,longitude',
         include: 'child_stops',
-      }));
+      }).then(trimStopsDoc)));
     }
     return stopDocs.get(key);
   }
 
-  // The rail network (route types 0 and 1) from the cache or the API: canonical route patterns
-  // with their stations in order.
+  // The rail network (route types 0 and 1), kept on the phone (`keptCopy`): canonical route
+  // patterns with their stations in order.
   function loadRailNetwork() {
     const use = net => { railNet = net; railStops = railStopsFrom(net); return net; };
     if (railNet) return Promise.resolve(railNet);
-    try {
-      const cached = JSON.parse(localStorage.getItem(RAIL_KEY));
-      if (cached && Date.now() - cached.at < RAIL_TTL) return Promise.resolve(use(cached.data));
-    } catch {}
-    return (railPromise ??= loadRoutes()
+    return (railPromise ??= keptCopy(RAIL_KEY, SAVED_TTL, () => loadRoutes()
       .then(rs => {
         const rail = rs.filter(r => r.attributes?.type <= 1);
         return api('/route_patterns', {
@@ -112,11 +124,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
           include: 'representative_trip.stops', 'fields[route_pattern]': 'direction_id', 'fields[trip]': '',
           'fields[stop]': 'name,latitude,longitude',
         }).then(doc => railNetwork(doc, rail));
-      })
-      .then(net => {
-        try { localStorage.setItem(RAIL_KEY, JSON.stringify({ at: Date.now(), data: net })); } catch {}
-        return use(net);
-      })
+      }))
+      .then(use)
       .catch(e => { railPromise = null; throw e; }));
   }
 

@@ -476,7 +476,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Rail network (`railNetwork`): one `/route_patterns?filter[route]=<rail routes>&filter[canonical]=true
   &include=representative_trip.stops` request (~100 KB; 18 patterns, each branch and direction,
   stations in order via the platforms' `parent_station`), cached in `localStorage`
-  (`mbta-leave-by:rail-network`, 7 days). It drives station search, station-first legs, and the
+  (`mbta-leave-by:rail-network`; `keptCopy`: used at once, refreshed in the background after 7 days). It drives station search, station-first legs, and the
   connections (`railStopsFrom`). If it fails, the search shows routes only and no connections. A new leg's transfer time defaults to 3 min within the
   same station, else 5 (`defaultTransferMinutes`).
 - Next-leg suggestions: adding a leg after another lists only the routes serving stops within
@@ -596,13 +596,18 @@ To stay well inside it:
   22:00 it is extended to the end of the service day (28:00).
 - Next service day schedules: one request per transit leg, only when today has fewer than
   `departureCount` rows; at most once an hour.
-- Setup: one `/routes` request per session (also the source of the stored route labels and
-  colors), one `/stops` request per route/direction pair (choosing a route loads both
-  directions; cached for the session, 4 for the example); Save and "Add return trip" reuse
-  them. Adding a leg after another costs 2 more (nearby stops, their routes); "Show nearby" costs 3
+- Setup: one `/routes` request (also the source of the stored route labels and colors), one
+  `/stops` request per route/direction pair (choosing a route loads both directions; 4 for the
+  example); Save and "Add return trip" reuse them. Both are kept on the phone (`keptCopy`,
+  localStorage `{ at, data }` under `mbta-leave-by:routes` and `mbta-leave-by:stops:<route>/<dir>`)
+  like the rail network: a later session uses the copy and makes no request; past 7 days it
+  still uses the copy at once and fetches a fresh one in the background for next time; with
+  the API down, setup works from the copies. Stop lists are kept trimmed (`trimStopsDoc`: ids,
+  names, coordinates, child ids; no `included` records): Orange 321 → 27 KB, Red 422 → 35 KB,
+  132 23 → 6 KB (measured 2026-10-06). Adding a leg after another costs 2 more (nearby stops, their routes); "Show nearby" costs 3
   (nearby stops, their routes, the next hour's schedules there). The drop-off
   list's connections and station-first legs use the rail network: one `/route_patterns`
-  request, cached in `localStorage` for 7 days. A station-first leg costs nothing more. Choosing a drop-off costs 2 (`/routes` at both stops) plus one
+  request, kept on the phone the same way. A station-first leg costs nothing more. Choosing a drop-off costs 2 (`/routes` at both stops) plus one
   `/stops` per other route serving both (e.g. 3 for the Green branches).
 
 A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 requests; a 4-leg trip
@@ -740,6 +745,9 @@ Steady use is ~1–2 requests/min; only bursts (several reloads, setup) approach
   each route's stop lists for 7 days (or until the API's `Last-Modified` moves), so a setup
   session after the first costs only the requests it has never made. Covers "faster setup"
   for repeat use; does nothing for rate limits or outages of realtime data.
+
+**Status:** step 1 (C) is done (see the request budget: route and stop lists kept on the
+phone, trimmed, refreshed in the background).
 
 **Recommendation:** not worth a general cache for one user with a key: realtime dominates and
 the setup data is small on the wire. In order, if more people use the app keyless:

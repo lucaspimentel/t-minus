@@ -223,7 +223,8 @@ export async function fakeMbta(context, scenario, { now }) {
   await context.route('https://api-v3.mbta.com/**', async route => {
     // "Now" is the page's (fake) clock at the time of the request.
     mbta.now = await route.request().frame().evaluate(() => Date.now()).catch(() => mbta.now);
-    mbta.hits.push({ at: mbta.now, path: new URL(route.request().url()).pathname });
+    const hit = new URL(route.request().url());
+    mbta.hits.push({ at: mbta.now, path: hit.pathname, query: hit.searchParams });
     if (mbta.mode === 'hang') { mbta.held.push(route); return; }
     return respond(route);
   });

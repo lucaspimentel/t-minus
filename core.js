@@ -506,6 +506,23 @@ export function reverseTrip(trip) {
 
 // Sets each transit leg's board stop coordinates (`lat`, `lon`) from loaded /stops docs (a child
 // platform id takes its listed parent's); legs whose docs aren't loaded keep what they have.
+// A /stops list (route + direction, `include=child_stops`) trimmed to what setup reads, for
+// keeping on the phone: ids, names, coordinates and child stop ids; no `included` records.
+export function trimStopsDoc(doc) {
+  return {
+    data: (doc?.data ?? []).map(s => ({
+      type: 'stop', id: s.id,
+      attributes: { name: s.attributes?.name, latitude: s.attributes?.latitude, longitude: s.attributes?.longitude },
+      relationships: { child_stops: { data: (s.relationships?.child_stops?.data ?? []).map(c => ({ id: c.id })) } },
+    })),
+  };
+}
+
+// A saved copy from `at` (epoch ms) is past `ttl` ms (or has no time).
+export function isStale(at, nowMs, ttl) {
+  return !Number.isFinite(at) || nowMs - at >= ttl;
+}
+
 export function locateLegs(cfg, stopsByKey) {
   return {
     ...cfg,

@@ -547,3 +547,73 @@ test('Show nearby is only on the first leg', async ({ page }) => {
   await expect(setup(page).locator('#picker-search')).toBeVisible();
   await expect(button(page, 'Show nearby')).toHaveCount(0);
 });
+
+// Route and stop lists kept on the phone (7 days, refreshed in the background).
+const listHits = mbta => mbta.hits.filter(h => (h.path === '/routes' && !h.query.has('filter[stop]'))
+  || (h.path === '/stops' && h.query.has('filter[route]')) || h.path === '/route_patterns');
+
+async function warmLists(page) {
+  await page.locator('#open-setup').click();
+  await expect(setup(page).locator('.trip-row .item').first()).toContainText('Bus 132');
+  await page.waitForFunction(() => localStorage.getItem('mbta-leave-by:stops:132/1') && localStorage.getItem('mbta-leave-by:routes'));
+}
+
+test('route and stop lists are kept on the phone: a later session makes no list requests', async ({ page }) => {
+  const mbta = await openApp(page, { time: '07:00' });
+  // Setup, a trip, Change leg 1, Bus 132: the route list, stop lists and rail network.
+  const session = async () => {
+    await warmLists(page);
+    await setup(page).locator('.trip-row .item').first().click();
+    await button(page, 'Change leg 1').click();
+    await setup(page).locator('#picker-search').fill('132');
+    await setup(page).locator('.item', { hasText: 'Bus 132' }).click();
+    await expect(setup(page).locator('.list .item').first()).toBeVisible();
+  };
+  await session();
+  await page.waitForFunction(() => localStorage.getItem('mbta-leave-by:rail-network'));
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('mbta-leave-by:stops:132/1')));
+  expect(kept.data.data[0]).toEqual({ type: 'stop', id: expect.any(String), attributes: expect.objectContaining({ name: expect.any(String) }), relationships: { child_stops: { data: expect.any(Array) } } });
+  await page.reload();
+  await page.locator('.row').first().waitFor();
+  const before = mbta.hits.length;
+  await session();
+  expect(listHits({ hits: mbta.hits.slice(before) }).map(h => `${h.path}?${h.query}`)).toEqual([]);
+});
+
+test('a copy past 7 days is used at once and refreshed in the background', async ({ page }) => {
+  const mbta = await openApp(page, { time: '07:00' });
+  await warmLists(page);
+  await page.evaluate(() => {
+    const k = 'mbta-leave-by:stops:132/1';
+    const c = JSON.parse(localStorage.getItem(k));
+    localStorage.setItem(k, JSON.stringify({ ...c, at: Date.now() - 8 * 24 * 60 * 60_000 }));
+  });
+  await page.reload();
+  await page.locator('.row').first().waitFor();
+  mbta.mode = 'hang';
+  const before = mbta.hits.length;
+  await page.locator('#open-setup').click();
+  // Names from the saved copy while the API holds every request.
+  await expect(setup(page).locator('.trip-row .item').first()).toContainText('Bus 132');
+  await expect.poll(() => mbta.hits.slice(before).filter(h => h.path === '/stops' && h.query.get('filter[route]') === '132' && h.query.get('filter[direction_id]') === '1').length).toBe(1);
+  mbta.release();
+  await expect.poll(() => page.evaluate(() => Date.now() - JSON.parse(localStorage.getItem('mbta-leave-by:stops:132/1')).at)).toBeLessThan(60_000);
+});
+
+test('with saved lists, setup works while the API is down', async ({ page }) => {
+  const mbta = await openApp(page, { time: '07:00' });
+  await warmLists(page);
+  mbta.mode = '503';
+  await page.reload();
+  await page.locator('#open-setup').click();
+  await setup(page).locator('.trip-row .item').first().click();
+  await button(page, 'Change leg 1').click();
+  await setup(page).locator('#picker-search').fill('132');
+  await setup(page).locator('.item', { hasText: 'Bus 132' }).click();
+  await expect(setup(page).locator('.list .item', { hasText: 'Main St @ South St' }).first()).toBeVisible();
+  await button(page, 'Back').click();
+  await button(page, 'Back').click();
+  await button(page, 'Save').click();
+  await expect(setup(page).locator('.trip-row')).toHaveCount(2);
+  await expect(setup(page).locator('.msg.error, .errors')).toHaveCount(0);
+});

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
-  filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance,
+  filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
@@ -1236,4 +1236,23 @@ test('byDistance: nearest first, stable, items without coordinates last', () => 
   assert.deepEqual(out.map(x => x.item.id), ['near', 'near2', 'far', 'none']);
   assert.equal(out[3].meters, null);
   assert.ok(out[0].meters > 10 && out[0].meters < 12);
+});
+
+test('trimStopsDoc keeps ids, names, coordinates and child ids; drops included records', () => {
+  const doc = JSON.parse(readFileSync('test/browser/fixtures/stops-Orange-0.json', 'utf8'));
+  doc.included = [{ type: 'stop', id: 'node-x', attributes: { name: 'Entrance' } }];
+  const t = trimStopsDoc(doc);
+  assert.equal(t.included, undefined);
+  assert.equal(t.data.length, doc.data.length);
+  const og = t.data.find(s => s.id === 'place-ogmnl');
+  assert.deepEqual(og.attributes, { name: 'Oak Grove', latitude: 42.43668, longitude: -71.071097 });
+  assert.ok(og.relationships.child_stops.data.some(c => c.id === '70036'));
+  assert.deepEqual(Object.keys(og.relationships.child_stops.data[0]), ['id']);
+  assert.deepEqual(trimStopsDoc(null), { data: [] });
+});
+
+test('isStale: past the ttl, or no time', () => {
+  assert.equal(isStale(1000, 1500, 1000), false);
+  assert.equal(isStale(1000, 2000, 1000), true);
+  assert.equal(isStale(undefined, 2000, 1000), true);
 });
