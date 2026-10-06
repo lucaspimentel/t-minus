@@ -16,8 +16,11 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 
 ## Notifications
 
-- Look into caching MBTA data in the push server's database (SQLite), e.g. route/stop lists and
-  schedules shared across users, to cut API calls and the nearby-search payloads.
+- MBTA data caching (investigated 2026-10-06, see `DESIGN.md`), in order:
+  1. Keep `/routes` and per-route `/stops` in `localStorage` like the rail network (7 days).
+  2. A server `/nearby?lat&lon` digest for "Show nearby" (instead of up to 227 KB / ~0.9 s).
+  3. A read-through `/mbta/*` proxy (server key, shared cache, stale copies with their age),
+     once the app has keyless users.
 - Serve the app from the Railway service too (one origin; reinstall the Home Screen app).
 
 ## Rename

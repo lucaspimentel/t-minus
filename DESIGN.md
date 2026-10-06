@@ -677,6 +677,77 @@ too is a likely later step.
   the repo. Setup steps are in `server/README.md`. `web-push` is the only dependency, in
   `server/package.json`; the app has none.
 
+## MBTA data caching (investigation, 2026-10-06)
+
+The question: should the push server cache MBTA data in its SQLite database for the app? Goals:
+fewer keyless rate-limit hits (the server has a key, 1,000 req/min), faster setup, smaller
+payloads, and resilience when the MBTA API is slow or down. Constraints if built: open to
+anyone using the app (per-IP limits, an allowlist of paths and parameters so the key serves
+nothing else), static data revalidated daily, stale copies served with their age when the MBTA
+fails (predictions never older than ~2 min), and the app falls back to the MBTA directly when
+the server fails.
+
+**Measured** (live, keyless, 2026-10-06 ~11pm ET; sizes uncompressed, the wire is gzip at
+~1/10; latency is the median from the sandbox):
+
+| Request (class) | Size | Latency | Notes |
+|---|---|---|---|
+| `/predictions` leg, 132 / Orange (realtime) | 1.8 / 10.7 KB | ~50 ms | every 60–120 s per leg while open |
+| `/predictions?filter[trip]` riding (realtime) | 14 KB | ~55 ms | every 60 s while riding |
+| `/schedules` leg, 6.5 h, 132 / Orange (service day) | 2.7 / 24 KB | 50–75 ms | every 15 min per leg |
+| `/alerts` (minutes) | 1.4 KB | ~45 ms | every 5 min |
+| `/routes`, setup (static) | 65 KB (6 KB gz) | ~50 ms | once per setup session |
+| `/stops` route+direction, 132 / Orange (static) | 23 / 321 KB (2 / 26 KB gz) | 50 / 150 ms | Orange is big: `include=child_stops` brings every entrance and node |
+| `/route_patterns`, rail network (static) | 112 KB (10 KB gz) | ~280 ms | already kept in `localStorage` for 7 days |
+| nearby `/stops` 300 m / 800 m Malden / 800 m downtown (static) | 3 / 11 / 22 KB | ~50 ms | |
+| `/routes?filter[stop]` near Malden / downtown (static) | 2.7 / 6 KB | ~50 ms | |
+| `/schedules` next hour near Malden / downtown ("Show nearby") | 62 / 227 KB | 255 / 920 ms | the only slow request |
+
+- **Conditional requests:** no `ETag`; every response has `Last-Modified` and
+  `cache-control: max-age=0, private, must-revalidate`. `If-Modified-Since` returns 304 only
+  sometimes: the API runs several instances whose `Last-Modified` differs by up to ~30 s for
+  the same data (13:58:22 / :47 / :51), and an instance that loaded later answers 200. Static
+  data's `Last-Modified` was 2026-10-05 ~9:58am ET while the GTFS zip
+  (`cdn.mbta.com/MBTA_GTFS.zip`, 25 MB) was last released 2026-10-02: the API reloads its data
+  daily. So daily revalidation matches the source, and a revalidation costs a full response
+  about half the time (cheap at these sizes).
+- **Rate limit:** keyless responses carry `x-ratelimit-limit: 20`; the API root answers 406
+  (no feed version endpoint).
+
+**Volume** (from the code's cadence: a 2-leg trip open ~2 h a day, two ~30-min rides
+tracked, two reminders): app ~290 requests/day (predictions ~160, riding ~60, alerts ~24,
+schedules ~16, load bursts ~30); server ~145 per reminder (legs polled every 60 s, every 20 s
+in the last 20 min, plus schedules), ~290/day. About 85% is realtime, which a cache can only
+share when two clients ask the same thing within seconds (the app and its own reminder do).
+Steady use is ~1–2 requests/min; only bursts (several reloads, setup) approach the keyless 20/min.
+
+**Options:**
+
+- **(A) Read-through proxy, `GET /mbta/<allowlisted path>?…`** on the push server: SQLite
+  rows keyed by path and query; TTL by class (static: revalidate daily with
+  `If-Modified-Since`; schedules: until the 15-min refresh; alerts: 60 s; predictions: 10 s);
+  on MBTA failure, the last copy with an `X-Data-Age` header. The app calls it first and falls
+  back to the MBTA after an error or ~2 s. Gains: keyless users stop hitting 20/min (the
+  server's 1,000/min covers ~400 concurrently open apps at ~2 req/min, more with sharing);
+  the app and its reminder share predictions; outages show old data instead of errors. Costs:
+  the server becomes part of every poll (an extra hop to Railway; not measured), abuse handling for a
+  public proxy, the service worker and the app's own cache layered on top, and every new query
+  needs an allowlist entry. Size: tiny (hundreds of rows, a few MB).
+- **(B) Digest endpoints:** `GET /nearby?lat&lon` (stations and routes with distances, ~2 KB
+  instead of up to 227 KB and 920 ms), `GET /network` (the built rail network). The biggest
+  payload and latency win, for an action used a few times per setup.
+- **(C) No server:** keep static data in `localStorage` like the rail network: route list and
+  each route's stop lists for 7 days (or until the API's `Last-Modified` moves), so a setup
+  session after the first costs only the requests it has never made. Covers "faster setup"
+  for repeat use; does nothing for rate limits or outages of realtime data.
+
+**Recommendation:** not worth a general cache for one user with a key: realtime dominates and
+the setup data is small on the wire. In order, if more people use the app keyless:
+1. (C) client-side caching of `/routes` and `/stops` (an hour of work, no server).
+2. (B) `/nearby` on the server (removes the one slow, large request).
+3. (A) the proxy, for keyless users' polls and outage resilience, once there are users
+   without a key; start with schedules and predictions (the rate-limit cost), then static.
+
 ## PWA
 
 - `manifest.json`: name, icons, `display: standalone`, start URL.
