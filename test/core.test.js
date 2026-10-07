@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsLine, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsLine, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -526,9 +526,12 @@ test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
   const atPlatform = transferOutlook(waiting, { kind: 'transfer', leg: 1 }, vs, transfers, at('07:33'));
   assert.deepEqual([atPlatform.earlier, atPlatform.legs[1].tripId], [true, 'o2']);
 
-  // Later vehicles of a leg: left after the assumed one, by now.
-  assert.deepEqual(laterVehicles(buses, leg(buses[0], 'Bus 132'), at('07:45')).map(v => v.tripId), ['b2']);
-  assert.deepEqual(laterVehicles(buses, leg(buses[0], 'Bus 132'), at('07:39')), []);
+  // Other vehicles of a leg: left in the last 15 min, earlier or later than the assumed one.
+  assert.deepEqual(otherVehicles(buses, leg(buses[0], 'Bus 132'), at('07:45')).map(v => v.tripId), ['b2']);
+  assert.deepEqual(otherVehicles(buses, leg(buses[0], 'Bus 132'), at('07:39')), []);
+  assert.deepEqual(otherVehicles(trains, leg(trains[1], 'Orange'), at('07:37')).map(v => v.tripId), ['o0', 'o2']);
+  assert.deepEqual(otherVehicles(trains, leg(trains[1], 'Orange'), at('07:44')).map(v => v.tripId), ['o2']); // o0 left 16 min ago
+  assert.deepEqual([vehicleNoun(leg(buses[0], 'Bus 132')), vehicleNoun(leg(trains[0], 'Orange')), vehicleNoun({ label: 'Silver SL1' })], ['bus', 'train', 'bus']);
   // Switching re-plans the later legs from the new arrival (07:54 + 5 → o3 at 08:00).
   const sw = switchLeg(stored, 0, buses[1], vs, transfers);
   assert.deepEqual([sw.legs.map(l => l.tripId), sw.boardedAt, sw.missed], [['b2', 'o3'], at('07:40'), undefined]);
@@ -1272,4 +1275,21 @@ test('isStale: past the ttl, or no time', () => {
   assert.equal(isStale(1000, 1500, 1000), false);
   assert.equal(isStale(1000, 2000, 1000), true);
   assert.equal(isStale(undefined, 2000, 1000), true);
+});
+
+test('previousRides: first-leg vehicles that left in the last 15 min, with their connections', () => {
+  // Bus 132 (transfer 5) then Orange.
+  const buses = [veh('b0', '07:00', '07:14'), veh('b1', '07:12', '07:26'), veh('b2', '07:20', '07:34'), veh('b3', '07:40', '07:54')];
+  const trains = [veh('o1', '07:31', '07:46'), veh('o2', '07:36', '07:51')];
+  const rides = previousRides(homeToOffice, [buses, trains], at('07:24'));
+  // b0 left 24 min ago (out of the window), b3 not yet; b2 (07:34 + 5) has no train after: skipped.
+  assert.deepEqual(rides.map(r => [r.key, r.legs.map(l => l.tripId)]), [['b1', ['b1', 'o1']]]);
+  const [r] = rides;
+  assert.deepEqual([r.firstDep, r.eta], [at('07:12'), at('07:46') + 10 * MIN]);
+  assert.deepEqual([r.legs[0].label, r.legs[0].dep, r.legs[1].route], ['132', at('07:12'), 'Orange']);
+  // Window edges: leaving now and 15 min ago are in (b2 now has o3).
+  const both = [buses, [...trains, veh('o3', '07:40', '07:55')]];
+  assert.deepEqual(previousRides(homeToOffice, both, at('07:20')).map(r => r.key), ['b1', 'b2']);
+  assert.deepEqual(previousRides(homeToOffice, both, at('07:27')).map(r => r.key), ['b1', 'b2']);
+  assert.deepEqual(previousRides(homeToOffice, both, at('07:35')).map(r => r.key), ['b2']); // b1 left 23 min ago
 });

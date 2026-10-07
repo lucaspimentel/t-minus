@@ -9,12 +9,7 @@ timing-leg override, collapsed rows, the trip list with one-at-a-time editing, s
 route labels with MBTA color dots, a sticky picker search, boxed legs in the trip editor, stop names in the timeline, trip tracking, service worker fallbacks (5xx, 3 s
 timeout, "Saved copy", reload banner), and UI affordances: loading indicators, the old-data
 age, Retry / backoff / rate-limit countdown, expand hints, pressed states, Undo toasts on
-the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop list with the stop before the drop-off, and browser tests in CI against a fake MBTA API, and leave-time push reminders ("Notify me", `server/`) deployed on Railway, and accessibility (row buttons, focus kept across redraws, screen-reader announcements; see `DESIGN.md`), and the move to Railway at t-minus.lucasp.net (one origin; repo renamed to `t-minus`).
-
-## UI
-
-- Missed rides: keep a missed ride on the list longer, and let the user say "I got on" (it
-  wasn't missed), which starts tracking that ride.
+the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop list with the stop before the drop-off, and browser tests in CI against a fake MBTA API, and leave-time push reminders ("Notify me", `server/`) deployed on Railway, and accessibility (row buttons, focus kept across redraws, screen-reader announcements; see `DESIGN.md`), and the move to Railway at t-minus.lucasp.net (one origin; repo renamed to `t-minus`), and previous rides ("I got on"), "Show more rides" and "Different train?".
 
 ## Notifications
 

@@ -24,6 +24,9 @@ for (const scheme of ['light', 'dark']) {
       await tickTo(page, t);
       expect(await violations(page)).toEqual([]);
     }
+    await tickTo(page, '07:12'); // the 7:08am bus has left: previous rides
+    await page.getByRole('button', { name: 'Show previous rides ▾' }).click();
+    expect(await violations(page)).toEqual([]);
     await page.locator('#open-setup').click();
     expect(await violations(page)).toEqual([]);
     await page.locator('#setup .trip-row .item').first().click();

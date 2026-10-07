@@ -136,6 +136,20 @@ app stays open. The fallback trip shows first and the app switches when the fix 
 never switches away from a trip with an active "Leaving now" / "At the stop". Denied or
 unavailable: fallback, and the status line adds "Location off".
 
+### Previous and more rides
+
+- "Show previous rides ▾" (top of the list, when there are any): one row per first-leg vehicle
+  that left in the last 15 min (`previousRides`, `PREVIOUS_MINUTES`), oldest first, e.g.
+  "Orange · left 3 min ago 5:41pm" / "Bus 132 6:26pm · arrive 6:43pm" [I got on]. Each has the
+  earliest connections after it; a vehicle with no connection is left out. For a frequent first
+  leg (Orange every ~5 min before the 132), the train actually taken is often not the row's.
+  While open, the missed row is hidden (its ride is listed here).
+- "I got on" starts tracking that ride as boarded at its departure (`{ kind: 'track', ride:
+  { legs, boardedAt } }`; the card may open past the first leg), with "Tracking started · Undo".
+- "Show more rides ▾" (bottom): 4 more rows per tap (`departureCount` + 4n), hidden when no
+  more rows are in the fetched schedules. Both reset when the shown trip changes or the app
+  reopens. Neither makes requests (the per-leg vehicles already polled).
+
 ### Countdown states
 
 | State | Condition | Display |
@@ -211,8 +225,9 @@ For leaving earlier or later than leave-by. A bar under the status line always o
     earlier one: legs i+1… are re-planned from it, silently ("Then Orange 7:31am · 4 min to
     spare", or "· tight"). The 2-min gain keeps jittery predictions from flipping the plan; once
     switched, it only moves later again through the missed-connection path.
-  - "Later one?" (riding): the leg's vehicles that left after the assumed one and by now (up
-    to 3); picking one moves the leg to it and re-plans the later legs (`switchLeg`).
+  - "Different train?" ("Different bus?" on a bus or Silver Line leg; riding): the leg's other
+    vehicles that left in the last 15 min (`otherVehicles`, up to 4, earlier or later than the
+    assumed one); picking one moves the leg to it and re-plans the later legs (`switchLeg`).
   - "Missed it" for 2 min after each boarding: on the first leg, back to "At the stop" now; on
     a later leg, that leg's next vehicle (not the missed one) and the earliest connections
     after it (`replanFrom`), or "No later connection." Cancel ends tracking.

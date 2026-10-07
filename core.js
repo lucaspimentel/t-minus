@@ -905,6 +905,14 @@ export function pickTimingLeg(headways, previous, override) {
 
 // ---------- leave-by ----------
 
+// A row's leg: the trip's transit leg on vehicle `c`.
+const rowLeg = (t, c) => ({
+  route: t.route, label: t.label ?? t.route, color: t.color ?? null,
+  ...(t.routeLabels && { routeLabels: t.routeLabels }),
+  dep: c.dep, arr: c.arr, source: c.source, tripId: c.tripId, ...(c.route && { vehicleRoute: c.route }),
+  ...(c.headsign && { headsign: c.headsign }),
+});
+
 // Departure rows for a trip. For each timing-leg vehicle, earlier legs take the latest vehicle
 // that still makes the next one (minimal waiting), later legs the earliest one after arrival.
 // A departure is skipped if any leg has no feasible vehicle.
@@ -954,12 +962,7 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
       firstDep: chain[0].dep,
       eta: chain[n - 1].arr + walkAfter * MIN,
       timingIdx,
-      legs: chain.map((c, i) => ({
-        route: transit[i].route, label: transit[i].label ?? transit[i].route, color: transit[i].color ?? null,
-        ...(transit[i].routeLabels && { routeLabels: transit[i].routeLabels }),
-        dep: c.dep, arr: c.arr, source: c.source, tripId: c.tripId, ...(c.route && { vehicleRoute: c.route }),
-        ...(c.headsign && { headsign: c.headsign }),
-      })),
+      legs: chain.map((c, i) => rowLeg(transit[i], c)),
     };
     if (isMissed) missed = { ...row, missed: true }; else rows.push(row);
   }
@@ -1308,9 +1311,32 @@ export function outlookText(outlook, ride, nowMs) {
   return { text: `${head} · ${formatCountdown(outlook.margin)} to spare`, warn: false };
 }
 
-// Vehicles of a leg that left after the assumed one and by now (up to 3): "I'm on a later one".
-export function laterVehicles(vehicles, leg, nowMs) {
-  return vehicles.filter(v => v.dep > leg.dep && v.dep <= nowMs && v.tripId !== leg.tripId).slice(0, 3);
+// How far back "Show previous rides" and "Different train?" look.
+export const PREVIOUS_MINUTES = 15;
+
+// Vehicles of a leg other than the assumed one that left in the last PREVIOUS_MINUTES (up to 4,
+// the most recent): "Different train?", earlier or later.
+export function otherVehicles(vehicles, leg, nowMs) {
+  return vehicles.filter(v => v.dep <= nowMs && v.dep >= nowMs - PREVIOUS_MINUTES * MIN && v.tripId !== leg.tripId).slice(-4);
+}
+
+// "Different train?" / "Different bus?": buses and the Silver Line are buses; the rest trains.
+export const vehicleNoun = leg => (/^(Bus|Silver)\b/.test(vehicleLabel(leg) ?? '') ? 'bus' : 'train');
+
+// "Show previous rides": one ride per first-leg vehicle that left in the last PREVIOUS_MINUTES
+// (oldest first), each with the earliest connections after it; a vehicle with no connection is
+// skipped. Picking one ("I got on") starts the ride: { legs, boardedAt: firstDep }.
+export function previousRides(trip, vehiclesByLeg, nowMs) {
+  const { transit, walkAfter, transfers } = tripShape(trip);
+  const out = [];
+  for (const v of vehiclesByLeg[0] ?? []) {
+    if (v.dep > nowMs || v.dep < nowMs - PREVIOUS_MINUTES * MIN) continue;
+    const chain = transit.length > 1 ? replanFrom(vehiclesByLeg, 1, v.arr + (transfers[0] ?? 0) * MIN, transfers) : [];
+    if (!chain) continue;
+    const legs = [v, ...chain].map((c, i) => rowLeg(transit[i], c));
+    out.push({ key: v.tripId, legs, firstDep: v.dep, eta: legs[legs.length - 1].arr + walkAfter * MIN });
+  }
+  return out;
 }
 
 // The ride with leg i on `vehicle` and the later legs re-planned from its arrival (kept if

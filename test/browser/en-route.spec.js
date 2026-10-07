@@ -1,5 +1,5 @@
 // En route and trip tracking: Leaving now / At the stop, Track this trip, the ride card
-// through its phases, Missed it, Later one?, transfer re-plan, Cancel + Undo, wake lock.
+// through its phases, Missed it, Different train?, transfer re-plan, Cancel + Undo, wake lock.
 // Timeline used below (home to office): bus 132 7:08 → 7:22 (via Pond St 7:12), 5-min
 // transfer, Orange 7:32 → 7:47 (every 6 min), 10-min walk → arrive 7:57.
 import { test, expect } from '@playwright/test';
@@ -161,15 +161,21 @@ test('with only the drop-off left, one line replaces the stop list; the timeline
   await expect(card(page).getByText('Washington St opp Oak Grove Sta')).toHaveCount(1);
 });
 
-test('Later one? moves the ride to a vehicle that left after the assumed one', async ({ page }) => {
+test('Different train? moves the ride to a later or an earlier vehicle that left in the last 15 min', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await atTheStop(page);
   await tickTo(page, '07:39');
   await expect(head(page)).toHaveText('On Orange · off at 7:47am');
-  await card(page).getByRole('button', { name: 'Later one?' }).click();
+  await card(page).getByRole('button', { name: 'Different train?' }).click();
+  await expect(card(page).getByRole('button', { name: /^Orange / })).toHaveText(['Orange 7:26am', 'Orange 7:38am']);
   await card(page).getByRole('button', { name: 'Orange 7:38am' }).click();
   await tick(page, 500);
   await expect(head(page)).toHaveText('On Orange · off at 7:53am');
+  // Back to an earlier one.
+  await card(page).getByRole('button', { name: 'Different train?' }).click();
+  await card(page).getByRole('button', { name: 'Orange 7:32am' }).click();
+  await tick(page, 500);
+  await expect(head(page)).toHaveText('On Orange · off at 7:47am');
 });
 
 test('Cancel ends tracking at once, with Undo in a toast; tapping the toast dismisses it', async ({ page }) => {

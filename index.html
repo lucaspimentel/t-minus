@@ -116,6 +116,13 @@
   .amber .big { color: var(--amber); }
   .red .big { color: var(--red); }
   .row.missed { border-left-color: var(--muted); }
+  .row.prev { border-left-color: var(--muted); }
+  .prev .big { color: var(--muted); font-size: 18px; }
+  .prev-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+  .list-btn {
+    display: block; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
   .missed .big { color: var(--muted); font-size: 20px; }
   .none .big { color: var(--muted); font-size: 20px; }
   .detail { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -352,7 +359,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-07 · ee21f9056a</footer>
+    <footer class="version">Version 2026-10-07 · 8f8cd7ba9d</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -373,10 +380,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
-  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsLine, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
-  filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=3269e61258';
-import { openSetup } from './setup.js?v=8a75ab0b46';
+  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsLine, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg,
+  filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
+} from './core.js?v=1096bb5031';
+import { openSetup } from './setup.js?v=15b322058d';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -570,11 +577,11 @@ function schedulePoll() {
 
 // ---------- compute + render ----------
 
-function rowsFor(trip, timing, predictionDocs, scheduleDocs, now, lastLive = null, enRoute = null) {
+function rowsFor(trip, timing, predictionDocs, scheduleDocs, now, lastLive = null, enRoute = null, count = departureCount(config)) {
   if (!predictionDocs && !scheduleDocs) return [];
   const vehicles = withRemembered(
     tripShape(trip).transit.map((l, i) => legVehicles(mergeTrips(predictionDocs?.[i], scheduleDocs?.[i]), l)), lastLive);
-  return tripRows(trip, vehicles, timing ?? 0, now, stopSlackMinutes(config), departureCount(config), enRoute);
+  return tripRows(trip, vehicles, timing ?? 0, now, stopSlackMinutes(config), count, enRoute);
 }
 
 // En route state of the shown trip (dropped if the trip at that index was renamed/replaced).
@@ -592,15 +599,15 @@ function setEnRoute(state) {
 // Today's rows, topped up from the next service day. Days are computed separately
 // because GTFS trip ids repeat across days. En route (before boarding), rows follow the
 // at-stop time.
-function currentRows(now, enRoute = enRouteState()) {
+function currentRows(now, enRoute = enRouteState(), extra = extraRows) {
   if (!config) return [];
   const trip = config.trips[tripIdx];
   const c = cache[tripIdx];
   if (!c) return [];
-  const count = departureCount(config);
+  const count = departureCount(config) + extra;
   // Rows follow the at-stop time only after "Leaving now" / "At the stop" (not plain tracking).
   const en = enRoute?.ride || enRoute?.kind === 'track' ? null : enRoute;
-  const today = rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now, c.lastLive, en);
+  const today = rowsFor(trip, c.timing, c.predictions, c.schedules?.docs, now, c.lastLive, en, count);
   // En route, the next service day's rides don't apply (you're heading out now).
   if (en || today.length >= count || !c.nextDay || !c.schedules?.coversEndOfService) return today;
   return fillRows(today, rowsFor(trip, c.timing, null, c.nextDay.docs, now), count);
@@ -1063,6 +1070,8 @@ function render() {
     setRows(renderRideCard(en, now));
     return;
   }
+  // "Show more rides" / "Show previous rides" reset when the shown trip changes.
+  if (listTrip !== tripIdx) { listTrip = tripIdx; extraRows = 0; prevOpen = false; }
   const current = currentRows(now);
   renderEnRoute(now, current.length > 0);
   // The ride being headed for: the pinned one ("Track this trip"), else en route the first
@@ -1071,10 +1080,69 @@ function render() {
   const pinnedKey = s?.pinned ? s.target?.key ?? null : null;
   const catchRow = pinnedKey != null ? current.find(r => r.key === pinnedKey && !r.nextDay)
     : current.find(r => rowState(now, r) === 'enroute');
-  const rows = current.map(r => renderRow(r, now, r === catchRow, pinnedKey)).filter(Boolean);
+  const prev = previousRides(config.trips[tripIdx], rideVehicles(), now);
+  if (!prev.length) prevOpen = false;
+  // While previous rides are shown, the missed row's ride is among them.
+  const rows = current.filter(r => !(prevOpen && r.missed)).map(r => renderRow(r, now, r === catchRow, pinnedKey)).filter(Boolean);
   announceLeaveState(current.find(r => rowState(now, r) !== 'hidden'), now);
-  if (rows.length) setRows(...rows);
-  else setRows(el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''));
+  const top = prev.length ? [listButton(prevOpen ? 'Hide previous rides ▴' : 'Show previous rides ▾', 'prev', () => { prevOpen = !prevOpen; render(); }),
+    ...(prevOpen ? prev.map(r => renderPrevRow(r, now)) : [])] : [];
+  const more = current.length && currentRows(now, s, extraRows + 4).length > current.length
+    ? [listButton('Show more rides ▾', 'more', () => { extraRows += 4; render(); })] : [];
+  if (rows.length) setRows(...top, ...rows, ...more);
+  else setRows(...top, el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''));
+}
+
+// "Show previous rides" / "Show more rides": full-width buttons in the list.
+let listTrip = null; // the trip the two below apply to
+let extraRows = 0; // rows added by "Show more rides" (4 per tap)
+let prevOpen = false; // previous rides shown
+function listButton(label, key, onclick) {
+  const li = el('li', 'list-item');
+  const b = el('button', 'list-btn', label);
+  b.type = 'button';
+  b.dataset.focus = `list:${key}`;
+  b.onclick = onclick;
+  li.append(b);
+  return li;
+}
+
+// A ride whose first vehicle left in the last 15 min: "Orange · left 3 min ago 5:41pm", its
+// connections and arrival, and "I got on".
+function renderPrevRow(r, now) {
+  const li = el('li', 'row prev');
+  const [first, ...rest] = r.legs;
+  const big = el('div', 'big');
+  big.append(el('span', null, `${vehicleLabel(first)} · left ${formatCountdown(Math.max(now - first.dep, 1))} ago`),
+    el('span', 'at', formatTime(first.dep, now)));
+  const line = el('div', 'detail prev-line');
+  line.append(el('span', null, [...rest.map(l => `${vehicleLabel(l)} ${formatTime(l.dep, now)}`), `arrive ${formatTime(r.eta, now)}`].join(' · ')));
+  const b = el('button', 'track-btn', 'I got on');
+  b.type = 'button';
+  b.dataset.focus = `got:${r.key}`;
+  b.setAttribute('aria-label', `I got on the ${formatTime(first.dep, now)} ${vehicleLabel(first)}`);
+  b.onclick = () => gotOn(r);
+  line.append(b);
+  li.append(big, line);
+  return li;
+}
+
+// "I got on": tracks that ride from its departure, with Undo.
+function gotOn(r) {
+  const snap = { idx: tripIdx, state: enRouteState() };
+  prevOpen = false;
+  rideNote = null;
+  laterOpen = false;
+  stopsOpen = null;
+  setEnRoute({ kind: 'track', at: Date.now(), ride: { legs: r.legs, boardedAt: r.firstDep } });
+  render();
+  schedulePoll();
+  showToast('Tracking started', 'Undo', () => {
+    if (snap.idx !== tripIdx) setTrip(snap.idx, true);
+    setEnRoute(snap.state);
+    render();
+    schedulePoll();
+  });
 }
 
 // Replaces the rows (every render, once a second), keeping keyboard focus on the same control
@@ -1194,7 +1262,7 @@ function goEnRoute(kind) {
 // Trip card while riding: phase and live arrival, the timeline with the current step, and
 // Missed it / Cancel.
 let rideNote = null; // e.g. "No later connection" after Missed it
-let laterOpen = false; // "Later one?" choices shown
+let laterOpen = false; // "Different train?" choices shown
 let stopsOpen = null; // trip id of the leg whose full stop list is shown ("… N more" tapped)
 let rideFetchFor = null; // trip id whose stops were last requested outside the poll
 function renderRideCard(s, now) {
@@ -1254,9 +1322,12 @@ function renderRideCard(s, now) {
     return b;
   };
   if (canUndoBoarding(ride, phase, now)) btns.append(btn('Missed it', () => missedIt(phase)));
-  // "I'm on a later one": vehicles of this leg that left after the assumed one.
-  const later = phase.kind === 'riding' ? laterVehicles(rideVehicles()[phase.leg] ?? [], ride.legs[phase.leg], now) : [];
-  if (later.length) btns.append(btn(laterOpen ? 'Not a later one' : 'Later one?', () => { laterOpen = !laterOpen; render(); }));
+  // "Different train?": vehicles of this leg that left in the last 15 min, earlier or later.
+  const later = phase.kind === 'riding' ? otherVehicles(rideVehicles()[phase.leg] ?? [], ride.legs[phase.leg], now) : [];
+  if (later.length) {
+    const noun = vehicleNoun(ride.legs[phase.leg]);
+    btns.append(btn(laterOpen ? `Keep this ${noun}` : `Different ${noun}?`, () => { laterOpen = !laterOpen; render(); }));
+  }
   btns.append(phase.kind === 'arrived'
     ? btn('Done', () => { rideNote = null; laterOpen = false; stopsOpen = null; setEnRoute(null); render(); schedulePoll(); })
     : btn('Cancel', cancelTracking));
