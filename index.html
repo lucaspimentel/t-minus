@@ -172,6 +172,7 @@
   .ride-outlook.warn { color: var(--amber); font-weight: 600; }
   .ride-stops { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
   .ride-where { color: var(--muted); font-size: 13px; margin-bottom: 2px; }
+  .ride-line { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; font-size: 15px; font-weight: 600; color: var(--accent-text); }
   .ride-stop { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
   .ride-stop.drop { font-weight: 600; }
   .ride-stop.more {
@@ -351,7 +352,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-06 · 52749bf44b</footer>
+    <footer class="version">Version 2026-10-07 · ee21f9056a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -372,10 +373,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
-  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
+  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsLine, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=94f697cf0a';
-import { openSetup } from './setup.js?v=c6c5adf678';
+} from './core.js?v=3269e61258';
+import { openSetup } from './setup.js?v=8a75ab0b46';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1210,16 +1211,18 @@ function renderRideCard(s, now) {
   // The next connection: spare time, tight, re-planned after a miss, or none.
   const outlook = outlookText(transferOutlook(ride, phase, rideVehicles(), tripShape(trip).transfers, now), ride, now);
   if (outlook) li.append(el('div', `ride-outlook${outlook.warn ? ' warn' : ''}`, outlook.text));
-  // Riding: where the vehicle is and the stops left to the drop-off (shownStops: next 3,
-  // "… N more", the stop before the drop-off, drop-off; "… N more" expands for that leg).
+  // Riding: the stops left to the drop-off (shownStops: next 3, "… N more", the stop before the
+  // drop-off, drop-off; "… N more" expands for that leg). With only the drop-off left, one line
+  // instead ("Next stop: get off" / "Get off here"; the timeline names the stop).
   const rs = cache[tripIdx]?.rideStops;
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
   const stops = leg && rs?.tripId === leg.tripId && rideStops(rs.doc, tripShape(trip).transit[phase.leg].alight, now);
-  if (stops && stops.stops.length) {
+  const stopsLine = stops && stops.stops.length ? rideStopsLine(stops) : null;
+  if (stopsLine?.last) li.append(el('div', 'ride-line', stopsLine.text));
+  else if (stopsLine) {
     const box = el('div', 'ride-stops');
     const n = stops.stops.length;
-    const where = stops.vehicle ? `${stops.vehicle.status === 'STOPPED_AT' ? 'At' : 'Next:'} ${stops.vehicle.name} · ` : '';
-    box.append(el('div', 'ride-where', `${where}${n} stop${n === 1 ? '' : 's'} to go`));
+    box.append(el('div', 'ride-where', stopsLine.text));
     const open = stopsOpen === leg.tripId;
     const toggle = (text, value) => {
       const b = el('button', 'link ride-stop more', text);

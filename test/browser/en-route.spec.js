@@ -135,7 +135,7 @@ test('a long ride lists the next 3 stops, the stop before the drop-off, and expa
   await atTheStop(page);
   await tickTo(page, '07:09');
   const stops = card(page).locator('.ride-stops');
-  await expect(stops.locator('.ride-where')).toContainText('16 stops to go');
+  await expect(stops.locator('.ride-where')).toHaveText('16 stops to go');
   await expect(stops.locator('.ride-stop')).toHaveText([
     /^Pond St @ Stone Zoo/, /^Wyoming Ave @ Fellsway E/, /^Wyoming Ave @ Ravine Rd/, '… 11 more',
     /^Washington St @ Glen Rock Rd/, /^Washington St opp Oak Grove Sta/]);
@@ -148,6 +148,17 @@ test('a long ride lists the next 3 stops, the stop before the drop-off, and expa
   await stops.getByRole('button', { name: 'Show fewer' }).click();
   await tick(page, 300);
   await expect(stops.locator('div.ride-stop')).toHaveCount(5);
+});
+
+test('with only the drop-off left, one line replaces the stop list; the timeline names the stop', async ({ page }) => {
+  await openApp(page, { time: '07:00' });
+  await atTheStop(page);
+  await tickTo(page, '07:09');
+  await expect(card(page).locator('.ride-where')).toHaveText('2 stops to go');
+  await tickTo(page, '07:17');
+  await expect(card(page).locator('.ride-line')).toHaveText('Next stop: get off');
+  await expect(card(page).locator('.ride-stops')).toHaveCount(0);
+  await expect(card(page).getByText('Washington St opp Oak Grove Sta')).toHaveCount(1);
 });
 
 test('Later one? moves the ride to a vehicle that left after the assumed one', async ({ page }) => {

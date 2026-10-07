@@ -1195,7 +1195,7 @@ export function replanFrom(vehiclesByLeg, from, nowMs, transfers, skipTripId = n
 }
 
 // Remaining stops of the ridden vehicle from `/predictions?filter[trip]=…&include=stop,vehicle`:
-// `{ vehicle: { status, name } | null, stops: [{ id, name, time, dropOff }] }` up to the drop-off
+// `{ vehicle: { status, name, atDropOff } | null, stops: [{ id, name, time, dropOff }] }` up to the drop-off
 // (`alightId`, or a child platform of it), or null if the drop-off isn't listed.
 export function rideStops(doc, alightId, nowMs) {
   const inc = new Map((doc?.included ?? []).map(x => [`${x.type}/${x.id}`, x]));
@@ -1225,9 +1225,19 @@ export function rideStops(doc, alightId, nowMs) {
   if (v) {
     const at = preds.find(p => p.seq === v.current_stop_sequence);
     const name = at ? stopOf(at.id)?.attributes?.name : null;
-    if (name) vehicle = { status: v.current_status, name };
+    if (name) vehicle = { status: v.current_status, name, atDropOff: v.current_status === 'STOPPED_AT' && isDropOff(at.id) };
   }
   return { vehicle, stops };
+}
+
+// The line above the ride card's stops (from rideStops): only the drop-off left → "Next stop: get
+// off" (or "Get off here" while stopped there) with `last` set, shown instead of the stop list;
+// else the count, after the stop the vehicle is stopped at (that stop isn't listed).
+export function rideStopsLine({ vehicle, stops }) {
+  const n = stops.length;
+  if (n === 1 && stops[0].dropOff) return { text: vehicle?.atDropOff ? 'Get off here' : 'Next stop: get off', last: true };
+  const at = vehicle?.status === 'STOPPED_AT' ? `At ${vehicle.name} · ` : '';
+  return { text: `${at}${n} stop${n === 1 ? '' : 's'} to go`, last: false };
 }
 
 // The ride card's stop list: all of them up to 6 (or when expanded), else the next 3,

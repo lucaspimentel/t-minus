@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsLine, shownStops, transferOutlook, outlookText, laterVehicles, switchLeg, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -546,7 +546,7 @@ test('rideStops: remaining stops to the drop-off and the vehicle', () => {
       stop('70030', 'Wellington', 'place-welln'), stop('70036', 'Oak Grove', 'place-ogmnl'), ...(v ? [v] : [])],
   });
   const r = rideStops(doc(vehicle('IN_TRANSIT_TO', 100)), 'place-ogmnl', at('07:30'));
-  assert.deepEqual(r.vehicle, { status: 'IN_TRANSIT_TO', name: 'Sullivan Square' });
+  assert.deepEqual(r.vehicle, { status: 'IN_TRANSIT_TO', name: 'Sullivan Square', atDropOff: false });
   assert.deepEqual(r.stops.map(x => [x.name, x.dropOff]), [
     ['Sullivan Square', false], ['Malden Center', false], ['Wellington', false], ['Oak Grove', true]]);
   assert.equal(r.stops[3].time, at('07:44'));
@@ -565,6 +565,23 @@ test('rideStops: remaining stops to the drop-off and the vehicle', () => {
   assert.equal(rideStops(d, 'place-ogmnl', at('07:37')).stops[0].name, 'Sullivan Square');
   assert.equal(rideStops(doc(null), 'place-state', at('07:30')), null);
   assert.equal(rideStops(null, 'place-ogmnl', at('07:30')), null);
+  // Stopped at the drop-off (a child platform of it).
+  assert.equal(rideStops(doc(vehicle('STOPPED_AT', 130)), 'place-ogmnl', at('07:30')).vehicle.atDropOff, true);
+  assert.equal(rideStops(doc(vehicle('IN_TRANSIT_TO', 130)), 'place-ogmnl', at('07:30')).vehicle.atDropOff, false);
+});
+
+test('rideStopsLine: the count (after an unlisted stop the vehicle is at); one line at the drop-off', () => {
+  const s = (name, dropOff = false) => ({ id: name, name, time: 0, dropOff });
+  const three = [s('Sullivan Square'), s('Wellington'), s('Oak Grove', true)];
+  assert.deepEqual(rideStopsLine({ vehicle: { status: 'IN_TRANSIT_TO', name: 'Sullivan Square', atDropOff: false }, stops: three }),
+    { text: '3 stops to go', last: false });
+  assert.deepEqual(rideStopsLine({ vehicle: { status: 'STOPPED_AT', name: 'Malden Center', atDropOff: false }, stops: three.slice(1) }),
+    { text: 'At Malden Center · 2 stops to go', last: false });
+  assert.deepEqual(rideStopsLine({ vehicle: null, stops: [s('Oak Grove', true)] }), { text: 'Next stop: get off', last: true });
+  assert.deepEqual(rideStopsLine({ vehicle: { status: 'IN_TRANSIT_TO', name: 'Oak Grove', atDropOff: false }, stops: [s('Oak Grove', true)] }),
+    { text: 'Next stop: get off', last: true });
+  assert.deepEqual(rideStopsLine({ vehicle: { status: 'STOPPED_AT', name: 'Oak Grove', atDropOff: true }, stops: [s('Oak Grove', true)] }),
+    { text: 'Get off here', last: true });
 });
 
 test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {

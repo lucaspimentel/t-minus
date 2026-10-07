@@ -15,9 +15,6 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 
 - Missed rides: keep a missed ride on the list longer, and let the user say "I got on" (it
   wasn't missed), which starts tracking that ride.
-- Ride card at the last stop repeats the drop-off stop three times (seen 2026-10-06, Bus 132 to
-  Main St @ South St): the "Next: … · 1 stop to go" line, the next-stop row, and the timeline.
-  Show it once when the next stop is the drop-off.
 
 ## Notifications
 
