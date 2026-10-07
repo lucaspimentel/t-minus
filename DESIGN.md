@@ -826,8 +826,8 @@ the setup data is small on the wire. In order, if more people use the app keyles
 - Unit tests: `npm test` (runs `node --test test/*.test.js`; Node 22+): the pure logic in
   `core.js`.
 - Browser tests: `npm run test:browser` (Playwright, Chromium, phone viewport, New York time):
-  `test/browser/*.spec.js` cover the main list, en route / ride card, setup, and the service
-  worker fallbacks. The app runs as is, served by `test/browser/server.mjs` (which can also
+  `test/browser/*.spec.js` cover the main list, en route / ride card, setup, notifications,
+  pull-to-refresh, the update check, accessibility (axe), and the service worker fallbacks. The app runs as is, served by `test/browser/server.mjs` (which can also
   fail, stall, or go down on purpose); MBTA requests are answered by a fake API
   (`fake-mbta.js`) from scenarios (trips with stop times, optional live delays, alerts) plus
   recorded route/stop lists for setup (`test/browser/fixtures/`, refreshed by
@@ -846,4 +846,3 @@ the setup data is small on the wire. In order, if more people use the app keyles
 
 - Deferred items in `TODO.md`.
 - Arrive-by target (highlight the latest departure that makes a target time).
-- Serving the app from the Railway service (one origin with the push API).
