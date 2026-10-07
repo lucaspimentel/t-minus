@@ -1233,6 +1233,100 @@ export function rideStops(doc, alightId, nowMs) {
   return { vehicle, stops };
 }
 
+// The ridden vehicle's remaining stops (rideStops): the ride card and the server's stop alerts.
+export function rideStopsQuery(tripId) {
+  return {
+    'filter[trip]': tripId,
+    include: 'stop,vehicle',
+    'fields[prediction]': 'arrival_time,departure_time,stop_sequence',
+    'fields[stop]': 'name,parent_station',
+    'fields[vehicle]': 'current_status,current_stop_sequence',
+  };
+}
+
+// ---------- stop alerts (the server follows a tracked ride) ----------
+
+// Stop alerts per leg: a heads-up at ALERT_HEADS_UP_STOPS stops to go (only if the leg started
+// with more), then "get off" with the drop-off next (or, without the stop list, GET_OFF_MIN
+// before its arrival). Rides are dropped RIDE_MAX_MS after boarding at the latest.
+export const ALERT_HEADS_UP_STOPS = 3;
+export const GET_OFF_MIN = 2;
+export const RIDE_POLL_MS = 20_000;
+const RIDE_MAX_MS = 3 * 60 * MIN;
+
+// One poll of a ride's alerts. `alert` = { sent: { [leg]: { first, headsUp, getOff } },
+// missedDep, none }; `stops` = rideStops() for the leg being ridden (or null); `outlook` =
+// transferOutlook(). Returns { alert, sends: [{ kind, leg, n? }], done }.
+export function rideAlertStep(alert, ride, phase, stops, outlook, nowMs) {
+  if (!['riding', 'transfer'].includes(phase.kind) || nowMs >= ride.boardedAt + RIDE_MAX_MS) return { alert, sends: [], done: true };
+  const sends = [];
+  let { sent = {}, missedDep = null, none = false } = alert;
+  if (outlook?.missedDep != null && outlook.missedDep !== missedDep) {
+    missedDep = outlook.missedDep;
+    sends.push({ kind: 'missed', leg: outlook.leg });
+  }
+  if (outlook?.none && !none) {
+    none = true;
+    sends.push({ kind: 'none', leg: outlook.leg });
+  }
+  if (phase.kind === 'riding') {
+    const i = phase.leg;
+    const st = { ...sent[i] };
+    const n = stops?.stops.length;
+    if (n != null) {
+      st.first ??= n;
+      if (n <= 1 && !st.getOff) { st.getOff = true; sends.push({ kind: 'getOff', leg: i }); }
+      else if (n > 1 && n <= ALERT_HEADS_UP_STOPS && st.first > ALERT_HEADS_UP_STOPS && !st.headsUp) {
+        st.headsUp = true;
+        sends.push({ kind: 'headsUp', leg: i, n });
+      }
+    } else if (!st.getOff && nowMs >= ride.legs[i].arr - GET_OFF_MIN * MIN) {
+      st.getOff = true;
+      sends.push({ kind: 'getOff', leg: i });
+    }
+    sent = { ...sent, [i]: st };
+  }
+  return { alert: { sent, missedDep, none }, sends, done: false };
+}
+
+// Push text for a stop alert: { title, body }. `ride` is the ride before a re-plan (for what was
+// missed), `outlook` the transfer outlook, `stopName` the leg's drop-off (from rideStops).
+export function rideAlertText(send, { ride, outlook, stopName, walkAfter, nowMs }) {
+  const leg = ride.legs[send.leg];
+  const t = ms => formatTime(ms, nowMs);
+  switch (send.kind) {
+    case 'headsUp': return { title: `${send.n} stops to ${stopName ?? 'your stop'}`, body: `${lineLabel(leg)} · arrive ${t(leg.arr)}` };
+    case 'getOff': {
+      const next = outlook && outlook.leg === send.leg + 1 ? outlookText(outlook, ride, nowMs)?.text : null;
+      const eta = ride.legs[ride.legs.length - 1].arr + walkAfter * MIN;
+      return { title: stopName ? `Next stop: ${stopName} · get off` : 'Next stop: get off', body: next ?? `Arrive ~${t(eta)}` };
+    }
+    case 'missed': {
+      const legs = outlook.legs;
+      const eta = legs[legs.length - 1].arr + walkAfter * MIN;
+      return { title: `Missed the ${t(leg.dep)} ${vehicleLabel(leg)}`, body: `Next: ${vehicleLabel(legs[send.leg])} ${t(legs[send.leg].dep)} · arrive ${t(eta)}` };
+    }
+    default: return { title: `No connection after ${t(outlook.needed)}`, body: `Open the app for another way.` };
+  }
+}
+
+// A ride posted for stop alerts: an error message, or null.
+export function checkRide(trip, ride, nowMs) {
+  if (!trip || validateConfig({ trips: [trip] }).length) return 'trip is invalid';
+  const n = tripShape(trip).transit.length;
+  const legs = ride?.legs;
+  if (!Array.isArray(legs) || legs.length !== n) return 'ride.legs must match the trip';
+  for (const l of legs) {
+    if (typeof l?.tripId !== 'string' || !l.tripId || l.tripId.length > 200) return 'ride leg tripId is invalid';
+    if (!Number.isFinite(l.dep) || !Number.isFinite(l.arr) || l.arr < l.dep) return 'ride leg times are invalid';
+    for (const k of ['label', 'route', 'headsign', 'vehicleRoute']) if (l[k] != null && (typeof l[k] !== 'string' || l[k].length > 100)) return `ride leg ${k} is invalid`;
+  }
+  if (!Number.isFinite(ride.boardedAt)) return 'ride.boardedAt is invalid';
+  const end = legs[n - 1].arr;
+  if (end < nowMs - 30 * MIN || end > nowMs + 6 * 60 * MIN) return 'the ride must end in the next 6 hours';
+  return null;
+}
+
 // The line above the ride card's stops (from rideStops): only the drop-off left → "Next stop: get
 // off" (or "Get off here" while stopped there) with `last` set, shown instead of the stop list;
 // else the count, after the stop the vehicle is stopped at (that stop isn't listed).

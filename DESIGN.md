@@ -637,7 +637,7 @@ A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 request
 ≤ 4 req/min. Rapid reloads can still hit the limit (seen in testing with ~8 fresh loads in a
 minute). A key raises the limit to 1,000 req/min (per MBTA docs, not tested).
 
-## Notifications (leave-time reminders)
+## Notifications (leave-time reminders and stop alerts)
 
 iOS wakes a Home Screen app only with Web Push from a server (no scheduled local
 notifications; page timers stop in the background), so reminders come from a small Node
@@ -670,7 +670,8 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 - **Server (`server/app.mjs`):**
   - **Endpoints** (under `/api/`; `GET /health` also at the root, for Railway's health check):
     `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id`,
-    `POST /test-push`, and `GET /nearby` (setup's "Show nearby").
+    `POST /test-push`, `POST /rides`, `PUT /rides/:id`, `DELETE /rides/:id` (stop alerts), and
+    `GET /nearby` (setup's "Show nearby").
   - **What a reminder holds:** the subscription, the trip (checked with `validateConfig`), its
     slack, the timing leg, the row key (the timing-leg vehicle's trip id) and leave-by. Leave-by
     must be ahead and within 12 h.
@@ -694,6 +695,30 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     - 5 active reminders per push subscription.
     - A 16 KB body.
     - A 404/410 from the push service drops the reminder.
+- **Stop alerts (a tracked ride, followed by the server):**
+  - **App:** every tracked ride (boarding detected, "I got on", Track this trip) is posted
+    (`POST /rides` with the trip, its legs and `boardedAt`) once notifications are allowed;
+    the en-route state keeps `alert: { id, tripIds }`. New trip ids ("Different train?",
+    "Missed it", the app's own re-plan) send `PUT /rides/:id` (404: posted again); Cancel,
+    Done, a replaced ride or the ride ending sends `DELETE`; Undo posts it again. Until
+    permission is granted, the ride card shows "Turn on stop alerts" (hidden when denied,
+    without the Push API or without `SERVER_API`); its tap is the permission prompt.
+  - **Server (`checkFollowed`, every 20 s):** the legs' predictions and schedules →
+    `trackLegs` → `ridePhase` → `transferOutlook` (a missed connection is re-planned and
+    stored, as in the app); while riding leg i, the vehicle's remaining stops
+    (`rideStopsQuery`, `rideStops`) → `rideAlertStep`.
+  - **Pushes (`rideAlertText`), per leg, transfers included:** "3 stops to Oak Grove" /
+    "Orange Line · arrive 5:56pm" when the stops left drop to 3 (skipped if the leg started
+    with 3 or fewer); "Next stop: Oak Grove · get off" / "Then Bus 132 toward Redstone 6:26pm ·
+    25 min to spare" (last leg: "Arrive ~6:43pm") with the drop-off next, or 2 min before the
+    arrival without a stop list; "Missed the 6:26pm Bus 132" / "Next: Bus 132 6:54pm · arrive
+    7:11pm" once per missed departure (an earlier-vehicle switch is silent); "No connection
+    after 6:01pm" once. Tags `ride:<id>:<leg>` (get off replaces the heads-up) and
+    `ride:<id>:plan`. Always shown, even with the app open.
+  - **Ends:** walking or later, 3 h after boarding, `DELETE`, or a 404/410 from the push
+    service. Rides share the reminders table (`kind: 'ride'`) and the 5-per-subscription cap;
+    validation is `checkRide` (one leg per transit leg, the ride ending within 6 h).
+  - **Budget:** (transit legs + 1) requests per 20 s per ride, about 9/min for a 2-leg trip.
 - **Storage:** `server/store.mjs` keeps the reminders in SQLite (`node:sqlite`, no dependency) at
   `$DATA_DIR/reminders.db` on a Railway volume: columns for what the server queries (`id`,
   `endpoint`, `next_poll_at`) and the whole reminder as JSON (`body`), so its shape can change

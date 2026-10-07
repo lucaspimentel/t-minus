@@ -21,7 +21,7 @@ const rec = (type, tripId, stop, t) => ({
 
 // Bus b1 7:10 (`bus` can change) → 7:25 (schedules); Orange o1 7:33 → 7:50 (predictions; `orange` can change).
 async function setup({ staticRoot = null } = {}) {
-  const world = { clock: at('07:00'), bus: '07:10', orange: '07:33', cancelled: false, failing: false, calls: [] };
+  const world = { clock: at('07:00'), bus: '07:10', orange: '07:33', orange2: null, rideStops: {}, cancelled: false, failing: false, calls: [] };
   const mbtaFetch = async url => {
     const u = new URL(url);
     world.calls.push(u.pathname);
@@ -41,6 +41,16 @@ async function setup({ staticRoot = null } = {}) {
     }
     if (route === '132' && u.pathname === '/schedules') data = [rec('schedule', 'b1', '25996', world.bus), rec('schedule', 'b1', '5991', '07:25')];
     if (route === 'Orange' && u.pathname === '/predictions' && !world.cancelled) data = [rec('prediction', 'o1', 'place-ogmnl', world.orange), rec('prediction', 'o1', 'place-state', '07:50')];
+    if (route === 'Orange' && u.pathname === '/predictions' && world.orange2) data.push(rec('prediction', 'o2', 'place-ogmnl', world.orange2), rec('prediction', 'o2', 'place-state', '07:56'));
+    // A ridden vehicle's remaining stops (stop alerts): world.rideStops[tripId] = [[stop id, name, hh:mm], ...].
+    const tripId = u.searchParams.get('filter[trip]');
+    if (tripId) {
+      const stops = world.rideStops[tripId] ?? [];
+      return { ok: true, json: async () => ({
+        data: stops.map(([id, , t], k) => ({ type: 'prediction', attributes: { arrival_time: iso(t), departure_time: iso(t), stop_sequence: 10 + k }, relationships: { stop: { data: { id } } } })),
+        included: stops.map(([id, name]) => ({ type: 'stop', id, attributes: { name } })),
+      }) };
+    }
     // The bus's schedules carry its headsign (an included trip); Orange's predictions don't.
     const included = route === '132' && u.pathname === '/schedules' ? [{ type: 'trip', id: 'b1', attributes: { headsign: 'Malden' } }] : [];
     return { ok: true, json: async () => ({ data, included }) };
@@ -304,5 +314,83 @@ test('the API is under /api/ (and /health at the root), same origin only', async
     const foreign = await s.call('POST', '/api/reminders', reminder(), 'https://evil.example');
     assert.equal(foreign.status, 403);
     assert.equal(foreign.headers.get('access-control-allow-origin'), null);
+  } finally { await s.close(); }
+});
+
+// Stop alerts: bus b1 7:10 → 7:25 at Oak Grove (5991), Orange o1 7:33 → 7:50 (o2 7:39 → 7:56 when set), walk 10.
+const followed = (extra = {}) => ({
+  subscription: subscription(), trip, tripName: 'Home to office',
+  ride: { boardedAt: at('07:10'), legs: [{ tripId: 'b1', label: 'Bus 132', dep: at('07:10'), arr: at('07:25') }, { tripId: 'o1', label: 'Orange', dep: at('07:33'), arr: at('07:50') }] },
+  ...extra,
+});
+const busStops = (n, t) => [['s1', 'Pond St', t], ['s2', 'Elm St', t], ['s3', 'Main St', t], ['s4', 'Lynn St', t], ['5991', 'Oak Grove', '07:25']].slice(5 - n);
+
+test('a followed ride: heads-up, get off, a missed connection, get off again, then dropped', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:12');
+    s.world.orange2 = '07:39';
+    const res = await s.call('POST', '/api/rides', followed());
+    assert.equal(res.status, 201);
+    const { id } = await res.json();
+    s.world.rideStops.b1 = busStops(5, '07:15');
+    await s.app.tick();
+    assert.deepEqual(s.sent, []);
+    assert.equal(s.store.get(id).nextPollAt, at('07:12') + 20_000);
+    s.world.clock = at('07:18');
+    s.world.rideStops.b1 = busStops(3, '07:20');
+    await s.app.tick();
+    assert.deepEqual(s.sent.map(p => [p.kind, p.title, p.body, p.tag]), [['headsUp', '3 stops to Oak Grove', 'Bus 132 · arrive 7:25am', `ride:${id}:0`]]);
+    s.world.clock = at('07:22');
+    s.world.rideStops.b1 = busStops(1);
+    await s.app.tick();
+    assert.deepEqual(s.sent.at(-1), { kind: 'getOff', title: 'Next stop: Oak Grove · get off', body: 'Then Orange Line 7:33am · 3 min to spare', tag: `ride:${id}:0` });
+    // The planned train leaves before the bus gets in (7:25 + 5): re-planned to o2.
+    s.world.clock = at('07:24');
+    s.world.orange = '07:28';
+    await s.app.tick();
+    assert.deepEqual(s.sent.at(-1), { kind: 'missed', title: 'Missed the 7:28am Orange', body: 'Next: Orange 7:39am · arrive 8:06am', tag: `ride:${id}:plan` });
+    assert.deepEqual(s.store.get(id).ride.legs.map(l => l.tripId), ['b1', 'o2']);
+    s.world.clock = at('07:25');
+    await s.app.tick();
+    assert.equal(s.sent.length, 3); // not again
+    // On o2 with no stop list: get off 2 min before its arrival.
+    s.world.clock = at('07:54');
+    await s.app.tick();
+    assert.deepEqual(s.sent.at(-1), { kind: 'getOff', title: 'Next stop: get off', body: 'Arrive ~8:06am', tag: `ride:${id}:1` });
+    s.world.clock = at('07:57');
+    await s.app.tick();
+    assert.equal(s.store.get(id), null);
+    assert.equal(s.sent.length, 4);
+  } finally { await s.close(); }
+});
+
+test('rides: validation, PUT replaces the legs, DELETE, a dead subscription drops it', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:12');
+    assert.equal((await s.call('POST', '/api/rides', followed(), 'https://evil.example')).status, 403);
+    assert.equal((await s.call('POST', '/api/rides', followed({ subscription: { endpoint: 'http://x' } }))).status, 400);
+    assert.equal((await s.call('POST', '/api/rides', followed({ ride: { boardedAt: 1, legs: [] } }))).status, 400);
+    const { id } = await (await s.call('POST', '/api/rides', followed())).json();
+    const moved = followed().ride;
+    moved.legs[1] = { tripId: 'o2', label: 'Orange', dep: at('07:39'), arr: at('07:56') };
+    assert.equal((await s.call('PUT', `/api/rides/${id}`, { ride: moved }, 'https://evil.example')).status, 403);
+    assert.equal((await s.call('PUT', `/api/rides/${id}`, { ride: { legs: [] } })).status, 400);
+    assert.equal((await s.call('PUT', `/api/rides/${id}`, { ride: moved })).status, 204);
+    assert.deepEqual(s.store.get(id).ride.legs.map(l => l.tripId), ['b1', 'o2']);
+    assert.equal((await s.call('PUT', '/api/rides/nope', { ride: moved })).status, 404);
+    assert.equal((await s.call('DELETE', `/api/rides/${id}`)).status, 204);
+    assert.equal((await s.call('DELETE', `/api/rides/${id}`)).status, 404);
+    // A reminder's id isn't a ride.
+    const rem = await (await s.call('POST', '/api/reminders', reminder({ leaveBy: at('07:30') }))).json();
+    assert.equal((await s.call('DELETE', `/api/rides/${rem.id}`)).status, 404);
+    // 410 from the push service: dropped.
+    const r2 = await (await s.call('POST', '/api/rides', followed({ subscription: subscription(2) }))).json();
+    s.world.rideStops.b1 = busStops(1);
+    s.world.sendStatus = 410;
+    s.world.clock = at('07:22');
+    await s.app.tick();
+    assert.equal(s.store.get(r2.id), null);
   } finally { await s.close(); }
 });

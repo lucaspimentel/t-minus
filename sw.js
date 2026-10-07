@@ -40,7 +40,7 @@ self.addEventListener('message', event => {
   if (event.data === 'nav-status') event.source?.postMessage({ type: 'nav', ...lastNav });
 });
 
-// Leave-time reminders from the push server (server/): { title, body, tag }.
+// Leave-time reminders and stop alerts from the push server (server/): { title, body, tag }.
 self.addEventListener('push', event => {
   const data = event.data?.json() ?? {};
   event.waitUntil(self.registration.showNotification(data.title ?? 'T-Minus', {

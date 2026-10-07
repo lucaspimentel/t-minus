@@ -1,4 +1,4 @@
-// Leave-time reminders: the HTTP API (/api/*) and the polling loop; also setup's "Show nearby"
+// Leave-time reminders and stop alerts (followed rides): the HTTP API (/api/*) and the polling loop; also setup's "Show nearby"
 // (/api/nearby) and the app's own files. No npm imports, so tests load it directly; main.mjs wires
 // in web-push, the store, and the clock.
 import { randomUUID, createHash } from 'node:crypto';
@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
+  checkRide, mergeTrips, legVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
+  rideAlertText, RIDE_POLL_MS,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -174,6 +176,45 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       return reply(res, 201, { id: rem.id, headsUp: rem.headsUp });
     }
 
+    // Stop alerts: the server follows a tracked ride (re-planning connections) and pushes before
+    // each drop-off. PUT replaces the legs (the app switched vehicles), keeping what was sent.
+    if (req.method === 'POST' && path === '/rides') {
+      if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' });
+      const err = checkRide(body.trip, body.ride, t);
+      if (err) return reply(res, 400, { error: err });
+      if (body.tripName != null && (typeof body.tripName !== 'string' || body.tripName.length > 100)) return reply(res, 400, { error: 'tripName is invalid' });
+      if (store.countFor(body.subscription.endpoint) >= MAX_PER_SUBSCRIPTION) {
+        return reply(res, 429, { error: `At most ${MAX_PER_SUBSCRIPTION} reminders at a time` });
+      }
+      const ride = {
+        kind: 'ride', id: randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
+        ride: { legs: body.ride.legs, boardedAt: body.ride.boardedAt }, alert: { sent: {}, missedDep: null, none: false },
+        nextPollAt: t, createdAt: t,
+      };
+      store.add(ride);
+      log(`ride ${ride.id} on ${ride.ride.legs.map(l => l.tripId).join(', ')}`);
+      return reply(res, 201, { id: ride.id });
+    }
+    const r = path.match(/^\/rides\/([\w-]{1,64})$/);
+    if (req.method === 'PUT' && r) {
+      let b;
+      try { b = JSON.parse(await readBody(req)); } catch (e) { return reply(res, e.status ?? 400, { error: e.status ? 'Body too large' : 'Invalid JSON' }); }
+      const ride = store.get(r[1]);
+      if (ride?.kind !== 'ride') return reply(res, 404, { error: 'Not found' });
+      const err = checkRide(ride.trip, b?.ride, t);
+      if (err) return reply(res, 400, { error: err });
+      ride.ride = { legs: b.ride.legs, boardedAt: b.ride.boardedAt };
+      ride.nextPollAt = t;
+      store.update(ride);
+      return reply(res, 204, undefined);
+    }
+    if (req.method === 'DELETE' && r) {
+      const ride = store.get(r[1]);
+      const found = ride?.kind === 'ride' && store.delete(r[1]);
+      schedules.delete(r[1]);
+      return reply(res, found ? 204 : 404, undefined);
+    }
+
     const m = path.match(/^\/reminders\/([\w-]{1,64})$/);
     if (req.method === 'DELETE' && m) {
       const found = store.delete(m[1]);
@@ -230,13 +271,14 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
 
   // ---------- loop ----------
 
-  async function fetchDocs(rem, t) {
+  // Each leg's predictions, and its schedules (cached SCHEDULE_TTL) up to `until`.
+  async function fetchDocs(rem, t, until) {
     const transit = tripShape(rem.trip).transit;
     const predictions = await Promise.all(transit.map(l => mbta('/predictions', legQuery(l))));
     let cached = schedules.get(rem.id);
     if (!cached || t - cached.at >= SCHEDULE_TTL) {
       // Wide enough to still hold the ride when it is hours away.
-      const w = scheduleWindow(t, 30, Math.max(360, Math.ceil((rem.leaveBy - t) / MIN) + 120));
+      const w = scheduleWindow(t, 30, Math.max(360, Math.ceil((until - t) / MIN) + 120));
       const win = { 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime };
       cached = { at: t, docs: await Promise.all(transit.map(l => mbta('/schedules', { ...legQuery(l), ...win }))) };
       schedules.set(rem.id, cached);
@@ -266,7 +308,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
   async function check(rem) {
     const t = now();
     let docs;
-    try { docs = await fetchDocs(rem, t); } catch (e) {
+    try { docs = await fetchDocs(rem, t, rem.leaveBy); } catch (e) {
       log(`${rem.id}: ${e.message}`);
       rem.nextPollAt = t + RETRY_MS;
       return false;
@@ -291,6 +333,48 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     return false;
   }
 
+  // A followed ride: refresh its legs, re-plan a missed connection, read the ridden vehicle's
+  // stops, and send what rideAlertStep decides. Returns true when it was dropped.
+  async function checkFollowed(rec) {
+    const t = now();
+    const { transit, walkAfter, transfers } = tripShape(rec.trip);
+    const ride0 = rec.ride;
+    let docs;
+    try { docs = await fetchDocs(rec, t, ride0.legs[ride0.legs.length - 1].arr); } catch (e) {
+      log(`${rec.id}: ${e.message}`);
+      rec.nextPollAt = t + RETRY_MS;
+      return false;
+    }
+    const maps = transit.map((l, i) => mergeTrips(docs.predictions[i], docs.schedules[i]));
+    const ride = { ...ride0, legs: trackLegs(ride0.legs, transit, maps) };
+    const phase = ridePhase(ride, walkAfter, t);
+    const outlook = transferOutlook(ride, phase, transit.map((l, i) => legVehicles(maps[i], l)), transfers, t);
+    let stops = null;
+    if (phase.kind === 'riding') {
+      try { stops = rideStops(await mbta('/predictions', rideStopsQuery(ride.legs[phase.leg].tripId)), transit[phase.leg].alight, t); } catch (e) {
+        log(`${rec.id}: ${e.message}`); // the time fallback applies
+      }
+    }
+    const step = rideAlertStep(rec.alert, ride, phase, stops, outlook, t);
+    if (step.done) return drop(rec);
+    for (const s of step.sends) {
+      const stopName = stops?.stops[stops.stops.length - 1]?.name;
+      const { title, body } = rideAlertText(s, { ride, outlook, stopName, walkAfter, nowMs: t });
+      const tag = s.kind === 'missed' || s.kind === 'none' ? `ride:${rec.id}:plan` : `ride:${rec.id}:${s.leg}`;
+      try {
+        await send(rec.subscription, { kind: s.kind, title, body, tag });
+        log(`sent ${s.kind} (leg ${s.leg}) for ${rec.id}`);
+      } catch (e) {
+        log(`send ${s.kind} for ${rec.id} failed: ${e.statusCode ?? ''} ${e.message}`);
+        if (e.statusCode === 404 || e.statusCode === 410) return drop(rec);
+      }
+    }
+    rec.alert = step.alert;
+    rec.ride = { ...ride, legs: outlook && (outlook.missedDep != null || outlook.earlier) ? outlook.legs : ride.legs };
+    rec.nextPollAt = t + RIDE_POLL_MS;
+    return false;
+  }
+
   async function sendTests(t) {
     const due = tests.filter(x => x.at <= t);
     tests = tests.filter(x => x.at > t);
@@ -312,7 +396,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     try {
       await sendTests(now());
       for (const rem of store.due(now())) {
-        if (!(await check(rem))) store.update(rem);
+        if (!(await (rem.kind === 'ride' ? checkFollowed(rem) : check(rem)))) store.update(rem);
       }
     } finally {
       ticking = false;

@@ -40,10 +40,13 @@ for (const scheme of ['light', 'dark']) {
 for (const scheme of ['light', 'dark']) {
   test(`axe finds nothing on the ride card and the no-trips screen (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
+    // Notifications not yet allowed: the card offers "Turn on stop alerts".
+    await page.addInitScript(() => Object.defineProperty(window.Notification, 'permission', { configurable: true, get: () => 'default' }));
     await openApp(page, { time: '07:00' });
     await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
     await tickTo(page, '07:08:30');
     await expect(page.locator('.ride-head')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Turn on stop alerts' })).toBeVisible();
     expect(await violations(page)).toEqual([]);
     await page.evaluate(() => localStorage.setItem('t-minus:config', JSON.stringify({ trips: [] })));
     await page.reload();

@@ -168,6 +168,7 @@
   }
   .track-btn.tracking { color: var(--green); border-color: var(--green); }
   .row-foot { gap: 8px; }
+  .alerts-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .track-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .track-btn.on { color: var(--green); border-color: var(--green); }
   .track-btn:disabled { opacity: .5; cursor: default; }
@@ -359,7 +360,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-07 · 8f8cd7ba9d</footer>
+    <footer class="version">Version 2026-10-07 · bc050ccbff</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -380,10 +381,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
-  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsLine, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg,
+  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, rideStopsLine, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=1096bb5031';
-import { openSetup } from './setup.js?v=15b322058d';
+} from './core.js?v=28f698b0fd';
+import { openSetup } from './setup.js?v=cca4839b2f';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -455,13 +456,7 @@ function fetchPredictions(trip) {
 
 // The ridden vehicle's remaining stops (predictions for its trip) and position.
 function fetchRideStops(tripId) {
-  return api('/predictions', {
-    'filter[trip]': tripId,
-    include: 'stop,vehicle',
-    'fields[prediction]': 'arrival_time,departure_time,stop_sequence',
-    'fields[stop]': 'name,parent_station',
-    'fields[vehicle]': 'current_status,current_stop_sequence',
-  });
+  return api('/predictions', rideStopsQuery(tripId));
 }
 
 // The leg being ridden on the shown trip, if any: { leg, idx }.
@@ -591,9 +586,20 @@ function enRouteState() {
 }
 function setEnRoute(state) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
+  // Stop alerts follow a ride: none without one; a replaced or ended one is deleted on the server.
+  if (state && !state.ride && state.alert) state = withoutAlert(state);
+  const prevAlert = all[tripIdx]?.alert?.id;
+  if (prevAlert && prevAlert !== state?.alert?.id) pushApi('DELETE', `/rides/${prevAlert}`).catch(() => {});
   if (state) all[tripIdx] = { ...state, name: config.trips[tripIdx].name };
   else delete all[tripIdx];
   store.set(KEY_EN_ROUTE, all);
+}
+
+// A restored state (Undo) re-posts its ride: the server's copy was deleted.
+function withoutAlert(state) {
+  if (!state?.alert) return state;
+  const { alert: _, ...rest } = state;
+  return rest;
 }
 
 // Today's rows, topped up from the next service day. Days are computed separately
@@ -870,6 +876,47 @@ async function pushSubscription() {
   return sub.toJSON();
 }
 
+// Stop alerts: every tracked ride is posted to the server (which pushes before each drop-off)
+// once notifications are allowed, and updated when its vehicles change.
+let rideAlertBusy = false;
+let rideAlertRetryAt = 0;
+const stopAlertsAvailable = () => !!SERVER_API && pushSupported;
+async function syncRideAlert(s, now) {
+  if (!stopAlertsAvailable() || Notification.permission !== 'granted' || rideAlertBusy || now < rideAlertRetryAt) return;
+  const tripIds = s.ride.legs.map(l => l.tripId).join(',');
+  if (s.alert?.tripIds === tripIds) return;
+  const idx = tripIdx;
+  rideAlertBusy = true;
+  try {
+    const ride = { legs: s.ride.legs, boardedAt: s.ride.boardedAt };
+    let id = s.alert?.id;
+    if (id && await pushApi('PUT', `/rides/${id}`, { ride }).then(() => true, e => { if (/Not found/.test(e.message)) return false; throw e; }) === false) id = null;
+    if (!id) {
+      const trip = config.trips[idx];
+      ({ id } = await pushApi('POST', '/rides', { subscription: await pushSubscription(), trip, tripName: trip.name, ride }));
+    }
+    // Still the same ride: remember the alert (else the server's copy is dropped).
+    const cur = enRouteState();
+    if (idx === tripIdx && cur?.ride && cur.ride.boardedAt === s.ride.boardedAt) setEnRoute({ ...cur, alert: { id, tripIds } });
+    else pushApi('DELETE', `/rides/${id}`).catch(() => {});
+  } catch {
+    rideAlertRetryAt = Date.now() + 60_000;
+  } finally {
+    rideAlertBusy = false;
+  }
+}
+
+// "Turn on stop alerts" (once per device): the permission prompt, then the ride is posted.
+async function turnOnStopAlerts() {
+  try {
+    await pushSubscription();
+    rideAlertRetryAt = 0;
+  } catch (e) {
+    showToast(`Stop alerts: ${e.message}`, 'Retry', turnOnStopAlerts);
+  }
+  render();
+}
+
 async function notify(r) {
   const key = rowKey(r);
   const remKey = reminderKey(r);
@@ -1066,6 +1113,7 @@ function render() {
     setTimeout(() => refresh());
   }
   if (en?.ride) {
+    syncRideAlert(en, now);
     renderEnRoute(now, false, true);
     setRows(renderRideCard(en, now));
     return;
@@ -1139,7 +1187,7 @@ function gotOn(r) {
   schedulePoll();
   showToast('Tracking started', 'Undo', () => {
     if (snap.idx !== tripIdx) setTrip(snap.idx, true);
-    setEnRoute(snap.state);
+    setEnRoute(withoutAlert(snap.state));
     render();
     schedulePoll();
   });
@@ -1211,7 +1259,7 @@ function cancelTracking() {
   schedulePoll();
   showToast('Tracking cancelled', 'Undo', () => {
     if (snap.idx !== tripIdx) setTrip(snap.idx, true); // Cancel let autoSwitch change trips
-    setEnRoute(snap.state);
+    setEnRoute(withoutAlert(snap.state));
     render();
     schedulePoll();
   });
@@ -1321,6 +1369,12 @@ function renderRideCard(s, now) {
     b.onclick = e => { e.stopPropagation(); onclick(); };
     return b;
   };
+  if (phase.kind !== 'arrived' && stopAlertsAvailable() && Notification.permission === 'default') {
+    const b = btn('Turn on stop alerts', turnOnStopAlerts);
+    b.innerHTML = `${BELL_SVG}Turn on stop alerts`;
+    b.classList.add('alerts-btn');
+    btns.append(b);
+  }
   if (canUndoBoarding(ride, phase, now)) btns.append(btn('Missed it', () => missedIt(phase)));
   // "Different train?": vehicles of this leg that left in the last 15 min, earlier or later.
   const later = phase.kind === 'riding' ? otherVehicles(rideVehicles()[phase.leg] ?? [], ride.legs[phase.leg], now) : [];

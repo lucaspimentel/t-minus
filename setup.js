@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=1096bb5031';
+} from './core.js?v=28f698b0fd';
 
 const ROUTE_LIMIT = 60;
 
