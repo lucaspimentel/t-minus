@@ -360,7 +360,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-08 · 239d0be1ac</footer>
+    <footer class="version">Version 2026-10-08 · d9e71a53ff</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -613,8 +613,10 @@ function enRouteState() {
   const s = (store.get(KEY_EN_ROUTE) ?? {})[tripIdx];
   return s && config?.trips[tripIdx]?.name === s.name ? s : null;
 }
+// Returns the reminders a start of the trip cancelled ({ [remKey]: rem }; see restoreReminders).
 function setEnRoute(state) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
+  const removed = state && !all[tripIdx] ? cancelTripReminders(tripIdx) : {};
   // Stop alerts follow a ride: none without one; a replaced or ended one is deleted on the server.
   if (state && !state.ride && state.alert) state = withoutAlert(state);
   const prevAlert = all[tripIdx]?.alert?.id;
@@ -622,6 +624,7 @@ function setEnRoute(state) {
   if (state) all[tripIdx] = { ...state, name: config.trips[tripIdx].name };
   else delete all[tripIdx];
   store.set(KEY_EN_ROUTE, all);
+  return removed;
 }
 
 // A restored state (Undo) re-posts its ride: the server's copy was deleted.
@@ -854,7 +857,8 @@ const pushOverride = location.hostname === 'localhost' ? store.get('t-minus:push
 const SERVER_API = pushOverride ?? '/api';
 // iOS has push only in the Home Screen app.
 const pushSupported = 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
-// Set reminders: { ["<trip>/<row key>"]: { id, leaveBy, headsUp } }, until their leave-by passes.
+// Set reminders: { ["<trip>/<row key>"]: { id, leaveBy, headsUp, timingIdx, key } }, until their
+// leave-by passes.
 const KEY_REMINDERS = 't-minus:reminders';
 let reminders = store.get(KEY_REMINDERS) ?? {};
 let reminderBusy = null; // the row key while a request is in flight
@@ -958,7 +962,7 @@ async function notify(r) {
       subscription: await subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
       timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy,
     });
-    reminders[remKey] = { id, leaveBy: r.leaveBy, headsUp };
+    reminders[remKey] = { id, leaveBy: r.leaveBy, headsUp, timingIdx: r.timingIdx, key: r.key };
     saveReminders();
   } catch (e) {
     showToast(`Couldn't set the reminder: ${e.message}`, 'Retry', () => notify(r));
@@ -976,6 +980,38 @@ async function testPush() {
   } catch (e) {
     showToast(`Couldn't send the test: ${e.message}`, 'Retry', testPush);
   }
+}
+
+// Starting a trip (Leaving now, At the stop, I got on, Track this trip) cancels its reminders,
+// silently; returns them for Undo.
+function cancelTripReminders(idx) {
+  const removed = Object.fromEntries(Object.entries(reminders).filter(([k]) => k.startsWith(`${idx}/`)));
+  if (!Object.keys(removed).length) return removed;
+  for (const k of Object.keys(removed)) delete reminders[k];
+  saveReminders();
+  for (const rem of Object.values(removed)) pushApi('DELETE', `/reminders/${rem.id}`).catch(() => {});
+  return removed;
+}
+
+// Undo of a start: posts the cancelled reminders again (those still ahead; older entries have no key).
+async function restoreReminders(idx, removed) {
+  const trip = config.trips[idx];
+  const due = Object.entries(removed ?? {}).filter(([, rem]) => rem.key != null && rem.leaveBy > Date.now());
+  if (!trip || !due.length) return;
+  try {
+    const subscription = await pushSubscription();
+    for (const [remKey, rem] of due) {
+      const { id, headsUp } = await pushApi('POST', '/reminders', {
+        subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
+        timingIdx: rem.timingIdx, key: rem.key, leaveBy: rem.leaveBy,
+      });
+      reminders[remKey] = { ...rem, id, headsUp };
+      saveReminders();
+    }
+  } catch (e) {
+    showToast(`Couldn't set the reminder: ${e.message}`);
+  }
+  render();
 }
 
 async function unnotify(remKey) {
@@ -1212,12 +1248,13 @@ function gotOn(r) {
   rideNote = null;
   laterOpen = false;
   stopsOpen = null;
-  setEnRoute({ kind: 'track', at: Date.now(), ride: { legs: r.legs, boardedAt: r.firstDep } });
+  snap.removed = setEnRoute({ kind: 'track', at: Date.now(), ride: { legs: r.legs, boardedAt: r.firstDep } });
   render();
   schedulePoll();
   showToast('Tracking started', 'Undo', () => {
     if (snap.idx !== tripIdx) setTrip(snap.idx, true);
     setEnRoute(withoutAlert(snap.state));
+    restoreReminders(snap.idx, snap.removed);
     render();
     schedulePoll();
   });

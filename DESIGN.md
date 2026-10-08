@@ -656,6 +656,10 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     (`DELETE`).
   - Reminders are kept in `localStorage` (`t-minus:reminders`, keyed by trip and row) and
     stop showing once leave-by passes.
+  - Starting the trip ("Leaving now", "At the stop", "I got on", "Track this trip"; not later
+    changes to a started one) cancels all its reminders silently (`DELETE` each). The Undo of
+    "I got on" posts them again (those still ahead; the local entry keeps `timingIdx` and `key`
+    for this). Cancel ✕ and Done don't restore them.
   - Without the Push API (iOS outside the Home Screen app), the button is disabled with "Add
     to Home Screen to get notifications."
   - Errors show a toast with Retry.

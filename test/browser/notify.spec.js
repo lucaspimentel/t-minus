@@ -77,7 +77,7 @@ test('once leave-by passes, the reminder is done: no bell, no button', async ({ 
   await firstRow(page).locator('.big').click();
   await expect(firstRow(page).locator('.bell')).toHaveCount(1);
   await tick(page, 12 * 60_000 + 1000); // 7:02:01
-  await expect(page.locator('.bell')).toHaveCount(0);
+  await expect(page.locator('.bell, .track-btn.on')).toHaveCount(0);
   await firstRow(page).click();
   await expect(firstRow(page).getByRole('button', { name: 'Notify me' })).toHaveCount(0);
 });
@@ -154,4 +154,53 @@ test('Reset in setup cancels pending reminders on the server', async ({ page }) 
   page.once('dialog', d => d.accept());
   await page.getByRole('button', { name: 'Delete all trips and settings' }).click();
   await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
+});
+
+// Starting the trip cancels its reminders (silently); "I got on"'s Undo posts them again.
+async function setReminder(page, row) {
+  await row.click();
+  await row.getByRole('button', { name: 'Notify me' }).click();
+  await expect(row.locator('.track-btn.on')).toBeVisible();
+}
+
+for (const name of ['Leaving now', 'At the stop']) {
+  test(`${name} cancels the trip's reminders`, async ({ page }) => {
+    const calls = await fakeServer(page);
+    await page.addInitScript(pushStub(), { supported: true, server: PUSH });
+    await openApp(page, { time: '06:50' });
+    await setReminder(page, firstRow(page));
+    await page.getByRole('button', { name, exact: true }).click();
+    await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
+    await expect(page.locator('.bell, .track-btn.on')).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem('t-minus:reminders'))).toBe('{}');
+  });
+}
+
+test('Track this trip cancels the trip\'s reminders', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(pushStub(), { supported: true, server: PUSH });
+  await openApp(page, { time: '06:50' });
+  await setReminder(page, firstRow(page));
+  await firstRow(page).getByRole('button', { name: 'Track this trip' }).click();
+  await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
+  await expect(page.locator('.bell, .track-btn.on')).toHaveCount(0);
+});
+
+test('I got on cancels the reminders; its Undo sets them again', async ({ page }) => {
+  // Office to home at 5:43pm (see rides-more.spec.js): a reminder on the next ride, then the 5:41pm train.
+  const calls = await fakeServer(page);
+  await page.addInitScript(pushStub(), { supported: true, server: PUSH });
+  await openApp(page, { time: '17:43' });
+  const row = page.locator('.row:not(.missed)').first();
+  await setReminder(page, row);
+  const post = calls.find(c => c.method === 'POST' && c.path === '/reminders');
+  await page.locator('#rows').getByRole('button', { name: 'Show previous rides ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'I got on the 5:41pm Orange' }).click();
+  await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
+  await page.locator('#toast').getByRole('button', { name: 'Undo' }).click();
+  await expect.poll(() => calls.filter(c => c.method === 'POST' && c.path === '/reminders').length).toBe(2);
+  const again = calls.filter(c => c.method === 'POST' && c.path === '/reminders')[1];
+  expect(again.body).toMatchObject({ key: post.body.key, leaveBy: post.body.leaveBy, timingIdx: post.body.timingIdx });
+  await expect(page.locator('.row.ride')).toHaveCount(0);
+  await expect(page.locator('.bell, .track-btn.on')).toHaveCount(1);
 });
