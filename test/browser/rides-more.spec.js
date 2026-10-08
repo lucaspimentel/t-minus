@@ -3,7 +3,7 @@
 // Office to home at 5:43pm: Orange from State every 6 min (5:29, 5:35, 5:41 have left; 15-min
 // ride), 5-min transfer, bus 132 from Oak Grove at 5:58 and 6:26 (12-min ride), 5-min walk.
 import { test, expect } from '@playwright/test';
-import { openApp, tick } from './helpers.js';
+import { openApp, tick, riding } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -42,7 +42,7 @@ test('I got on tracks that ride from its departure, with Undo', async ({ page })
   await listBtn(page, 'Show previous rides ▾').click();
   await page.getByRole('button', { name: 'I got on the 5:41pm Orange' }).click();
   await tick(page, 500);
-  await expect(page.locator('.ride-head')).toHaveText('On Orange · off at 5:56pm');
+  await expect(page.locator('.ride-head')).toHaveText(riding('Orange')); // off at 5:56pm
   await expect(page.locator('.ride-outlook')).toContainText('Bus 132');
   await expect(page.locator('.ride-outlook')).toContainText('6:26pm');
   await expect(toast(page)).toContainText('Tracking started');

@@ -360,7 +360,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-08 · d9e71a53ff</footer>
+    <footer class="version">Version 2026-10-08 · 0c3086c91d</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -383,8 +383,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, rideStopsLine, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=d4a9098aea';
-import { openSetup } from './setup.js?v=a050e2c2c0';
+} from './core.js?v=6b26ed40eb';
+import { openSetup } from './setup.js?v=d825e20d98';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1386,7 +1386,11 @@ function renderRideCard(s, now) {
   const ride = s.ride;
   const phase = ridePhase(ride, walkAfter, now);
   const li = el('li', `row ride ${phase.kind === 'arrived' ? 'arrived' : ''}`);
-  li.append(el('div', 'ride-head', rideHeadline(phase, ride, now)));
+  // Riding: the stops left to the drop-off (see below), also counted in the headline.
+  const rs = cache[tripIdx]?.rideStops;
+  const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
+  const stops = leg && rs?.tripId === leg.tripId && rideStops(rs.doc, tripShape(trip).transit[phase.leg].alight, now);
+  li.append(el('div', 'ride-head', rideHeadline(phase, ride, now, stops ? stops.stops.length : null)));
   const last = ride.legs[ride.legs.length - 1];
   const summary = el('div', 'detail summary');
   summary.append(badge(last.arrSource ?? last.source), el('span', 'arrive', `arrive ${formatTime(phase.eta, now)}`));
@@ -1397,15 +1401,12 @@ function renderRideCard(s, now) {
   // Riding: the stops left to the drop-off (shownStops: next 3, "… N more", the stop before the
   // drop-off, drop-off; "… N more" expands for that leg). With only the drop-off left, one line
   // instead ("Next stop: get off" / "Get off here"; the timeline names the stop).
-  const rs = cache[tripIdx]?.rideStops;
-  const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
-  const stops = leg && rs?.tripId === leg.tripId && rideStops(rs.doc, tripShape(trip).transit[phase.leg].alight, now);
   const stopsLine = stops && stops.stops.length ? rideStopsLine(stops) : null;
   if (stopsLine?.last) li.append(el('div', 'ride-line', stopsLine.text));
   else if (stopsLine) {
     const box = el('div', 'ride-stops');
     const n = stops.stops.length;
-    box.append(el('div', 'ride-where', stopsLine.text));
+    if (stopsLine.text) box.append(el('div', 'ride-where', stopsLine.text));
     const open = stopsOpen === leg.tripId;
     const toggle = (text, value) => {
       const b = el('button', 'link ride-stop more', text);

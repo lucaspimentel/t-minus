@@ -3,7 +3,7 @@
 // Timeline used below (home to office): bus 132 7:08 → 7:22 (via Pond St 7:12), 5-min
 // transfer, Orange 7:32 → 7:47 (every 6 min), 10-min walk → arrive 7:57.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB } from './helpers.js';
+import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding } from './helpers.js';
 import { series } from './fake-mbta.js';
 
 test.beforeEach(({ page }) => {
@@ -13,6 +13,8 @@ test.beforeEach(({ page }) => {
 const bar = page => page.locator('#enroute');
 const card = page => page.locator('.row.ride');
 const head = page => page.locator('.ride-head');
+// The ridden leg's drop-off time, in the card's timeline (the headline has minutes, not the time).
+const offAt = (page, t) => expect(page.locator('.row.ride .step.stop', { hasText: t })).not.toHaveCount(0);
 const toast = page => page.locator('#toast');
 
 async function atTheStop(page) {
@@ -51,7 +53,8 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await openApp(page, { time: '07:00' });
   await atTheStop(page);
   await tickTo(page, '07:08:30');
-  await expect(head(page)).toHaveText('On Bus 132 · off at 7:22am');
+  await expect(head(page)).toHaveText(riding('Bus 132'));
+  await offAt(page, '7:22am');
   await expect(card(page)).toContainText('Then Orange Line toward Forest Hills 7:32am · 5 min to spare');
   const tl = card(page).locator('.timeline');
   await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
@@ -72,7 +75,8 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   // The bus leg is done; the transfer and the Orange boarding stop are current.
   expect(await cls(tl.locator('.step'))).toEqual(['done', 'done', 'done', 'current', 'current', '', '', '', '']);
   await tickTo(page, '07:33');
-  await expect(head(page)).toHaveText('On Orange · off at 7:47am');
+  await expect(head(page)).toHaveText(riding('Orange'));
+  await offAt(page, '7:47am');
   await tickTo(page, '07:48');
   await expect(head(page)).toHaveText('Walking · arrive 7:57am');
   expect((await cls(tl.locator('.step'))).slice(-2)).toEqual(['current', 'current']); // last walk, Arrive
@@ -104,7 +108,8 @@ test('a bus running late re-plans the transfer and says what was missed', async 
   // On board, the bus starts running 8 min late: off at 7:30, needs 7:35 for the Orange.
   scenario.trips.find(t => t.id === '132in-0708').live = { delay: 8, stops: ['5991'] };
   await tickTo(page, '07:11');
-  await expect(head(page)).toHaveText('On Bus 132 · off at 7:30am');
+  await expect(head(page)).toHaveText(riding('Bus 132'));
+  await offAt(page, '7:30am');
   await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills 7:38am (missed 7:32am)');
   await expect(card(page).locator('.ride-outlook')).toHaveClass(/warn/);
 });
@@ -121,7 +126,8 @@ test('a planned train that falls behind gives way to an earlier one, silently', 
   await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills 7:38am · 11 min to spare');
   await expect(card(page).locator('.ride-outlook')).not.toHaveClass(/warn/);
   await tickTo(page, '07:39');
-  await expect(head(page)).toHaveText('On Orange · off at 7:53am');
+  await expect(head(page)).toHaveText(riding('Orange'));
+  await offAt(page, '7:53am');
 });
 
 test('a long ride lists the next 3 stops, the stop before the drop-off, and expands', async ({ page }) => {
@@ -135,7 +141,8 @@ test('a long ride lists the next 3 stops, the stop before the drop-off, and expa
   await atTheStop(page);
   await tickTo(page, '07:09');
   const stops = card(page).locator('.ride-stops');
-  await expect(stops.locator('.ride-where')).toHaveText('16 stops to go');
+  await expect(head(page)).toHaveText(riding('Bus 132', 16));
+  await expect(stops.locator('.ride-where')).toHaveCount(0); // not stopped at a stop
   await expect(stops.locator('.ride-stop')).toHaveText([
     /^Pond St @ Stone Zoo/, /^Wyoming Ave @ Fellsway E/, /^Wyoming Ave @ Ravine Rd/, '… 11 more',
     /^Washington St @ Glen Rock Rd/, /^Washington St opp Oak Grove Sta/]);
@@ -154,7 +161,7 @@ test('with only the drop-off left, one line replaces the stop list; the timeline
   await openApp(page, { time: '07:00' });
   await atTheStop(page);
   await tickTo(page, '07:09');
-  await expect(card(page).locator('.ride-where')).toHaveText('2 stops to go');
+  await expect(head(page)).toHaveText(riding('Bus 132', 2));
   await tickTo(page, '07:17');
   await expect(card(page).locator('.ride-line')).toHaveText('Next stop: get off');
   await expect(card(page).locator('.ride-stops')).toHaveCount(0);
@@ -165,17 +172,20 @@ test('Different train? moves the ride to a later or an earlier vehicle that left
   await openApp(page, { time: '07:00' });
   await atTheStop(page);
   await tickTo(page, '07:39');
-  await expect(head(page)).toHaveText('On Orange · off at 7:47am');
+  await expect(head(page)).toHaveText(riding('Orange'));
+  await offAt(page, '7:47am');
   await card(page).getByRole('button', { name: 'Different train?' }).click();
   await expect(card(page).getByRole('button', { name: /^Orange / })).toHaveText(['Orange 7:26am', 'Orange 7:38am']);
   await card(page).getByRole('button', { name: 'Orange 7:38am' }).click();
   await tick(page, 500);
-  await expect(head(page)).toHaveText('On Orange · off at 7:53am');
+  await expect(head(page)).toHaveText(riding('Orange'));
+  await offAt(page, '7:53am');
   // Back to an earlier one.
   await card(page).getByRole('button', { name: 'Different train?' }).click();
   await card(page).getByRole('button', { name: 'Orange 7:32am' }).click();
   await tick(page, 500);
-  await expect(head(page)).toHaveText('On Orange · off at 7:47am');
+  await expect(head(page)).toHaveText(riding('Orange'));
+  await offAt(page, '7:47am');
 });
 
 test('Cancel ends tracking at once, with Undo in a toast; tapping the toast dismisses it', async ({ page }) => {
@@ -188,7 +198,8 @@ test('Cancel ends tracking at once, with Undo in a toast; tapping the toast dism
   await expect(toast(page)).toContainText('Tracking cancelled');
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await tick(page, 1000);
-  await expect(head(page)).toHaveText('On Bus 132 · off at 7:22am');
+  await expect(head(page)).toHaveText(riding('Bus 132'));
+  await offAt(page, '7:22am');
   await expect(toast(page)).toBeHidden();
 
   await card(page).getByRole('button', { name: 'Cancel' }).click();
@@ -218,7 +229,8 @@ test('Track this trip pins a later departure and boards it when it leaves', asyn
   await tickTo(page, '07:09');
   await expect(card(page)).toHaveCount(0); // the 7:08 left without boarding
   await tickTo(page, '07:36:30');
-  await expect(head(page)).toHaveText('On Bus 132 · off at 7:50am');
+  await expect(head(page)).toHaveText(riding('Bus 132'));
+  await offAt(page, '7:50am');
 });
 
 test('Tracking ✕ ends plain tracking, with Undo', async ({ page }) => {
@@ -280,7 +292,8 @@ test('a leg with several routes is labeled by what they share, each vehicle by i
   await atTheStop(page);
   await expect(page.locator('.row.catch .big')).toContainText('Green B in 4 min');
   await tickTo(page, '06:45:30');
-  await expect(head(page)).toHaveText('On Green B · off at 6:47am');
+  await expect(head(page)).toHaveText(riding('Green B'));
+  await offAt(page, '6:47am');
 });
 
 test('the screen stays on only near a drop-off or a transfer departure', async ({ page }) => {

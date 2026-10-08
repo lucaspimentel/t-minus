@@ -1361,12 +1361,11 @@ export function checkRide(trip, ride, nowMs) {
 
 // The line above the ride card's stops (from rideStops): only the drop-off left → "Next stop: get
 // off" (or "Get off here" while stopped there) with `last` set, shown instead of the stop list;
-// else the count, after the stop the vehicle is stopped at (that stop isn't listed).
+// else "At <stop>" while stopped at an unlisted stop, or nothing (the headline has the count).
 export function rideStopsLine({ vehicle, stops }) {
   const n = stops.length;
   if (n === 1 && stops[0].dropOff) return { text: vehicle?.atDropOff ? 'Get off here' : 'Next stop: get off', last: true };
-  const at = vehicle?.status === 'STOPPED_AT' ? `At ${vehicle.name} · ` : '';
-  return { text: `${at}${n} stop${n === 1 ? '' : 's'} to go`, last: false };
+  return { text: vehicle?.status === 'STOPPED_AT' ? `At ${vehicle.name}` : '', last: false };
 }
 
 // The ride card's stop list: all of them up to 6 (or when expanded), else the next 3,
@@ -1474,10 +1473,11 @@ export function switchLeg(ride, i, vehicle, vehiclesByLeg, transfers) {
   return { ...rest, legs, ...(i === 0 && { boardedAt: vehicle.dep }) };
 }
 
-export function rideHeadline(phase, ride, nowMs) {
+export function rideHeadline(phase, ride, nowMs, stopsLeft = null) {
   const leg = ride.legs[phase.leg];
   switch (phase.kind) {
-    case 'riding': return `On ${vehicleLabel(leg)} · off at ${formatTime(leg.arr, nowMs)}`;
+    // Stops left (when the vehicle's stop list is known) and minutes to the drop-off.
+    case 'riding': return `${vehicleLabel(leg)}${stopsLeft ? ` · ${stopsLeft} stop${stopsLeft === 1 ? '' : 's'}` : ''} · ${formatCountdown(leg.arr - nowMs)}`;
     case 'transfer': return `Transfer · ${vehicleLabel(leg)} ${formatTime(leg.dep, nowMs)}`;
     case 'walking': return `Walking · arrive ${formatTime(phase.eta, nowMs)}`;
     default: return `Arrived ~${formatTime(phase.eta, nowMs)}`;

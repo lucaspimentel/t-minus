@@ -95,3 +95,8 @@ export async function drag(page, [x, y], dy, { release = false, steps = 10 } = {
   if (release) await lift();
   return lift;
 }
+
+// The ride card's headline while riding: "Bus 132 · 2 stops · 12 min" (the stop count once the
+// vehicle's stops are loaded; the minutes depend on how long the test took).
+export const riding = (vehicle, stops = null) =>
+  new RegExp(`^${vehicle} · ${stops == null ? '(\\d+ stops? · )?' : `${stops} stops? · `}(\\d+|<1) min$`);

@@ -3,7 +3,7 @@
 // the ride card offers "Turn on stop alerts". Home to office: bus 132 7:08 → 7:22, Orange
 // 7:32 → 7:47 (every 6 min).
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo } from './helpers.js';
+import { openApp, tick, tickTo, riding } from './helpers.js';
 
 const PUSH = 'https://push.test';
 
@@ -47,7 +47,7 @@ async function ride(page, permission) {
   await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
   await tick(page, 1000);
   await tickTo(page, '07:09');
-  await expect(page.locator('.ride-head')).toHaveText('On Bus 132 · off at 7:22am');
+  await expect(page.locator('.ride-head')).toHaveText(riding('Bus 132')); // off at 7:22am
   return calls;
 }
 

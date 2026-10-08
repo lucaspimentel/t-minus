@@ -417,7 +417,9 @@ test('tracking: boarding, live leg times, phases, Missed it re-plan', () => {
   assert.equal(at_('07:50').kind, 'walking');
   assert.equal(at_('07:58').kind, 'arrived');
   assert.equal(at_('08:01').kind, 'done');
-  assert.equal(rideHeadline(at_('07:20'), ride, at('07:20')), 'On 132 · off at 7:26am');
+  assert.equal(rideHeadline(at_('07:20'), ride, at('07:20')), '132 · 6 min'); // no stop list: minutes only
+  assert.equal(rideHeadline(at_('07:20'), ride, at('07:20'), 9), '132 · 9 stops · 6 min');
+  assert.equal(rideHeadline(at_('07:20'), ride, at('07:25') + 30_000, 1), '132 · 1 stop · <1 min');
   assert.equal(rideHeadline(at_('07:27'), ride, at('07:27')), 'Transfer · Orange 7:31am');
   assert.equal(rideHeadline(at_('07:50'), ride, at('07:50')), 'Walking · arrive 7:56am');
   assert.equal(rideHeadline(at_('07:58'), ride, at('07:58')), 'Arrived ~7:56am');
@@ -574,13 +576,13 @@ test('rideStops: remaining stops to the drop-off and the vehicle', () => {
   assert.equal(rideStops(doc(vehicle('IN_TRANSIT_TO', 130)), 'place-ogmnl', at('07:30')).vehicle.atDropOff, false);
 });
 
-test('rideStopsLine: the count (after an unlisted stop the vehicle is at); one line at the drop-off', () => {
+test('rideStopsLine: the stop the vehicle is at (the count is in the headline); one line at the drop-off', () => {
   const s = (name, dropOff = false) => ({ id: name, name, time: 0, dropOff });
   const three = [s('Sullivan Square'), s('Wellington'), s('Oak Grove', true)];
   assert.deepEqual(rideStopsLine({ vehicle: { status: 'IN_TRANSIT_TO', name: 'Sullivan Square', atDropOff: false }, stops: three }),
-    { text: '3 stops to go', last: false });
+    { text: '', last: false });
   assert.deepEqual(rideStopsLine({ vehicle: { status: 'STOPPED_AT', name: 'Malden Center', atDropOff: false }, stops: three.slice(1) }),
-    { text: 'At Malden Center · 2 stops to go', last: false });
+    { text: 'At Malden Center', last: false });
   assert.deepEqual(rideStopsLine({ vehicle: null, stops: [s('Oak Grove', true)] }), { text: 'Next stop: get off', last: true });
   assert.deepEqual(rideStopsLine({ vehicle: { status: 'IN_TRANSIT_TO', name: 'Oak Grove', atDropOff: false }, stops: [s('Oak Grove', true)] }),
     { text: 'Next stop: get off', last: true });

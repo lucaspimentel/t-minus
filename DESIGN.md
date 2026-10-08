@@ -194,13 +194,15 @@ For leaving earlier or later than leave-by. A bar under the status line always o
 - Boarding is assumed when the target's first vehicle departs (live or scheduled time) while
   it was reachable: its legs (trip id + times) become the ride, and a trip card replaces the
   list and the bar:
-  - Headline by phase (`ridePhase`, `rideHeadline`): "On Bus 132 · off at 7:26am", "Transfer ·
+  - Headline by phase (`ridePhase`, `rideHeadline`): "Bus 132 · 9 stops · 4 min" (stops left once
+    the vehicle's stop list is loaded, else "Bus 132 · 4 min"; minutes count down to the leg's
+    live drop-off arrival, which the timeline shows), "Transfer ·
     Orange 7:31am" (before leg i departs), "Walking · arrive 7:56am" (after the last arrival),
     "Arrived ~7:56am" (5 min, with Done), then back to the list.
   - Badge (the last leg's arrival source) and "arrive 7:56am"; the timeline (no first walk)
     with the current step bold.
-  - Riding: "9 stops to go" (or "At Downtown Crossing · 9 stops to go", when stopped at a stop,
-    which isn't listed), then the stops left to the drop-off with predicted times: all of them
+  - Riding: "At Downtown Crossing" when stopped at a stop (which isn't listed; the count is in
+    the headline), then the stops left to the drop-off with predicted times: all of them
     up to 6, else the next 3, "… N more", the stop before the drop-off (the cue to get ready),
     and the drop-off in bold (`rideStops`, `rideStopsLine`, `shownStops`). The first row is the
     next stop, so the line doesn't name it. With only the drop-off left, one accent line
