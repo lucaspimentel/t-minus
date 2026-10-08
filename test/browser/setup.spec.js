@@ -508,6 +508,7 @@ test('Show nearby lists the stations and routes around you, nearest first; a rou
   // 132: the boarding stops nearest first, with distances, within each section.
   await items.filter({ hasText: 'Bus 132' }).click();
   await expect(setup(page).getByText('Where do you board?')).toBeVisible();
+  await expect(setup(page).locator('.list .section-head').first()).toBeVisible(); // the stops loaded
   const sections = await setup(page).locator('.list').evaluate(list => {
     const out = [[]];
     for (const el of list.children) {

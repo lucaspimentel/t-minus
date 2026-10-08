@@ -6,7 +6,9 @@ and pushes the heads-up, "Leave now", or "Ride cancelled". It also follows track
 alerts (`POST /api/rides`, `PUT` / `DELETE /api/rides/:id`): a heads-up 3 stops before each
 drop-off, "get off" with the drop-off next, and missed connections (see `DESIGN.md`,
 Notifications and Hosting). It also answers setup's "Show nearby" (`GET /api/nearby?lat&lon`: the routes around a
-point with their distances).
+point with their distances), and proxies the app's MBTA requests (`GET /api/mbta/<path>?…`:
+an allowlist, the server's key, a shared cache, stale copies with `x-data-age` when the MBTA
+fails, 120 requests/min per IP; see `DESIGN.md`, "MBTA data caching").
 
 ## Railway setup
 
@@ -17,7 +19,7 @@ point with their distances).
    `/health`, watch paths `server/**`, `core.js`, `index.html`, `setup.js`, `sw.js`,
    `manifest.json` and `icons/**` (the server and the app's files).
 2. **Volume:** right-click the service → Attach volume, mounted at `/data`. Reminders are kept
-   there in `reminders.db` (SQLite). An old `reminders.json`
+   there in `reminders.db` (SQLite), with the proxy's static MBTA copies. An old `reminders.json`
    from before the move can be deleted.
 3. **VAPID keys:** run this once, anywhere with Node:
    ```
@@ -34,6 +36,7 @@ point with their distances).
    | `VAPID_SUBJECT` | `mailto:<your email>` |
    | `MBTA_API_KEY` | the key from 1Password (`op item get ai4cbcfsnlhcflmjczne6wipey --fields label=api-key --reveal`) |
    | `DATA_DIR` | `/data` |
+   | `MBTA_PROXY` | optional: `off` turns the MBTA proxy off (503; the app calls the MBTA directly) |
 
    `PORT` is set by Railway.
 5. **Always on:** in Settings, leave Serverless (app sleeping) **off**, so the 5-second loop

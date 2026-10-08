@@ -1,14 +1,15 @@
 // Leave-time reminders and stop alerts (followed rides): the HTTP API (/api/*) and the polling loop; also setup's "Show nearby"
-// (/api/nearby) and the app's own files. No npm imports, so tests load it directly; main.mjs wires
+// (/api/nearby), the MBTA proxy (/api/mbta/*, a shared cache under the server's key) and the app's own files. No npm imports, so tests load it directly; main.mjs wires
 // in web-push, the store, and the clock.
 import { randomUUID, createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, legVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
-  rideAlertText, RIDE_POLL_MS,
+  rideAlertText, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -24,6 +25,11 @@ const DAY = 24 * 60 * MIN;
 const NEARBY_CELL = 0.0005; // degrees (~50 m): nearby stop lists are cached per cell
 const MAX_NEARBY_STOPS = 500; // cached cells
 const MAX_NEARBY_SETS = 200; // cached stop sets (routes and the hour's schedules)
+const PROXY_RATE_LIMIT = 120; // proxy requests per IP per minute
+const MBTA_BUDGET = 800; // MBTA calls per minute past which proxy misses are refused (the key allows 1,000)
+const MAX_MEMORY_COPIES = 2000; // the proxy's realtime copies, in memory
+const MAX_DISK_COPIES = 2000; // its static copies, in SQLite
+const MBTA_TIMEOUT_MS = 10_000;
 
 // The app's files (an allowlist: nothing else under the repo root is served).
 const STATIC = {
@@ -33,7 +39,7 @@ const STATIC = {
 };
 const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
 
-export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, staticRoot = null, log = () => {} }) {
+export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {} }) {
   const schedules = new Map(); // reminder id -> { at, docs }
   const hits = new Map(); // ip -> { minute, count }
   let tests = []; // pending test notifications: { subscription, at }
@@ -41,13 +47,114 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
   const nearbySetCache = new Map(); // stop ids + hour -> { routeIds, schedules }
   const files = new Map(); // file -> { body, etag }
   let ticking = false;
+  const copies = new Map(); // MBTA cache key -> { at, doc | text, lastModified } (realtime classes)
+  const inFlight = new Map(); // MBTA cache key -> the pending fetch, shared
+  const proxyHits = new Map(); // ip -> { minute, count }
+  let calls = { minute: 0, count: 0 }; // the server's MBTA calls this minute (the budget guard)
 
-  async function mbta(path, params) {
+  // ---------- MBTA (through the shared cache) ----------
+
+  const docOf = e => (e.doc ??= JSON.parse(e.text));
+  const textOf = e => (e.text ??= JSON.stringify(e.doc));
+
+  async function fetchMbta(path, params, key, prev, cls, t) {
+    const minute = Math.floor(t / MIN);
+    calls = calls.minute === minute ? { minute, count: calls.count + 1 } : { minute, count: 1 };
     const qs = new URLSearchParams(params);
     if (apiKey) qs.set('api_key', apiKey);
-    const res = await fetch(`${API}${path}?${qs}`, { headers: { Accept: 'application/vnd.api+json' } });
-    if (!res.ok) throw new Error(`MBTA ${path}: HTTP ${res.status}`);
-    return res.json();
+    const headers = { Accept: 'application/vnd.api+json', ...(prev?.lastModified && { 'If-Modified-Since': prev.lastModified }) };
+    let res;
+    try {
+      res = await fetch(`${API}${path}?${qs}`, { headers, signal: AbortSignal.timeout(MBTA_TIMEOUT_MS) });
+    } catch (e) { throw new Error(`MBTA ${path}: ${e.message}`); }
+    const at = now();
+    if (res.status === 304 && prev) {
+      if (cls.disk) store.cacheTouch(key, at);
+      return Object.assign(prev, { at });
+    }
+    if (!res.ok) throw Object.assign(new Error(`MBTA ${path}: HTTP ${res.status}`), { status: res.status });
+    const e = { at, doc: await res.json(), lastModified: res.headers?.get?.('last-modified') ?? null };
+    if (cls.disk) store.cachePut(key, { ...e, text: textOf(e) });
+    else remember(copies, key, e, MAX_MEMORY_COPIES);
+    return e;
+  }
+
+  // An MBTA document through the cache: { at, doc | text, stale }. A fresh copy is reused and
+  // concurrent requests share one call. When the MBTA fails (error, 5xx, 429), `stale` allows a
+  // copy within its class's limit. `guard`: refuse a call past the budget (proxy requests).
+  async function cached(path, params, { stale = false, guard = false } = {}) {
+    const cls = CACHE_CLASSES[MBTA_PROXY_PATHS[path].cache];
+    const key = mbtaCacheKey(path, params);
+    const t = now();
+    const prev = cls.disk ? store.cacheGet(key) : copies.get(key);
+    if (prev && t - prev.at < cls.fresh) return prev;
+    const usable = () => stale && prev && now() - prev.at <= cls.stale ? { ...prev, stale: true } : null;
+    if (guard && !inFlight.has(key) && calls.minute === Math.floor(t / MIN) && calls.count >= mbtaBudget) {
+      const copy = usable();
+      if (copy) return copy;
+      throw Object.assign(new Error('Busy'), { busy: true });
+    }
+    let p = inFlight.get(key);
+    if (!p) {
+      p = fetchMbta(path, params, key, prev, cls, t).finally(() => inFlight.delete(key));
+      inFlight.set(key, p);
+    }
+    try {
+      return await p;
+    } catch (e) {
+      const copy = e.status && e.status < 500 && e.status !== 429 ? null : usable();
+      if (copy) return copy;
+      throw e;
+    }
+  }
+
+  // The server's own requests (reminders, stop alerts, nearby): fresh copies only.
+  const mbta = async (path, params) => docOf(await cached(path, params));
+
+  function proxyLimited(ip, t) {
+    const minute = Math.floor(t / MIN);
+    const h = proxyHits.get(ip);
+    if (!h || h.minute !== minute) { proxyHits.set(ip, { minute, count: 1 }); return false; }
+    return ++h.count > PROXY_RATE_LIMIT;
+  }
+
+  // GET /api/mbta/<path>?<params>: the app's MBTA requests under the server's key. Same origin
+  // only, allowlisted, 120/min per IP; a stale copy carries `x-data-age` (seconds).
+  async function proxyMbta(req, res, url, path, ip, t) {
+    if (!proxy) return reply(res, 503, { error: 'Proxy off' });
+    if (req.method !== 'GET') return reply(res, 404, { error: 'Not found' });
+    const site = req.headers['sec-fetch-site'];
+    if (site && site !== 'same-origin') return reply(res, 403, { error: 'Origin not allowed' });
+    if (proxyLimited(ip, t)) return reply(res, 429, { error: 'Too many requests' }, { 'retry-after': String(Math.ceil((MIN - (t % MIN)) / 1000)) });
+    const mbtaPath = path.slice('/mbta'.length);
+    const params = [...url.searchParams];
+    const err = proxyRequestError(mbtaPath, params);
+    if (err) return reply(res, 400, { error: err });
+    let e;
+    try {
+      e = await cached(mbtaPath, Object.fromEntries(params), { stale: true, guard: true });
+    } catch (x) {
+      if (x.busy) return reply(res, 503, { error: 'Busy' });
+      if (x.status && x.status < 500 && x.status !== 429) return reply(res, x.status, { error: x.message });
+      return reply(res, 502, { error: x.message });
+    }
+    const headers = { 'content-type': 'application/json', 'cache-control': 'no-store' };
+    if (e.stale) headers['x-data-age'] = String(Math.max(1, Math.round((now() - e.at) / 1000)));
+    let body = Buffer.from(textOf(e));
+    if (body.length > 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '')) {
+      body = gzipSync(body);
+      headers['content-encoding'] = 'gzip';
+    }
+    res.writeHead(200, { ...headers, vary: 'accept-encoding', 'content-length': body.length });
+    res.end(body);
+  }
+
+  // Drops copies past their stale limit (memory) and old static rows (SQLite).
+  function pruneCopies(t) {
+    for (const [key, e] of copies) {
+      if (t - e.at > CACHE_CLASSES[MBTA_PROXY_PATHS[key.slice(0, key.indexOf('?'))].cache].stale) copies.delete(key);
+    }
+    store.cachePrune(MAX_DISK_COPIES);
   }
 
   // ---------- HTTP ----------
@@ -134,6 +241,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     const origin = req.headers.origin;
     if (origin && origin.replace(/^https?:\/\//, '') !== req.headers.host) return reply(res, 403, { error: 'Origin not allowed' });
     const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+    if (path.startsWith('/mbta/')) return proxyMbta(req, res, url, path, ip, t);
     if (limited(ip, t)) return reply(res, 429, { error: 'Too many requests' });
 
     if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true, reminders: store.count() });
@@ -395,6 +503,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     ticking = true;
     try {
       await sendTests(now());
+      pruneCopies(now());
       for (const rem of store.due(now())) {
         if (!(await (rem.kind === 'ride' ? checkFollowed(rem) : check(rem)))) store.update(rem);
       }

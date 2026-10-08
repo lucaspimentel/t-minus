@@ -1583,9 +1583,9 @@ export function windowLabel(window) {
 
 // The parts of the status line worth announcing to a screen reader: errors, the rate limit,
 // and notices, without the times and counts that change every second or poll.
-export function statusProblem({ lastError, lastOk, rateLimited, notice, locationOff, savedCopy }) {
+export function statusProblem({ lastError, lastOk, rateLimited, notice, locationOff, savedCopy, mbtaDown }) {
   if (lastError) return rateLimited ? 'Rate limited' : lastOk ? `Stale (${lastError})` : `Error: ${lastError}`;
-  return [notice, locationOff && 'Location off', savedCopy && 'Saved copy'].filter(Boolean).join(' · ');
+  return [mbtaDown && 'MBTA down', notice, locationOff && 'Location off', savedCopy && 'Saved copy'].filter(Boolean).join(' · ');
 }
 
 // The spoken name of a row's expand button: "Leave in 5 min, 7:04am, arrive 7:50am".
@@ -1616,4 +1616,48 @@ export function formatCountdown(ms) {
   const m = total % 60;
   if (h > 0) return `${h}h ${pad(m)}m`;
   return `${m} min`;
+}
+
+// ---------- MBTA proxy (server/, `/api/mbta/*`) ----------
+
+// How long the server's copies are fresh, and how old a copy it may still serve when the MBTA
+// fails (`stale`); `disk`: kept in SQLite (static data), otherwise in memory.
+export const CACHE_CLASSES = {
+  predictions: { fresh: 10_000, stale: 2 * 60_000 },
+  alerts: { fresh: 60_000, stale: 15 * 60_000 },
+  schedules: { fresh: 15 * 60_000, stale: 24 * 60 * 60_000 }, // the key holds filter[date]
+  static: { fresh: 24 * 60 * 60_000, stale: Infinity, disk: true }, // revalidated daily
+};
+
+// The paths and parameters the app and setup send (an allowlist), with each path's cache class.
+const FIELD_TYPES = ['prediction', 'schedule', 'trip', 'stop', 'vehicle', 'alert', 'route', 'route_pattern'];
+const proxyPath = (cache, filters) => ({ cache, params: new Set([...filters.map(f => `filter[${f}]`), 'include', ...FIELD_TYPES.map(t => `fields[${t}]`)]) });
+export const MBTA_PROXY_PATHS = {
+  '/predictions': proxyPath('predictions', ['route', 'direction_id', 'stop', 'trip']),
+  '/schedules': proxyPath('schedules', ['route', 'direction_id', 'stop', 'date', 'min_time', 'max_time']),
+  '/alerts': proxyPath('alerts', ['route', 'datetime']),
+  '/routes': proxyPath('static', ['type', 'stop']),
+  '/stops': proxyPath('static', ['route', 'direction_id', 'latitude', 'longitude', 'radius', 'route_type']),
+  '/route_patterns': proxyPath('static', ['route', 'canonical']),
+};
+const MAX_PARAM_LENGTH = 2000;
+
+// Why a proxy request is refused (null when allowed): `params` is a list of [name, value].
+export function proxyRequestError(path, params) {
+  const p = Object.hasOwn(MBTA_PROXY_PATHS, path) ? MBTA_PROXY_PATHS[path] : null;
+  if (!p) return 'path is not allowed';
+  const seen = new Set();
+  for (const [k, v] of params) {
+    if (!p.params.has(k)) return `${k} is not allowed`;
+    if (seen.has(k)) return `${k} is repeated`;
+    if (v.length > MAX_PARAM_LENGTH) return `${k} is too long`;
+    seen.add(k);
+  }
+  return null;
+}
+
+// The cache key: the path and its parameters, sorted (an API key is not part of it).
+export function mbtaCacheKey(path, params) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([k]) => k !== 'api_key').map(([k, v]) => [k, String(v)]).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  return `${path}?${qs}`;
 }

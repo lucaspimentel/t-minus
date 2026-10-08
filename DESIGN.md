@@ -33,8 +33,8 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Form factor | Static files, no build step, no dependencies (the optional push server in `server/` is the only backend; see Notifications): `index.html` (markup, CSS, UI/fetch/timers), `setup.js` (setup view), `core.js` (pure logic ES module, unit tested), PWA `manifest.json` + `sw.js` |
 | Target device | Phone first; installable PWA (add to home screen) |
 | Hosting | The Railway service (`server/`) at `https://t-minus.lucasp.net/`: the app's files and its API under `/api/` on one origin (see Hosting) |
-| API calls | Direct from browser to `api-v3.mbta.com` (CORS verified: `access-control-allow-origin: *`) |
-| API key | Keyless by default; optional key field in settings, sent as the `api_key` query parameter (a custom header would add a CORS preflight). Stored in `localStorage` on the app's own origin (`t-minus.lucasp.net`; on GitHub Pages it was the shared `lucaspimentel.github.io` origin) |
+| API calls | Through the server's MBTA proxy (`/api/mbta/*`, its key and a shared cache; see "MBTA data caching"), then direct from the browser to `api-v3.mbta.com` after an error or 2 s (CORS verified: `access-control-allow-origin: *`) |
+| API key | Not needed: the proxy uses the server's key. The optional key field in settings is used only for direct calls (the proxy unreachable or refusing), sent as the `api_key` query parameter (a custom header would add a CORS preflight). Stored in `localStorage` on the app's own origin (`t-minus.lucasp.net`; on GitHub Pages it was the shared `lucaspimentel.github.io` origin) |
 | Persistence | `localStorage` per browser; sharing = app URL + self-serve config |
 | Default config | None: first run opens the setup view |
 | Trips | Any number of named trips, each with any number of transit legs; optional time window per trip picks the trip shown |
@@ -607,8 +607,10 @@ Base: `https://api-v3.mbta.com` (V3 API, JSON:API format, GTFS/GTFS-Realtime bas
 
 ### Rate limits and request budget
 
-Keyless limit is **20 requests/minute** (`x-ratelimit-limit: 20`, reset window 60s).
-To stay well inside it:
+Keyless limit is **20 requests/minute** (`x-ratelimit-limit: 20`, reset window 60s). Through
+the proxy, the app shares the server's key (1,000/min; the proxy allows 120/min per IP), so the
+keyless limit applies only to direct calls when the proxy is unreachable. The budget below
+still holds, to stay well inside it either way:
 
 - Per poll: one `/predictions` request per transit leg of the shown trip.
 - Schedules: one request per transit leg on load, on trip change, and every 15 min.
@@ -811,9 +813,40 @@ Steady use is ~1–2 requests/min; only bursts (several reloads, setup) approach
   session after the first costs only the requests it has never made. Covers "faster setup"
   for repeat use; does nothing for rate limits or outages of realtime data.
 
-**Status:** steps 1 (C) and 2 (B, `/nearby` only; see "Show nearby") are done: route and
-stop lists kept on the phone, trimmed, refreshed in the background, and the server's nearby
-digest.
+**Status:** all three are done: (C) route and stop lists kept on the phone, trimmed, refreshed
+in the background; (B) the server's nearby digest (`/nearby` only; see "Show nearby"); (A) the
+proxy (2026-10-08), below.
+
+**The proxy, as built** (`GET /api/mbta/<path>?<params>`, `server/app.mjs`; the allowlist and
+cache classes in `core.js`):
+
+- **Who:** every phone, for every MBTA request (main screen and setup, `api()` in
+  `index.html`). The app calls the MBTA directly, with its saved key if any, after any proxy
+  error or 2 s; a 503 or 404 (kill switch, budget guard, an older server) also skips the proxy
+  for 10 min.
+- **Cache:** keyed by path and sorted parameters (`mbtaCacheKey`); concurrent requests share
+  one MBTA call. The server's own requests (reminders, stop alerts, nearby) use the same cache
+  with fresh copies only, so the app and a reminder for the same leg share predictions.
+
+  | Class | Paths | Fresh | Stale copy served up to | Kept in |
+  |---|---|---|---|---|
+  | predictions | `/predictions` | 10 s | 2 min | memory |
+  | alerts | `/alerts` | 60 s | 15 min | memory |
+  | schedules | `/schedules` | 15 min | 24 h (the key holds `filter[date]`) | memory |
+  | static | `/routes`, `/stops`, `/route_patterns` | a day, then revalidated (`If-Modified-Since`) | no limit | SQLite `mbta_cache` |
+
+  Memory holds at most 2,000 copies (oldest dropped; past their stale limit, pruned each
+  tick); SQLite the newest 2,000 rows.
+- **MBTA failures** (error, timeout, 5xx, 429): a stale copy within its limit, with
+  `x-data-age` (seconds); none: 502. An MBTA 4xx is passed through, not cached. The app sets
+  the data's time back by the age (`Updated 5:41pm (3 min ago)`) and adds "MBTA down" (amber).
+- **Abuse limits:** the allowlist (paths, parameter names, values ≤ 2,000 chars, no
+  `api_key`; otherwise 400), same origin (`Sec-Fetch-Site` or `Origin` from elsewhere: 403),
+  120 requests/min per IP (429 with `Retry-After`; the app goes direct), and a budget guard:
+  past 800 MBTA calls in a minute, misses get 503 (copies are still served), keeping the rest
+  of the key's 1,000/min for reminders and stop alerts.
+- **Kill switch:** `MBTA_PROXY=off` (Railway variable): `/api/mbta/*` answers 503 and the app
+  goes direct.
 
 **Recommendation:** not worth a general cache for one user with a key: realtime dominates and
 the setup data is small on the wire. In order, if more people use the app keyless:
@@ -827,7 +860,8 @@ the setup data is small on the wire. In order, if more people use the app keyles
 - `manifest.json`: name, icons, `display: standalone`, start URL.
 - `sw.js`: network-first for same-origin files, revalidating with the server
   (`cache: 'no-cache'`) rather than trusting the browser's HTTP cache; precaches the
-  app shell. `api-v3.mbta.com` is never cached. The cache is the fallback when the server
+  app shell. `api-v3.mbta.com` and the server's `/api/` (reminders, the MBTA proxy) are never
+  cached. The cache is the fallback when the server
   answers 5xx (4xx is shown as is), takes over 3 s (the request keeps running and still
   updates the cache), or is unreachable. The 5xx and timeout fallbacks match exactly (with the
   `?v=` query) so a new page never gets an old module; offline ignores the query. Versioned

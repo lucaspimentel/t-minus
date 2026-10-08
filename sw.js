@@ -1,4 +1,5 @@
-// App-shell cache. MBTA API requests always go to the network.
+// App-shell cache. MBTA API requests and the server's API (/api/: reminders, the MBTA proxy) always go
+// to the network.
 const CACHE = 't-minus-v1';
 const SHELL = ['./', 'index.html', 'core.js', 'setup.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
@@ -61,6 +62,7 @@ self.addEventListener('notificationclick', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return; // never cached (the proxy sends its own data age)
   // Versioned modules (`?v=<content hash>`) never change: a cached copy is served directly.
   if (url.searchParams.has('v')) {
     event.respondWith(caches.match(event.request).then(c => c ?? fetchAndSave(event.request))

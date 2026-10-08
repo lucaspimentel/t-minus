@@ -1,5 +1,6 @@
 // Reminders and followed rides (stop alerts, `kind: 'ride'`) in SQLite (node:sqlite, $DATA_DIR/reminders.db): columns for what the server
-// queries, the whole reminder as JSON in `body`. Writes are per row.
+// queries, the whole reminder as JSON in `body`. Writes are per row. Also the MBTA proxy's static
+// copies (`mbta_cache`: routes, stops, route patterns), kept across restarts.
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,6 +18,13 @@ export function openStore(dir) {
     );
     CREATE INDEX IF NOT EXISTS reminders_due ON reminders (next_poll_at);
     CREATE INDEX IF NOT EXISTS reminders_endpoint ON reminders (endpoint);
+    CREATE TABLE IF NOT EXISTS mbta_cache (
+      key TEXT PRIMARY KEY,
+      body TEXT NOT NULL,
+      last_modified TEXT,
+      fetched_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS mbta_cache_fetched ON mbta_cache (fetched_at);
   `);
   const q = {
     add: db.prepare('INSERT INTO reminders (id, endpoint, next_poll_at, body) VALUES (?, ?, ?, ?)'),
@@ -28,6 +36,11 @@ export function openStore(dir) {
     all: db.prepare('SELECT body FROM reminders ORDER BY next_poll_at'),
     count: db.prepare('SELECT count(*) AS n FROM reminders'),
     countFor: db.prepare('SELECT count(*) AS n FROM reminders WHERE endpoint = ?'),
+    cacheGet: db.prepare('SELECT body, last_modified, fetched_at FROM mbta_cache WHERE key = ?'),
+    cachePut: db.prepare('INSERT OR REPLACE INTO mbta_cache (key, body, last_modified, fetched_at) VALUES (?, ?, ?, ?)'),
+    cacheTouch: db.prepare('UPDATE mbta_cache SET fetched_at = ? WHERE key = ?'),
+    // The newest `max` rows stay (a revalidation moves fetched_at).
+    cachePrune: db.prepare('DELETE FROM mbta_cache WHERE key NOT IN (SELECT key FROM mbta_cache ORDER BY fetched_at DESC LIMIT ?)'),
   };
   const parse = rows => rows.map(r => JSON.parse(r.body));
   return {
@@ -39,6 +52,14 @@ export function openStore(dir) {
     all: () => parse(q.all.all()),
     count: () => q.count.get().n,
     countFor: endpoint => q.countFor.get(endpoint).n,
+    // { text, lastModified, at } or null.
+    cacheGet: key => {
+      const r = q.cacheGet.get(key);
+      return r ? { text: r.body, lastModified: r.last_modified, at: r.fetched_at } : null;
+    },
+    cachePut: (key, e) => { q.cachePut.run(key, e.text, e.lastModified ?? null, e.at); },
+    cacheTouch: (key, at) => { q.cacheTouch.run(at, key); },
+    cachePrune: max => q.cachePrune.run(max).changes,
     close: () => db.close(),
   };
 }

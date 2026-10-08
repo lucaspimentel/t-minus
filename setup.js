@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=28f698b0fd';
+} from './core.js?v=e9f251fd56';
 
 const ROUTE_LIMIT = 60;
 
@@ -324,7 +324,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         numberField('Keep screen on before leave-by (min, 0 = off)', app.wakeMinutes, v => { app.wakeMinutes = v; }),
         h('label', { class: 'field' }, 'MBTA API key (optional)',
           // Masked so the key isn't exposed on screen (or in screenshots).
-          h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Keyless: 20 requests/min', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),
+          h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Used only when the T-Minus server is unreachable', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),
       h('div', { class: 'btns io' },
         saved && h('button', { type: 'button', onclick: exportConfig }, 'Export'),
         h('button', { type: 'button', onclick: () => { ioArea = { mode: 'import', text: '' }; render(); } }, 'Import'),

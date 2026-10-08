@@ -228,5 +228,21 @@ export async function fakeMbta(context, scenario, { now }) {
     if (mbta.mode === 'hang') { mbta.held.push(route); return; }
     return respond(route);
   });
+
+  // The server's MBTA proxy (/api/mbta/*), answering from the same scenario: `status` other than
+  // 200 refuses (e.g. 503, the kill switch); `age` (s) sends `x-data-age` (a stale copy).
+  mbta.proxyHits = [];
+  mbta.serveProxy = (page, { status = 200, age = null } = {}) => page.route(/\/api\/mbta\//, async route => {
+    mbta.now = await route.request().frame().evaluate(() => Date.now()).catch(() => mbta.now);
+    const url = new URL(route.request().url());
+    url.pathname = url.pathname.replace(/^\/api\/mbta/, '');
+    mbta.proxyHits.push({ at: mbta.now, path: url.pathname, query: url.searchParams });
+    if (status !== 200) return route.fulfill({ status, contentType: 'application/json', body: '{}' }).catch(() => {});
+    const body = answer(url);
+    return route.fulfill({
+      status: body ? 200 : 404, headers: { 'content-type': 'application/json', ...(age && { 'x-data-age': String(age) }) },
+      body: JSON.stringify(body ?? {}),
+    }).catch(() => {});
+  });
   return mbta;
 }

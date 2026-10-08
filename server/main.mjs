@@ -22,6 +22,7 @@ const app = createApp({
   apiKey: env.MBTA_API_KEY,
   publicKey: env.VAPID_PUBLIC_KEY,
   staticRoot: new URL('..', import.meta.url).pathname,
+  proxy: env.MBTA_PROXY !== 'off',
   log,
 });
 const port = Number(env.PORT ?? 8080);

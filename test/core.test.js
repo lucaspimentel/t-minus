@@ -9,6 +9,7 @@ import {
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
+  MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, testPushText,
   lineLabel, toward, withoutArrived, stopConnections,
 } from '../core.js';
@@ -1221,6 +1222,7 @@ test('statusProblem: errors, the rate limit and notices, without times', () => {
   assert.equal(statusProblem({ lastError: 'HTTP 429', lastOk: 1, rateLimited: true }), 'Rate limited');
   assert.equal(statusProblem({ notice: 'No service', locationOff: true, savedCopy: true }), 'No service · Location off · Saved copy');
   assert.equal(statusProblem({ lastError: 'x', lastOk: 1, savedCopy: true }), 'Stale (x)'); // as the status line shows it
+  assert.equal(statusProblem({ lastOk: 1, mbtaDown: true, savedCopy: true }), 'MBTA down · Saved copy');
 });
 
 test('rowAriaLabel', () => {
@@ -1365,4 +1367,30 @@ test('checkRide: the trip, one leg per transit leg, times, and a ride ending soo
   assert.equal(checkRide(homeToOffice, { ...ride, legs: [{ ...legs[0], label: 5 }, legs[1]] }, now), 'ride leg label is invalid');
   assert.equal(checkRide(homeToOffice, { ...ride, boardedAt: 'x' }, now), 'ride.boardedAt is invalid');
   assert.equal(checkRide(homeToOffice, ride, at('14:00')), 'the ride must end in the next 6 hours');
+});
+
+test('proxyRequestError: the allowlist of paths and parameters', () => {
+  const [trip] = JSON.parse(readFileSync('test/fixtures/bus-orange.json', 'utf8')).trips;
+  const leg = tripShape(trip).transit[1];
+  // What the app and the server send passes.
+  assert.equal(proxyRequestError('/predictions', Object.entries(legQuery(leg))), null);
+  assert.equal(proxyRequestError('/predictions', Object.entries(rideStopsQuery('t1'))), null);
+  assert.equal(proxyRequestError('/alerts', [['filter[route]', '132,Orange'], ['filter[datetime]', 'NOW'], ['fields[alert]', 'effect']]), null);
+  assert.equal(proxyRequestError('/route_patterns', [['filter[route]', 'Red'], ['filter[canonical]', 'true'], ['include', 'representative_trip.stops'], ['fields[trip]', '']]), null);
+  assert.equal(proxyRequestError('/vehicles', []), 'path is not allowed');
+  assert.equal(proxyRequestError('/toString', []), 'path is not allowed');
+  assert.equal(proxyRequestError('/stops', [['api_key', 'k']]), 'api_key is not allowed');
+  assert.equal(proxyRequestError('/alerts', [['filter[stop]', 'x']]), 'filter[stop] is not allowed');
+  assert.equal(proxyRequestError('/stops', [['filter[route]', 'a'], ['filter[route]', 'b']]), 'filter[route] is repeated');
+  assert.equal(proxyRequestError('/stops', [['filter[route]', 'x'.repeat(2001)]]), 'filter[route] is too long');
+  assert.deepEqual(Object.fromEntries(Object.entries(MBTA_PROXY_PATHS).map(([p, v]) => [p, v.cache])), {
+    '/predictions': 'predictions', '/schedules': 'schedules', '/alerts': 'alerts', '/routes': 'static', '/stops': 'static', '/route_patterns': 'static',
+  });
+  assert.equal(CACHE_CLASSES.predictions.stale, 2 * 60_000);
+});
+
+test('mbtaCacheKey: sorted parameters, without the API key', () => {
+  assert.equal(mbtaCacheKey('/stops', { 'filter[route]': 'Red', 'fields[stop]': 'name', api_key: 'k' }), '/stops?fields%5Bstop%5D=name&filter%5Broute%5D=Red');
+  assert.equal(mbtaCacheKey('/stops', { 'fields[stop]': 'name', 'filter[route]': 'Red' }), mbtaCacheKey('/stops', { 'filter[route]': 'Red', 'fields[stop]': 'name' }));
+  assert.equal(mbtaCacheKey('/routes', { 'filter[type]': 3 }), '/routes?filter%5Btype%5D=3');
 });

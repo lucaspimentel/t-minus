@@ -360,7 +360,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-07 · 16f70a93f6</footer>
+    <footer class="version">Version 2026-10-07 · 92aed7348a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -383,8 +383,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, rideStopsLine, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=28f698b0fd';
-import { openSetup } from './setup.js?v=cca4839b2f';
+} from './core.js?v=e9f251fd56';
+import { openSetup } from './setup.js?v=91c67653dc';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -419,7 +419,8 @@ let tripIdx = config ? pickTrip(Date.now(), config, store.get(KEY_OVERRIDE), sto
 //   nextDay: {docs, date, at} (next service day's schedules, fetched once today's run out),
 //   timing: index of the transit leg leave-by is based on,
 //   lastLive: last live times per leg (rememberLive), for rides that just left,
-//   lastOk / lastError: this trip's last successful fetch time and last error }
+//   lastOk / lastError: this trip's last successful fetch time (the data's, from a stale proxy
+//   copy; then mbtaDown) and last error }
 let cache = {};
 // Previous timing leg per trip, for the hysteresis in pickTimingLeg.
 const lastTiming = new Map();
@@ -435,7 +436,31 @@ let pending = false;
 
 // ---------- API ----------
 
+// The server's MBTA proxy first (its key and shared cache); the MBTA directly, with the saved key
+// if any, after an error or PROXY_TIMEOUT_MS. A 503 or 404 (proxy off, busy, or an older server)
+// skips the proxy for PROXY_OFF_MS.
+const PROXY_TIMEOUT_MS = 2000;
+const PROXY_OFF_MS = 10 * 60_000;
+let proxyOffUntil = 0;
+// While a refresh runs: { age } (ms), the oldest stale copy the proxy served ("MBTA down").
+let proxyAge = null;
+
+async function viaProxy(path, params) {
+  if (!SERVER_API || Date.now() < proxyOffUntil) return null;
+  try {
+    const res = await fetch(`${SERVER_API}/mbta${path}?${new URLSearchParams(params)}`, { signal: AbortSignal.timeout(PROXY_TIMEOUT_MS) });
+    if (res.status === 503 || res.status === 404) proxyOffUntil = Date.now() + PROXY_OFF_MS;
+    if (!res.ok) return null;
+    const doc = await res.json();
+    const age = Number(res.headers.get('x-data-age')) * 1000;
+    if (age > 0 && proxyAge) proxyAge.age = Math.max(proxyAge.age, age);
+    return doc;
+  } catch { return null; }
+}
+
 async function api(path, params) {
+  const doc = await viaProxy(path, params);
+  if (doc) return doc;
   const qs = new URLSearchParams(params);
   if (config?.apiKey) qs.set('api_key', config.apiKey);
   const res = await fetch(`${API}${path}?${qs}`, { headers: { Accept: 'application/vnd.api+json' } });
@@ -498,6 +523,7 @@ async function refresh({ force = false } = {}) {
   if (!$('refresh').classList.contains('busy')) spinStart = now;
   $('refresh').classList.add('busy');
   if (!c.lastOk) loading = { idx, since: now };
+  const served = (proxyAge = { age: 0 });
   try {
     const tasks = [fetchPredictions(trip).then(p => {
       c.predictions = p;
@@ -528,7 +554,9 @@ async function refresh({ force = false } = {}) {
         (!c.nextDay || c.nextDay.date !== next.date || now - c.nextDay.at > NEXT_DAY_TTL)) {
       c.nextDay = await fetchSchedules(trip, next);
     }
-    c.lastOk = Date.now();
+    // A stale copy from the proxy (the MBTA is down): the data's own time.
+    c.lastOk = Date.now() - served.age;
+    c.mbtaDown = served.age > 0;
     c.lastError = null;
     c.failures = 0;
     c.rateLimited = false;
@@ -537,6 +565,7 @@ async function refresh({ force = false } = {}) {
     c.failures = (c.failures ?? 0) + 1;
     c.rateLimited = !!e.rateLimited;
   } finally {
+    proxyAge = null;
     inFlight = false;
     loading = null;
     // Stops only at the end of a full turn (SPIN_MS, as in the CSS), so it never snaps back.
@@ -1056,7 +1085,7 @@ function render() {
 
   const status = $('status');
   const statusText = $('status-text');
-  const { lastOk, lastError, rateLimited, retryAt } = cache[tripIdx] ?? {};
+  const { lastOk, lastError, rateLimited, retryAt, mbtaDown } = cache[tripIdx] ?? {};
   // Retry after an error (not while rate limited: that retries by itself at the reset).
   $('retry-wrap').hidden = !config || !lastError || rateLimited || inFlight;
   if (!config) {
@@ -1086,13 +1115,13 @@ function render() {
   } else {
     // Older than two poll intervals (e.g. just back in the app): the age, in amber.
     const age = lastOk && dataAgeText(lastOk, pollIntervalMs(currentRows(now), now, !!enRouteState()?.ride), now);
-    status.className = notice ? 'status stale' : age ? 'status old' : 'status';
+    status.className = notice ? 'status stale' : age || mbtaDown ? 'status old' : 'status';
     const slow = loading?.idx === tripIdx && now - loading.since >= 5000;
-    statusText.textContent = [lastOk ? `Updated ${formatTime(lastOk)}${age ? ` (${age})` : ''}` : slow ? 'Still loading… (MBTA is slow)' : 'Loading…', notice,
+    statusText.textContent = [lastOk ? `Updated ${formatTime(lastOk)}${age ? ` (${age})` : ''}` : slow ? 'Still loading… (MBTA is slow)' : 'Loading…', mbtaDown && 'MBTA down', notice,
       locationOff && usesLocation() && 'Location off', savedCopy && 'Saved copy'].filter(Boolean).join(' · ');
   }
   // Announce a new problem once, not the per-second retry count or "Updated …".
-  const problem = statusProblem({ lastError, lastOk, rateLimited, notice, locationOff: locationOff && usesLocation(), savedCopy });
+  const problem = statusProblem({ lastError, lastOk, rateLimited, notice, locationOff: locationOff && usesLocation(), savedCopy, mbtaDown });
   if (problem !== lastProblem && problem) announce(problem);
   lastProblem = problem;
 

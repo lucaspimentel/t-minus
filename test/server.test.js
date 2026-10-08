@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { createApp } from '../server/app.mjs';
 import { openStore } from '../server/store.mjs';
+import { legQuery, tripShape } from '../core.js';
 
 const at = hhmm => Date.parse(`2026-09-30T${hhmm}:00-04:00`);
 const iso = hhmm => `2026-09-30T${hhmm}:00-04:00`;
@@ -22,11 +23,13 @@ const rec = (type, tripId, stop, t) => ({
 // Bus b1 7:10 (`bus` can change) → 7:25 (schedules); Orange o1 7:33 → 7:50 (predictions; `orange` can change).
 async function setup({ staticRoot = null } = {}) {
   const world = { clock: at('07:00'), bus: '07:10', orange: '07:33', orange2: null, rideStops: {}, cancelled: false, failing: false, calls: [] };
-  const mbtaFetch = async url => {
+  const mbtaFetch = async (url, opts) => {
     const u = new URL(url);
     world.calls.push(u.pathname);
     await world.gate;
-    if (world.failing) return { ok: false, status: 500 };
+    if (world.failing) return { ok: false, status: world.failing === true ? 500 : world.failing };
+    // Static data's Last-Modified (the MBTA sends no ETag): a matching If-Modified-Since gets 304.
+    if (world.lastModified && opts?.headers?.['If-Modified-Since'] === world.lastModified) return { ok: false, status: 304 };
     const route = u.searchParams.get('filter[route]');
     let data = [];
     // "Show nearby" around Oak Grove: bus stops 5991 and 9326 and the station; 132 runs at 5991.
@@ -53,7 +56,7 @@ async function setup({ staticRoot = null } = {}) {
     }
     // The bus's schedules carry its headsign (an included trip); Orange's predictions don't.
     const included = route === '132' && u.pathname === '/schedules' ? [{ type: 'trip', id: 'b1', attributes: { headsign: 'Malden' } }] : [];
-    return { ok: true, json: async () => ({ data, included }) };
+    return { ok: true, status: 200, headers: { get: k => (k === 'last-modified' ? world.lastModified ?? null : null) }, json: async () => ({ data, included }) };
   };
   const sent = [];
   world.sendStatus = null;
@@ -63,14 +66,22 @@ async function setup({ staticRoot = null } = {}) {
   };
   const dir = await mkdtemp(join(tmpdir(), 'leave-by-'));
   const store = openStore(dir);
-  const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', staticRoot });
-  const server = createServer(app.handler);
-  await new Promise(r => server.listen(0, r));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  const call = (method, path, body, origin = null, headers = {}) => fetch(`${base}${path}`, {
-    method, headers: { 'content-type': 'application/json', ...(origin && { origin }), ...headers }, body: body && JSON.stringify(body),
-  });
-  return { world, sent, store, dir, app, call, close: () => new Promise(r => server.close(r)).then(() => store.close()) };
+  const servers = [];
+  // Another app on the same store and MBTA (a restart, or other options), and a way to call it.
+  const serve = async (opts = {}) => {
+    const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', staticRoot, ...opts });
+    const server = createServer(app.handler);
+    servers.push(server);
+    await new Promise(r => server.listen(0, r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const call = (method, path, body, origin = null, headers = {}) => fetch(`${base}${path}`, {
+      method, headers: { 'content-type': 'application/json', ...(origin && { origin }), ...headers }, body: body && JSON.stringify(body),
+    });
+    return { app, call };
+  };
+  const { app, call } = await serve();
+  const close = () => Promise.all(servers.map(server => new Promise(r => server.close(r)))).then(() => store.close());
+  return { world, sent, store, dir, app, call, serve, close };
 }
 
 const subscription = (n = 1) => ({ endpoint: `https://push.example/${n}`, keys: { p256dh: 'k', auth: 'a' } });
@@ -248,10 +259,11 @@ test('/nearby: the routes around a point with distances, cached per cell and hou
     const again = await (await s.call('GET', '/api/nearby?lat=42.43852&lon=-71.0711')).json();
     assert.equal(s.world.calls.length, 3);
     assert.ok(again.routes[0].meters > body.routes[0].meters);
-    // The next hour: the stop list is reused, routes and schedules fetched again.
+    // The next hour: the stop list is reused, the routes come from the proxy's static copy (a
+    // day), the schedules are fetched again.
     s.world.clock = at('08:01');
     await s.call('GET', '/api/nearby?lat=42.4385&lon=-71.0711');
-    assert.deepEqual(s.world.calls.slice(3), ['/routes', '/schedules']);
+    assert.deepEqual(s.world.calls.slice(3), ['/schedules']);
   } finally { await s.close(); }
 });
 
@@ -392,5 +404,110 @@ test('rides: validation, PUT replaces the legs, DELETE, a dead subscription drop
     s.world.clock = at('07:22');
     await s.app.tick();
     assert.equal(s.store.get(r2.id), null);
+  } finally { await s.close(); }
+});
+
+// The Orange leg's predictions, as the app asks the proxy for them.
+const orangeQuery = () => new URLSearchParams(legQuery(tripShape(trip).transit[1]));
+
+test('/api/mbta: fresh copies are shared (with reminders too); stale copies when the MBTA fails', async () => {
+  const s = await setup();
+  try {
+    const res = await s.call('GET', `/api/mbta/predictions?${orangeQuery()}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('x-data-age'), null);
+    assert.equal((await res.json()).data.length, 2);
+    assert.deepEqual(s.world.calls, ['/predictions']);
+    // Within 10 s: the copy.
+    s.world.clock += 9_000;
+    assert.equal((await s.call('GET', `/api/mbta/predictions?${orangeQuery()}`)).status, 200);
+    assert.equal(s.world.calls.length, 1);
+    // Two at once share one call.
+    s.world.clock += 2_000;
+    let open;
+    s.world.gate = new Promise(r => { open = r; });
+    const pair = Promise.all([1, 2].map(() => s.call('GET', `/api/mbta/predictions?${orangeQuery()}`)));
+    await new Promise(r => setTimeout(r, 50));
+    open();
+    s.world.gate = null;
+    assert.deepEqual((await pair).map(r => r.status), [200, 200]);
+    assert.equal(s.world.calls.length, 2);
+    // A reminder's poll right after reuses the Orange copy; only the bus leg is fetched.
+    s.world.clock += 11_000;
+    s.world.calls = [];
+    await s.call('GET', `/api/mbta/predictions?${orangeQuery()}`);
+    await s.call('POST', '/api/reminders', reminder());
+    await s.app.tick();
+    assert.equal(s.world.calls.filter(c => c === '/predictions').length, 2); // the app's Orange, the reminder's bus
+    // The MBTA fails: the copy, with its age, up to 2 min; then 502.
+    s.world.failing = true;
+    s.world.clock += 60_000;
+    const old = await s.call('GET', `/api/mbta/predictions?${orangeQuery()}`);
+    assert.equal(old.status, 200);
+    assert.equal(old.headers.get('x-data-age'), '60');
+    assert.equal((await old.json()).data.length, 2);
+    s.world.clock += 61_000;
+    assert.equal((await s.call('GET', `/api/mbta/predictions?${orangeQuery()}`)).status, 502);
+    // A 429 from the MBTA (the server's key is over its limit) also gets the copy.
+    s.world.failing = 429;
+    s.world.clock -= 61_000;
+    assert.equal((await s.call('GET', `/api/mbta/predictions?${orangeQuery()}`)).headers.get('x-data-age'), '60');
+  } finally { await s.close(); }
+});
+
+test('/api/mbta: static copies survive a restart and are revalidated daily', async () => {
+  const s = await setup();
+  try {
+    s.world.lastModified = 'Mon, 05 Oct 2026 13:58:22 GMT';
+    const q = 'filter[type]=0,1,3&fields[route]=short_name';
+    const first = await (await s.call('GET', `/api/mbta/routes?${q}`, null, null, { 'accept-encoding': 'gzip' })).json();
+    assert.deepEqual(first.data, []);
+    const restarted = await s.serve();
+    s.world.clock += 23 * 60 * 60_000;
+    assert.equal((await restarted.call('GET', `/api/mbta/routes?${q}`)).status, 200);
+    assert.deepEqual(s.world.calls, ['/routes']);
+    // A day later: revalidated (304), the copy kept; the MBTA down: the copy, however old.
+    s.world.clock += 2 * 60 * 60_000;
+    assert.deepEqual(await (await restarted.call('GET', `/api/mbta/routes?${q}`)).json(), first);
+    assert.deepEqual(s.world.calls, ['/routes', '/routes']);
+    s.world.clock += 30 * 24 * 60 * 60_000;
+    s.world.failing = true;
+    const res = await restarted.call('GET', `/api/mbta/routes?${q}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-data-age'), String(30 * 24 * 60 * 60));
+  } finally { await s.close(); }
+});
+
+test('/api/mbta: allowlist, same origin, per-IP limit, budget guard, kill switch, MBTA 4xx', async () => {
+  const s = await setup();
+  try {
+    const status = async (path, headers = {}, origin = null, c = s.call) => (await c('GET', path, null, origin, headers)).status;
+    assert.equal(await status('/api/mbta/vehicles?filter[route]=Red'), 400);
+    assert.equal(await status('/api/mbta/stops?filter[id]=x'), 400);
+    assert.equal(await status('/api/mbta/stops?filter[route]=Red&api_key=k'), 400);
+    assert.equal(await status('/api/mbta/stops?filter[route]=Red', { 'sec-fetch-site': 'cross-site' }), 403);
+    assert.equal(await status('/api/mbta/stops?filter[route]=Red', {}, 'https://evil.example'), 403);
+    assert.equal(await status('/api/mbta/stops?filter[route]=Red', { 'sec-fetch-site': 'same-origin' }), 200);
+    assert.deepEqual(s.world.calls, ['/stops']);
+    // An MBTA 400 is passed through, not cached.
+    s.world.failing = 400;
+    assert.equal(await status('/api/mbta/stops?filter[route]=Nope'), 400);
+    s.world.failing = false;
+    // 120 a minute per IP.
+    const ip = { 'x-forwarded-for': '10.0.0.1' };
+    for (let i = 0; i < 120; i++) assert.equal(await status('/api/mbta/stops?filter[route]=Red', ip), 200);
+    const over = await s.call('GET', '/api/mbta/stops?filter[route]=Red', null, null, ip);
+    assert.equal(over.status, 429);
+    assert.ok(Number(over.headers.get('retry-after')) > 0);
+    s.world.clock += 60_000;
+    assert.equal(await status('/api/mbta/stops?filter[route]=Red', ip), 200);
+    // Past the budget: misses refused (503), copies still served.
+    const tight = await s.serve({ mbtaBudget: 1 });
+    assert.equal(await status('/api/mbta/stops?filter[route]=Red', {}, null, tight.call), 200); // on disk
+    assert.equal(await status(`/api/mbta/predictions?${orangeQuery()}`, {}, null, tight.call), 200); // its one call
+    assert.equal(await status('/api/mbta/alerts?filter[route]=Red', {}, null, tight.call), 503);
+    const off = await s.serve({ proxy: false });
+    assert.equal(await status('/api/mbta/stops?filter[route]=Red', {}, null, off.call), 503);
   } finally { await s.close(); }
 });

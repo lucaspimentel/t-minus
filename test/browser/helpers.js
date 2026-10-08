@@ -45,10 +45,14 @@ export const WAKE_STUB = () => {
 };
 
 // Opens the app at `time` (local, on `date`) with `config` saved and the fake MBTA serving
-// `scenario`; waits for the first rows unless `waitForRows` is false.
-export async function openApp(page, { time = '07:00', date = MONDAY, config = CONFIG, scenario = commute(), waitForRows = true, init } = {}) {
+// `scenario`; waits for the first rows unless `waitForRows` is false. The server's MBTA proxy
+// is unreachable (the app calls the fake MBTA directly) unless `proxy` gives its answers
+// (`mbta.serveProxy`).
+export async function openApp(page, { time = '07:00', date = MONDAY, config = CONFIG, scenario = commute(), waitForRows = true, init, proxy = null } = {}) {
   const now = at(time, date);
   const mbta = await fakeMbta(page.context(), scenario, { now });
+  if (proxy) await mbta.serveProxy(page, proxy);
+  else await page.route(/\/mbta\/\w+\?/, route => route.abort());
   // The push server's "Show nearby" digest is unreachable unless a spec stubs it (page.route),
   // so specs never call Railway and setup takes its MBTA fallback.
   await page.context().route(/\/nearby\?/, route => route.abort());
