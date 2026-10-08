@@ -1375,7 +1375,8 @@ export function shownStops(stops, expanded = false) {
 }
 
 // Copies a vehicle's trip and times onto a planned leg.
-export const onVehicle = (leg, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined, vehicleRoute: v.route, headsign: v.headsign });
+// A new vehicle on a leg is no longer the one the rider picked (callers that pick set `picked`).
+export const onVehicle = ({ picked: _, ...leg }, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined, vehicleRoute: v.route, headsign: v.headsign });
 
 // A planned leg's label for its vehicle: the vehicle's own route on a leg with `also` routes
 // ("Green D"), else the leg's ("Orange").
@@ -1395,11 +1396,13 @@ const lineToward = leg => [lineLabel(leg), toward(leg)].filter(Boolean).join(' '
 export const EARLIER_MIN = 2;
 
 // The next connection while riding leg i (or in the transfer before leg i+1): needed = leg i's
-// arrival + transfer; margin = leg i+1's departure − needed. A missed connection (margin < 0)
-// re-plans legs i+1… to the earliest feasible chain after `needed` (never a vehicle leaving
-// before it); `none` when there's no such chain (plan kept). A working connection switches to
-// a catchable vehicle leaving EARLIER_MIN+ min sooner (`earlier`; e.g. the planned train fell
-// behind a delayed earlier one). Null without a next leg.
+// arrival + transfer; margin = leg i+1's departure − needed (negative: under the transfer time,
+// shown as tight; the transfer is only an estimate). Missed only when it's impossible: leg i+1
+// leaves before leg i arrives, or before now. Then legs i+1… are re-planned to the earliest
+// feasible chain after `needed`; `none` when there's no such chain (plan kept). A working
+// connection switches to a catchable vehicle leaving EARLIER_MIN+ min sooner (`earlier`; e.g.
+// the planned train fell behind a delayed earlier one), unless the rider picked it (`picked`).
+// Null without a next leg.
 export function transferOutlook(ride, phase, vehiclesByLeg, transfers, nowMs) {
   const i = phase.kind === 'riding' ? phase.leg : phase.kind === 'transfer' ? phase.leg - 1 : -1;
   const next = i + 1;
@@ -1408,7 +1411,8 @@ export function transferOutlook(ride, phase, vehiclesByLeg, transfers, nowMs) {
   const planned = ride.legs[next];
   const base = { leg: next, needed, margin: planned.dep - needed, legs: ride.legs, missedDep: null, none: false };
   const replanned = chain => ride.legs.map((l, k) => (k >= next ? onVehicle(l, chain[k - next]) : l));
-  if (base.margin >= 0) {
+  if (planned.dep >= Math.max(ride.legs[i].arr, nowMs)) {
+    if (planned.picked) return base;
     // Not before now: in the transfer, `needed` may already be past.
     const chain = replanFrom(vehiclesByLeg, next, Math.max(needed, nowMs), transfers);
     if (!chain || chain[0].tripId === planned.tripId || chain[0].dep > planned.dep - EARLIER_MIN * MIN) return base;
@@ -1443,6 +1447,13 @@ export function otherVehicles(vehicles, leg, nowMs) {
   return vehicles.filter(v => v.dep <= nowMs && v.dep >= nowMs - PREVIOUS_MINUTES * MIN && v.tripId !== leg.tripId).slice(-4);
 }
 
+// "Different connection?" / "Different bus?" in the transfer: up to 4 vehicles of the next leg
+// leaving from `fromMs` (now in the transfer, the current leg's arrival while riding), other than
+// the planned one.
+export function connectionChoices(vehicles, planned, fromMs) {
+  return vehicles.filter(v => v.dep >= fromMs && v.tripId !== planned.tripId).slice(0, 4);
+}
+
 // "Different train?" / "Different bus?": buses and the Silver Line are buses; the rest trains.
 export const vehicleNoun = leg => (/^(Bus|Silver)\b/.test(vehicleLabel(leg) ?? '') ? 'bus' : 'train');
 
@@ -1464,9 +1475,10 @@ export function previousRides(trip, vehiclesByLeg, nowMs) {
 
 // The ride with leg i on `vehicle` and the later legs re-planned from its arrival (kept if
 // there's no connection).
+// The rider's pick: kept by transferOutlook unless it becomes impossible.
 export function switchLeg(ride, i, vehicle, vehiclesByLeg, transfers) {
   const chain = replanFrom(vehiclesByLeg, i + 1, vehicle.arr + (transfers[i] ?? 0) * MIN, transfers) ?? [];
-  const legs = ride.legs.map((l, k) => (k === i ? onVehicle(l, vehicle) : chain[k - i - 1] ? onVehicle(l, chain[k - i - 1]) : l));
+  const legs = ride.legs.map((l, k) => (k === i ? { ...onVehicle(l, vehicle), picked: true } : chain[k - i - 1] ? onVehicle(l, chain[k - i - 1]) : l));
   const { missed: _, ...rest } = ride;
   return { ...rest, legs, ...(i === 0 && { boardedAt: vehicle.dep }) };
 }

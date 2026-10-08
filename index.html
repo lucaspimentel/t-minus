@@ -368,7 +368,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-08 · f56189656c</footer>
+    <footer class="version">Version 2026-10-08 · 212551b926</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -389,10 +389,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
-  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg,
+  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=428a39e8e8';
-import { openSetup } from './setup.js?v=791cb24e33';
+} from './core.js?v=d5b0bfb1b5';
+import { openSetup } from './setup.js?v=45b3fb1e0a';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1256,6 +1256,7 @@ function gotOn(r) {
   prevOpen = false;
   rideNote = null;
   laterOpen = false;
+  nextOpen = false;
   stopsOpen = null;
   snap.removed = setEnRoute({ kind: 'track', at: Date.now(), ride: { legs: r.legs, boardedAt: r.firstDep } });
   render();
@@ -1329,6 +1330,7 @@ function cancelTracking() {
   const snap = { idx: tripIdx, state: enRouteState() };
   rideNote = null;
   laterOpen = false;
+  nextOpen = false;
   stopsOpen = null;
   setEnRoute(null);
   render();
@@ -1387,6 +1389,7 @@ function goEnRoute(kind) {
 // Missed it / Cancel.
 let rideNote = null; // e.g. "No later connection" after Missed it
 let laterOpen = false; // "Different train?" choices shown
+let nextOpen = false; // "Different connection?" / transfer "Different bus?" choices shown
 let stopsOpen = null; // trip id of the leg whose full stop list is shown ("… N more" tapped)
 let rideFetchFor = null; // trip id whose stops were last requested outside the poll
 // The ridden leg's rows on its timeline bar, before the drop-off: the vehicle ("At <stop>" while
@@ -1460,19 +1463,43 @@ function renderRideCard(s, now) {
     const noun = vehicleNoun(ride.legs[phase.leg]);
     btns.append(btn(laterOpen ? `Keep this ${noun}` : `Different ${noun}?`, () => { laterOpen = !laterOpen; render(); }));
   }
+  // The next leg ("Different connection?" while riding, from the arrival; in the transfer "I'm at
+  // the stop" = the first departure from now, and "Different bus?"): the rider's pick sticks.
+  const { transfers } = tripShape(trip);
+  const nl = phase.kind === 'transfer' ? phase.leg : phase.kind === 'riding' && phase.leg + 1 < ride.legs.length ? phase.leg + 1 : -1;
+  const choices = nl < 0 ? [] : connectionChoices(rideVehicles()[nl] ?? [], ride.legs[nl], phase.kind === 'transfer' ? now : ride.legs[phase.leg].arr);
+  const pickNext = v => {
+    nextOpen = false;
+    rideNote = null;
+    setEnRoute({ ...s, ride: switchLeg(ride, nl, v, rideVehicles(), transfers) });
+    render();
+    schedulePoll();
+  };
+  if (phase.kind === 'transfer' && choices[0] && choices[0].dep < ride.legs[nl].dep) btns.append(btn("I'm at the stop", () => pickNext(choices[0])));
+  if (choices.length) {
+    const noun = vehicleNoun(ride.legs[nl]);
+    const [open, closed] = phase.kind === 'transfer' ? [`Keep this ${noun}`, `Different ${noun}?`] : ['Keep this connection', 'Different connection?'];
+    btns.append(btn(nextOpen ? open : closed, () => { nextOpen = !nextOpen; render(); }));
+  }
   btns.append(phase.kind === 'arrived'
-    ? btn('Done', () => { rideNote = null; laterOpen = false; stopsOpen = null; setEnRoute(null); render(); schedulePoll(); })
-    : btn('Cancel', cancelTracking));
+    ? btn('Done', () => { rideNote = null; laterOpen = false; nextOpen = false; stopsOpen = null; setEnRoute(null); render(); schedulePoll(); })
+    : btn('Cancel trip', cancelTracking));
   li.append(btns);
   if (laterOpen && later.length) {
     const pick = el('div', 'enroute-bar ride-btns');
     for (const v of later) {
       pick.append(btn(`${vehicleLabel(onVehicle(ride.legs[phase.leg], v))} ${formatTime(v.dep, now)}`, () => {
         laterOpen = false;
+        nextOpen = false;
         setEnRoute({ ...s, ride: switchLeg(ride, phase.leg, v, rideVehicles(), tripShape(trip).transfers) });
         render();
       }));
     }
+    li.append(pick);
+  }
+  if (nextOpen && choices.length) {
+    const pick = el('div', 'enroute-bar ride-btns');
+    for (const v of choices) pick.append(btn(`${vehicleLabel(onVehicle(ride.legs[nl], v))} ${formatTime(v.dep, now)}`, () => pickNext(v)));
     li.append(pick);
   }
   return li;

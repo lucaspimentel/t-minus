@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -502,14 +502,23 @@ test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
   assert.deepEqual(outlookText(ok, ride(buses[0], trains[2]), now), { text: 'Then Orange Line 7:36am · 5 min to spare', warn: false });
   const tight = transferOutlook(ride(buses[0], trains[1]), riding0, vs, transfers, now);
   assert.equal(outlookText(tight, ride(buses[0], trains[1]), now).text, 'Then Orange Line 7:31am · tight');
-  // Missed (o0 leaves 07:28): earliest feasible after 07:31 is o1; never an earlier vehicle.
-  const r = ride(buses[0], trains[0]);
-  const missed = transferOutlook(r, riding0, vs, transfers, now);
-  assert.deepEqual([missed.legs[1].tripId, missed.missedDep, missed.margin], ['o1', at('07:28'), 0]);
-  assert.equal(outlookText(missed, r, now).text, 'Then Orange Line 7:31am (missed 7:28am)');
+  // Under the transfer time but after the arrival (o0 leaves 07:28, b1 arrives 07:26): kept, tight
+  // (the transfer time is an estimate).
+  const r0 = ride(buses[0], trains[0]);
+  const short = transferOutlook(r0, riding0, vs, transfers, now);
+  assert.deepEqual([short.legs[1].tripId, short.missedDep, short.margin], ['o0', null, -3 * MIN]);
+  assert.equal(outlookText(short, r0, now).text, 'Then Orange Line 7:28am · tight');
+  // Missed: leaves before the arrival (z0 at 07:25); earliest feasible after 07:31 is o1, never an earlier vehicle.
+  const z0 = veh('z0', '07:25', '07:40');
+  const r = ride(buses[0], z0);
+  const missed = transferOutlook(r, riding0, [buses, [z0, ...trains]], transfers, now);
+  assert.deepEqual([missed.legs[1].tripId, missed.missedDep, missed.margin], ['o1', at('07:25'), 0]);
+  assert.equal(outlookText(missed, r, now).text, 'Then Orange Line 7:31am (missed 7:25am)');
   // After the switch is stored, the text keeps saying what was missed.
-  const stored = { ...r, legs: missed.legs, missed: { leg: 1, dep: at('07:28') } };
-  assert.equal(outlookText(transferOutlook(stored, riding0, vs, transfers, now), stored, now).text, 'Then Orange Line 7:31am (missed 7:28am)');
+  const stored = { ...r, legs: missed.legs, missed: { leg: 1, dep: at('07:25') } };
+  assert.equal(outlookText(transferOutlook(stored, riding0, vs, transfers, now), stored, now).text, 'Then Orange Line 7:31am (missed 7:25am)');
+  // Also missed: already left (during the transfer, o0 at 07:28 seen at 07:29).
+  assert.equal(transferOutlook(r0, { kind: 'transfer', leg: 1 }, vs, transfers, at('07:29')).missedDep, at('07:28'));
   // Also during the transfer; nothing after the last train; no next leg.
   const late = { ...ride(buses[1], trains[3]), legs: [{ ...leg(buses[1], 'Bus 132'), arr: at('08:10') }, leg(trains[3], 'Orange')] };
   const none = transferOutlook(late, { kind: 'transfer', leg: 1 }, vs, transfers, now);
@@ -528,6 +537,10 @@ test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
   const near = [buses, [veh('p1', '07:35', '07:50'), veh('p2', '07:36', '07:51')]];
   const kept = transferOutlook(ride(buses[0], near[1][1]), riding0, near, transfers, now);
   assert.deepEqual([kept.earlier, kept.legs[1].tripId], [undefined, 'p2']);
+  // The rider's pick (`picked`) is kept even with an earlier catchable vehicle.
+  const pickedRide = { ...slow, legs: [slow.legs[0], { ...slow.legs[1], picked: true }] };
+  const keptPick = transferOutlook(pickedRide, riding0, vs, transfers, now);
+  assert.deepEqual([keptPick.earlier, keptPick.legs[1].tripId], [undefined, 'o3']);
   // In the transfer with `needed` past: a vehicle that already left isn't picked.
   const waiting = ride(buses[0], trains[3]);
   const atPlatform = transferOutlook(waiting, { kind: 'transfer', leg: 1 }, vs, transfers, at('07:33'));
@@ -539,9 +552,18 @@ test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
   assert.deepEqual(otherVehicles(trains, leg(trains[1], 'Orange'), at('07:37')).map(v => v.tripId), ['o0', 'o2']);
   assert.deepEqual(otherVehicles(trains, leg(trains[1], 'Orange'), at('07:44')).map(v => v.tripId), ['o2']); // o0 left 16 min ago
   assert.deepEqual([vehicleNoun(leg(buses[0], 'Bus 132')), vehicleNoun(leg(trains[0], 'Orange')), vehicleNoun({ label: 'Silver SL1' })], ['bus', 'train', 'bus']);
-  // Switching re-plans the later legs from the new arrival (07:54 + 5 → o3 at 08:00).
+  // Switching re-plans the later legs from the new arrival (07:54 + 5 → o3 at 08:00); the switched
+  // leg is the rider's pick, the re-planned ones aren't.
   const sw = switchLeg(stored, 0, buses[1], vs, transfers);
   assert.deepEqual([sw.legs.map(l => l.tripId), sw.boardedAt, sw.missed], [['b2', 'o3'], at('07:40'), undefined]);
+  assert.deepEqual(sw.legs.map(l => l.picked), [true, undefined]);
+  const sw2 = switchLeg(sw, 1, trains[3], vs, transfers);
+  assert.deepEqual(sw2.legs.map(l => l.picked), [true, true]);
+  assert.equal('picked' in onVehicle(sw2.legs[1], trains[2]), false); // a new vehicle isn't the pick
+  // Connection choices: up to 4 of the next leg from a time, other than the planned one.
+  const many = [...trains, veh('o4', '08:10', '08:25'), veh('o5', '08:20', '08:35')];
+  assert.deepEqual(connectionChoices(many, leg(trains[2], 'Orange'), at('07:29')).map(v => v.tripId), ['o1', 'o3', 'o4', 'o5']);
+  assert.deepEqual(connectionChoices(trains, leg(trains[3], 'Orange'), at('07:26')).map(v => v.tripId), ['o0', 'o1', 'o2']);
 });
 
 test('rideStops: remaining stops to the drop-off and the vehicle', () => {

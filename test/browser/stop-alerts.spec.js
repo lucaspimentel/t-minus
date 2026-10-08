@@ -67,7 +67,7 @@ test('with notifications allowed, the ride is posted, updated on a vehicle chang
   await tick(page, 1000);
   await expect.poll(() => rideCalls(calls).at(-1)).toMatchObject({ method: 'PUT', path: '/rides/ride1' });
   expect(rideCalls(calls).at(-1).body.ride.legs[1].dep).toBe(Date.parse('2026-10-05T07:38:00-04:00'));
-  await card(page).getByRole('button', { name: 'Cancel' }).click();
+  await card(page).getByRole('button', { name: 'Cancel trip' }).click();
   await expect.poll(() => rideCalls(calls).at(-1)).toMatchObject({ method: 'DELETE', path: '/rides/ride1' });
 });
 
