@@ -988,9 +988,16 @@ export function rowsFromDocs(trip, predictionDocs, scheduleDocs, timingIdx, nowM
   return tripRows(trip, vehicles, timingIdx, nowMs, slackMinutes, count);
 }
 
+// A sent notification is updated (same tag) when its time moves UPDATE_MIN+ min from the one it
+// showed; `earlier` updates alert again, later ones replace it quietly.
+export const UPDATE_MIN = 2;
+const moved = (a, b) => Math.abs(a - b) >= UPDATE_MIN * MIN;
+const update = (now, was) => ({ update: true, was, earlier: now < was });
+
 // Leave-time reminders ("Notify me"): a heads-up HEADS_UP_MIN before leave-by, then "Leave now".
-// `rem` = { leaveBy, headsUp (still due?), missing (polls in a row without its row) }; `row` = the
-// re-fetched row with the reminder's key, or null. Times follow the row. Missing for
+// `rem` = { leaveBy, headsUp (still due?), missing (polls in a row without its row), sent ({ leaveBy }
+// the heads-up showed) }; `row` = the re-fetched row with the reminder's key, or null. Times follow
+// the row; after the heads-up, a moved leave-by is an 'update' ({ was, earlier }). Missing for
 // REMINDER_MISSING polls in a row, the ride is reported cancelled; long past, it just expires.
 export const HEADS_UP_MIN = 5;
 export const REMINDER_MISSING = 3;
@@ -1001,18 +1008,21 @@ export function reminderStep(rem, row, nowMs) {
     return { action: missing >= REMINDER_MISSING ? 'cancelled' : 'wait', leaveBy: rem.leaveBy, missing };
   }
   const { leaveBy } = row;
+  if (nowMs < leaveBy && !rem.headsUp && rem.sent && moved(leaveBy, rem.sent.leaveBy)) return { action: 'update', leaveBy, missing: 0, ...update(leaveBy, rem.sent.leaveBy) };
   const action = nowMs >= leaveBy ? 'leave' : rem.headsUp && nowMs >= leaveBy - HEADS_UP_MIN * MIN ? 'headsUp' : 'wait';
   return { action, leaveBy, missing: 0 };
 }
 // Whether a reminder set at `nowMs` still gets its heads-up (not when set inside the window).
 export const headsUpDue = (leaveBy, nowMs) => nowMs < leaveBy - HEADS_UP_MIN * MIN;
 
-// Push text: { title, body }. `row` (when known) names the first vehicle and its time.
-export function reminderText(kind, tripName, row, nowMs) {
+// Push text: { title, body }. `row` (when known) names the first vehicle and its time; an
+// 'update' also gives the new leave-by and the one the heads-up showed (`was`).
+export function reminderText(kind, tripName, row, nowMs, was) {
   const first = row?.legs[0];
   const body = first ? `${lineToward(first)} at ${formatTime(first.dep, nowMs)}` : '';
   switch (kind) {
     case 'headsUp': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body };
+    case 'update': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: `${body} · leave by ${formatTime(row.leaveBy, nowMs)} (was ${formatTime(was, nowMs)})` };
     case 'leave': return { title: `Leave now · ${tripName}`, body };
     default: return { title: `Ride cancelled · ${tripName}`, body: 'Open the app for the next one.' };
   }
@@ -1254,16 +1264,23 @@ export const GET_OFF_MIN = 2;
 export const RIDE_POLL_MS = 20_000;
 const RIDE_MAX_MS = 3 * 60 * MIN;
 
-// One poll of a ride's alerts. `alert` = { sent: { [leg]: { first, headsUp, getOff } },
-// missedDep, none }; `stops` = rideStops() for the leg being ridden (or null); `outlook` =
-// transferOutlook(). Returns { alert, sends: [{ kind, leg, n? }], done }.
+// One poll of a ride's alerts. `alert` = { sent: { [leg]: { first, headsUp, arr, getOff, nextDep } },
+// missedDep, missedNext ({ leg, dep } of the replacement), none }; `stops` = rideStops() for the
+// leg being ridden (or null); `outlook` = transferOutlook(). Returns { alert, sends: [{ kind, leg,
+// n?, missedDep?, update?, was?, earlier? }], done }. Sent alerts are updated (UPDATE_MIN) as times
+// move: the heads-up's arrival, the get-off's next departure, the missed alert's replacement.
 export function rideAlertStep(alert, ride, phase, stops, outlook, nowMs) {
   if (!['riding', 'transfer'].includes(phase.kind) || nowMs >= ride.boardedAt + RIDE_MAX_MS) return { alert, sends: [], done: true };
   const sends = [];
-  let { sent = {}, missedDep = null, none = false } = alert;
+  let { sent = {}, missedDep = null, missedNext = null, none = false } = alert;
+  const nextDep = outlook && !outlook.none ? outlook.legs[outlook.leg].dep : null;
   if (outlook?.missedDep != null && outlook.missedDep !== missedDep) {
     missedDep = outlook.missedDep;
-    sends.push({ kind: 'missed', leg: outlook.leg });
+    missedNext = { leg: outlook.leg, dep: nextDep };
+    sends.push({ kind: 'missed', leg: outlook.leg, missedDep });
+  } else if (nextDep != null && missedNext?.leg === outlook.leg && moved(nextDep, missedNext.dep)) {
+    sends.push({ kind: 'missed', leg: outlook.leg, missedDep, ...update(nextDep, missedNext.dep) });
+    missedNext = { ...missedNext, dep: nextDep };
   }
   if (outlook?.none && !none) {
     none = true;
@@ -1273,20 +1290,34 @@ export function rideAlertStep(alert, ride, phase, stops, outlook, nowMs) {
     const i = phase.leg;
     const st = { ...sent[i] };
     const n = stops?.stops.length;
+    const arr = ride.legs[i].arr;
+    const getOff = () => {
+      st.getOff = true;
+      st.nextDep = outlook?.leg === i + 1 ? nextDep : null;
+      sends.push({ kind: 'getOff', leg: i });
+    };
     if (n != null) {
       st.first ??= n;
-      if (n <= 1 && !st.getOff) { st.getOff = true; sends.push({ kind: 'getOff', leg: i }); }
+      if (n <= 1 && !st.getOff) getOff();
       else if (n > 1 && n <= ALERT_HEADS_UP_STOPS && st.first > ALERT_HEADS_UP_STOPS && !st.headsUp) {
         st.headsUp = true;
+        st.arr = arr;
         sends.push({ kind: 'headsUp', leg: i, n });
+      } else if (n > 1 && st.headsUp && !st.getOff && st.arr != null && moved(arr, st.arr)) {
+        sends.push({ kind: 'headsUp', leg: i, n, ...update(arr, st.arr) });
+        st.arr = arr;
       }
-    } else if (!st.getOff && nowMs >= ride.legs[i].arr - GET_OFF_MIN * MIN) {
-      st.getOff = true;
-      sends.push({ kind: 'getOff', leg: i });
-    }
+    } else if (!st.getOff && nowMs >= arr - GET_OFF_MIN * MIN) getOff();
     sent = { ...sent, [i]: st };
   }
-  return { alert: { sent, missedDep, none }, sends, done: false };
+  // The get-off alert's next departure, until that leg is ridden (the missed alert covers a re-plan).
+  const g = outlook ? outlook.leg - 1 : -1;
+  const sg = sent[g];
+  if (nextDep != null && sg?.getOff && sg.nextDep != null && missedNext?.leg !== outlook.leg && !sends.some(s => s.kind === 'missed' || s.kind === 'none') && moved(nextDep, sg.nextDep)) {
+    sends.push({ kind: 'getOff', leg: g, ...update(nextDep, sg.nextDep) });
+    sent = { ...sent, [g]: { ...sg, nextDep } };
+  }
+  return { alert: { sent, missedDep, missedNext, none }, sends, done: false };
 }
 
 // Push text for a stop alert: { title, body }. `ride` is the ride before a re-plan (for what was
@@ -1294,17 +1325,18 @@ export function rideAlertStep(alert, ride, phase, stops, outlook, nowMs) {
 export function rideAlertText(send, { ride, outlook, stopName, walkAfter, nowMs }) {
   const leg = ride.legs[send.leg];
   const t = ms => formatTime(ms, nowMs);
+  const was = send.was != null ? ` (was ${t(send.was)})` : '';
   switch (send.kind) {
-    case 'headsUp': return { title: `${send.n} stops to ${stopName ?? 'your stop'}`, body: `${lineLabel(leg)} · arrive ${t(leg.arr)}` };
+    case 'headsUp': return { title: `${send.n} stops to ${stopName ?? 'your stop'}`, body: `${lineLabel(leg)} · arrive ${t(leg.arr)}${was}` };
     case 'getOff': {
       const next = outlook && outlook.leg === send.leg + 1 ? outlookText(outlook, ride, nowMs)?.text : null;
       const eta = ride.legs[ride.legs.length - 1].arr + walkAfter * MIN;
-      return { title: stopName ? `Next stop: ${stopName} · get off` : 'Next stop: get off', body: next ?? `Arrive ~${t(eta)}` };
+      return { title: stopName ? `Next stop: ${stopName} · get off` : 'Next stop: get off', body: next ? next + was : `Arrive ~${t(eta)}` };
     }
     case 'missed': {
       const legs = outlook.legs;
       const eta = legs[legs.length - 1].arr + walkAfter * MIN;
-      return { title: `Missed the ${t(leg.dep)} ${vehicleLabel(leg)}`, body: `Next: ${vehicleLabel(legs[send.leg])} ${t(legs[send.leg].dep)} · arrive ${t(eta)}` };
+      return { title: `Missed the ${t(send.missedDep ?? leg.dep)} ${vehicleLabel(leg)}`, body: `Next: ${vehicleLabel(legs[send.leg])} ${t(legs[send.leg].dep)}${was} · arrive ${t(eta)}` };
     }
     default: return { title: `No connection after ${t(outlook.needed)}`, body: `Open the app for another way.` };
   }

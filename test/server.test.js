@@ -129,6 +129,31 @@ test('a reminder follows the ride: a later bus moves leave-by and the next poll'
   } finally { await s.close(); }
 });
 
+test('after the heads-up, a leave-by moved 2+ min updates it (same tag; quiet when later)', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('06:44') + 30_000;
+    await s.call('POST', '/api/reminders', reminder());
+    await s.app.tick();
+    s.world.clock = at('06:59');
+    await s.app.tick();
+    assert.deepEqual(s.sent.map(p => [p.kind, p.renotify]), [['headsUp', true]]);
+    // The bus's schedules are refetched (15 min old): 3 min later.
+    s.world.bus = '07:13';
+    s.world.clock = at('07:00');
+    await s.app.tick();
+    assert.deepEqual(s.sent.at(-1), { kind: 'update', title: 'Leave in 7 min · Home to office', body: '132 toward Malden at 7:13am · leave by 7:07am (was 7:04am)', tag: 'o1', renotify: false });
+    assert.deepEqual(s.store.all()[0].sent, { leaveBy: at('07:07') });
+    s.world.clock = at('07:01');
+    await s.app.tick();
+    assert.equal(s.sent.length, 2); // not again
+    s.world.clock = at('07:07');
+    await s.app.tick();
+    assert.deepEqual(s.sent.at(-1).title, 'Leave now · Home to office');
+    assert.equal(s.sent.at(-1).renotify, true);
+  } finally { await s.close(); }
+});
+
 test('a vanished ride is reported cancelled after three polls; MBTA errors do not count', async () => {
   const s = await setup();
   try {
@@ -356,24 +381,29 @@ test('a followed ride: heads-up, get off, a missed connection, get off again, th
     s.world.clock = at('07:22');
     s.world.rideStops.b1 = busStops(1);
     await s.app.tick();
-    assert.deepEqual(s.sent.at(-1), { kind: 'getOff', title: 'Next stop: Oak Grove · get off', body: 'Then Orange Line 7:33am · 3 min to spare', tag: `ride:${id}:0` });
+    assert.deepEqual(s.sent.at(-1), { kind: 'getOff', title: 'Next stop: Oak Grove · get off', body: 'Then Orange Line 7:33am · 3 min to spare', tag: `ride:${id}:0`, renotify: true });
     // The planned train leaves before the bus gets in (7:25 + 5): re-planned to o2.
     s.world.clock = at('07:24');
     s.world.orange = '07:28';
     await s.app.tick();
-    assert.deepEqual(s.sent.at(-1), { kind: 'missed', title: 'Missed the 7:28am Orange', body: 'Next: Orange 7:39am · arrive 8:06am', tag: `ride:${id}:plan` });
+    assert.deepEqual(s.sent.at(-1), { kind: 'missed', title: 'Missed the 7:28am Orange', body: 'Next: Orange 7:39am · arrive 8:06am', tag: `ride:${id}:plan`, renotify: true });
     assert.deepEqual(s.store.get(id).ride.legs.map(l => l.tripId), ['b1', 'o2']);
     s.world.clock = at('07:25');
     await s.app.tick();
     assert.equal(s.sent.length, 3); // not again
+    // o2 runs 3 min late: the missed alert is updated quietly (its arrival is unchanged here).
+    s.world.clock = at('07:26');
+    s.world.orange2 = '07:42';
+    await s.app.tick();
+    assert.deepEqual(s.sent.at(-1), { kind: 'missed', title: 'Missed the 7:28am Orange', body: 'Next: Orange 7:42am (was 7:39am) · arrive 8:06am', tag: `ride:${id}:plan`, renotify: false });
     // On o2 with no stop list: get off 2 min before its arrival.
     s.world.clock = at('07:54');
     await s.app.tick();
-    assert.deepEqual(s.sent.at(-1), { kind: 'getOff', title: 'Next stop: get off', body: 'Arrive ~8:06am', tag: `ride:${id}:1` });
+    assert.deepEqual(s.sent.at(-1), { kind: 'getOff', title: 'Next stop: get off', body: 'Arrive ~8:06am', tag: `ride:${id}:1`, renotify: true });
     s.world.clock = at('07:57');
     await s.app.tick();
     assert.equal(s.store.get(id), null);
-    assert.equal(s.sent.length, 4);
+    assert.equal(s.sent.length, 5);
   } finally { await s.close(); }
 });
 

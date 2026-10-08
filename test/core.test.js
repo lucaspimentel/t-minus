@@ -10,7 +10,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
-  legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, testPushText,
+  legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, UPDATE_MIN, testPushText,
   lineLabel, toward, withoutArrived, stopConnections,
 } from '../core.js';
 
@@ -1131,6 +1131,19 @@ test('reminderStep: a ride missing three polls in a row is cancelled; long past,
   assert.equal(reminderStep(rem, null, at('07:24')).action, 'expire');
 });
 
+test('reminderStep: after the heads-up, a leave-by moved UPDATE_MIN+ min is an update', () => {
+  assert.equal(UPDATE_MIN, 2);
+  const rem = { leaveBy: at('07:14'), headsUp: false, missing: 0, sent: { leaveBy: at('07:14') } };
+  assert.deepEqual(reminderStep(rem, { leaveBy: at('07:17') }, at('07:10')),
+    { action: 'update', leaveBy: at('07:17'), missing: 0, update: true, was: at('07:14'), earlier: false });
+  assert.equal(reminderStep(rem, { leaveBy: at('07:12') }, at('07:10')).earlier, true);
+  assert.equal(reminderStep(rem, { leaveBy: at('07:15') }, at('07:10')).action, 'wait'); // 1 min: jitter
+  assert.equal(reminderStep(rem, { leaveBy: at('07:10') }, at('07:10')).action, 'leave'); // due: "Leave now" instead
+  // Before the heads-up (or a reminder saved before updates existed): no update.
+  assert.equal(reminderStep({ ...rem, headsUp: true, sent: undefined }, { leaveBy: at('07:20') }, at('07:05')).action, 'wait');
+  assert.equal(reminderStep({ ...rem, sent: undefined }, { leaveBy: at('07:20') }, at('07:10')).action, 'wait');
+});
+
 test('headsUpDue, reminderText, reminderPollMs', () => {
   assert.equal(HEADS_UP_MIN, 5);
   assert.equal(headsUpDue(at('07:14'), at('07:08')), true);
@@ -1138,6 +1151,8 @@ test('headsUpDue, reminderText, reminderPollMs', () => {
   const row = { leaveBy: at('07:14'), legs: [{ label: 'Bus 132', dep: at('07:20') }] };
   assert.deepEqual(reminderText('headsUp', 'Home to office', row, at('07:09')), { title: 'Leave in 5 min · Home to office', body: 'Bus 132 at 7:20am' });
   assert.deepEqual(reminderText('leave', 'Home to office', row, at('07:14')), { title: 'Leave now · Home to office', body: 'Bus 132 at 7:20am' });
+  assert.deepEqual(reminderText('update', 'Home to office', { ...row, leaveBy: at('07:12') }, at('07:10'), at('07:14')),
+    { title: 'Leave in 2 min · Home to office', body: 'Bus 132 at 7:20am · leave by 7:12am (was 7:14am)' });
   assert.deepEqual(reminderText('cancelled', 'Home to office', null, at('07:00')), { title: 'Ride cancelled · Home to office', body: 'Open the app for the next one.' });
   assert.equal(reminderPollMs(at('07:30'), at('07:00')), 60_000);
   assert.equal(reminderPollMs(at('07:15'), at('07:00')), 20_000);
@@ -1338,6 +1353,43 @@ test('rideAlertStep: heads-up at 3 stops, get off at 1, the time fallback, misse
   assert.equal(step({}, 6, '10:10').done, true);
 });
 
+test('rideAlertStep: sent alerts are updated as times move UPDATE_MIN+ min', () => {
+  const leg = (tripId, dep, arr) => ({ route: 'Orange', label: 'Orange', tripId, dep: at(dep), arr: at(arr), source: 'live' });
+  const ride = (arr0, dep1) => ({ boardedAt: at('07:10'), legs: [leg('b1', '07:10', arr0), leg('o1', dep1, '07:50')] });
+  const riding0 = { kind: 'riding', leg: 0 };
+  const stops = n => ({ vehicle: null, stops: Array.from({ length: n }, (_, k) => ({ name: `S${k}`, dropOff: k === n - 1 })) });
+  const outlook = (r, extra = {}) => ({ leg: 1, needed: r.legs[0].arr, margin: 5 * MIN, legs: r.legs, missedDep: null, none: false, ...extra });
+  const step = (alert, r, n, t, phase = riding0, o = outlook(r)) => rideAlertStep(alert, r, phase, n == null ? null : stops(n), o, at(t));
+
+  // The heads-up's arrival: 1 min is jitter; 2+ min later updates quietly, earlier alerts.
+  let r = step({}, ride('07:25', '07:33'), 6, '07:12');
+  r = step(r.alert, ride('07:25', '07:33'), 3, '07:18');
+  assert.equal(r.alert.sent[0].arr, at('07:25'));
+  assert.deepEqual(step(r.alert, ride('07:26', '07:33'), 3, '07:19').sends, []);
+  r = step(r.alert, ride('07:27', '07:33'), 3, '07:19');
+  assert.deepEqual(r.sends, [{ kind: 'headsUp', leg: 0, n: 3, update: true, was: at('07:25'), earlier: false }]);
+  assert.equal(step(r.alert, ride('07:25', '07:33'), 2, '07:20').sends[0].earlier, true);
+  // The get-off's next departure, through the transfer; not after the next leg is boarded.
+  r = step(r.alert, ride('07:27', '07:33'), 1, '07:25');
+  assert.deepEqual([r.sends, r.alert.sent[0].nextDep], [[{ kind: 'getOff', leg: 0 }], at('07:33')]);
+  const transfer = { kind: 'transfer', leg: 1 };
+  assert.deepEqual(step(r.alert, ride('07:27', '07:34'), null, '07:28', transfer).sends, []);
+  const moved = step(r.alert, ride('07:27', '07:36'), null, '07:28', transfer);
+  assert.deepEqual(moved.sends, [{ kind: 'getOff', leg: 0, update: true, was: at('07:33'), earlier: false }]);
+  assert.deepEqual(step(moved.alert, ride('07:27', '07:36'), null, '07:29', transfer).sends, []);
+  assert.deepEqual(step(r.alert, ride('07:27', '07:40'), 5, '07:40', { kind: 'riding', leg: 1 }, null).sends, []);
+  // A missed connection's replacement; its later moves are missed-alert updates, not get-off ones.
+  const r0 = ride('07:30', '07:33');
+  const replaced = ride('07:30', '07:38');
+  r = step({ sent: { 0: { first: 6, getOff: true, nextDep: at('07:33') } } }, r0, null, '07:31', transfer, outlook(r0, { missedDep: at('07:33'), legs: replaced.legs }));
+  assert.deepEqual(r.sends, [{ kind: 'missed', leg: 1, missedDep: at('07:33') }]);
+  assert.deepEqual(r.alert.missedNext, { leg: 1, dep: at('07:38') });
+  const later = ride('07:30', '07:41');
+  assert.deepEqual(step(r.alert, later, null, '07:32', transfer).sends,
+    [{ kind: 'missed', leg: 1, missedDep: at('07:33'), update: true, was: at('07:38'), earlier: false }]);
+  assert.deepEqual(step(r.alert, ride('07:30', '07:39'), null, '07:32', transfer).sends, []);
+});
+
 test('rideAlertText: heads-up, get off (transfer / last leg), missed, no connection', () => {
   const leg = (tripId, dep, arr, label, headsign) => ({ route: label, label, tripId, dep: at(dep), arr: at(arr), source: 'live', headsign });
   const ride = { boardedAt: at('17:41'), legs: [leg('o1', '17:41', '17:56', 'Orange'), leg('b1', '18:26', '18:38', 'Bus 132', 'Redstone')] };
@@ -1352,6 +1404,12 @@ test('rideAlertText: heads-up, get off (transfer / last leg), missed, no connect
   const replanned = [ride.legs[0], leg('b2', '18:54', '19:06', 'Bus 132')];
   assert.deepEqual(rideAlertText({ kind: 'missed', leg: 1 }, ctx({ outlook: { ...outlook, legs: replanned, missedDep: at('18:26') } })),
     { title: 'Missed the 6:26pm Bus 132', body: 'Next: Bus 132 6:54pm · arrive 7:11pm' });
+  // Updates show the time last sent; a missed alert's update names the departure it missed.
+  assert.equal(rideAlertText({ kind: 'headsUp', leg: 0, n: 3, update: true, was: at('17:54') }, ctx()).body, 'Orange Line · arrive 5:56pm (was 5:54pm)');
+  assert.equal(rideAlertText({ kind: 'getOff', leg: 0, update: true, was: at('18:22') }, ctx({ outlook })).body,
+    'Then Bus 132 toward Redstone 6:26pm · 25 min to spare (was 6:22pm)');
+  assert.deepEqual(rideAlertText({ kind: 'missed', leg: 1, missedDep: at('18:20'), update: true, was: at('18:50') }, ctx({ outlook: { ...outlook, legs: replanned } })),
+    { title: 'Missed the 6:20pm Bus 132', body: 'Next: Bus 132 6:54pm (was 6:50pm) · arrive 7:11pm' });
   assert.equal(rideAlertText({ kind: 'none', leg: 1 }, ctx({ outlook: { ...outlook, none: true } })).title, 'No connection after 6:01pm');
 });
 

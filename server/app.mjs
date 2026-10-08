@@ -394,10 +394,11 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     return { predictions, schedules: cached.docs };
   }
 
-  async function push(rem, kind, row, t) {
-    const { title, body } = reminderText(kind, rem.tripName, row, t);
+  // `step`: an update's { was, earlier } (a later time replaces the notification quietly).
+  async function push(rem, kind, row, t, step = {}) {
+    const { title, body } = reminderText(kind, rem.tripName, row, t, step.was);
     try {
-      await send(rem.subscription, { kind, title, body, tag: rem.key });
+      await send(rem.subscription, { kind, title, body, tag: rem.key, renotify: !step.update || step.earlier });
       log(`sent ${kind} for ${rem.id}`);
       return true;
     } catch (e) {
@@ -430,9 +431,10 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       return drop(rem);
     }
     if (step.action === 'expire') return drop(rem);
-    if (step.action === 'headsUp') {
+    if (step.action === 'headsUp' || step.action === 'update') {
       rem.headsUp = false;
-      if (!(await push(rem, 'headsUp', row, t))) return drop(rem);
+      rem.sent = { leaveBy: step.leaveBy };
+      if (!(await push(rem, step.action, row, t, step))) return drop(rem);
     }
     // Poll again in time for the next notification.
     const due = rem.headsUp ? rem.leaveBy - HEADS_UP_MIN * MIN : rem.leaveBy;
@@ -470,7 +472,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       const { title, body } = rideAlertText(s, { ride, outlook, stopName, walkAfter, nowMs: t });
       const tag = s.kind === 'missed' || s.kind === 'none' ? `ride:${rec.id}:plan` : `ride:${rec.id}:${s.leg}`;
       try {
-        await send(rec.subscription, { kind: s.kind, title, body, tag });
+        await send(rec.subscription, { kind: s.kind, title, body, tag, renotify: !s.update || s.earlier });
         log(`sent ${s.kind} (leg ${s.leg}) for ${rec.id}`);
       } catch (e) {
         log(`send ${s.kind} for ${rec.id} failed: ${e.statusCode ?? ''} ${e.message}`);

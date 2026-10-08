@@ -660,9 +660,16 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     to Home Screen to get notifications."
   - Errors show a toast with Retry.
 - **Push:**
-  - The service worker shows `{ title, body, tag }`. The body names the first vehicle, its
+  - The service worker shows `{ title, body, tag, renotify }`. The body names the first vehicle, its
     direction and time: "Bus 132 toward Malden at 7:08am" (`reminderText`). The tag is the row key, so a later push
     for the same ride replaces the earlier one.
+  - **Updates (`UPDATE_MIN` = 2):** a sent notification is re-sent with its tag when its time
+    moves 2+ min from the one it showed (smaller moves are prediction jitter), with the old time:
+    "(was 7:02am)". `renotify` is true for first sends and earlier times, false for later ones
+    (Android replaces quietly). Safari/iOS shows a same-tag notification beside the old one
+    (WebKit bug 258922), so there the service worker closes the old one first
+    (`getNotifications({ tag })`); iOS has no quiet replacement, so later times may still buzz.
+    No cap on updates.
   - Tapping a notification focuses or opens the app.
 - **Test notification:** setup ends with a "Notifications" section and one button, "Send test
   notification in 10 s" (hidden without `SERVER_API`; disabled with the Home Screen hint
@@ -685,6 +692,9 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     - A heads-up goes out 5 min before leave-by (`HEADS_UP_MIN`), unless the reminder was set
       inside that window.
     - "Leave now" goes out at leave-by. Both times follow the row as predictions change.
+    - After the heads-up, a leave-by moved 2+ min from the one last sent (`rem.sent`) sends an
+      update with the same tag: "Leave in 7 min · Home to office" / "Bus 132 toward Malden at
+      7:13am · leave by 7:07am (was 7:04am)".
     - A row missing 3 polls in a row (cancelled, or the connection no longer works) sends "Ride
       cancelled" and ends the reminder. MBTA errors don't count; they retry in 20 s.
     - A reminder 10 min past leave-by with no row just expires.
@@ -718,6 +728,11 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     7:11pm" once per missed departure (an earlier-vehicle switch is silent); "No connection
     after 6:01pm" once. Tags `ride:<id>:<leg>` (get off replaces the heads-up) and
     `ride:<id>:plan`. Always shown, even with the app open.
+  - **Updates (2+ min, see Push):** the heads-up's arrival ("· arrive 7:43am (was 7:41am)",
+    until the get off); the get off's next departure (the outlook line plus "(was 7:31am)",
+    until that leg is ridden; not after a missed connection on it); the missed alert's
+    replacement departure ("Next: Orange 7:42am (was 7:39am) · arrive …", until another miss).
+    `alert` keeps the values sent (`sent[leg].arr`, `sent[leg].nextDep`, `missedNext`).
   - **Ends:** walking or later, 3 h after boarding, `DELETE`, or a 404/410 from the push
     service. Rides share the reminders table (`kind: 'ride'`) and the 5-per-subscription cap;
     validation is `checkRide` (one leg per transit leg, the ride ending within 6 h).
