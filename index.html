@@ -360,7 +360,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-08 · 0c3086c91d</footer>
+    <footer class="version">Version 2026-10-08 · d13709186c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -1391,10 +1391,6 @@ function renderRideCard(s, now) {
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
   const stops = leg && rs?.tripId === leg.tripId && rideStops(rs.doc, tripShape(trip).transit[phase.leg].alight, now);
   li.append(el('div', 'ride-head', rideHeadline(phase, ride, now, stops ? stops.stops.length : null)));
-  const last = ride.legs[ride.legs.length - 1];
-  const summary = el('div', 'detail summary');
-  summary.append(badge(last.arrSource ?? last.source), el('span', 'arrive', `arrive ${formatTime(phase.eta, now)}`));
-  li.append(summary);
   // The next connection: spare time, tight, re-planned after a miss, or none.
   const outlook = outlookText(transferOutlook(ride, phase, rideVehicles(), tripShape(trip).transfers, now), ride, now);
   if (outlook) li.append(el('div', `ride-outlook${outlook.warn ? ' warn' : ''}`, outlook.text));

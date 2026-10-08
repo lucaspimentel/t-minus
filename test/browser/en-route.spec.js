@@ -56,6 +56,7 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await expect(head(page)).toHaveText(riding('Bus 132'));
   await offAt(page, '7:22am');
   await expect(card(page)).toContainText('Then Orange Line toward Forest Hills 7:32am · 5 min to spare');
+  await expect(card(page).locator('.summary')).toHaveCount(0); // the arrival time is the timeline's end only
   const tl = card(page).locator('.timeline');
   await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
   await expect(tl.locator('.walk-icon')).toHaveCount(2); // transfer, final walk

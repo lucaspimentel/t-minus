@@ -199,8 +199,8 @@ For leaving earlier or later than leave-by. A bar under the status line always o
     live drop-off arrival, which the timeline shows), "Transfer ·
     Orange 7:31am" (before leg i departs), "Walking · arrive 7:56am" (after the last arrival),
     "Arrived ~7:56am" (5 min, with Done), then back to the list.
-  - Badge (the last leg's arrival source) and "arrive 7:56am"; the timeline (no first walk)
-    with the current step bold.
+  - The timeline (no first walk) with the current step bold; it ends with the arrival time
+    (no separate "arrive" line under the headline).
   - Riding: "At Downtown Crossing" when stopped at a stop (which isn't listed; the count is in
     the headline), then the stops left to the drop-off with predicted times: all of them
     up to 6, else the next 3, "… N more", the stop before the drop-off (the cue to get ready),
