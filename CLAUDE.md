@@ -65,9 +65,15 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 
 ## Browser testing in the Claude Code cloud sandbox
 
-- `@playwright/test` is pinned to the sandbox's preinstalled Playwright (1.56.1, Chromium in
-  `/opt/pw-browsers`), so `npm run test:browser` works without `playwright install`. If the
-  versions drift, set `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium` (the config uses it).
+This section applies only to Claude Code in the cloud (the sandbox hosted by Anthropic:
+claude.ai/code, or a session started from the app). Locally, run `npx playwright install chromium`
+once and ignore it; CI installs its own browser.
+
+- `@playwright/test` (1.63.0) is newer than the sandbox's preinstalled Playwright (1.56.1, whose
+  Chromium is in `/opt/pw-browsers`), so its own browser build is missing there. Don't run
+  `playwright install`; point the config at the preinstalled Chromium instead:
+  `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:browser` (verified with 1.63.0 and
+  Chromium 141: the full suite passes).
 - The rest of this section is for ad-hoc checks against the live API (the browser tests use a
   fake API and need none of it).
 - Playwright is global (`/opt/node22/lib/node_modules/playwright`); launch with `{ channel: 'chromium' }`.
