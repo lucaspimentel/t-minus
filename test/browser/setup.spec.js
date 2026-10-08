@@ -533,7 +533,12 @@ test('Show nearby lists the stations and routes around you, nearest first; a rou
 });
 
 test('Show nearby without location permission says so and keeps the list', async ({ page }) => {
-  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  // Denied explicitly: headless Chromium sometimes leaves an ungranted request pending (until the
+  // app's 10 s timeout) instead of denying it.
+  const init = () => {
+    navigator.geolocation.getCurrentPosition = (ok, err) => setTimeout(() => err({ code: 1, PERMISSION_DENIED: 1, message: 'denied' }), 0);
+  };
+  await openApp(page, { time: '07:00', config: null, waitForRows: false, init });
   await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
   await button(page, 'Show nearby').click();
