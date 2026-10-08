@@ -360,7 +360,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-07 · bc050ccbff</footer>
+    <footer class="version">Version 2026-10-07 · 16f70a93f6</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -1130,8 +1130,9 @@ function render() {
     : current.find(r => rowState(now, r) === 'enroute');
   const prev = previousRides(config.trips[tripIdx], rideVehicles(), now);
   if (!prev.length) prevOpen = false;
-  // While previous rides are shown, the missed row's ride is among them.
-  const rows = current.filter(r => !(prevOpen && r.missed)).map(r => renderRow(r, now, r === catchRow, pinnedKey)).filter(Boolean);
+  // While previous rides are shown, a missed row whose train has left is among them (one that
+  // hasn't left yet stays).
+  const rows = current.filter(r => !(prevOpen && r.missed && prev.some(p => p.key === r.legs[0].tripId))).map(r => renderRow(r, now, r === catchRow, pinnedKey)).filter(Boolean);
   announceLeaveState(current.find(r => rowState(now, r) !== 'hidden'), now);
   const top = prev.length ? [listButton(prevOpen ? 'Hide previous rides ▴' : 'Show previous rides ▾', 'prev', () => { prevOpen = !prevOpen; render(); }),
     ...(prevOpen ? prev.map(r => renderPrevRow(r, now)) : [])] : [];

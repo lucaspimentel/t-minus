@@ -143,7 +143,8 @@ unavailable: fallback, and the status line adds "Location off".
   "Orange · left 3 min ago 5:41pm" / "Bus 132 6:26pm · arrive 6:43pm" [I got on]. Each has the
   earliest connections after it; a vehicle with no connection is left out. For a frequent first
   leg (Orange every ~5 min before the 132), the train actually taken is often not the row's.
-  While open, the missed row is hidden (its ride is listed here).
+  While open, the missed row is hidden once its first vehicle has left (it's listed here then);
+  a missed ride still to leave ("Missed · leaves in 6 min") stays.
 - "I got on" starts tracking that ride as boarded at its departure (`{ kind: 'track', ride:
   { legs, boardedAt } }`; the card may open past the first leg), with "Tracking started · Undo".
 - "Show more rides ▾" (bottom): 4 more rows per tap (`departureCount` + 4n), hidden when no
