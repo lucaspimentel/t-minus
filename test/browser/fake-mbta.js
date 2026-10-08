@@ -159,14 +159,16 @@ export async function fakeMbta(context, scenario, { now }) {
     return { data, included: [...[...inc].map(stopRecord), ...tripRecords(trips)] };
   }
 
-  // Remaining stops of one trip and its vehicle (heading to the next stop).
+  // Remaining stops of one trip and its vehicle (heading to the next stop; with `scenario.dwell`,
+  // stopped at a stop for 30 s after its time).
   function tripPredictions(tripId) {
     const t = scenario.trips.find(x => x.id === tripId);
     if (!t) return { data: [], included: [] };
     const times = timesOf(t, serviceDate(mbta.now)).map(s => ({ ...s, ms: s.ms + delayOf(t, s.stopId) }));
     const left = times.filter(s => s.ms >= mbta.now - 30_000);
-    const next = left[0];
-    const vehicle = { type: 'vehicle', id: `veh-${t.id}`, attributes: { current_status: 'IN_TRANSIT_TO', current_stop_sequence: next?.seq ?? null } };
+    const at = scenario.dwell ? left.find(s => s.ms <= mbta.now) : null;
+    const next = at ?? left.find(s => s.ms > mbta.now) ?? left[0];
+    const vehicle = { type: 'vehicle', id: `veh-${t.id}`, attributes: { current_status: at ? 'STOPPED_AT' : 'IN_TRANSIT_TO', current_stop_sequence: next?.seq ?? null } };
     return {
       data: left.map(s => ({ type: 'prediction', id: `trp-${t.id}-${s.seq}`,
         attributes: { arrival_time: iso(s.ms), departure_time: iso(s.ms), stop_sequence: s.seq },

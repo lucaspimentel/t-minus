@@ -1359,13 +1359,11 @@ export function checkRide(trip, ride, nowMs) {
   return null;
 }
 
-// The line above the ride card's stops (from rideStops): only the drop-off left → "Next stop: get
-// off" (or "Get off here" while stopped there) with `last` set, shown instead of the stop list;
-// else "At <stop>" while stopped at an unlisted stop, or nothing (the headline has the count).
-export function rideStopsLine({ vehicle, stops }) {
-  const n = stops.length;
-  if (n === 1 && stops[0].dropOff) return { text: vehicle?.atDropOff ? 'Get off here' : 'Next stop: get off', last: true };
-  return { text: vehicle?.status === 'STOPPED_AT' ? `At ${vehicle.name}` : '', last: false };
+// The ride headline's cue (from rideStops) with only the drop-off left: "Next stop: get off", or
+// "Get off here" while stopped there; else null.
+export function getOffText({ vehicle, stops }) {
+  if (stops.length !== 1 || !stops[0].dropOff) return null;
+  return vehicle?.atDropOff ? 'Get off here' : 'Next stop: get off';
 }
 
 // The ride card's stop list: all of them up to 6 (or when expanded), else the next 3,
@@ -1473,11 +1471,17 @@ export function switchLeg(ride, i, vehicle, vehiclesByLeg, transfers) {
   return { ...rest, legs, ...(i === 0 && { boardedAt: vehicle.dep }) };
 }
 
-export function rideHeadline(phase, ride, nowMs, stopsLeft = null) {
+// `stops`: rideStops() for the leg being ridden (or null): stops left and minutes to the drop-off,
+// or "Next stop: get off" / "Get off here" with only the drop-off left.
+export function rideHeadline(phase, ride, nowMs, stops = null) {
   const leg = ride.legs[phase.leg];
+  const n = stops?.stops.length ?? 0;
   switch (phase.kind) {
-    // Stops left (when the vehicle's stop list is known) and minutes to the drop-off.
-    case 'riding': return `${vehicleLabel(leg)}${stopsLeft ? ` · ${stopsLeft} stop${stopsLeft === 1 ? '' : 's'}` : ''} · ${formatCountdown(leg.arr - nowMs)}`;
+    case 'riding': {
+      const cue = n ? getOffText(stops) : null;
+      if (cue) return cue;
+      return `${vehicleLabel(leg)}${n ? ` · ${n} stop${n === 1 ? '' : 's'}` : ''} · ${formatCountdown(leg.arr - nowMs)}`;
+    }
     case 'transfer': return `Transfer · ${vehicleLabel(leg)} ${formatTime(leg.dep, nowMs)}`;
     case 'walking': return `Walking · arrive ${formatTime(phase.eta, nowMs)}`;
     default: return `Arrived ~${formatTime(phase.eta, nowMs)}`;

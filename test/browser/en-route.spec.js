@@ -62,10 +62,11 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await expect(tl.locator('.walk-icon')).toHaveCount(2); // transfer, final walk
   // Progress: the boarding stop is done; the ride and its drop-off are current.
   const cls = loc => loc.evaluateAll(els => els.map(e => (e.classList.contains('done') ? 'done' : e.classList.contains('current') ? 'current' : '')));
-  expect(await cls(tl.locator('.step'))).toEqual(['done', 'current', 'current', '', '', '', '', '', '']);
+  expect(await cls(tl.locator('.step'))).toEqual(['done', 'current', '', '', 'current', '', '', '', '', '', '']); // 2 on the bar: vehicle, Pond St
   await expect(tl.locator('.step.end')).toHaveText([/^Arrive\s*7:57am$/]); // no Leave on the ride card
-  await expect(card(page).locator('.ride-stops')).toContainText('Pond St @ Stone Zoo');
-  await expect(card(page).locator('.ride-stops')).toContainText('Washington St opp Oak Grove Sta');
+  // The stops left sit on the ridden leg's bar, after the vehicle marker, before the drop-off row.
+  await expect(tl.locator('.tl-leg').first().locator('.step.mid')).toHaveText(['', /^Pond St @ Stone Zoo\s*7:12am$/]);
+  await expect(tl.locator('.tl-leg').first().locator('.step.mid.gap .veh')).toHaveCount(1);
   await expect(card(page).getByRole('button', { name: 'Missed it' })).toBeVisible();
   await expect(bar(page)).toBeHidden();
 
@@ -141,31 +142,48 @@ test('a long ride lists the next 3 stops, the stop before the drop-off, and expa
   await openApp(page, { time: '07:00', scenario });
   await atTheStop(page);
   await tickTo(page, '07:09');
-  const stops = card(page).locator('.ride-stops');
+  // On the ridden leg's bar: the vehicle (between stops), then the stops left; the drop-off is the leg's last row.
+  const leg = card(page).locator('.tl-leg').first();
+  const stops = leg.locator('.step.mid:not(.gap):not(.more)');
   await expect(head(page)).toHaveText(riding('Bus 132', 16));
-  await expect(stops.locator('.ride-where')).toHaveCount(0); // not stopped at a stop
-  await expect(stops.locator('.ride-stop')).toHaveText([
-    /^Pond St @ Stone Zoo/, /^Wyoming Ave @ Fellsway E/, /^Wyoming Ave @ Ravine Rd/, '… 11 more',
-    /^Washington St @ Glen Rock Rd/, /^Washington St opp Oak Grove Sta/]);
-  await expect(stops.locator('.ride-stop.drop')).toHaveText(/^Washington St opp Oak Grove Sta/);
-  await stops.getByRole('button', { name: '… 11 more' }).click();
+  await expect(leg.locator('.step.mid.here')).toHaveCount(0); // not stopped at a stop
+  await expect(leg.locator('.step.mid')).toHaveText([
+    '', /^Pond St @ Stone Zoo/, /^Wyoming Ave @ Fellsway E/, /^Wyoming Ave @ Ravine Rd/, '… 11 more',
+    /^Washington St @ Glen Rock Rd/]);
+  await expect(leg.locator('.step.stop').last()).toHaveText(/^Washington St opp Oak Grove Sta/);
+  await leg.getByRole('button', { name: '… 11 more' }).click();
   await tick(page, 300);
-  await expect(stops.locator('div.ride-stop')).toHaveCount(16);
+  await expect(stops).toHaveCount(15);
   await tick(page, 60_000); // stays open across polls
-  await expect(stops.locator('div.ride-stop')).toHaveCount(16);
-  await stops.getByRole('button', { name: 'Show fewer' }).click();
+  await expect(stops).toHaveCount(15);
+  await leg.getByRole('button', { name: 'Show fewer' }).click();
   await tick(page, 300);
-  await expect(stops.locator('div.ride-stop')).toHaveCount(5);
+  await expect(stops).toHaveCount(4);
 });
 
-test('with only the drop-off left, one line replaces the stop list; the timeline names the stop', async ({ page }) => {
+test('stopped at a stop: an "At <stop>" row carries the vehicle on the bar', async ({ page }) => {
+  const scenario = commute();
+  scenario.dwell = true;
+  await openApp(page, { time: '07:00', scenario });
+  await atTheStop(page);
+  await tickTo(page, '07:12:10'); // at Pond St (7:12), dwelling
+  await page.locator('#refresh').click();
+  await tick(page, 1000);
+  const leg = card(page).locator('.tl-leg').first();
+  await expect(leg.locator('.step.mid')).toHaveText(['At Pond St @ Stone Zoo']);
+  await expect(leg.locator('.step.mid.here .veh')).toHaveCount(1);
+  await expect(head(page)).toHaveText('Next stop: get off');
+});
+
+test('with only the drop-off left, the headline says to get off; the timeline names the stop', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await atTheStop(page);
   await tickTo(page, '07:09');
   await expect(head(page)).toHaveText(riding('Bus 132', 2));
   await tickTo(page, '07:17');
-  await expect(card(page).locator('.ride-line')).toHaveText('Next stop: get off');
-  await expect(card(page).locator('.ride-stops')).toHaveCount(0);
+  await expect(head(page)).toHaveText('Next stop: get off');
+  await expect(card(page).locator('.step.mid:not(.gap)')).toHaveCount(0);
+  await expect(card(page).locator('.step.mid.gap .veh')).toHaveCount(1);
   await expect(card(page).getByText('Washington St opp Oak Grove Sta')).toHaveCount(1);
 });
 

@@ -178,15 +178,23 @@
   .summary .bell svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .ride-outlook { margin-top: 6px; font-size: 14px; color: var(--muted); }
   .ride-outlook.warn { color: var(--amber); font-weight: 600; }
-  .ride-stops { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
-  .ride-where { color: var(--muted); font-size: 13px; margin-bottom: 2px; }
-  .ride-line { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; font-size: 15px; font-weight: 600; color: var(--accent-text); }
-  .ride-stop { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
-  .ride-stop.drop { font-weight: 600; }
-  .ride-stop.more {
-    display: block; width: 100%; padding: 1px 0; border: 0; background: none; text-align: left;
-    color: var(--muted); font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer;
-    box-shadow: none !important; transform: none !important;
+  /* Ride card: the stops left along the ridden leg's bar (small dots), and the vehicle on it. */
+  .tl-leg .step.mid::after { top: 0; bottom: 0; }
+  .step.mid { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding-top: 2px; padding-bottom: 2px; }
+  .step.mid .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step.mid .t { flex: none; }
+  .mid-dot { position: absolute; left: 3px; top: calc(2px + .55em); width: 4px; height: 4px; border-radius: 50%; background: var(--card); z-index: 1; }
+  .step.mid.here { font-weight: 600; }
+  .step.mid.gap { height: 16px; padding: 0; }
+  .veh {
+    position: absolute; left: -4px; width: 18px; height: 18px; border-radius: 50%; background: var(--c);
+    border: 3px solid var(--card); box-shadow: 0 0 0 1px var(--c); box-sizing: border-box; z-index: 2;
+  }
+  .step.mid.here .veh { top: calc(2px + .2em); }
+  .step.mid.gap .veh { top: -1px; }
+  .step.mid.more button {
+    padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
+    text-decoration: underline; cursor: pointer; box-shadow: none !important; transform: none !important;
   }
   .ride-btns { margin: 10px 0 0; }
   .toast {
@@ -360,7 +368,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-08 · d13709186c</footer>
+    <footer class="version">Version 2026-10-08 · f56189656c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -381,10 +389,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
-  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, rideStopsLine, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg,
+  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=6b26ed40eb';
-import { openSetup } from './setup.js?v=d825e20d98';
+} from './core.js?v=428a39e8e8';
+import { openSetup } from './setup.js?v=791cb24e33';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1050,9 +1058,10 @@ function walkStep(line, step) {
 // each ride as a bar in its route's color from its first stop to its last, with "Bus 132 · 9 min
 // LIVE" between them; walks and transfers on the dotted rail. Names not known yet show "—". Long names are cut; tapping a stop
 // shows it in full (kept per `key` across re-renders) without collapsing the row.
-// `phase` (ride card): what's done is dimmed, the current step is bold.
+// `phase` (ride card): what's done is dimmed, the current step is bold. `along` (ride card): rows
+// placed on the ridden leg's bar, before its drop-off ({ leg, rows }).
 const fullStops = new Set();
-function renderTimeline(steps, now, { phase = null, key = '' } = {}) {
+function renderTimeline(steps, now, { phase = null, key = '', along = null } = {}) {
   const timeline = el('div', 'timeline');
   const n = steps.filter(s => s.kind === 'leg').length;
   const p = phase ? phase.leg : -1; // index of the leg being ridden, or the one after the transfer
@@ -1102,7 +1111,7 @@ function renderTimeline(steps, now, { phase = null, key = '' } = {}) {
     ride.append(badge(s.leg.source));
     if (s.leg.headsign) ride.append(el('div', 'toward', toward(s.leg)));
     leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from')), ride,
-      stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to')));
+      ...(along?.leg === i ? along.rows : []), stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to')));
     timeline.append(leg);
     i++;
   }
@@ -1380,50 +1389,55 @@ let rideNote = null; // e.g. "No later connection" after Missed it
 let laterOpen = false; // "Different train?" choices shown
 let stopsOpen = null; // trip id of the leg whose full stop list is shown ("… N more" tapped)
 let rideFetchFor = null; // trip id whose stops were last requested outside the poll
+// The ridden leg's rows on its timeline bar, before the drop-off: the vehicle ("At <stop>" while
+// stopped at one, else a marker just above the next stop; none at the drop-off), then the stops
+// left (shownStops: next 3, "… N more", the stop before the drop-off; "… N more" expands).
+function rideStopRows(stops, tripId, now) {
+  const mid = (cls, ...kids) => {
+    const d = el('div', `step mid${cls}`);
+    d.append(...kids);
+    return d;
+  };
+  const rows = [];
+  const v = stops.vehicle;
+  if (v?.status === 'STOPPED_AT' && !v.atDropOff) rows.push(mid(' here', el('span', 'veh'), el('span', 'n', `At ${v.name}`)));
+  else if (!v?.atDropOff) rows.push(mid(' gap', el('span', 'veh')));
+  const open = stopsOpen === tripId;
+  const toggle = (text, value) => {
+    const b = el('button', null, text);
+    b.type = 'button';
+    b.dataset.focus = 'ride:more';
+    b.onclick = e => { e.stopPropagation(); stopsOpen = value; render(); };
+    return mid(' more', b);
+  };
+  for (const st of shownStops(stops.stops, open)) {
+    if (st.more) { rows.push(toggle(`… ${st.more} more`, tripId)); continue; }
+    if (st.dropOff) continue; // the timeline's drop-off row
+    rows.push(mid('', el('span', 'mid-dot'), el('span', 'n', st.name), el('span', 't', formatTime(st.time, now))));
+  }
+  if (open && shownStops(stops.stops).length < stops.stops.length) rows.push(toggle('Show fewer', null));
+  return rows;
+}
+
 function renderRideCard(s, now) {
   const trip = config.trips[tripIdx];
   const { walkAfter } = tripShape(trip);
   const ride = s.ride;
   const phase = ridePhase(ride, walkAfter, now);
   const li = el('li', `row ride ${phase.kind === 'arrived' ? 'arrived' : ''}`);
-  // Riding: the stops left to the drop-off (see below), also counted in the headline.
+  // Riding: the stops left to the drop-off (in the timeline, below), also counted in the headline.
   const rs = cache[tripIdx]?.rideStops;
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
-  const stops = leg && rs?.tripId === leg.tripId && rideStops(rs.doc, tripShape(trip).transit[phase.leg].alight, now);
-  li.append(el('div', 'ride-head', rideHeadline(phase, ride, now, stops ? stops.stops.length : null)));
+  const stops = (leg && rs?.tripId === leg.tripId && rideStops(rs.doc, tripShape(trip).transit[phase.leg].alight, now)) || null;
+  li.append(el('div', 'ride-head', rideHeadline(phase, ride, now, stops)));
   // The next connection: spare time, tight, re-planned after a miss, or none.
   const outlook = outlookText(transferOutlook(ride, phase, rideVehicles(), tripShape(trip).transfers, now), ride, now);
   if (outlook) li.append(el('div', `ride-outlook${outlook.warn ? ' warn' : ''}`, outlook.text));
-  // Riding: the stops left to the drop-off (shownStops: next 3, "… N more", the stop before the
-  // drop-off, drop-off; "… N more" expands for that leg). With only the drop-off left, one line
-  // instead ("Next stop: get off" / "Get off here"; the timeline names the stop).
-  const stopsLine = stops && stops.stops.length ? rideStopsLine(stops) : null;
-  if (stopsLine?.last) li.append(el('div', 'ride-line', stopsLine.text));
-  else if (stopsLine) {
-    const box = el('div', 'ride-stops');
-    const n = stops.stops.length;
-    if (stopsLine.text) box.append(el('div', 'ride-where', stopsLine.text));
-    const open = stopsOpen === leg.tripId;
-    const toggle = (text, value) => {
-      const b = el('button', 'link ride-stop more', text);
-      b.type = 'button';
-      b.dataset.focus = 'ride:more';
-      b.onclick = () => { stopsOpen = value; render(); };
-      return b;
-    };
-    for (const st of shownStops(stops.stops, open)) {
-      if (st.more) { box.append(toggle(`… ${st.more} more`, leg.tripId)); continue; }
-      const line = el('div', `ride-stop${st.dropOff ? ' drop' : ''}`);
-      line.append(el('span', null, st.name), el('span', null, formatTime(st.time, now)));
-      box.append(line);
-    }
-    if (open && shownStops(stops.stops).length < n) box.append(toggle('Show fewer', null));
-    li.append(box);
-  }
   // Timeline with the current step: the leg being ridden, the transfer before a leg, or the
   // final walk.
   const steps = timelineSteps({ legs: ride.legs, eta: phase.eta, enRoute: true }, trip, 0, now, tripStopNames());
-  li.append(renderTimeline(steps, now, { phase, key: `ride:${ride.legs[0].tripId}` }));
+  const along = stops && stops.stops.length ? { leg: phase.leg, rows: rideStopRows(stops, leg.tripId, now) } : null;
+  li.append(renderTimeline(steps, now, { phase, key: `ride:${ride.legs[0].tripId}`, along }));
   if (rideNote) li.append(el('div', 'msg', rideNote));
   const btns = el('div', 'enroute-bar ride-btns');
   const btn = (label, onclick) => {

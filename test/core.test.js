@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsLine, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -418,8 +418,12 @@ test('tracking: boarding, live leg times, phases, Missed it re-plan', () => {
   assert.equal(at_('07:58').kind, 'arrived');
   assert.equal(at_('08:01').kind, 'done');
   assert.equal(rideHeadline(at_('07:20'), ride, at('07:20')), '132 · 6 min'); // no stop list: minutes only
-  assert.equal(rideHeadline(at_('07:20'), ride, at('07:20'), 9), '132 · 9 stops · 6 min');
-  assert.equal(rideHeadline(at_('07:20'), ride, at('07:25') + 30_000, 1), '132 · 1 stop · <1 min');
+  const st = (n, vehicle = null) => ({ vehicle, stops: Array.from({ length: n }, (_, k) => ({ name: `S${k}`, dropOff: k === n - 1 })) });
+  assert.equal(rideHeadline(at_('07:20'), ride, at('07:20'), st(9)), '132 · 9 stops · 6 min');
+  assert.equal(rideHeadline(at_('07:20'), ride, at('07:25') + 30_000, st(2)), '132 · 2 stops · <1 min');
+  // Only the drop-off left: the cue to get off instead.
+  assert.equal(rideHeadline(at_('07:20'), ride, at('07:25'), st(1)), 'Next stop: get off');
+  assert.equal(rideHeadline(at_('07:20'), ride, at('07:26'), st(1, { status: 'STOPPED_AT', name: 'S0', atDropOff: true })), 'Get off here');
   assert.equal(rideHeadline(at_('07:27'), ride, at('07:27')), 'Transfer · Orange 7:31am');
   assert.equal(rideHeadline(at_('07:50'), ride, at('07:50')), 'Walking · arrive 7:56am');
   assert.equal(rideHeadline(at_('07:58'), ride, at('07:58')), 'Arrived ~7:56am');
@@ -576,18 +580,13 @@ test('rideStops: remaining stops to the drop-off and the vehicle', () => {
   assert.equal(rideStops(doc(vehicle('IN_TRANSIT_TO', 130)), 'place-ogmnl', at('07:30')).vehicle.atDropOff, false);
 });
 
-test('rideStopsLine: the stop the vehicle is at (the count is in the headline); one line at the drop-off', () => {
+test('getOffText: only with the drop-off left; "Get off here" while stopped there', () => {
   const s = (name, dropOff = false) => ({ id: name, name, time: 0, dropOff });
   const three = [s('Sullivan Square'), s('Wellington'), s('Oak Grove', true)];
-  assert.deepEqual(rideStopsLine({ vehicle: { status: 'IN_TRANSIT_TO', name: 'Sullivan Square', atDropOff: false }, stops: three }),
-    { text: '', last: false });
-  assert.deepEqual(rideStopsLine({ vehicle: { status: 'STOPPED_AT', name: 'Malden Center', atDropOff: false }, stops: three.slice(1) }),
-    { text: 'At Malden Center', last: false });
-  assert.deepEqual(rideStopsLine({ vehicle: null, stops: [s('Oak Grove', true)] }), { text: 'Next stop: get off', last: true });
-  assert.deepEqual(rideStopsLine({ vehicle: { status: 'IN_TRANSIT_TO', name: 'Oak Grove', atDropOff: false }, stops: [s('Oak Grove', true)] }),
-    { text: 'Next stop: get off', last: true });
-  assert.deepEqual(rideStopsLine({ vehicle: { status: 'STOPPED_AT', name: 'Oak Grove', atDropOff: true }, stops: [s('Oak Grove', true)] }),
-    { text: 'Get off here', last: true });
+  assert.equal(getOffText({ vehicle: { status: 'STOPPED_AT', name: 'Malden Center', atDropOff: false }, stops: three }), null);
+  assert.equal(getOffText({ vehicle: null, stops: [s('Oak Grove', true)] }), 'Next stop: get off');
+  assert.equal(getOffText({ vehicle: { status: 'IN_TRANSIT_TO', name: 'Oak Grove', atDropOff: false }, stops: [s('Oak Grove', true)] }), 'Next stop: get off');
+  assert.equal(getOffText({ vehicle: { status: 'STOPPED_AT', name: 'Oak Grove', atDropOff: true }, stops: [s('Oak Grove', true)] }), 'Get off here');
 });
 
 test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {

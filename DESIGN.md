@@ -196,22 +196,23 @@ For leaving earlier or later than leave-by. A bar under the status line always o
   list and the bar:
   - Headline by phase (`ridePhase`, `rideHeadline`): "Bus 132 · 9 stops · 4 min" (stops left once
     the vehicle's stop list is loaded, else "Bus 132 · 4 min"; minutes count down to the leg's
-    live drop-off arrival, which the timeline shows), "Transfer ·
-    Orange 7:31am" (before leg i departs), "Walking · arrive 7:56am" (after the last arrival),
-    "Arrived ~7:56am" (5 min, with Done), then back to the list.
+    live drop-off arrival, which the timeline shows); with only the drop-off left, "Next stop:
+    get off", or "Get off here" while stopped there (`getOffText`); "Transfer · Orange 7:31am"
+    (before leg i departs), "Walking · arrive 7:56am" (after the last arrival), "Arrived
+    ~7:56am" (5 min, with Done), then back to the list.
   - The timeline (no first walk) with the current step bold; it ends with the arrival time
     (no separate "arrive" line under the headline).
-  - Riding: "At Downtown Crossing" when stopped at a stop (which isn't listed; the count is in
-    the headline), then the stops left to the drop-off with predicted times: all of them
-    up to 6, else the next 3, "… N more", the stop before the drop-off (the cue to get ready),
-    and the drop-off in bold (`rideStops`, `rideStopsLine`, `shownStops`). The first row is the
-    next stop, so the line doesn't name it. With only the drop-off left, one accent line
-    replaces the list: "Next stop: get off", or "Get off here" while stopped there (the
-    timeline names the stop). Tapping "… N more" lists every stop ("Show fewer" collapses)
-    for the rest of that leg. From `/predictions?filter[trip]=<id>&include=stop,vehicle`
-    (only remaining stops are returned; the drop-off matches the leg's `alight` or a child
-    platform of it). Fetched on every poll while riding, and right away when a ride starts; no
-    data (trip id changed, request failed) just hides the section.
+  - Riding: on the ridden leg's bar, between its line and its drop-off row (`rideStopRows`):
+    the vehicle, as a dot in the route's color, on an "At Downtown Crossing" row while stopped
+    at a stop (which isn't listed), else just above the next stop (none while stopped at the
+    drop-off); then the stops left with predicted times, small dots on the bar: all of them up
+    to 6 (counting the drop-off), else the next 3, "… N more", and the stop before the drop-off
+    (the cue to get ready; `shownStops`). The drop-off is the leg's own bold row. Tapping "… N
+    more" lists every stop ("Show fewer" collapses) for the rest of that leg. From
+    `/predictions?filter[trip]=<id>&include=stop,vehicle` (`rideStops`; only remaining stops
+    are returned; the drop-off matches the leg's `alight` or a child platform of it). Fetched on
+    every poll while riding, and right away when a ride starts; no data (trip id changed,
+    request failed) shows no stops and no vehicle.
   - Leg times refresh every tick by trip id from the per-leg predictions already polled
     (`trackLegs`): live entry, then remembered live times, then schedules, then the stored
     plan. A departed vehicle has no board entry and keeps its stored departure. No extra
