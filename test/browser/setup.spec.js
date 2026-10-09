@@ -62,10 +62,11 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   await setup(page).locator('#picker-search').fill('132');
   await setup(page).locator('.item', { hasText: 'Bus 132' }).click();
   // The ends of the line: Malden Center is boarded only toward Redstone (first under it), not
-  // listed as served both ways.
+  // listed as served both ways. (Typed once the stops have loaded: that load re-renders setup.)
+  await expect(setup(page).locator('.section-head').first()).toBeVisible();
   await setup(page).locator('#picker-search').fill('Malden');
   const listed = () => setup(page).locator('.section-head, .item').allInnerTexts().then(t => t.map(x => x.replace(/\s+/g, ' ').trim()));
-  expect((await listed())[0]).toBe('toward Redstone Shopping Center');
+  await expect.poll(async () => (await listed())[0]).toBe('toward Redstone Shopping Center'); // once the stops load
   expect((await listed()).filter(x => x.startsWith('Malden Center'))).toHaveLength(1);
   await setup(page).locator('#picker-search').fill('Main St @ South');
   // No direction step: stops on each side of the street are listed under their direction.
@@ -181,6 +182,10 @@ test('station-first: from a station to any station reachable without a transfer'
 
 test('after the Blue Line to State, the next leg lists the Orange Line; a search still finds Blue', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  // A bus near State (as below), so "Buses near State" shows once the nearby routes have loaded:
+  // that load re-renders setup, and typing during it can land in the replaced search box.
+  await page.route(/\/routes\?.*filter%5Bstop%5D/, route => route.fulfill({ json: { data: [
+    { type: 'route', id: '132', attributes: { short_name: '132' } }, { type: 'route', id: 'Blue', attributes: { short_name: '' } }] } }));
   await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('Airport');
@@ -190,6 +195,7 @@ test('after the Blue Line to State, the next leg lists the Orange Line; a search
   await button(page, '+ Add transit leg').click();
   await expect(setup(page).locator('.muted').first()).toHaveText('From State · Change');
   await expect(setup(page).locator('.section-head')).toHaveText(['Orange toward Forest Hills', 'Orange toward Oak Grove']);
+  await expect(button(page, 'Buses near State')).toBeVisible();
   await setup(page).locator('#picker-search').fill('Bowd');
   await expect(setup(page).locator('.section-head')).toHaveText(['Blue toward Bowdoin']);
   await setup(page).locator('#picker-search').fill('');
