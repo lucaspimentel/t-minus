@@ -140,8 +140,9 @@ unavailable: fallback, and the status line adds "Location off".
 
 - "Show previous rides ▾" (top of the list, when there are any): one row per first-leg vehicle
   that left in the last 15 min (`previousRides`, `PREVIOUS_MINUTES`), oldest first, drawn like
-  upcoming rows (gray): "Orange · left 3 min ago 5:41pm", the leg strip, the first leg's badge
-  and "arrive 6:43pm ▾". Expanded: the timeline from boarding (no Leave or walk to the stop)
+  upcoming rows (gray): "Missed · left 3 min ago 5:41pm" (the missed row's headline; the vehicle
+  is in the leg strip), the first leg's badge and "arrive 6:43pm ▾", with a 22px gap after the
+  last one. Expanded: the timeline from boarding (no Leave or walk to the stop)
   and [I got on] in the footer. Each has the earliest connections after it; a vehicle with no
   connection is left out. For a frequent first
   leg (Orange every ~5 min before the 132), the train actually taken is often not the row's.
@@ -161,7 +162,7 @@ unavailable: fallback, and the status line adds "Location off".
 | Green | `now < leave_by - 3 min` | "Leave in 12 min", leave-by time on the right |
 | Amber | `leave_by - 3 min <= now < leave_by` | "Leave in 2 min" (the color carries the urgency) |
 | Red | `leave_by <= now < last_chance` | "Hurry · <1 min" (to `last_chance`), last-chance time on the right |
-| Missed | `last_chance <= now < first_leg.departure + 5 min` | Gray "Missed · leaves in 2 min", then "Missed · 3 min ago"; first-leg departure on the right |
+| Missed | `last_chance <= now < first_leg.departure + 5 min` | Gray "Missed · leaves in 2 min", then "Missed · left 3 min ago"; first-leg departure on the right |
 | Hidden | `now >= first_leg.departure + 5 min` | Row removed |
 
 A missed row's collapsed line shows the first leg (the one missed) instead of the timing leg.

@@ -71,7 +71,7 @@ test('countdown goes green → amber → red → missed, and the missed row leav
   await expect(first).toHaveClass(/\bmissed\b/);
   await expect(first.locator('.big')).toContainText('Missed · leaves in 4 min');
   await tickTo(page, '07:10');
-  await expect(first.locator('.big')).toContainText('Missed · 2 min ago');
+  await expect(first.locator('.big')).toContainText('Missed · left 2 min ago');
   await tickTo(page, '07:13:30');
   await expect(page.locator('.row.missed')).toHaveCount(0);
   await expect(first.locator('.big')).toContainText('7:30am');

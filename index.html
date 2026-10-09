@@ -117,6 +117,7 @@
   .red .big { color: var(--red); }
   .row.missed { border-left-color: var(--muted); }
   .row.prev { border-left-color: var(--muted); }
+  .row.prev + .row:not(.prev) { margin-top: 22px; } /* previous rides apart from the rest */
   .prev .big { color: var(--muted); font-size: 20px; }
   .list-btn {
     display: block; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
@@ -367,7 +368,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-09 · 27585610f5</footer>
+    <footer class="version">Version 2026-10-09 · 628b3bab70</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -390,8 +391,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=dc0f483f21';
-import { openSetup } from './setup.js?v=7449ac15ab';
+} from './core.js?v=004c0ff843';
+import { openSetup } from './setup.js?v=c4c0467a44';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -760,7 +761,7 @@ function chevron(ch) {
 }
 
 // `gone`: a missed row's ride from previousRides once its first vehicle has left ("I got on").
-// A previous ride (`prev`) is drawn the same way: "Orange · left 3 min ago", its first departure,
+// A previous ride (`prev`) is drawn the same way: "Missed · left 3 min ago", its first departure,
 // the timeline from boarding, and "I got on" in the expanded footer.
 function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false) {
   const state = prev ? 'prev' : rowState(now, r);
@@ -774,8 +775,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   const target = state === 'red' ? r.lastChance : firstLeg ? r.firstDep : r.leaveBy;
   const key = prev ? `prev:${r.key}` : rowKey(r);
   const reminder = prev ? null : reminderFor(r, now);
-  const label = prev ? `${vehicleLabel(r.legs[0])} · left ${formatCountdown(Math.max(now - r.firstDep, 1))} ago`
-    : countdownLabel(state, target - now, vehicleLabel(r.legs[0]));
+  const label = countdownLabel(prev ? 'missed' : state, target - now, vehicleLabel(r.legs[0]));
   if (prev) gone = r;
   head.append(el('span', null, label), el('span', 'at', formatTime(target, now)));
   // The head (and the collapsed summary) is the row's expand button; a tap anywhere on the row

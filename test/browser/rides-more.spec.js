@@ -20,7 +20,11 @@ test('previous rides list the trains that left in the last 15 min, in place of t
   await expect(page.locator('.row.missed')).toHaveCount(1);
   await listBtn(page, 'Show previous rides ▾').click();
   await expect(prevRows(page).locator('.big')).toHaveText([
-    /Orange · left 10 min ago\s*5:29pm/, /Orange · left 4 min ago\s*5:35pm/]);
+    /Missed · left 10 min ago\s*5:29pm/, /Missed · left 4 min ago\s*5:35pm/]);
+  // A gap between the previous rides and the next row.
+  const last = await prevRows(page).last().boundingBox();
+  const next = await page.locator('#rows > li.row:not(.prev)').first().boundingBox();
+  expect(next.y - (last.y + last.height)).toBeGreaterThanOrEqual(22);
   await expect(prevRows(page).locator('.strip')).toHaveText([/Orange\s*Bus 132/, /Orange\s*Bus 132/]);
   await expect(prevRows(page).locator('.summary .arrive')).toHaveText(['arrive 6:15pm', 'arrive 6:15pm']);
   await expect(prevRows(page).locator('.badge')).toHaveCount(2);
