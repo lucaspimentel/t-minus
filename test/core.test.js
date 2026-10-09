@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -275,6 +275,17 @@ test('averageHeadway and pickTimingLeg with hysteresis and override', () => {
   // The pinned override wins; out-of-range overrides are ignored.
   assert.equal(pickTimingLeg([30 * MIN, 5 * MIN], null, 1), 1);
   assert.equal(pickTimingLeg([30 * MIN, 5 * MIN], null, 5), 0);
+});
+
+test('tripStarted: leaving, at the stop or a ride; not plain tracking', () => {
+  const row = { key: 'b1', legs: [] };
+  assert.equal(tripStarted(null), false);
+  const tracked = pinTarget(null, row, at('07:00'));
+  assert.equal(tripStarted(tracked), false);
+  assert.equal(tripStarted(startEnRoute('leaving', at('07:01'), 5, tracked)), true);
+  assert.equal(tripStarted(startEnRoute('stop', at('07:01'), 5)), true);
+  assert.equal(tripStarted({ ...tracked, ride: { legs: [], boardedAt: at('07:08') } }), true);
+  assert.equal(tripStarted({ kind: 'track', at: at('07:00'), ride: { legs: [], boardedAt: at('07:08') } }), true);
 });
 
 // ---------- leave-by ----------

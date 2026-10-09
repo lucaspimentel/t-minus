@@ -195,6 +195,7 @@ For leaving earlier or later than leave-by. A bar under the status line always o
   row is highlighted instead of the first reachable one. "Tracking ✕" drops only the pin
   (`unpinTarget`): plain tracking ends; "Leaving now" / "At the stop" stays and the highlight
   goes back to the first reachable ride. Either way: "Tracking cancelled · Undo" toast.
+  Tracking keeps the trip's reminders ("Notify me"); leaving or boarding cancels them.
 - Boarding is assumed when the target's first vehicle departs (live or scheduled time) while
   it was reachable: its legs (trip id + times) become the ride, and a trip card replaces the
   list and the bar:
@@ -675,8 +676,10 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     (`DELETE`).
   - Reminders are kept in `localStorage` (`t-minus:reminders`, keyed by trip and row) and
     stop showing once leave-by passes.
-  - Starting the trip ("Leaving now", "At the stop", "I got on", "Track this trip"; not later
-    changes to a started one) cancels all its reminders silently (`DELETE` each). The Undo of
+  - Starting the trip ("Leaving now", "At the stop", "I got on", or a tracked ride boarding by
+    itself; `tripStarted`) cancels all its reminders silently (`DELETE` each), also after
+    "Track this trip". Tracking alone is a plan and keeps them (a "Leave now" push still helps);
+    later changes to a started trip don't cancel again. The Undo of
     "I got on" posts them again (those still ahead; the local entry keeps `timingIdx` and `key`
     for this). Cancel ✕ and Done don't restore them.
   - Without the Push API (iOS outside the Home Screen app), the button is disabled with "Add

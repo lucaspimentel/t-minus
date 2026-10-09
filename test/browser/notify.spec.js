@@ -1,7 +1,7 @@
 // "Notify me": leave-time reminders through the push server (stubbed here at https://push.test;
 // Push API stubbed too). Home to office at 6:50: the 7:08 bus 132 means leave by 7:02.
 import { test, expect } from '@playwright/test';
-import { openApp, tick } from './helpers.js';
+import { openApp, tick, tickTo } from './helpers.js';
 
 const PUSH = 'https://push.test';
 
@@ -176,14 +176,32 @@ for (const name of ['Leaving now', 'At the stop']) {
   });
 }
 
-test('Track this trip cancels the trip\'s reminders', async ({ page }) => {
+test('Track this trip keeps the trip\'s reminders; At the stop then cancels them', async ({ page }) => {
   const calls = await fakeServer(page);
   await page.addInitScript(pushStub(), { supported: true, server: PUSH });
   await openApp(page, { time: '06:50' });
   await setReminder(page, firstRow(page));
   await firstRow(page).getByRole('button', { name: 'Track this trip' }).click();
+  await tick(page, 1000);
+  expect(calls.some(c => c.method === 'DELETE')).toBe(false);
+  await expect(page.locator('.track-btn.on')).toHaveCount(1);
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop', exact: true }).click();
   await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
   await expect(page.locator('.bell, .track-btn.on')).toHaveCount(0);
+});
+
+test('a tracked ride boarding by itself cancels the trip\'s reminders', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(pushStub(), { supported: true, server: PUSH });
+  await openApp(page, { time: '06:50' });
+  await setReminder(page, page.locator('.row').nth(1)); // the next ride's
+  await firstRow(page).click();
+  await firstRow(page).getByRole('button', { name: 'Track this trip' }).click();
+  await tick(page, 1000);
+  expect(calls.some(c => c.method === 'DELETE')).toBe(false);
+  await tickTo(page, '07:08:30'); // the tracked 7:08am bus leaves: boarded
+  await expect(page.locator('.row.ride')).toHaveCount(1);
+  await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
 });
 
 test('I got on cancels the reminders; its Undo sets them again', async ({ page }) => {

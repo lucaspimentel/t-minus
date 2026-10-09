@@ -1113,6 +1113,12 @@ export function startEnRoute(kind, nowMs, walkBefore, prev = null) {
   };
 }
 
+// Whether the rider has actually set off: "Leaving now" / "At the stop" or a ride. Plain tracking
+// ("Track this trip", kind 'track' without a ride) is only a plan. Starting cancels reminders.
+export function tripStarted(state) {
+  return !!state && (!!state.ride || state.kind !== 'track');
+}
+
 // "Track this trip": pins `row` as the target, keeping an en-route state (else kind 'track':
 // no at-stop time yet, the list stays normal).
 export function pinTarget(prev, row, nowMs) {
