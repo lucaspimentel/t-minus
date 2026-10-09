@@ -117,8 +117,7 @@
   .red .big { color: var(--red); }
   .row.missed { border-left-color: var(--muted); }
   .row.prev { border-left-color: var(--muted); }
-  .prev .big { color: var(--muted); font-size: 18px; }
-  .prev-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+  .prev .big { color: var(--muted); font-size: 20px; }
   .list-btn {
     display: block; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
     background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
@@ -368,7 +367,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-08 · 0762bad870</footer>
+    <footer class="version">Version 2026-10-09 · 27585610f5</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -761,19 +760,23 @@ function chevron(ch) {
 }
 
 // `gone`: a missed row's ride from previousRides once its first vehicle has left ("I got on").
-function renderRow(r, now, isCatch, pinnedKey = null, gone = null) {
-  const state = rowState(now, r);
+// A previous ride (`prev`) is drawn the same way: "Orange · left 3 min ago", its first departure,
+// the timeline from boarding, and "I got on" in the expanded footer.
+function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false) {
+  const state = prev ? 'prev' : rowState(now, r);
   if (state === 'hidden') return null;
   const tracked = pinnedKey != null && isCatch;
   const li = el('li', `row ${state}${isCatch ? ' catch' : ''}${tracked ? ' tracked' : ''}`);
   const head = el('div', 'big');
   // Red counts down to (and shows) the last chance; leave-by has already passed. Missed and
   // en route count to/from the first departure.
-  const firstLeg = state === 'missed' || state === 'enroute';
+  const firstLeg = state === 'missed' || state === 'enroute' || prev;
   const target = state === 'red' ? r.lastChance : firstLeg ? r.firstDep : r.leaveBy;
-  const key = rowKey(r);
-  const reminder = reminderFor(r, now);
-  const label = countdownLabel(state, target - now, vehicleLabel(r.legs[0]));
+  const key = prev ? `prev:${r.key}` : rowKey(r);
+  const reminder = prev ? null : reminderFor(r, now);
+  const label = prev ? `${vehicleLabel(r.legs[0])} · left ${formatCountdown(Math.max(now - r.firstDep, 1))} ago`
+    : countdownLabel(state, target - now, vehicleLabel(r.legs[0]));
+  if (prev) gone = r;
   head.append(el('span', null, label), el('span', 'at', formatTime(target, now)));
   // The head (and the collapsed summary) is the row's expand button; a tap anywhere on the row
   // still toggles it (the button's click bubbles to the row).
@@ -817,7 +820,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null) {
     return li;
   }
   // Expanded: the timeline replaces the summary (walks, legs with their badges, transfers).
-  li.append(renderTimeline(timelineSteps(r, config.trips[tripIdx], stopSlackMinutes(config), now, tripStopNames()), now, { key: rowKey(r) }));
+  li.append(renderTimeline(timelineSteps(prev ? { ...r, enRoute: true } : r, config.trips[tripIdx], stopSlackMinutes(config), now, tripStopNames()), now, { key }));
   // Footer: "Track this trip" (not next-day rows, nor rides already gone) and the ▴ hint.
   const foot = el('div', 'row-foot');
   if (!r.nextDay && r.firstDep > now) {
@@ -1219,7 +1222,7 @@ function render() {
   }).filter(Boolean);
   announceLeaveState(current.find(r => rowState(now, r) !== 'hidden'), now);
   const top = prev.length ? [listButton(prevOpen ? 'Hide previous rides ▴' : 'Show previous rides ▾', 'prev', () => { prevOpen = !prevOpen; render(); }),
-    ...(prevOpen ? prev.map(r => renderPrevRow(r, now)) : [])] : [];
+    ...(prevOpen ? prev.map(r => renderRow(r, now, false, null, null, true)) : [])] : [];
   const more = current.length && currentRows(now, s, extraRows + 4).length > current.length
     ? [listButton('Show more rides ▾', 'more', () => { extraRows += 4; render(); })] : [];
   if (rows.length) setRows(...top, ...rows, ...more);
@@ -1240,22 +1243,7 @@ function listButton(label, key, onclick) {
   return li;
 }
 
-// A ride whose first vehicle left in the last 15 min: "Orange · left 3 min ago 5:41pm", its
-// connections and arrival, and "I got on".
-function renderPrevRow(r, now) {
-  const li = el('li', 'row prev');
-  const [first, ...rest] = r.legs;
-  const big = el('div', 'big');
-  big.append(el('span', null, `${vehicleLabel(first)} · left ${formatCountdown(Math.max(now - first.dep, 1))} ago`),
-    el('span', 'at', formatTime(first.dep, now)));
-  const line = el('div', 'detail prev-line');
-  line.append(el('span', null, [...rest.map(l => `${vehicleLabel(l)} ${formatTime(l.dep, now)}`), `arrive ${formatTime(r.eta, now)}`].join(' · ')));
-  line.append(gotOnButton(r, now));
-  li.append(big, line);
-  return li;
-}
-
-// "I got on" for a previous ride (in its row, or in the expanded missed row).
+// "I got on" for a previous ride (in its expanded row, or in the expanded missed row).
 function gotOnButton(r, now) {
   const first = r.legs[0];
   const b = el('button', 'track-btn', 'I got on');

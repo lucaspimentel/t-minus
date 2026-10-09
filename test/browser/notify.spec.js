@@ -195,6 +195,7 @@ test('I got on cancels the reminders; its Undo sets them again', async ({ page }
   await setReminder(page, row);
   const post = calls.find(c => c.method === 'POST' && c.path === '/reminders');
   await page.locator('#rows').getByRole('button', { name: 'Show previous rides ▾', exact: true }).click();
+  await page.locator('.row.prev', { hasText: '5:41pm' }).locator('.row-toggle').click();
   await page.getByRole('button', { name: 'I got on the 5:41pm Orange' }).click();
   await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
   await page.locator('#toast').getByRole('button', { name: 'Undo' }).click();

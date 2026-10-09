@@ -139,9 +139,11 @@ unavailable: fallback, and the status line adds "Location off".
 ### Previous and more rides
 
 - "Show previous rides ▾" (top of the list, when there are any): one row per first-leg vehicle
-  that left in the last 15 min (`previousRides`, `PREVIOUS_MINUTES`), oldest first, e.g.
-  "Orange · left 3 min ago 5:41pm" / "Bus 132 6:26pm · arrive 6:43pm" [I got on]. Each has the
-  earliest connections after it; a vehicle with no connection is left out. For a frequent first
+  that left in the last 15 min (`previousRides`, `PREVIOUS_MINUTES`), oldest first, drawn like
+  upcoming rows (gray): "Orange · left 3 min ago 5:41pm", the leg strip, the first leg's badge
+  and "arrive 6:43pm ▾". Expanded: the timeline from boarding (no Leave or walk to the stop)
+  and [I got on] in the footer. Each has the earliest connections after it; a vehicle with no
+  connection is left out. For a frequent first
   leg (Orange every ~5 min before the 132), the train actually taken is often not the row's.
   While open, the missed row is hidden once its first vehicle has left (it's listed here then);
   a missed ride still to leave ("Missed · leaves in 6 min") stays. Once its first vehicle has

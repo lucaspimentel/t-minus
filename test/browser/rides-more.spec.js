@@ -1,5 +1,5 @@
 // The list's extra rides: "Show previous rides" (first-leg vehicles that left in the last
-// 15 min, with "I got on") and "Show more rides" (4 more rows per tap).
+// 15 min, drawn like upcoming rows, with "I got on" when expanded) and "Show more rides" (4 more rows per tap).
 // Office to home at 5:43pm: Orange from State every 6 min (5:29, 5:35, 5:41 have left; 15-min
 // ride), 5-min transfer, bus 132 from Oak Grove at 5:58 and 6:26 (12-min ride), 5-min walk.
 import { test, expect } from '@playwright/test';
@@ -21,8 +21,21 @@ test('previous rides list the trains that left in the last 15 min, in place of t
   await listBtn(page, 'Show previous rides ▾').click();
   await expect(prevRows(page).locator('.big')).toHaveText([
     /Orange · left 10 min ago\s*5:29pm/, /Orange · left 4 min ago\s*5:35pm/]);
-  await expect(prevRows(page).locator('.prev-line > span')).toHaveText([
-    'Bus 132 5:58pm · arrive 6:15pm', 'Bus 132 5:58pm · arrive 6:15pm']);
+  await expect(prevRows(page).locator('.strip')).toHaveText([/Orange\s*Bus 132/, /Orange\s*Bus 132/]);
+  await expect(prevRows(page).locator('.summary .arrive')).toHaveText(['arrive 6:15pm', 'arrive 6:15pm']);
+  await expect(prevRows(page).locator('.badge')).toHaveCount(2);
+  await expect(prevRows(page).getByRole('button', { name: /^I got on/ })).toHaveCount(0); // collapsed
+  // Expanded: the timeline from boarding (no Leave or walk to the stop), I got on left of ▴.
+  const row = prevRows(page).nth(1);
+  await row.locator('.row-toggle').click();
+  await expect(row.locator('.timeline')).not.toContainText('Leave');
+  await expect(row.locator('.timeline')).not.toContainText('early at the stop');
+  await expect(row.locator('.timeline .step.stop .n')).toHaveText(['State', 'Oak Grove', 'Washington St @ Oak Grove Station', 'Main St @ South St']);
+  const got = row.locator('.row-foot').getByRole('button', { name: 'I got on the 5:35pm Orange' });
+  const chev = await row.locator('.row-foot .chev').boundingBox();
+  expect((await got.boundingBox()).x).toBeLessThan(chev.x);
+  await row.locator('.row-toggle').click();
+  await expect(got).toHaveCount(0);
   await expect(page.locator('.row.missed')).toHaveCount(0); // its 5:35pm train is listed above
   await listBtn(page, 'Hide previous rides ▴').click();
   await expect(prevRows(page)).toHaveCount(0);
@@ -41,6 +54,7 @@ test('a missed ride that has not left yet stays while previous rides are open', 
 test('I got on tracks that ride from its departure, with Undo', async ({ page }) => {
   await openApp(page, { time: '17:43' });
   await listBtn(page, 'Show previous rides ▾').click();
+  await prevRows(page).filter({ hasText: '5:41pm' }).locator('.row-toggle').click();
   await page.getByRole('button', { name: 'I got on the 5:41pm Orange' }).click();
   await tick(page, 500);
   await expect(page.locator('.ride-head')).toHaveText(riding('Orange')); // off at 5:56pm
