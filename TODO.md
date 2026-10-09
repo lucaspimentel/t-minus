@@ -17,3 +17,8 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 - Default times to/from the stops and transfer times estimated from stop coordinates
   (a walking estimate; the user can change it, e.g. when getting a ride).
 - Commuter rail and ferry.
+- Pull down to reload the app (`location.reload()`) instead of refreshing data; ↻ stays a data
+  refresh. Decided: always reload (offline: the service worker's saved copy), text "Pull down
+  to reload" / "Release to reload" / "Reloading…", view-only state (expanded rows, previous /
+  more rides) resets. Specs: replace "a long pull refreshes…" with a reload check (a `window`
+  marker gone), drop "a pull while a refresh is in flight waits".
