@@ -57,6 +57,9 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await offAt(page, '7:22am');
   await expect(card(page)).toContainText('Then Orange Line toward Forest Hills 7:32am · 5 min to spare');
   await expect(card(page).locator('.summary')).toHaveCount(0); // the arrival time is the timeline's end only
+  // The buttons sit below the timeline, not on its last row.
+  const gap = await card(page).evaluate(c => c.querySelector('.ride-btns').getBoundingClientRect().top - c.querySelector('.timeline').getBoundingClientRect().bottom);
+  expect(gap).toBeGreaterThanOrEqual(8);
   const tl = card(page).locator('.timeline');
   await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
   await expect(tl.locator('.walk-icon')).toHaveCount(2); // transfer, final walk
