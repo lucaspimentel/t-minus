@@ -96,7 +96,7 @@ For each timing-leg vehicle in departure order (up to `departureCount` rows):
    before the next leg's departure minus the transfer time (minimal waiting).
 2. **First leg reachability**: the first vehicle's `last_chance` (below) must be after `now`;
    this is the same for every trip, whichever leg is the timing leg. Otherwise the departure
-   is **missed** while `now < first_leg.departure + 10 min`; only the most recent missed
+   is **missed** while `now < first_leg.departure + 5 min`; only the most recent missed
    departure is kept. It leads the list and counts toward `departureCount` (1 missed + 3
    upcoming at 4); with `departureCount` 1 there is no missed row.
 3. **Legs after it**, working forwards: the **earliest** vehicle departing at or after the
@@ -144,7 +144,8 @@ unavailable: fallback, and the status line adds "Location off".
   earliest connections after it; a vehicle with no connection is left out. For a frequent first
   leg (Orange every ~5 min before the 132), the train actually taken is often not the row's.
   While open, the missed row is hidden once its first vehicle has left (it's listed here then);
-  a missed ride still to leave ("Missed · leaves in 6 min") stays.
+  a missed ride still to leave ("Missed · leaves in 6 min") stays. Once its first vehicle has
+  left, the expanded missed row also has "I got on" in its footer (the same ride as here).
 - "I got on" starts tracking that ride as boarded at its departure (`{ kind: 'track', ride:
   { legs, boardedAt } }`; the card may open past the first leg), with "Tracking started · Undo".
 - "Show more rides ▾" (bottom): 4 more rows per tap (`departureCount` + 4n), hidden when no
@@ -158,8 +159,8 @@ unavailable: fallback, and the status line adds "Location off".
 | Green | `now < leave_by - 3 min` | "Leave in 12 min", leave-by time on the right |
 | Amber | `leave_by - 3 min <= now < leave_by` | "Leave in 2 min" (the color carries the urgency) |
 | Red | `leave_by <= now < last_chance` | "Hurry · <1 min" (to `last_chance`), last-chance time on the right |
-| Missed | `last_chance <= now < first_leg.departure + 10 min` | Gray "Missed · leaves in 2 min", then "Missed · 3 min ago"; first-leg departure on the right |
-| Hidden | `now >= first_leg.departure + 10 min` | Row removed |
+| Missed | `last_chance <= now < first_leg.departure + 5 min` | Gray "Missed · leaves in 2 min", then "Missed · 3 min ago"; first-leg departure on the right |
+| Hidden | `now >= first_leg.departure + 5 min` | Row removed |
 
 A missed row's collapsed line shows the first leg (the one missed) instead of the timing leg.
 Live predictions disappear once a vehicle leaves its stop, so the last live times seen while
@@ -716,7 +717,8 @@ service on Railway (`server/`), which also serves the app (see Hosting).
       7:13am · leave by 7:07am (was 7:04am)".
     - A row missing 3 polls in a row (cancelled, or the connection no longer works) sends "Ride
       cancelled" and ends the reminder. MBTA errors don't count; they retry in 20 s.
-    - A reminder 10 min past leave-by with no row just expires.
+    - A reminder 5 min past leave-by with no row just expires (`MISSED_MINUTES`; never after
+      its row is gone, since leave-by is before the first departure).
   - **Poll timing:** every 60 s while leave-by is more than 20 min away, then every 20 s, and
     always at the heads-up and leave times (`reminderPollMs`). The loop runs every 5 s.
   - **Request budget (author's key, 1,000 req/min):** about 3 requests/min per leg per

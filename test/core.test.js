@@ -292,11 +292,11 @@ test('tripRows: single leg with stop slack, "Hurry" window, and ETA', () => {
   // Past leave-by but before the last chance: the row stays ("Hurry").
   assert.deepEqual(tripRows(trip, [buses], 0, at('07:34'), 1).map(r => r.key), ['b2', 'b3']);
   assert.equal(countdownState(at('07:34'), rows[0].leaveBy, rows[0].lastChance, rows[0].firstDep), 'red');
-  // From the last chance until 10 min after it leaves: missed, first, counting toward `count`.
+  // From the last chance until 5 min after it leaves: missed, first, counting toward `count`.
   const missedAt = t => tripRows(trip, [buses], 0, at(t), 1).map(r => [r.key, !!r.missed]);
   assert.deepEqual(missedAt('07:35'), [['b2', true], ['b3', false]]);
-  assert.deepEqual(missedAt('07:49'), [['b2', true], ['b3', false]]);
-  assert.deepEqual(missedAt('07:50'), [['b3', false]]);
+  assert.deepEqual(missedAt('07:44'), [['b2', true], ['b3', false]]);
+  assert.deepEqual(missedAt('07:45'), [['b3', false]]);
   assert.deepEqual(tripRows(trip, [buses], 0, at('07:36'), 1, 2).map(r => r.key), ['b2', 'b3']);
   assert.deepEqual(tripRows(trip, [buses], 0, at('07:36'), 1, 1).map(r => r.key), ['b3']);
   // Count limit.
@@ -321,11 +321,11 @@ test('tripRows: train then bus picks the latest viable train and skips unreachab
   assert.equal(rows[1].legs[0].dep, at('17:21'));
   assert.equal(rows[2].legs[0].dep, at('18:01'));
   // At 17:08, o2 (17:16) can't be reached with a 10-minute walk and o3 arrives too late
-  // for b1, so b1 is missed (until 10 min after o2 leaves), shown first.
+  // for b1, so b1 is missed (until 5 min after o2 leaves), shown first.
   const late = tripRows(officeToHome, [trains, buses], 1, at('17:08'), 1);
   assert.deepEqual(late.map(r => [r.key, !!r.missed]), [['b1', true], ['b2', false], ['b3', false]]);
   assert.equal(late[0].firstDep, at('17:16'));
-  assert.deepEqual(tripRows(officeToHome, [trains, buses], 1, at('17:26'), 1).map(r => r.key), ['b2', 'b3']);
+  assert.deepEqual(tripRows(officeToHome, [trains, buses], 1, at('17:21'), 1).map(r => r.key), ['b2', 'b3']);
 });
 
 test('tripRows: bus then train takes the earliest onward train for the ETA', () => {
@@ -679,8 +679,8 @@ test('countdownState boundaries', () => {
   assert.equal(countdownState(at('07:57'), leave, last, dep), 'amber');
   assert.equal(countdownState(at('08:00'), leave, last, dep), 'red');
   assert.equal(countdownState(at('08:01'), leave, last, dep), 'missed');
-  assert.equal(countdownState(at('08:15'), leave, last, dep), 'missed');
-  assert.equal(countdownState(at('08:16'), leave, last, dep), 'hidden');
+  assert.equal(countdownState(at('08:10'), leave, last, dep), 'missed');
+  assert.equal(countdownState(at('08:11'), leave, last, dep), 'hidden');
   assert.equal(countdownState(at('08:00'), null, last, dep), 'none');
 });
 

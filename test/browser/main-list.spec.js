@@ -57,7 +57,7 @@ test('before stop names are known, the timeline keeps its shape with "—"', asy
   await expect(first.locator('.timeline .step.stop .t')).toHaveText(['7:08am', '7:22am', '7:32am', '7:47am']);
 });
 
-test('countdown goes green → amber → red → missed, and the missed row leaves after 10 min', async ({ page }) => {
+test('countdown goes green → amber → red → missed, and the missed row leaves after 5 min', async ({ page }) => {
   await openApp(page, { time: '06:55' });
   const first = page.locator('.row').first();
   await expect(first).toHaveClass(/\bgreen\b/);
@@ -72,7 +72,7 @@ test('countdown goes green → amber → red → missed, and the missed row leav
   await expect(first.locator('.big')).toContainText('Missed · leaves in 4 min');
   await tickTo(page, '07:10');
   await expect(first.locator('.big')).toContainText('Missed · 2 min ago');
-  await tickTo(page, '07:18:30');
+  await tickTo(page, '07:13:30');
   await expect(page.locator('.row.missed')).toHaveCount(0);
   await expect(first.locator('.big')).toContainText('7:30am');
 });

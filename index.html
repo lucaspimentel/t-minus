@@ -368,7 +368,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-08 · 212551b926</footer>
+    <footer class="version">Version 2026-10-08 · 33568f830a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -391,8 +391,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=d5b0bfb1b5';
-import { openSetup } from './setup.js?v=45b3fb1e0a';
+} from './core.js?v=dc0f483f21';
+import { openSetup } from './setup.js?v=7449ac15ab';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -539,7 +539,7 @@ async function refresh({ force = false } = {}) {
     })];
     if (force || !c.schedules || now - c.schedules.at > SCHEDULE_TTL) {
       // Look further ahead when more departures are shown (60-min midday headways).
-      // 30 min back keeps a just-missed ride (shown up to 10 min after it leaves) in the data.
+      // 30 min back keeps a just-missed ride (shown up to 5 min after it leaves) in the data.
       const w = scheduleWindow(now, 30, Math.max(360, 90 * departureCount(config)));
       tasks.push(fetchSchedules(trip, w).then(s => { c.schedules = s; updateTiming(idx, trip, c); }));
     }
@@ -760,7 +760,8 @@ function chevron(ch) {
   return c;
 }
 
-function renderRow(r, now, isCatch, pinnedKey = null) {
+// `gone`: a missed row's ride from previousRides once its first vehicle has left ("I got on").
+function renderRow(r, now, isCatch, pinnedKey = null, gone = null) {
   const state = rowState(now, r);
   if (state === 'hidden') return null;
   const tracked = pinnedKey != null && isCatch;
@@ -831,6 +832,11 @@ function renderRow(r, now, isCatch, pinnedKey = null) {
       render();
       schedulePoll();
     };
+    foot.append(b);
+  }
+  if (gone) {
+    const b = gotOnButton(gone, now);
+    b.addEventListener('click', e => e.stopPropagation());
     foot.append(b);
   }
   // "Notify me": a push at leave-by (and a heads-up before), once the push server exists.
@@ -1206,7 +1212,11 @@ function render() {
   if (!prev.length) prevOpen = false;
   // While previous rides are shown, a missed row whose train has left is among them (one that
   // hasn't left yet stays).
-  const rows = current.filter(r => !(prevOpen && r.missed && prev.some(p => p.key === r.legs[0].tripId))).map(r => renderRow(r, now, r === catchRow, pinnedKey)).filter(Boolean);
+  // Otherwise its expanded row has "I got on" for that ride.
+  const rows = current.flatMap(r => {
+    const p = r.missed && r.firstDep <= now ? prev.find(p => p.key === r.legs[0].tripId) : null;
+    return p && prevOpen ? [] : [renderRow(r, now, r === catchRow, pinnedKey, p)];
+  }).filter(Boolean);
   announceLeaveState(current.find(r => rowState(now, r) !== 'hidden'), now);
   const top = prev.length ? [listButton(prevOpen ? 'Hide previous rides ▴' : 'Show previous rides ▾', 'prev', () => { prevOpen = !prevOpen; render(); }),
     ...(prevOpen ? prev.map(r => renderPrevRow(r, now)) : [])] : [];
@@ -1240,14 +1250,20 @@ function renderPrevRow(r, now) {
     el('span', 'at', formatTime(first.dep, now)));
   const line = el('div', 'detail prev-line');
   line.append(el('span', null, [...rest.map(l => `${vehicleLabel(l)} ${formatTime(l.dep, now)}`), `arrive ${formatTime(r.eta, now)}`].join(' · ')));
+  line.append(gotOnButton(r, now));
+  li.append(big, line);
+  return li;
+}
+
+// "I got on" for a previous ride (in its row, or in the expanded missed row).
+function gotOnButton(r, now) {
+  const first = r.legs[0];
   const b = el('button', 'track-btn', 'I got on');
   b.type = 'button';
   b.dataset.focus = `got:${r.key}`;
   b.setAttribute('aria-label', `I got on the ${formatTime(first.dep, now)} ${vehicleLabel(first)}`);
   b.onclick = () => gotOn(r);
-  line.append(b);
-  li.append(big, line);
-  return li;
+  return b;
 }
 
 // "I got on": tracks that ride from its departure, with Undo.

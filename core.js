@@ -3,7 +3,7 @@
 export const TZ = 'America/New_York';
 const MIN = 60_000;
 export const DEFAULT_DEPARTURE_COUNT = 4;
-export const MISSED_MINUTES = 10;
+export const MISSED_MINUTES = 5;
 export const MAX_DEPARTURE_COUNT = 8;
 export const DEFAULT_STOP_SLACK_MINUTES = 1;
 export const DEFAULT_WAKE_MINUTES = 10;
