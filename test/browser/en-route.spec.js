@@ -170,7 +170,10 @@ test('while riding: Different connection? lists the next leg after the arrival; 
 });
 
 test('a planned train that falls behind gives way to an earlier one, silently', async ({ page }) => {
+  // Every Orange train is predicted, as on the subway (an unpredicted scheduled one between
+  // predicted ones isn't counted: predictionsFirst).
   const scenario = commute();
+  for (const t of scenario.trips) if (t.route === 'Orange') t.live = true;
   await openApp(page, { time: '07:00', scenario });
   await atTheStop(page);
   await tickTo(page, '07:09');

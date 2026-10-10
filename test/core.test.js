@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -680,6 +680,55 @@ test('rememberLive and withRemembered keep a departed ride on its last live time
   // Dropped 30 min after it left.
   assert.equal(rememberLive(mem, [[]], at('08:12'))[0].size, 0);
   assert.deepEqual(withRemembered([scheduled], null), [scheduled]);
+});
+
+test('isSubwayRoute: heavy and light rail by route id', () => {
+  for (const id of ['Red', 'Orange', 'Blue', 'Mattapan', 'Green-B', 'Green-E']) assert.equal(isSubwayRoute(id), true, id);
+  for (const id of ['132', '741', 'CR-Haverhill', 'Boat-F4', 'Green']) assert.equal(isSubwayRoute(id), false, id);
+});
+
+// State, toward Oak Grove, 10:05pm (live API, 2026-10-09): the 10:09pm train is predicted only as
+// ADDED-1584988985 (10:09:05), its scheduled trip 77822004 (10:09) has no prediction; 77822012
+// (10:14) is predicted at 10:21.
+test('predictionsFirst: on a subway leg, unpredicted scheduled trips give way to live ones', () => {
+  const orange = officeToHome.legs[1];
+  const bus = officeToHome.legs[3];
+  const now = at('22:05');
+  const vs = [veh('77822092', '22:03', '22:18'), { ...veh('ADDED-1584988985', '22:09', '22:24'), dep: at('22:09') + 5000, source: 'live', added: true },
+    veh('77822004', '22:09', '22:24'), veh('77822020', '22:19', '22:34'), veh('77822012', '22:21', '22:36', 'live'),
+    veh('77822036', '22:30', '22:45')];
+  // 10:03 (before now, before the first live time) and 10:30 (after the last) stay.
+  assert.deepEqual(predictionsFirst(vs, orange, now).map(v => v.tripId), ['77822092', 'ADDED-1584988985', '77822012', '77822036']);
+  // A bus leg, or no live times: unchanged.
+  assert.deepEqual(predictionsFirst(vs, bus, now), vs);
+  const sched = vs.filter(v => v.source !== 'live');
+  assert.deepEqual(predictionsFirst(sched, orange, now), sched);
+  // A leg with `also` routes counts only if all are subway.
+  assert.deepEqual(predictionsFirst(vs, { ...orange, also: ['132'] }, now), vs);
+});
+
+test('tripVehicles: an ADDED train that has left stays live from memory; its scheduled twin stays out', () => {
+  const transit = [officeToHome.legs[1]];
+  const included = [stopInc('70023', 'place-state'), stopInc('70036', 'place-ogmnl')];
+  const sched = doc([rec('schedule', 's1', '70023', '22:09', '22:09'), rec('schedule', 's1', '70036', '22:24', '22:24'),
+    rec('schedule', 's2', '70023', '22:14', '22:14'), rec('schedule', 's2', '70036', '22:29', '22:29')], included);
+  const before = doc([rec('prediction', 'ADDED-1', '70023', '22:09', '22:09', { schedule_relationship: 'ADDED' }),
+    rec('prediction', 'ADDED-1', '70036', '22:24', '22:24', { schedule_relationship: 'ADDED' }),
+    rec('prediction', 's2', '70023', '22:15', '22:15'), rec('prediction', 's2', '70036', '22:30', '22:30')], included);
+  const live = mergeTrips(before, null);
+  let mem = rememberLive(null, [legVehicles(live, transit[0])], at('22:05'));
+  assert.equal(mem[0].get('ADDED-1').added, true);
+  const ids = vs => vs[0].map(v => [v.tripId, v.source]);
+  assert.deepEqual(ids(tripVehicles(transit, [mergeTrips(before, sched)], mem, at('22:05'))), [['ADDED-1', 'live'], ['s2', 'live']]);
+  // 10:11pm: the ADDED train left (no board prediction); s2 is still predicted.
+  const after = doc([rec('prediction', 'ADDED-1', '70036', '22:24', '22:24', { schedule_relationship: 'ADDED' }),
+    rec('prediction', 's2', '70023', '22:15', '22:15'), rec('prediction', 's2', '70036', '22:30', '22:30')], included);
+  mem = rememberLive(mem, [legVehicles(mergeTrips(after, null), transit[0])], at('22:11'));
+  assert.deepEqual(ids(tripVehicles(transit, [mergeTrips(after, sched)], mem, at('22:11'))), [['ADDED-1', 'live'], ['s2', 'live']]);
+  // Without the memory (e.g. just opened), the scheduled twin is all there is.
+  assert.deepEqual(ids(tripVehicles(transit, [mergeTrips(after, sched)], null, at('22:11'))), [['s1', 'scheduled'], ['s2', 'live']]);
+  // A remembered ADDED train not yet due but no longer predicted (cancelled) isn't added back.
+  assert.deepEqual(ids(tripVehicles(transit, [mergeTrips(after, sched)], mem, at('22:08'))), [['s2', 'live']]);
 });
 
 test('countdownState boundaries', () => {

@@ -44,6 +44,8 @@ async function setup({ staticRoot = null } = {}) {
     }
     if (route === '132' && u.pathname === '/schedules') data = [rec('schedule', 'b1', '25996', world.bus), rec('schedule', 'b1', '5991', '07:25')];
     if (route === 'Orange' && u.pathname === '/predictions' && !world.cancelled) data = [rec('prediction', 'o1', 'place-ogmnl', world.orange), rec('prediction', 'o1', 'place-state', '07:50')];
+    // A scheduled Orange trip with no prediction (its train predicted as an ADDED trip, or not running).
+    if (route === 'Orange' && u.pathname === '/schedules' && world.orangeGhost) data = [rec('schedule', 'og', 'place-ogmnl', world.orangeGhost), rec('schedule', 'og', 'place-state', '07:47')];
     if (route === 'Orange' && u.pathname === '/predictions' && world.orange2) data.push(rec('prediction', 'o2', 'place-ogmnl', world.orange2), rec('prediction', 'o2', 'place-state', '07:56'));
     // A ridden vehicle's remaining stops (stop alerts): world.rideStops[tripId] = [[stop id, name, hh:mm], ...].
     const tripId = u.searchParams.get('filter[trip]');
@@ -430,6 +432,18 @@ test('a followed ride keeps the rider\'s pick: no switch to an earlier train, no
     await s.app.tick();
     assert.deepEqual(s.store.get(id).ride.legs.map(l => l.tripId), ['b1', 'o2']);
     assert.deepEqual(s.sent.filter(p => p.kind === 'missed'), []);
+  } finally { await s.close(); }
+});
+
+test('a followed ride ignores an unpredicted scheduled train among the predicted ones (subway)', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:12');
+    s.world.orange2 = '07:39';
+    s.world.orangeGhost = '07:30'; // earlier than o1 (7:33) and catchable (7:25 + 5), but not predicted
+    const { id } = await (await s.call('POST', '/api/rides', followed())).json();
+    await s.app.tick();
+    assert.deepEqual(s.store.get(id).ride.legs.map(l => l.tripId), ['b1', 'o1']);
   } finally { await s.close(); }
 });
 

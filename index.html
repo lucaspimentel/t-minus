@@ -368,7 +368,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-09 · 04b641dc43</footer>
+    <footer class="version">Version 2026-10-09 · 602cef0933</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -387,12 +387,12 @@
 <script type="module">
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
-  departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, withRemembered, averageHeadway, pickTimingLeg, tripRows,
+  departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, tripVehicles, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=dc899743b2';
-import { openSetup } from './setup.js?v=569d78966b';
+} from './core.js?v=8a553c40cc';
+import { openSetup } from './setup.js?v=e2bd368aa7';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -611,8 +611,8 @@ function schedulePoll() {
 
 function rowsFor(trip, timing, predictionDocs, scheduleDocs, now, lastLive = null, enRoute = null, count = departureCount(config)) {
   if (!predictionDocs && !scheduleDocs) return [];
-  const vehicles = withRemembered(
-    tripShape(trip).transit.map((l, i) => legVehicles(mergeTrips(predictionDocs?.[i], scheduleDocs?.[i]), l)), lastLive);
+  const { transit } = tripShape(trip);
+  const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(predictionDocs?.[i], scheduleDocs?.[i])), lastLive, now);
   return tripRows(trip, vehicles, timing ?? 0, now, stopSlackMinutes(config), count, enRoute);
 }
 
@@ -692,7 +692,7 @@ function syncEnRoute(now) {
 function rideVehicles() {
   const c = cache[tripIdx];
   const { transit } = tripShape(config.trips[tripIdx]);
-  return withRemembered(transit.map((l, i) => legVehicles(mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i]), l)), c?.lastLive);
+  return tripVehicles(transit, transit.map((l, i) => mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i])), c?.lastLive, Date.now());
 }
 
 function currentAlerts(now) {
@@ -1522,7 +1522,7 @@ function missedIt(phase) {
     const trip = config.trips[tripIdx];
     const { transit, transfers } = tripShape(trip);
     const c = cache[tripIdx];
-    const vehicles = withRemembered(transit.map((l, i) => legVehicles(mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i]), l)), c?.lastLive);
+    const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i])), c?.lastLive, now);
     const missed = s.ride.legs[phase.leg];
     const chain = replanFrom(vehicles, phase.leg, now, transfers, missed.tripId);
     if (!chain) rideNote = 'No later connection.';

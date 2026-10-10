@@ -820,6 +820,7 @@ export function mergeTrips(predictionsDoc, schedulesDoc) {
     if (!stops) trips.set(tripId, (stops = new Map()));
     stops.route ??= rec.relationships?.route?.data?.id; // the trip's route (legs with `also`)
     stops.headsign ??= headsigns.get(tripId);
+    if (source === 'live' && a.schedule_relationship === 'ADDED') stops.added = true; // not in the schedules
     if (source === 'live' && (a.schedule_relationship === 'SKIPPED' || a.schedule_relationship === 'CANCELLED')) {
       stops.set(stopId, { cancelled: true });
       if (parents.has(stopId)) stops.set(parents.get(stopId), { cancelled: true });
@@ -853,30 +854,58 @@ export function legVehicles(tripsMap, leg) {
     const dep = depOf(board);
     const arr = arrOf(alight);
     if (dep == null || arr == null || arr <= dep) continue;
-    out.push({ tripId, dep, arr, source: board.source, ...(stops.route && { route: stops.route }), ...(stops.headsign && { headsign: stops.headsign }) });
+    out.push({ tripId, dep, arr, source: board.source, ...(stops.route && { route: stops.route }), ...(stops.headsign && { headsign: stops.headsign }), ...(stops.added && { added: true }) });
   }
   return out.sort((a, b) => a.dep - b.dep);
 }
 
 // Live predictions disappear once a vehicle leaves the board stop. The last live times seen per
-// leg (`[Map<tripId, {dep, arr}>]`) keep a just-missed ride on its real time instead of the
-// schedule's. Entries that departed more than 30 min ago are dropped.
+// leg (`[Map<tripId, {dep, arr, route?, headsign?, added?}>]`) keep a just-missed ride on its real
+// time instead of the schedule's. Entries that departed more than 30 min ago are dropped.
 export function rememberLive(memory, liveByLeg, nowMs) {
   return liveByLeg.map((live, i) => {
     const m = new Map([...(memory?.[i] ?? [])].filter(([, e]) => e.dep > nowMs - 30 * MIN));
-    for (const v of live) m.set(v.tripId, { dep: v.dep, arr: v.arr });
+    for (const { tripId, source: _, ...v } of live) m.set(tripId, v);
     return m;
   });
 }
 
-// Leg vehicles with remembered live times applied to those no longer predicted.
-export function withRemembered(vehiclesByLeg, memory) {
+// Leg vehicles with remembered live times applied to those no longer predicted. An ADDED trip
+// (no schedule) that has left is added back from memory, live.
+export function withRemembered(vehiclesByLeg, memory, nowMs) {
   return vehiclesByLeg.map((vs, i) => {
     const m = memory?.[i];
     if (!m?.size) return vs;
-    return vs.map(v => (v.source !== 'live' && m.has(v.tripId) ? { ...v, ...m.get(v.tripId), source: 'live' } : v))
+    const ids = new Set(vs.map(v => v.tripId));
+    const gone = [...m].filter(([id, e]) => e.added && !ids.has(id) && e.dep <= nowMs).map(([tripId, e]) => ({ tripId, ...e, source: 'live' }));
+    return [...vs.map(v => (v.source !== 'live' && m.has(v.tripId) ? { ...v, ...m.get(v.tripId), source: 'live' } : v)), ...gone]
       .sort((a, b) => a.dep - b.dep);
   });
+}
+
+// Subway (heavy and light rail: route types 1 and 0) by the MBTA's fixed route ids.
+export const isSubwayRoute = id => /^(Red|Orange|Blue|Mattapan|Green-[BCDE])$/.test(id);
+const isSubwayLeg = leg => legRoutes(leg).every(isSubwayRoute);
+
+// Subway countdowns come from predictions, not schedules (the MBTA's real-time display
+// guidelines): a running train the MBTA can't match to its scheduled trip is predicted as an
+// ADDED trip, its scheduled twin left unpredicted (two trains at 10:09pm otherwise). On a subway
+// leg with live times, scheduled vehicles from now (or the earliest live time) to the latest
+// live time are dropped; schedules fill in before and after. Other legs are unchanged.
+export function predictionsFirst(vehicles, leg, nowMs) {
+  if (!isSubwayLeg(leg)) return vehicles;
+  const live = vehicles.filter(v => v.source === 'live').map(v => v.dep);
+  if (!live.length) return vehicles;
+  const lo = Math.min(nowMs, ...live);
+  const hi = Math.max(...live);
+  return vehicles.filter(v => v.source === 'live' || v.dep < lo || v.dep > hi);
+}
+
+// Each transit leg's vehicles from its merged trip maps (mergeTrips), remembered live times
+// (rememberLive, if any) and the subway's predictions-first rule.
+export function tripVehicles(transit, tripsMaps, memory, nowMs) {
+  const vs = withRemembered(transit.map((l, i) => legVehicles(tripsMaps[i] ?? new Map(), l)), memory, nowMs);
+  return vs.map((v, i) => predictionsFirst(v, transit[i], nowMs));
 }
 
 // Mean gap between consecutive departures; Infinity with fewer than 2 (a leg that barely
@@ -984,7 +1013,8 @@ export function legQuery(leg) {
 // Rows straight from each transit leg's predictions and schedules documents (either may be
 // missing): the notification server's view of a trip.
 export function rowsFromDocs(trip, predictionDocs, scheduleDocs, timingIdx, nowMs, slackMinutes, count = MAX_DEPARTURE_COUNT) {
-  const vehicles = tripShape(trip).transit.map((l, i) => legVehicles(mergeTrips(predictionDocs?.[i], scheduleDocs?.[i]), l));
+  const { transit } = tripShape(trip);
+  const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(predictionDocs?.[i], scheduleDocs?.[i])), null, nowMs);
   return tripRows(trip, vehicles, timingIdx, nowMs, slackMinutes, count);
 }
 

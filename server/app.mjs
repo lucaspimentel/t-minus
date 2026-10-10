@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
-  checkRide, mergeTrips, legVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
+  checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
   rideAlertText, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
 } from '../core.js';
 
@@ -458,7 +458,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     const maps = transit.map((l, i) => mergeTrips(docs.predictions[i], docs.schedules[i]));
     const ride = { ...ride0, legs: trackLegs(ride0.legs, transit, maps) };
     const phase = ridePhase(ride, walkAfter, t);
-    const outlook = transferOutlook(ride, phase, transit.map((l, i) => legVehicles(maps[i], l)), transfers, t);
+    const outlook = transferOutlook(ride, phase, tripVehicles(transit, maps, null, t), transfers, t);
     let stops = null;
     if (phase.kind === 'riding') {
       try { stops = rideStops(await mbta('/predictions', rideStopsQuery(ride.legs[phase.leg].tripId)), transit[phase.leg].alight, t); } catch (e) {

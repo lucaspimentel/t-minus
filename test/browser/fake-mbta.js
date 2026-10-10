@@ -4,7 +4,8 @@
 //
 // scenario = {
 //   trips: [{ id, route, direction, stops: [[stopId, 'HH:MM'], …], live?: true | { delay, stops? },
-//             cancelled?: [stopId, …], headsign?: string | null (default: the route's per direction) }],
+//             cancelled?: [stopId, …], headsign?: string | null (default: the route's per direction),
+//             added?: true (an ADDED trip: predictions only, no schedule) }],
 //   alerts: [{ id, effect, header, route, stop? }],
 //   unnamed?: true (included stops without names),
 // }
@@ -123,6 +124,7 @@ export async function fakeMbta(context, scenario, { now }) {
     // Without filter[route] (the setup's "Show nearby"): every route and direction at the stops.
     const anyRoute = !q.has('filter[route]');
     for (const t of scenario.trips) {
+      if (t.added) continue;
       if (!anyRoute && (!routesOf(q).has(t.route) || String(t.direction) !== q.get('filter[direction_id]'))) continue;
       for (const [stopId, hhmm] of t.stops) {
         const m = minutesOf(hhmm);
@@ -150,7 +152,7 @@ export async function fakeMbta(context, scenario, { now }) {
         if (!matchesStop(stopId, wanted) || at < mbta.now) continue;
         const cancelled = t.cancelled?.includes(stopId);
         data.push({ type: 'prediction', id: `pre-${t.id}-${stopId}`,
-          attributes: { arrival_time: cancelled ? null : iso(at), departure_time: cancelled ? null : iso(at), schedule_relationship: cancelled ? 'SKIPPED' : null },
+          attributes: { arrival_time: cancelled ? null : iso(at), departure_time: cancelled ? null : iso(at), schedule_relationship: cancelled ? 'SKIPPED' : t.added ? 'ADDED' : null },
           relationships: { route: { data: { id: t.route, type: 'route' } }, trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
         inc.add(stopId);
         trips.add(t);

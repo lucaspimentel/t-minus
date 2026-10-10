@@ -3,7 +3,7 @@
 // Office to home at 5:43pm: Orange from State every 6 min (5:29, 5:35, 5:41 have left; 15-min
 // ride), 5-min transfer, bus 132 from Oak Grove at 5:58 and 6:26 (12-min ride), 5-min walk.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, riding } from './helpers.js';
+import { openApp, tick, tickTo, riding, commute } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -93,6 +93,24 @@ test('the expanded missed row has I got on once its train has left', async ({ pa
   await tick(page, 500);
   await expect(page.locator('.row.ride')).toHaveCount(0);
   await expect(page.locator('.row.missed')).toHaveCount(1);
+});
+
+test('a subway train predicted as an ADDED trip shows once, live, not next to its scheduled twin', async ({ page }) => {
+  // The 5:35pm Orange runs as ADDED-1 (predictions only); its scheduled trip has no prediction.
+  // The other Orange trains are predicted under their scheduled ids.
+  const scenario = commute();
+  for (const t of scenario.trips) if (t.route === 'Orange' && t.direction === 1) t.live = t.id !== 'OLout-1735';
+  scenario.trips.push({ id: 'ADDED-1', route: 'Orange', direction: 1, added: true, live: true, stops: [['70023', '17:35'], ['70036', '17:50']] });
+  await openApp(page, { time: '17:30', scenario });
+  const at535 = page.locator('#rows > li.row', { hasText: '5:35pm' });
+  await expect(at535).toHaveCount(1);
+  await expect(at535.locator('.badge')).toHaveText('live');
+  // 5:38pm: it has left (no prediction now; the app remembers it), listed once among the previous rides.
+  await tickTo(page, '17:38');
+  await listBtn(page, 'Show previous rides ▾').click();
+  await expect(prevRows(page).locator('.big .at')).toHaveText(['5:29pm', '5:35pm']);
+  await expect(at535).toHaveCount(1);
+  await expect(at535.locator('.badge')).toHaveText('live');
 });
 
 test('Show more rides adds 4 rows per tap', async ({ page }) => {

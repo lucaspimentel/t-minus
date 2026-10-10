@@ -58,6 +58,16 @@ Each leg time shown carries a source badge:
   Bus predictions exist only for trips in progress or about to start, so with 30-60 min
   headways later buses are usually scheduled. Observed Orange prediction horizon: ~65 min
   (late evening sample).
+- **Subway: predictions first** (`predictionsFirst`, `tripVehicles`). The MBTA's Real-Time
+  Display Guidelines take subway countdowns from predictions (headways, not scheduled times,
+  when there are none). A running train the MBTA can't match to its scheduled trip is predicted
+  under another trip id with `schedule_relationship: "ADDED"`, and its scheduled trip gets no
+  prediction (see MBTA API usage), so merging by trip id showed the same train twice. On a leg
+  whose routes are all subway (`isSubwayRoute`: Red, Orange, Blue, Mattapan, Green-B/C/D/E),
+  scheduled vehicles from now (or the earliest live time) to the latest live time are dropped;
+  schedules fill in before and after. Buses are unchanged (scheduled times are the guidelines'
+  fallback there). The app (rows, previous rides, the ride card) and the server's stop alerts
+  use the same rule.
 - **Next service day**: when today's schedule window reaches the end of the service day
   and today's data yields fewer than `departureCount` rows (late evening, after the last
   vehicle), fetch the next service day's schedules (03:00-12:00) for every leg and fill the
@@ -168,7 +178,9 @@ unavailable: fallback, and the status line adds "Location off".
 A missed row's collapsed line shows the first leg (the one missed) instead of the timing leg.
 Live predictions disappear once a vehicle leaves its stop, so the last live times seen while
 the app is open are kept per trip (`rememberLive`/`withRemembered`, in memory, dropped 30 min
-after departure); after a fresh open, a missed row falls back to the schedule.
+after departure); after a fresh open, a missed row falls back to the schedule. An ADDED train
+(no schedule) that has left is added back from that memory, live, so its scheduled twin stays
+out.
 
 ### En route ("Leaving now" / "At the stop")
 
@@ -621,6 +633,12 @@ Base: `https://api-v3.mbta.com` (V3 API, JSON:API format, GTFS/GTFS-Realtime bas
 - Directions come from `include=trip` with `fields[trip]=headsign` on the same predictions and
   schedules (verified 2026-10-04: 132 "Malden" / "Redstone", Orange "Forest Hills" / "Oak
   Grove"; schedules carry it too). One small included record per trip; no extra requests.
+- `schedule_relationship` on predictions (API reference): `ADDED` is "an extra trip that was
+  added in addition to a running schedule"; the best practices page adds that a prediction may
+  have no `schedule` when "we know a vehicle is running on the route" but can't match it to a
+  scheduled trip. Observed 2026-10-09 10:05pm at State toward Oak Grove: scheduled 77822004 at
+  10:09pm had no prediction, `ADDED-1584988985` was predicted at 10:09:05pm (the same train);
+  77822012 (scheduled 10:14pm) was predicted at 10:21pm under its own id.
 - Rail station order per branch: `/route_patterns?filter[route]=<rail>&filter[canonical]=true
   &include=representative_trip.stops` (18 patterns; one per branch and direction). The
   per-direction `/stops` lists merge branches (Red: Ashmont and Braintree).
