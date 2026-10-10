@@ -368,7 +368,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-09 · 602cef0933</footer>
+    <footer class="version">Version 2026-10-10 · b69636d903</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -387,12 +387,12 @@
 <script type="module">
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
-  departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, tripVehicles, averageHeadway, pickTimingLeg, tripRows,
+  departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=8a553c40cc';
-import { openSetup } from './setup.js?v=e2bd368aa7';
+} from './core.js?v=3d84517d3e';
+import { openSetup } from './setup.js?v=61e3955268';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -710,8 +710,9 @@ function el(tag, cls, text) {
   return e;
 }
 
-function badge(source) {
-  return el('span', `badge ${source}`, source);
+// LIVE / SCHEDULED, or "every 6 min" (styled as scheduled) on a subway leg with no predictions.
+function badge(leg) {
+  return el('span', `badge ${leg.source}`, sourceText(leg));
 }
 
 // Two trips: side-by-side buttons. More: a dropdown. Rebuilt only when the trips or the
@@ -785,7 +786,8 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   toggle.type = 'button';
   toggle.dataset.focus = `row:${key}`;
   toggle.setAttribute('aria-expanded', String(expanded));
-  toggle.setAttribute('aria-label', rowAriaLabel(label, formatTime(target, now), formatTime(r.eta, now), !!reminder));
+  const lastLeg = r.legs[r.legs.length - 1];
+  toggle.setAttribute('aria-label', rowAriaLabel(label, formatTime(target, now), legTime(lastLeg, r.eta, now), !!reminder));
   toggle.append(head);
   li.append(toggle);
   li.onclick = () => {
@@ -806,7 +808,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
     strip.append(el('span', 'seg'));
     toggle.append(strip);
     const summary = el('div', 'detail summary');
-    summary.append(badge(shown.source));
+    summary.append(badge(shown));
     // A reminder is set: a bell beside the badge (the header has no room to spare).
     if (reminder) {
       const bell = el('span', 'bell');
@@ -815,7 +817,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
       bell.setAttribute('aria-label', 'Reminder set');
       summary.append(bell);
     }
-    summary.append(el('span', 'arrive', `arrive ${formatTime(r.eta, now)}`), chevron('▾'));
+    summary.append(el('span', 'arrive', `arrive ${legTime(lastLeg, r.eta, now)}`), chevron('▾'));
     toggle.append(summary);
     return li;
   }
@@ -1088,9 +1090,9 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     if (kind === 'riding') return part === 'from' ? ' done' : ' current';
     return part === 'from' ? ' current' : '';
   };
-  const stopLine = (name, time, id, cls) => {
+  const stopLine = (name, time, id, cls, leg) => {
     const line = el('div', `step stop${cls}${fullStops.has(id) ? ' full' : ''}`);
-    line.append(el('span', 'node'), el('span', 'n', name ?? '—'), el('span', 't', formatTime(time, now)));
+    line.append(el('span', 'node'), el('span', 'n', name ?? '—'), el('span', 't', legTime(leg, time, now)));
     if (name) {
       line.onclick = e => {
         e.stopPropagation();
@@ -1105,7 +1107,7 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     if (s.kind === 'end') {
       // "Leave 10:30pm" / "Arrive 11:16pm": a gray node with the time in the stops' column.
       const line = el('div', `step end${walkState(i)}`);
-      line.append(el('span', 'node end-node'), el('span', 'n', s.label), el('span', 't', formatTime(s.time, now)));
+      line.append(el('span', 'node end-node'), el('span', 'n', s.label), el('span', 't', `${s.approx ? '~' : ''}${formatTime(s.time, now)}`));
       timeline.append(line);
       continue;
     }
@@ -1117,10 +1119,10 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     leg.style.setProperty('--c', s.leg.color ? `#${s.leg.color}` : 'var(--muted)');
     // "Orange Line · 15 min LIVE", then "toward Forest Hills" (the trip's headsign) below.
     const ride = el('div', `step ride${legState(i, 'ride')}`, `${lineLabel(s.leg)} · ${s.minutes}`);
-    ride.append(badge(s.leg.source));
+    ride.append(badge(s.leg));
     if (s.leg.headsign) ride.append(el('div', 'toward', toward(s.leg)));
-    leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from')), ride,
-      ...(along?.leg === i ? along.rows : []), stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to')));
+    leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from'), s.leg), ride,
+      ...(along?.leg === i ? along.rows : []), stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to'), s.leg));
     timeline.append(leg);
     i++;
   }
@@ -1492,7 +1494,7 @@ function renderRideCard(s, now) {
   if (laterOpen && later.length) {
     const pick = el('div', 'enroute-bar ride-btns');
     for (const v of later) {
-      pick.append(btn(`${vehicleLabel(onVehicle(ride.legs[phase.leg], v))} ${formatTime(v.dep, now)}`, () => {
+      pick.append(btn(`${vehicleLabel(onVehicle(ride.legs[phase.leg], v))} ${legTime(v, v.dep, now)}`, () => {
         laterOpen = false;
         nextOpen = false;
         setEnRoute({ ...s, ride: switchLeg(ride, phase.leg, v, rideVehicles(), tripShape(trip).transfers) });
@@ -1503,7 +1505,7 @@ function renderRideCard(s, now) {
   }
   if (nextOpen && choices.length) {
     const pick = el('div', 'enroute-bar ride-btns');
-    for (const v of choices) pick.append(btn(`${vehicleLabel(onVehicle(ride.legs[nl], v))} ${formatTime(v.dep, now)}`, () => pickNext(v)));
+    for (const v of choices) pick.append(btn(`${vehicleLabel(onVehicle(ride.legs[nl], v))} ${legTime(v, v.dep, now)}`, () => pickNext(v)));
     li.append(pick);
   }
   return li;

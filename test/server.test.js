@@ -46,6 +46,8 @@ async function setup({ staticRoot = null } = {}) {
     if (route === 'Orange' && u.pathname === '/predictions' && !world.cancelled) data = [rec('prediction', 'o1', 'place-ogmnl', world.orange), rec('prediction', 'o1', 'place-state', '07:50')];
     // A scheduled Orange trip with no prediction (its train predicted as an ADDED trip, or not running).
     if (route === 'Orange' && u.pathname === '/schedules' && world.orangeGhost) data = [rec('schedule', 'og', 'place-ogmnl', world.orangeGhost), rec('schedule', 'og', 'place-state', '07:47')];
+    // Orange schedules only (`cancelled` for no predictions): [[trip id, Oak Grove, State], ...].
+    if (route === 'Orange' && u.pathname === '/schedules' && world.orangeSchedules) data = world.orangeSchedules.flatMap(([id, d, a]) => [rec('schedule', id, 'place-ogmnl', d), rec('schedule', id, 'place-state', a)]);
     if (route === 'Orange' && u.pathname === '/predictions' && world.orange2) data.push(rec('prediction', 'o2', 'place-ogmnl', world.orange2), rec('prediction', 'o2', 'place-state', '07:56'));
     // A ridden vehicle's remaining stops (stop alerts): world.rideStops[tripId] = [[stop id, name, hh:mm], ...].
     const tripId = u.searchParams.get('filter[trip]');
@@ -444,6 +446,21 @@ test('a followed ride ignores an unpredicted scheduled train among the predicted
     const { id } = await (await s.call('POST', '/api/rides', followed())).json();
     await s.app.tick();
     assert.deepEqual(s.store.get(id).ride.legs.map(l => l.tripId), ['b1', 'o1']);
+  } finally { await s.close(); }
+});
+
+test('a followed ride on a subway leg with no predictions: "~" times in its alerts', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:12');
+    s.world.cancelled = true;
+    s.world.orangeSchedules = [['s1', '07:20', '07:37'], ['s2', '07:36', '07:53'], ['s3', '07:42', '07:59']];
+    const legs = [{ tripId: 'b1', label: 'Bus 132', dep: at('07:10'), arr: at('07:25') }, { tripId: 's1', label: 'Orange', dep: at('07:20'), arr: at('07:37'), every: '6–16' }];
+    const { id } = await (await s.call('POST', '/api/rides', followed({ ride: { boardedAt: at('07:10'), legs } }))).json();
+    await s.app.tick();
+    // s1 leaves before the bus gets in: re-planned onto s2, shown by the headway.
+    assert.deepEqual(s.sent.find(p => p.kind === 'missed'), { kind: 'missed', title: 'Missed the 7:20am Orange', body: 'Next: Orange ~7:36am · arrive ~8:03am', tag: `ride:${id}:plan`, renotify: true });
+    assert.equal(s.store.get(id).ride.legs[1].every, '6–16');
   } finally { await s.close(); }
 });
 

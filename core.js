@@ -835,6 +835,7 @@ export function mergeTrips(predictionsDoc, schedulesDoc) {
   };
   for (const rec of schedulesDoc?.data ?? []) put(rec, 'scheduled');
   for (const rec of predictionsDoc?.data ?? []) put(rec, 'live');
+  trips.predicted = !!predictionsDoc; // predictions were fetched (none at all: subwayHeadway)
   return trips;
 }
 
@@ -901,11 +902,31 @@ export function predictionsFirst(vehicles, leg, nowMs) {
   return vehicles.filter(v => v.source === 'live' || v.dep < lo || v.dep > hi);
 }
 
+// Minutes between subway departures when the leg has no predictions at all (an outage, before
+// the first train): the MBTA's real-time display guidelines show headways ("every 8-13 min")
+// there, not scheduled times. The smallest and largest gap between the scheduled departures in
+// the next HEADWAY_WINDOW_MIN: '6' or '8–13'; null for other legs, a leg with any live vehicle,
+// or fewer than two departures in the window.
+export const HEADWAY_WINDOW_MIN = 60;
+export function subwayHeadway(vehicles, leg, nowMs) {
+  if (!isSubwayLeg(leg) || vehicles.some(v => v.source === 'live')) return null;
+  const deps = vehicles.map(v => v.dep).filter(d => d >= nowMs && d <= nowMs + HEADWAY_WINDOW_MIN * MIN);
+  const gaps = deps.slice(1).map((d, i) => Math.round((d - deps[i]) / MIN)).filter(g => g > 0);
+  if (!gaps.length) return null;
+  const min = Math.min(...gaps);
+  const max = Math.max(...gaps);
+  return min === max ? `${min}` : `${min}–${max}`;
+}
+
 // Each transit leg's vehicles from its merged trip maps (mergeTrips), remembered live times
-// (rememberLive, if any) and the subway's predictions-first rule.
+// (rememberLive, if any) and the subway's predictions-first rule. A subway leg whose predictions
+// were fetched but have none tags its vehicles with the headway (`every`, subwayHeadway).
 export function tripVehicles(transit, tripsMaps, memory, nowMs) {
   const vs = withRemembered(transit.map((l, i) => legVehicles(tripsMaps[i] ?? new Map(), l)), memory, nowMs);
-  return vs.map((v, i) => predictionsFirst(v, transit[i], nowMs));
+  return vs.map((v, i) => {
+    const every = tripsMaps[i]?.predicted ? subwayHeadway(v, transit[i], nowMs) : null;
+    return every ? v.map(x => ({ ...x, every })) : predictionsFirst(v, transit[i], nowMs);
+  });
 }
 
 // Mean gap between consecutive departures; Infinity with fewer than 2 (a leg that barely
@@ -939,7 +960,7 @@ const rowLeg = (t, c) => ({
   route: t.route, label: t.label ?? t.route, color: t.color ?? null,
   ...(t.routeLabels && { routeLabels: t.routeLabels }),
   dep: c.dep, arr: c.arr, source: c.source, tripId: c.tripId, ...(c.route && { vehicleRoute: c.route }),
-  ...(c.headsign && { headsign: c.headsign }),
+  ...(c.headsign && { headsign: c.headsign }), ...(c.every && { every: c.every }),
 });
 
 // Departure rows for a trip. For each timing-leg vehicle, earlier legs take the latest vehicle
@@ -1049,7 +1070,7 @@ export const headsUpDue = (leaveBy, nowMs) => nowMs < leaveBy - HEADS_UP_MIN * M
 // 'update' also gives the new leave-by and the one the heads-up showed (`was`).
 export function reminderText(kind, tripName, row, nowMs, was) {
   const first = row?.legs[0];
-  const body = first ? `${lineToward(first)} at ${formatTime(first.dep, nowMs)}` : '';
+  const body = first ? `${lineToward(first)} at ${legTime(first, first.dep, nowMs)}` : '';
   switch (kind) {
     case 'headsUp': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body };
     case 'update': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: `${body} · leave by ${formatTime(row.leaveBy, nowMs)} (was ${formatTime(was, nowMs)})` };
@@ -1101,12 +1122,12 @@ export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map())
   row.legs.forEach((leg, i) => {
     if (i > 0) steps.push({ kind: 'walk', text: `${formatCountdown(leg.dep - row.legs[i - 1].arr)} to transfer`, walking: true });
     steps.push({
-      kind: 'leg', leg, minutes: formatCountdown(leg.arr - leg.dep),
+      kind: 'leg', leg, minutes: formatCountdown(leg.arr - leg.dep), approx: !!leg.every,
       from: names.get(transit[i]?.stop) ?? null, to: names.get(transit[i]?.alight) ?? null,
     });
   });
   if (walkAfter > 0) steps.push({ kind: 'walk', text: `Walk ${walkAfter} min`, walking: true });
-  steps.push({ kind: 'end', label: 'Arrive', time: row.eta });
+  steps.push({ kind: 'end', label: 'Arrive', time: row.eta, approx: !!row.legs[row.legs.length - 1]?.every });
   return steps;
 }
 
@@ -1205,6 +1226,7 @@ export function trackLegs(legs, transit, tripsMaps, memory = null) {
       ...leg,
       ...(d && { dep: d[0], source: d[1] }),
       ...(a && { arr: a[0], arrSource: a[1] }),
+      ...(d?.[1] === 'live' && { every: undefined }), // predicted now: no longer by its headway
     };
   });
 }
@@ -1363,7 +1385,7 @@ export function rideAlertText(send, { ride, outlook, stopName, walkAfter, nowMs 
   const t = ms => formatTime(ms, nowMs);
   const was = send.was != null ? ` (was ${t(send.was)})` : '';
   switch (send.kind) {
-    case 'headsUp': return { title: `${send.n} stops to ${stopName ?? 'your stop'}`, body: `${lineLabel(leg)} · arrive ${t(leg.arr)}${was}` };
+    case 'headsUp': return { title: `${send.n} stops to ${stopName ?? 'your stop'}`, body: `${lineLabel(leg)} · arrive ${legTime(leg, leg.arr, nowMs)}${was}` };
     case 'getOff': {
       const next = outlook && outlook.leg === send.leg + 1 ? outlookText(outlook, ride, nowMs)?.text : null;
       const eta = ride.legs[ride.legs.length - 1].arr + walkAfter * MIN;
@@ -1372,7 +1394,8 @@ export function rideAlertText(send, { ride, outlook, stopName, walkAfter, nowMs 
     case 'missed': {
       const legs = outlook.legs;
       const eta = legs[legs.length - 1].arr + walkAfter * MIN;
-      return { title: `Missed the ${t(send.missedDep ?? leg.dep)} ${vehicleLabel(leg)}`, body: `Next: ${vehicleLabel(legs[send.leg])} ${t(legs[send.leg].dep)}${was} · arrive ${t(eta)}` };
+      const last = legs[legs.length - 1];
+      return { title: `Missed the ${t(send.missedDep ?? leg.dep)} ${vehicleLabel(leg)}`, body: `Next: ${vehicleLabel(legs[send.leg])} ${legTime(legs[send.leg], legs[send.leg].dep, nowMs)}${was} · arrive ${legTime(last, eta, nowMs)}` };
     }
     default: return { title: `No connection after ${t(outlook.needed)}`, body: `Open the app for another way.` };
   }
@@ -1387,6 +1410,7 @@ export function checkRide(trip, ride, nowMs) {
   for (const l of legs) {
     if (typeof l?.tripId !== 'string' || !l.tripId || l.tripId.length > 200) return 'ride leg tripId is invalid';
     if (!Number.isFinite(l.dep) || !Number.isFinite(l.arr) || l.arr < l.dep) return 'ride leg times are invalid';
+    if (l.every != null && (typeof l.every !== 'string' || l.every.length > 10)) return 'ride leg every is invalid';
     for (const k of ['label', 'route', 'headsign', 'vehicleRoute']) if (l[k] != null && (typeof l[k] !== 'string' || l[k].length > 100)) return `ride leg ${k} is invalid`;
   }
   if (!Number.isFinite(ride.boardedAt)) return 'ride.boardedAt is invalid';
@@ -1412,7 +1436,12 @@ export function shownStops(stops, expanded = false) {
 
 // Copies a vehicle's trip and times onto a planned leg.
 // A new vehicle on a leg is no longer the one the rider picked (callers that pick set `picked`).
-export const onVehicle = ({ picked: _, ...leg }, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined, vehicleRoute: v.route, headsign: v.headsign });
+export const onVehicle = ({ picked: _, ...leg }, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined, vehicleRoute: v.route, headsign: v.headsign, every: v.every });
+
+// A leg's time for display: "~7:56am" on a subway leg shown by its headway (no predictions).
+export const legTime = (leg, ms, nowMs) => `${leg?.every ? '~' : ''}${formatTime(ms, nowMs)}`;
+// The badge's text: "every 6 min" for such a leg, else its source ('live' / 'scheduled').
+export const sourceText = leg => (leg.every ? `every ${leg.every} min` : leg.source);
 
 // A planned leg's label for its vehicle: the vehicle's own route on a leg with `also` routes
 // ("Green D"), else the leg's ("Orange").
@@ -1467,7 +1496,7 @@ export function outlookText(outlook, ride, nowMs) {
   if (!outlook) return null;
   if (outlook.none) return { text: `No connection after ${formatTime(outlook.needed, nowMs)}`, warn: true };
   const leg = outlook.legs[outlook.leg];
-  const head = `Then ${lineToward(leg)} ${formatTime(leg.dep, nowMs)}`;
+  const head = `Then ${lineToward(leg)} ${legTime(leg, leg.dep, nowMs)}`;
   const missed = outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null);
   if (missed != null) return { text: `${head} (missed ${formatTime(missed, nowMs)})`, warn: true };
   if (outlook.margin < 2 * MIN) return { text: `${head} · tight`, warn: true };
@@ -1530,8 +1559,8 @@ export function rideHeadline(phase, ride, nowMs, stops = null) {
       if (cue) return cue;
       return `${vehicleLabel(leg)}${n ? ` · ${n} stop${n === 1 ? '' : 's'}` : ''} · ${formatCountdown(leg.arr - nowMs)}`;
     }
-    case 'transfer': return `Transfer · ${vehicleLabel(leg)} ${formatTime(leg.dep, nowMs)}`;
-    case 'walking': return `Walking · arrive ${formatTime(phase.eta, nowMs)}`;
+    case 'transfer': return `Transfer · ${vehicleLabel(leg)} ${legTime(leg, leg.dep, nowMs)}`;
+    case 'walking': return `Walking · arrive ${legTime(ride.legs[ride.legs.length - 1], phase.eta, nowMs)}`;
     default: return `Arrived ~${formatTime(phase.eta, nowMs)}`;
   }
 }
@@ -1546,7 +1575,7 @@ export function enRouteActive(state, walkAfter, nowMs) {
 export function enRouteStatus(state, nowMs) {
   if (state.kind === 'track') {
     const leg = state.target?.legs[0];
-    return leg ? `Tracking ${vehicleLabel(leg)} ${formatTime(leg.dep, nowMs)}` : 'Tracking';
+    return leg ? `Tracking ${vehicleLabel(leg)} ${legTime(leg, leg.dep, nowMs)}` : 'Tracking';
   }
   if (state.kind === 'stop') return `At the stop since ${formatTime(state.atStop, nowMs)}`;
   if (nowMs >= state.atStop) return `At the stop since ~${formatTime(state.atStop, nowMs)}`;

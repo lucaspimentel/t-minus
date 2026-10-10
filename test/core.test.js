@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -705,6 +705,66 @@ test('predictionsFirst: on a subway leg, unpredicted scheduled trips give way to
   assert.deepEqual(predictionsFirst(sched, orange, now), sched);
   // A leg with `also` routes counts only if all are subway.
   assert.deepEqual(predictionsFirst(vs, { ...orange, also: ['132'] }, now), vs);
+});
+
+test('subwayHeadway: gaps between scheduled departures in the next hour on a subway leg without predictions', () => {
+  const orange = officeToHome.legs[1];
+  const now = at('22:00');
+  const every6 = ['22:03', '22:09', '22:15'].map((d, i) => veh(`s${i}`, d, d));
+  assert.equal(subwayHeadway(every6, orange, now), '6');
+  const mixed = ['21:50', '22:05', '22:13', '22:26', '23:30'].map((d, i) => veh(`s${i}`, d, d));
+  assert.equal(subwayHeadway(mixed, orange, now), '8–13'); // 9:50 (past) and 11:30 (after the hour) don't count
+  // A bus leg, any live vehicle, or fewer than two departures in the hour: none.
+  assert.equal(subwayHeadway(every6, officeToHome.legs[3], now), null);
+  assert.equal(subwayHeadway([...every6, veh('l', '22:20', '22:35', 'live')], orange, now), null);
+  assert.equal(subwayHeadway([veh('a', '22:03', '22:18'), veh('b', '23:30', '23:45')], orange, now), null);
+  // Two branches at the same minute (Green Line) aren't a 0-min gap.
+  assert.equal(subwayHeadway(['22:03', '22:03', '22:09'].map((d, i) => veh(`s${i}`, d, d)), orange, now), '6');
+});
+
+test('tripVehicles: a subway leg with predictions fetched but none tags its vehicles with the headway', () => {
+  const transit = [officeToHome.legs[1]];
+  const included = [stopInc('70023', 'place-state'), stopInc('70036', 'place-ogmnl')];
+  const sched = doc([rec('schedule', 's1', '70023', '22:09', '22:09'), rec('schedule', 's1', '70036', '22:24', '22:24'),
+    rec('schedule', 's2', '70023', '22:15', '22:15'), rec('schedule', 's2', '70036', '22:30', '22:30')], included);
+  const every = vs => vs[0].map(v => [v.tripId, v.source, v.every]);
+  assert.deepEqual(every(tripVehicles(transit, [mergeTrips(doc([]), sched)], null, at('22:05'))), [['s1', 'scheduled', '6'], ['s2', 'scheduled', '6']]);
+  // Predictions not fetched (offline, the next service day): plain schedules.
+  assert.deepEqual(every(tripVehicles(transit, [mergeTrips(null, sched)], null, at('22:05'))), [['s1', 'scheduled', undefined], ['s2', 'scheduled', undefined]]);
+  // One predicted train: predictions first, no headway.
+  const one = doc([rec('prediction', 's2', '70023', '22:16', '22:16'), rec('prediction', 's2', '70036', '22:31', '22:31')], included);
+  assert.deepEqual(every(tripVehicles(transit, [mergeTrips(one, sched)], null, at('22:05'))), [['s2', 'live', undefined]]);
+});
+
+test('legTime, sourceText: "~" and "every N min" for a leg shown by its headway', () => {
+  const now = at('22:00');
+  assert.equal(legTime({ every: '6' }, at('22:09'), now), '~10:09pm');
+  assert.equal(legTime({}, at('22:09'), now), '10:09pm');
+  assert.equal(sourceText({ source: 'scheduled', every: '8–13' }), 'every 8–13 min');
+  assert.equal(sourceText({ source: 'live' }), 'live');
+});
+
+test('headway legs: "~" on their times and what depends on them (timeline, outlook, pushes); live legs stay plain', () => {
+  const now = at('17:00');
+  const trains = [{ ...veh('o1', '17:17', '17:32'), every: '6' }];
+  const buses = [veh('b1', '17:58', '18:10', 'live')];
+  const [row] = tripRows(officeToHome, [trains, buses], 0, now, 1);
+  assert.equal(row.legs[0].every, '6');
+  const steps = timelineSteps(row, officeToHome, 1, now);
+  assert.deepEqual(steps.filter(s => s.kind === 'leg').map(s => s.approx), [true, false]);
+  assert.equal(steps.at(-1).approx, false); // arrival from the live bus
+  const [last] = tripRows(homeToOffice, [[veh('b0', '17:20', '17:34', 'live')], [{ ...veh('o2', '17:45', '18:00'), every: '6' }]], 0, now, 1);
+  assert.equal(timelineSteps(last, homeToOffice, 1, now).at(-1).approx, true);
+  // Outlook, transfer headline, tracking status, reminder and stop alert texts.
+  const ride = { boardedAt: at('17:20'), legs: last.legs };
+  const outlook = { leg: 1, needed: at('17:39'), margin: 6 * MIN, legs: ride.legs, missedDep: null, none: false };
+  assert.match(outlookText(outlook, ride, at('17:30')).text, /^Then Orange Line ~5:45pm/);
+  assert.equal(rideHeadline({ kind: 'transfer', leg: 1 }, ride, at('17:36')), 'Transfer · Orange ~5:45pm');
+  assert.equal(enRouteStatus({ kind: 'track', target: { legs: row.legs } }, now), 'Tracking Orange ~5:17pm');
+  assert.equal(reminderText('leave', 'Home', row, now).body, 'Orange Line at ~5:17pm');
+  assert.equal(rideAlertText({ kind: 'missed', leg: 1 }, { ride, outlook: { ...outlook, missedDep: at('17:39') }, walkAfter: 10, nowMs: at('17:40') }).body,
+    'Next: Orange ~5:45pm · arrive ~6:10pm');
+  assert.equal(checkRide(homeToOffice, { ...ride, legs: ride.legs.map(l => ({ ...l, every: 'x'.repeat(11) })) }, now), 'ride leg every is invalid');
 });
 
 test('tripVehicles: an ADDED train that has left stays live from memory; its scheduled twin stays out', () => {

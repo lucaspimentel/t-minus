@@ -58,12 +58,13 @@ test('with notifications allowed, the ride is posted, updated on a vehicle chang
   expect(post.subscription.endpoint).toBe('https://push.example/1');
   expect(post.tripName).toBe('Home to office');
   expect(post.ride.legs.map(l => l.tripId)).toEqual(['132in-0708', 'OLin-0732']);
+  expect(post.ride.legs[1].every).toBe('6'); // no Orange predictions: the server shows "~" times too
   expect(post.ride.boardedAt).toBe(Date.parse('2026-10-05T07:08:00-04:00'));
   await expect(card(page).getByRole('button', { name: 'Turn on stop alerts' })).toHaveCount(0);
   // On the Orange Line, a different train: the server's copy is updated.
   await tickTo(page, '07:39');
   await card(page).getByRole('button', { name: 'Different train?' }).click();
-  await card(page).getByRole('button', { name: 'Orange 7:38am' }).click();
+  await card(page).getByRole('button', { name: 'Orange ~7:38am' }).click();
   await tick(page, 1000);
   await expect.poll(() => rideCalls(calls).at(-1)).toMatchObject({ method: 'PUT', path: '/rides/ride1' });
   expect(rideCalls(calls).at(-1).body.ride.legs[1].dep).toBe(Date.parse('2026-10-05T07:38:00-04:00'));

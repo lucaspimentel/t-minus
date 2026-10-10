@@ -68,6 +68,20 @@ Each leg time shown carries a source badge:
   schedules fill in before and after. Buses are unchanged (scheduled times are the guidelines'
   fallback there). The app (rows, previous rides, the ride card) and the server's stop alerts
   use the same rule.
+- **Subway headways** (`subwayHeadway`, `tripVehicles`, `legTime`). When a subway leg's
+  predictions were fetched but list no vehicle at all (an outage, before the first train), the
+  guidelines show headways instead of scheduled times. Its vehicles are tagged with `every`:
+  the smallest and largest gap between the scheduled departures at the boarding stop in the next
+  60 min ("6", or "8–13"; 0-min gaps from branches at the same minute ignored). The badge reads
+  "every 6 min" (scheduled style) in the timeline and, when it's the shown leg, the collapsed row.
+  The leg's own times are marked "~", and so is everything computed from them: "Arrive" and
+  "arrive ~" when it's the last transit leg, the outlook line, the transfer headline, "Walking ·
+  arrive ~", "Tracking …", the ride card's train choices, reminder text, and stop alerts (the
+  ride's legs carry `every` to the server, which also tags its own re-plans). The headline and
+  "Leave" stay plain, as do predicted times on other legs. Not tagged (SCHEDULED, plain): fewer
+  than two departures in the hour (the last trains; the next service day's rows), and legs
+  whose predictions weren't fetched (offline). A single predicted train ends it (predictions
+  first); a ride leg that becomes predicted drops `every` (`trackLegs`).
 - **Next service day**: when today's schedule window reaches the end of the service day
   and today's data yields fewer than `departureCount` rows (late evening, after the last
   vehicle), fetch the next service day's schedules (03:00-12:00) for every leg and fill the
@@ -283,7 +297,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Per departure: countdown/state with the leave-by time right-aligned ("Leave in 12 min   8:04am"),
   then, collapsed, a leg strip (the timeline's gray rail laid out horizontally: short stubs
   for the walks at both ends, evenly spaced colored dots with short labels, "─● Bus 132 ──●
-  Orange ─"), then the source badge (LIVE/SCHEDULED, of the timing leg; the first leg on missed
+  Orange ─"), then the source badge (LIVE/SCHEDULED, or "every 6 min" for a subway leg with no predictions; of the timing leg; the first leg on missed
   and en-route rows) and "arrive 8:56am" right-aligned under the time; routes and departures
   only when expanded. All times use the compact "8:04am" form (`formatTime`), with the weekday prefixed
   across dates. Tapping a row replaces the summary with a timeline under a divider:

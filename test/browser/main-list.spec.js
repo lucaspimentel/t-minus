@@ -3,7 +3,7 @@
 // (leave-by 6 min earlier: 5-min walk + 1 min early at the stop), arriving 7:57, 8:28…
 // openApp waits 1 s after the first rows, hence "6 min" at 6:55 for a 7:02 leave-by.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, rowHeads, commute } from './helpers.js';
+import { openApp, tick, tickTo, rowHeads, commute, CONFIG } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -14,7 +14,7 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   expect(await rowHeads(page)).toEqual(['Leave in 6 min 7:02am', 'Leave in 34 min 7:30am', 'Leave in 1h 02m 7:58am', 'Leave in 1h 30m 8:26am']);
   const first = page.locator('.row').first();
   await expect(first.locator('.strip')).toHaveText(/Bus 132.*Orange/);
-  await expect(first.locator('.summary')).toContainText('arrive 7:57am');
+  await expect(first.locator('.summary')).toContainText('arrive ~7:57am'); // Orange has no predictions: by its headway
   await expect(first.locator('.summary .chev')).toHaveText('▾');
   await expect(page.locator('#status-text')).toHaveText('Updated 6:55am');
 
@@ -24,13 +24,13 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   // each ride between its stops, as a bar in the route's color; walks and transfers short.
   const tl = first.locator('.timeline');
   await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
-  await expect(tl.locator('.step.stop .t')).toHaveText(['7:08am', '7:22am', '7:32am', '7:47am']);
-  await expect(tl.locator('.step.ride')).toHaveText([/^Bus 132 · 14 min\s*scheduled\s*toward Malden$/i, /^Orange Line · 15 min\s*scheduled\s*toward Forest Hills$/i]);
+  await expect(tl.locator('.step.stop .t')).toHaveText(['7:08am', '7:22am', '~7:32am', '~7:47am']);
+  await expect(tl.locator('.step.ride')).toHaveText([/^Bus 132 · 14 min\s*scheduled\s*toward Malden$/i, /^Orange Line · 15 min\s*every 6 min\s*toward Forest Hills$/i]);
   await expect(tl.locator('.step.ride .toward')).toHaveText(['toward Malden', 'toward Forest Hills']); // the trip's headsign, on its own line
   expect(await tl.locator('.tl-leg').evaluateAll(ls => ls.map(l => l.style.getPropertyValue('--c')))).toEqual(['#FFC72C', '#ED8B00']);
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min · 1 min early at the stop', '10 min to transfer', 'Walk 10 min']);
   // Leave and Arrive at the ends, in the same time column.
-  await expect(tl.locator('.step.end')).toHaveText([/^Leave\s*7:02am$/, /^Arrive\s*7:57am$/]);
+  await expect(tl.locator('.step.end')).toHaveText([/^Leave\s*7:02am$/, /^Arrive\s*~7:57am$/]);
   await expect(tl.locator('.step').first()).toHaveClass(/\bend\b/);
   await expect(tl.locator('.step').last()).toHaveClass(/\bend\b/);
   await expect(tl.locator('.step.walk .walk-icon')).toHaveCount(3);
@@ -54,7 +54,7 @@ test('before stop names are known, the timeline keeps its shape with "—"', asy
   const first = page.locator('.row').first();
   await first.click();
   await expect(first.locator('.timeline .step.stop .n')).toHaveText(['—', '—', '—', '—']);
-  await expect(first.locator('.timeline .step.stop .t')).toHaveText(['7:08am', '7:22am', '7:32am', '7:47am']);
+  await expect(first.locator('.timeline .step.stop .t')).toHaveText(['7:08am', '7:22am', '~7:32am', '~7:47am']);
 });
 
 test('countdown goes green → amber → red → missed, and the missed row leaves after 5 min', async ({ page }) => {
@@ -173,4 +173,45 @@ test('late in the evening, the next service day fills the list with weekday time
   await openApp(page, { time: '23:30' });
   const heads = await rowHeads(page);
   expect(heads.some(h => h.includes('Tue '))).toBe(true);
+});
+
+// The MBTA's real-time display guidelines: a subway leg with no predictions shows its headway,
+// not scheduled times. Office to home timed on the Orange Line (every 6 min); the bus is predicted.
+test('a subway leg with no predictions shows its headway and "~" times; a predicted train brings it back', async ({ page }) => {
+  const config = structuredClone(CONFIG);
+  config.trips[1].timingLeg = 0;
+  const scenario = commute();
+  for (const t of scenario.trips) t.live = t.route === '132';
+  const mbta = await openApp(page, { time: '17:00', config, scenario });
+  const row = page.locator('.row:not(.missed)').first();
+  await expect(row.locator('.summary .badge')).toHaveText('every 6 min');
+  await expect(row.locator('.summary .arrive')).toHaveText(/^arrive \d+:\d+pm$/); // from the live bus
+  await row.click();
+  const tl = row.locator('.timeline');
+  await expect(tl.locator('.step.ride .badge')).toHaveText(['every 6 min', 'live']);
+  await expect(tl.locator('.step.stop .t')).toHaveText([/^~\d+:\d+pm$/, /^~\d+:\d+pm$/, /^\d+:\d+pm$/, /^\d+:\d+pm$/]);
+  await expect(tl.locator('.step.end .t')).toHaveText([/^\d+:\d+pm$/, /^\d+:\d+pm$/]); // Leave and Arrive stay plain
+  // Home to office ends on the Orange Line: the arrival is "~".
+  await page.locator('#toggle button').first().click();
+  await expect(page.locator('.row .summary .arrive').first()).toHaveText(/^arrive ~\d+:\d+pm$/);
+  // One Orange train predicted: predictions first, no headway.
+  const one = scenario.trips.find(t => t.id === 'OLout-1729');
+  one.live = true;
+  mbta.scenario = scenario;
+  await page.locator('#toggle button').nth(1).click();
+  await page.locator('#refresh').click();
+  await tick(page, 1000);
+  await expect(page.locator('.row .summary .badge', { hasText: 'live' }).first()).toBeVisible(); // the 5:29 train
+  await expect(page.locator('.badge', { hasText: 'every' })).toHaveCount(0);
+  await expect(page.locator('.row .arrive', { hasText: '~' })).toHaveCount(0);
+});
+
+test('with only the next service day\'s trains left, rows keep SCHEDULED', async ({ page }) => {
+  const config = structuredClone(CONFIG);
+  config.trips[1].timingLeg = 0;
+  const scenario = commute();
+  for (const t of scenario.trips) t.live = t.route === '132';
+  await openApp(page, { time: '23:58', config, scenario });
+  await expect(page.locator('.row .summary .badge').first()).toHaveText('scheduled');
+  await expect(page.locator('.badge', { hasText: 'every' })).toHaveCount(0);
 });
