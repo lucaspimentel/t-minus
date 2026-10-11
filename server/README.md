@@ -6,7 +6,9 @@ and pushes the heads-up, "Leave now", or "Ride cancelled". It also follows track
 alerts (`POST /api/rides`, `PUT` / `DELETE /api/rides/:id`): a heads-up 3 stops before each
 drop-off, "get off" with the drop-off next, and missed connections (see `DESIGN.md`,
 Notifications and Hosting). It also answers setup's "Show nearby" (`GET /api/nearby?lat&lon`: the routes around a
-point with their distances), and proxies the app's MBTA requests (`GET /api/mbta/<path>?…`:
+point with their distances), auto-route (`GET /api/stops?q` or `?lat&lon`, `GET /api/plan?from&to`:
+stop search and plans with buses, from a network built daily from 3 MBTA requests; see `DESIGN.md`,
+"Auto-route with buses"), and proxies the app's MBTA requests (`GET /api/mbta/<path>?…`:
 an allowlist, the server's key, a shared cache, stale copies with `x-data-age` when the MBTA
 fails, 120 requests/min per IP; see `DESIGN.md`, "MBTA data caching").
 

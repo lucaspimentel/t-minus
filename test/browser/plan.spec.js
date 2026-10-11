@@ -33,7 +33,7 @@ test('setup: auto-route lists the ways between two stations and opens the pick i
   await expect(options(page)).toHaveText([/^Orange\s*No transfers · 8 stops$/]);
   await setup(page).locator('#plan-to').click();
   await pickStation(page, 'kendall', 'Kendall/MIT');
-  await setup(page).getByLabel('Minutes from last station').fill('7');
+  await setup(page).getByLabel('Minutes from last stop').fill('7');
   await options(page).first().click();
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove to Kendall/MIT');
   await expect(setup(page).getByLabel('Minutes to first stop')).toHaveValue('5');

@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, defaultTransferMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, searchNetworkStops, nearbyNetworkStops, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, UPDATE_MIN, testPushText,
@@ -1158,6 +1158,94 @@ test('planRoutes: station to station on rail, fewest transfers, then fewest stop
       { route: 'Red', direction_id: 1, stop: 'place-pktrm', alight: 'place-knncl', transferBefore: 3 },
     ],
   });
+});
+
+// Network fixtures: /routes, /stops and /route_patterns records (with the representative trip).
+const route = (id, type, dest) => ({ type: 'route', id, attributes: { type, short_name: type === 3 ? id : '', long_name: type === 3 ? '' : `${id} Line`, color: 'ABCDEF', direction_destinations: dest } });
+const stop = (id, name, lat, lon, parent = null) => ({ type: 'stop', id, attributes: { name, latitude: lat, longitude: lon }, relationships: { parent_station: { data: parent ? { id: parent } : null } } });
+const pattern = (id, r, dir, ids, attrs) => [
+  { type: 'route_pattern', id, attributes: { direction_id: dir, ...attrs }, relationships: { route: { data: { id: r } }, representative_trip: { data: { id: `rt-${id}` } } } },
+  { type: 'trip', id: `rt-${id}`, relationships: { stops: { data: ids.map(x => ({ id: x })) } } },
+];
+
+// A small network: bus B1 (and B3 along the same street) to a stop by Hub station, the Orange
+// Line Hub → Mid → End, bus B2 from beside Mid to Zed; B4 from Far (300 m from End: too far to walk).
+function smallNetwork() {
+  const pats = [
+    pattern('b1', 'B1', 0, ['a1', 'a2', 'hb'], { typicality: 1 }),
+    pattern('b3', 'B3', 0, ['a1', 'a2', 'hb'], { typicality: 1 }),
+    pattern('b2x', 'B2', 0, ['m1', 'a1'], { typicality: 3 }), // not typical: left out
+    pattern('or', 'Orange', 0, ['o1', 'o2', 'o3'], { canonical: true }),
+    pattern('b2', 'B2', 0, ['m1', 'z1'], { typicality: 1 }),
+    pattern('b4', 'B4', 0, ['far', 'w1'], { typicality: 1 }),
+  ];
+  const stops = [stop('a1', 'Elm St', 42.40, -71.10), stop('a2', 'Oak St', 42.40, -71.09), stop('hb', 'Hub Busway', 42.41, -71.0803),
+    stop('o1', 'Hub', 42.4102, -71.0800, 'place-hub'), stop('o2', 'Mid', 42.42, -71.08, 'place-mid'), stop('o3', 'End', 42.43, -71.08, 'place-end'),
+    stop('m1', 'Mid Busway', 42.4204, -71.0804), stop('z1', 'Zed Sq', 42.42, -71.06), stop('far', 'Far St', 42.4327, -71.08), stop('w1', 'West St', 42.44, -71.09)];
+  const sched = (trip, r, list) => list.map(([st, t], i) => ({ attributes: { departure_time: iso(t), stop_sequence: i + 1 }, relationships: { trip: { data: { id: trip } }, stop: { data: { id: st } }, route: { data: { id: r } } } }));
+  return transitNetwork(
+    { data: [route('B1', 3, ['Hub', 'Elm']), route('B2', 3, ['Zed', 'Mid']), route('B3', 3, ['Hub', 'Elm']), route('B4', 3, ['West', 'Far']), route('Orange', 1, ['End', 'Hub'])] },
+    { data: pats.map(p => p[0]), included: [...pats.map(p => p[1]), ...stops] },
+    { data: [...sched('t1', 'B1', [['a1', '12:00'], ['a2', '12:04'], ['hb', '12:10']]), ...sched('t2', 'B1', [['a1', '12:30'], ['a2', '12:36'], ['hb', '12:42']])] });
+}
+
+test('transitNetwork: typical bus and canonical rail patterns, median minutes from the sample, distance otherwise', () => {
+  const net = smallNetwork();
+  assert.deepEqual(net.patterns.map(p => p.route), ['B1', 'B3', 'Orange', 'B2', 'B4']);
+  assert.deepEqual(net.patterns[0].mins, [5, 6]); // medians of 4/6 and 6/6
+  assert.ok(Math.abs(net.patterns[2].mins[0] - 1.113 / 30 * 60) < 0.05); // Orange: ~1.1 km at 30 km/h
+  assert.deepEqual(net.stations['place-mid'], { id: 'place-mid', name: 'Mid', lat: 42.42, lon: -71.08 });
+  assert.equal(net.routes.B1.label, 'Bus B1');
+});
+
+test('planTrips: bus to rail to bus, walks up to 250 m between stops, routes riding along', () => {
+  const net = smallNetwork();
+  const [hub] = planTrips(net, 'a1', 'place-mid');
+  assert.deepEqual(hub.legs, [
+    { route: 'B1', also: ['B3'], direction_id: 0, stop: 'a1', alight: 'hb' },
+    { route: 'Orange', also: [], direction_id: 0, stop: 'place-hub', alight: 'place-mid' },
+  ]);
+  assert.deepEqual(hub.transfers, [{ name: 'Hub Busway → Hub', meters: 33, min: 3 }]);
+  assert.equal(hub.minutes, 11 + 3 + 2); // B1 11, change 3, Orange ~2.2
+  const [zed] = planTrips(net, 'a1', 'z1');
+  assert.deepEqual(zed.legs.map(l => [l.route, l.stop, l.alight]), [['B1', 'a1', 'hb'], ['Orange', 'place-hub', 'place-mid'], ['B2', 'm1', 'z1']]);
+  assert.deepEqual(zed.transfers.map(t => t.name), ['Hub Busway → Hub', 'Mid → Mid Busway']);
+  // Far St is ~300 m from End: no walk there, so West St can't be reached; same place: none.
+  assert.deepEqual(planTrips(net, 'a1', 'w1'), []);
+  assert.deepEqual(planTrips(net, 'a1', 'a1'), []);
+  assert.deepEqual(planTrips(net, 'nowhere', 'z1'), []);
+  // At most 2 transfers.
+  assert.deepEqual(planTrips(net, 'a1', 'z1', 1), []);
+  // Walks count twice in the ranking: riding one more stop to the one by the station beats
+  // getting off 200 m away (1 min sooner by bus).
+  const near = transitNetwork({ data: [route('B5', 3, ['Hub', 'Elm']), route('Orange', 1, ['End', 'Hub'])] }, {
+    data: [pattern('b5', 'B5', 0, ['e1', 'far2', 'by'], { typicality: 1 })[0], pattern('or', 'Orange', 0, ['o1', 'o2'], { canonical: true })[0]],
+    included: [pattern('b5', 'B5', 0, ['e1', 'far2', 'by'], {})[1], pattern('or', 'Orange', 0, ['o1', 'o2'], {})[1],
+      stop('e1', 'Elm St', 42.40, -71.10), stop('far2', 'Back St', 42.4084, -71.0790), stop('by', 'By Hub', 42.4100, -71.0800),
+      stop('o1', 'Hub', 42.4102, -71.0800, 'place-hub'), stop('o2', 'Mid', 42.42, -71.08, 'place-mid')],
+  }, null);
+  near.patterns[0].mins = [10, 1];
+  assert.deepEqual(planTrips(near, 'e1', 'place-mid')[0].legs[0].alight, 'by');
+  // The editor's form: the walk's minutes as the transfer.
+  const form = optionToForm(zed, 'Elm St', 'Zed Sq', 5, 4);
+  assert.equal(form.name, 'Elm St to Zed Sq');
+  assert.deepEqual(form.transit.map(l => [l.route, l.also, l.transferBefore]), [['B1', ['B3'], 0], ['Orange', undefined, 3], ['B2', undefined, 3]]);
+});
+
+test('searchNetworkStops, nearbyNetworkStops: places by name or distance, with their routes and directions', () => {
+  const net = smallNetwork();
+  assert.deepEqual(searchNetworkStops(net, 'hub'), [
+    { id: 'place-hub', name: 'Hub', routes: [{ id: 'Orange', label: 'Orange', color: 'ABCDEF' }], toward: ['End'] },
+    { id: 'hb', name: 'Hub Busway', routes: [], toward: [] }, // the end of B1 and B3
+  ]);
+  assert.deepEqual(searchNetworkStops(net, ''), []);
+  assert.deepEqual(nearbyNetworkStops(net, 42.42, -71.0801).map(p => [p.id, p.meters]), [['place-mid', 8], ['m1', 51]]);
+});
+
+test('nextWeekday: today on a weekday, else Monday', () => {
+  assert.equal(nextWeekday(Date.parse('2026-10-09T09:00:00-04:00')), '2026-10-09'); // Friday
+  assert.equal(nextWeekday(Date.parse('2026-10-10T09:00:00-04:00')), '2026-10-12'); // Saturday
+  assert.equal(nextWeekday(Date.parse('2026-10-11T23:00:00-04:00')), '2026-10-12'); // Sunday
 });
 
 test('commonLabel: shared words, then the rest', () => {

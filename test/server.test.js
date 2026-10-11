@@ -49,6 +49,14 @@ async function setup({ staticRoot = null } = {}) {
     // Orange schedules only (`cancelled` for no predictions): [[trip id, Oak Grove, State], ...].
     if (route === 'Orange' && u.pathname === '/schedules' && world.orangeSchedules) data = world.orangeSchedules.flatMap(([id, d, a]) => [rec('schedule', id, 'place-ogmnl', d), rec('schedule', id, 'place-state', a)]);
     if (route === 'Orange' && u.pathname === '/predictions' && world.orange2) data.push(rec('prediction', 'o2', 'place-ogmnl', world.orange2), rec('prediction', 'o2', 'place-state', '07:56'));
+    // Auto-route's network (world.network): routes, route patterns with stops, the midday sample.
+    const net = world.network;
+    if (net && u.pathname === '/routes' && !u.searchParams.has('filter[stop]')) return { ok: true, status: 200, json: async () => ({ data: net.routes }) };
+    if (net && u.pathname === '/route_patterns') return { ok: true, status: 200, json: async () => ({ data: net.patterns, included: net.included }) };
+    if (net && u.pathname === '/schedules' && u.searchParams.get('filter[min_time]') === '11:00') {
+      if (net.sampleFails) return { ok: false, status: 500 };
+      return { ok: true, status: 200, json: async () => ({ data: net.sample }) };
+    }
     // A ridden vehicle's remaining stops (stop alerts): world.rideStops[tripId] = [[stop id, name, hh:mm], ...].
     const tripId = u.searchParams.get('filter[trip]');
     if (tripId) {
@@ -461,6 +469,71 @@ test('a followed ride on a subway leg with no predictions: "~" times in its aler
     // s1 leaves before the bus gets in: re-planned onto s2, shown by the headway.
     assert.deepEqual(s.sent.find(p => p.kind === 'missed'), { kind: 'missed', title: 'Missed the 7:20am Orange', body: 'Next: Orange ~7:36am · arrive ~8:03am', tag: `ride:${id}:plan`, renotify: true });
     assert.equal(s.store.get(id).ride.legs[1].every, '6–16');
+  } finally { await s.close(); }
+});
+
+// Auto-route's network: bus 132 from Main St @ South St to Washington St @ Oak Grove (30 m from
+// Oak Grove's platform), the Orange Line Oak Grove → State.
+function smallNetwork() {
+  const stop = (id, name, lat, lon, parent = null) => ({ type: 'stop', id, attributes: { name, latitude: lat, longitude: lon }, relationships: { parent_station: { data: parent ? { id: parent } : null } } });
+  const pattern = (id, route, ids, attrs) => [
+    { type: 'route_pattern', id, attributes: { direction_id: 0, ...attrs }, relationships: { route: { data: { id: route } }, representative_trip: { data: { id: `rt-${id}` } } } },
+    { type: 'trip', id: `rt-${id}`, relationships: { stops: { data: ids.map(x => ({ id: x })) } } },
+  ];
+  const pats = [pattern('p132', '132', ['25996', '5991'], { typicality: 1 }), pattern('pOL', 'Orange', ['70036', '70022'], { canonical: true })];
+  const sched = (trip, list) => list.map(([st, t], i) => ({ attributes: { departure_time: iso(t), stop_sequence: i + 1 }, relationships: { trip: { data: { id: trip } }, stop: { data: { id: st } } } }));
+  return {
+    routes: [{ type: 'route', id: '132', attributes: { type: 3, short_name: '132', direction_destinations: ['Malden', 'Redstone'] } },
+      { type: 'route', id: 'Orange', attributes: { type: 1, long_name: 'Orange Line', color: 'ED8B00', direction_destinations: ['Forest Hills', 'Oak Grove'] } }],
+    patterns: pats.map(p => p[0]),
+    included: [...pats.map(p => p[1]), stop('25996', 'Main St @ South St', 42.45, -71.07), stop('5991', 'Washington St @ Oak Grove Sta', 42.436927, -71.071292),
+      stop('70036', 'Oak Grove', 42.43668, -71.071097, 'place-ogmnl'), stop('70022', 'State', 42.358978, -71.057598, 'place-state')],
+    sample: [...sched('s1', [['25996', '12:00'], ['5991', '12:14']]), ...sched('s2', [['70036', '12:20'], ['70022', '12:35']])],
+  };
+}
+
+test('auto-route: the network is built from 3 MBTA requests a day; stops by name or nearby; plans', async () => {
+  const s = await setup();
+  try {
+    s.world.network = smallNetwork();
+    const get = async path => { const r = await s.call('GET', path); return { status: r.status, body: await r.json() }; };
+    const found = await get('/api/stops?q=main%20st');
+    assert.deepEqual(found.body.stops, [{ id: '25996', name: 'Main St @ South St', routes: [{ id: '132', label: 'Bus 132', color: null }], toward: ['Malden'] }]);
+    const netCalls = () => s.world.calls.filter(c => ['/routes', '/route_patterns', '/schedules'].includes(c)).length;
+    assert.equal(netCalls(), 3);
+    assert.deepEqual((await get('/api/stops?lat=42.4367&lon=-71.0711')).body.stops.map(x => x.id), ['place-ogmnl', '5991']);
+    const plan = await get('/api/plan?from=25996&to=place-state');
+    assert.deepEqual(plan.body, {
+      from: 'Main St @ South St', to: 'State',
+      options: [{
+        legs: [{ route: '132', also: [], direction_id: 0, stop: '25996', alight: '5991' }, { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state' }],
+        transfers: [{ name: 'Washington St @ Oak Grove Sta → Oak Grove', meters: 32, min: 3 }],
+        minutes: 14 + 3 + 15,
+      }],
+    });
+    // Bad input; the same network all day (no more requests), rebuilt the next.
+    assert.equal((await get('/api/plan?from=25996&to=nowhere')).status, 400);
+    assert.equal((await get('/api/stops?q=m')).status, 400);
+    assert.equal((await get('/api/stops?lat=1&lon=2')).status, 400);
+    assert.equal(netCalls(), 3);
+    s.world.clock += 24 * 60 * 60_000;
+    s.world.network.sampleFails = true; // distance only, and a failed fetch keeps no one waiting
+    await get('/api/stops?q=state');
+    assert.equal(netCalls(), 6);
+    // A failed rebuild keeps the old network.
+    s.world.clock += 24 * 60 * 60_000;
+    s.world.failing = true;
+    const kept = await get('/api/stops?q=state');
+    assert.equal(kept.status, 200);
+    assert.deepEqual(kept.body.stops.map(x => x.id), ['place-state']);
+  } finally { await s.close(); }
+});
+
+test('auto-route: no network yet and the MBTA failing: 503', async () => {
+  const s = await setup();
+  try {
+    s.world.failing = true;
+    assert.equal((await s.call('GET', '/api/plan?from=a&to=b')).status, 503);
   } finally { await s.close(); }
 });
 

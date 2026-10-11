@@ -467,8 +467,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   page, e.g. to pick up a new version in the installed PWA). Done saves changed app-wide
   fields and closes setup; it is disabled until a trip has been saved.
 - Auto-route ("+ Add trip (auto-route)", and the main screen's "Go somewhere else…"): From and
-  To stations (each a station search until picked; tap to change), minutes to the first and
-  from the last station (5 and 5), then up to 3 ways on rail (`planRoutes`): "● Orange → ● Red",
+  To (each a search until picked; tap to change; bus stops too, see "Auto-route with buses"),
+  minutes to the first and from the last stop (5 and 5), then up to 3 ways. Rail only, in the
+  browser (phase 1, and the fallback without the server; `planRoutes`): "● Orange → ● Red",
   "1 transfer at Downtown Crossing · 12 stops". The search runs in the browser over the rail
   network (no requests beyond loading it): at most 2 transfers, each leg a `legBetween` (Green
   branches serving both stations in one leg), no route ridden twice in one direction, changes
@@ -477,8 +478,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   only if it rides fewer stops than every option with fewer. None: "No way on the subway with 2
   transfers or fewer." (e.g. Mattapan to Wonderland needs 3). In setup the pick opens the trip
   editor (`planToForm`: "Oak Grove to Kendall/MIT", 3 min to change within a station, no time
-  window) to review and save; from the main screen it becomes the one-off trip. Buses and
-  addresses are later phases (`TODO.md`).
+  window) to review and save; from the main screen it becomes the one-off trip. Addresses are a
+  later phase (`TODO.md`).
 - Trip screen (tap a row, or "Add trip (manual)"): name, "Show automatically" (During a time window,
   with from/until fields / When I'm near its first stop / Never (only when chosen)), time to the first stop
   and from the last stop, transit legs with a transfer time between them, "Add return trip",
@@ -722,6 +723,11 @@ still holds, to stay well inside it either way:
   list's connections and station-first legs use the rail network: one `/route_patterns`
   request, kept on the phone the same way. A station-first leg costs nothing more. Choosing a drop-off costs 2 (`/routes` at both stops) plus one
   `/stops` per other route serving both (e.g. 3 for the Green branches).
+- Auto-route: the server's network costs 3 MBTA requests a day under its key (`/routes`,
+  `/route_patterns`, the midday `/schedules` sample); stop searches and plans cost none. The
+  phone sends one `/api/stops` per search (250 ms after typing stops) and one `/api/plan` per
+  From/To pair; "By route…" uses setup's `/routes` and `/stops` copies. Without the server,
+  the rail network only (above).
 
 A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 requests; a 4-leg trip
 ≤ 4 req/min. Rapid reloads can still hit the limit (seen in testing with ~8 fresh loads in a
@@ -1029,10 +1035,10 @@ the setup data is small on the wire. In order, if more people use the app keyles
 - Deploy: Railway redeploys on pushes to `main` that touch its watch paths.
 - Icons: `icons/icon.svg` is the source; PNGs are rendered from it.
 
-## Auto-route with buses (phase 2, designed, not built)
+## Auto-route with buses (phase 2)
 
-Phase 1 (station to station on rail, in the browser) is built; see Setup view. Phase 2 adds bus
-stops as From/To and buses as legs. Decided 2026-10-11:
+Phase 1 (station to station on rail, in the browser) is in Setup view. Phase 2 adds bus stops
+as From/To and buses as legs (built 2026-10-11; decided the same day):
 
 - **Network data:** `/route_patterns` for every bus and rail route with
   `include=representative_trip.stops` (stops in order, names, coordinates), as the rail network
@@ -1048,11 +1054,17 @@ stops as From/To and buses as legs. Decided 2026-10-11:
   between consecutive stops over the trips that serve both. Routes with no midday trips (the 20
   peak-only and express ones) fall back to distance along the stops at a typical speed (bus
   ~13 km/h, light rail ~18, subway ~30).
-- **Where:** the server builds the network once a day with its key (the request budget is 2
-  requests a day) and keeps it in memory. `GET /api/plan?from=<stop or station id>&to=…&walkBefore=&walkAfter=`
-  answers with up to 3 options in phase 1's shape (`{ legs, transfers, minutes, stops }`).
-  `GET /api/stops?q=` searches its stops and stations by name for the pickers. The phone
-  downloads nothing large.
+- **Where:** the server (`transit` in `server/app.mjs`) builds the network on first use and daily
+  after (3 requests: `/routes` types 0,1,3, `/route_patterns`, `/schedules`; `transitNetwork`)
+  and keeps it in memory (~870 KB as JSON; built in ~0.6 s). A failed rebuild keeps the old network
+  and retries in 10 min; a build without the ride-time sample (distance only) is retried in 10 min
+  too; no network at all: 503. Endpoints (rate-limited like the rest of `/api`):
+  - `GET /api/stops?q=` (2-60 characters): up to 20 places by name (`searchNetworkStops`), each
+    once by its station: `{ id, name, routes: [{ id, label, color }], toward }`.
+  - `GET /api/stops?lat=&lon=`: places within 400 m, nearest first, with `meters` (`nearbyNetworkStops`).
+  - `GET /api/plan?from=&to=` (stop or station ids): `{ from, to (names), options }` (`planTrips`;
+    cached per pair until the next network). Measured on live data: 40-700 ms per plan.
+  The phone downloads nothing large.
 - **Search:** rounds of legs (RAPTOR-style) over the patterns, at most 2 transfers (3 legs).
   - A leg rides one pattern from a stop to a later stop. Other routes whose patterns serve both
     stops in the same direction ride along in `also` (like Green branches today, e.g. 116/117).
@@ -1060,15 +1072,24 @@ stops as From/To and buses as legs. Decided 2026-10-11:
   - Transfers: the same stop or station (3 min), or a walk between stops up to 250 m (minutes =
     max(3, ⌈meters / 80⌉), straight-line distance).
   - Same pruning as phase 1: no route ridden twice in one direction, no stop passed twice.
-  - Ranked by transfers, then estimated minutes (walks + rides + transfer times). An option with
-    more transfers is shown only if it is faster than every option with fewer.
-  - Each option: "● Bus 132 → ● Orange", "1 transfer at Oak Grove · ~38 min".
-- **Picking From/To:** one search over stations and bus stops by name (with each stop's
-  routes), "Nearby" (stops around the phone's location, as setup's "Show nearby"), and route
-  then stop (setup's manual picker). The rest is phase 1's: setup opens the pick in the trip
-  editor, "Go somewhere else…" makes a one-off trip.
-- **Without the server** (unreachable, or no push server configured): phase 1's rail-only
-  search in the browser for station-to-station, and bus stops say "Needs the T-Minus server".
+  - Ranked by transfers, then estimated minutes (rides + transfer times), with walks between
+    stops counted twice: riding one more stop to the one by the station beats getting off a stop
+    early to walk 124 m (seen live at Oak Grove). An option with more transfers is shown only if
+    it ranks above every option with fewer.
+  - A leg's stops are named by their station when they have one (rail platforms, busway berths).
+  - Each option: "● Bus 132 → ● Orange → ● Red", "2 transfers at Washington St opp Oak Grove Sta →
+    Oak Grove (walk 96 m), Downtown Crossing · ~49 min" (a walk between two places names both;
+    minutes include the walks to the first and from the last stop). Live, Main St @ South St to
+    Kendall/MIT: 132 → Orange → Red, ~39 min plus the walks.
+- **Picking From/To:** one search over stations and bus stops by name (the server's; each with
+  its routes and "toward …"), "Nearby" (the phone's location, asked on that tap; the server's
+  places within 400 m with distances), and "By route…" (a route search, then its stops from
+  setup's stop lists, both directions and "Toward … only"). The rest is phase 1's: setup opens
+  the pick in the trip editor (`optionToForm`: the walk's minutes as the transfer), "Go somewhere
+  else…" makes a one-off trip. The walk fields read "Minutes to first stop" / "from last stop".
+- **Without the server** (unreachable, an error, or no push server configured): the search lists
+  stations from the rail network, phase 1's rail-only search plans between two stations, and a
+  bus stop (from "By route…") says "Needs the T-Minus server.".
 - Not in phase 2: addresses (phase 3), commuter rail and ferry, time-aware search (a route not
   running now is still offered; the trip's rows then show no departures).
 

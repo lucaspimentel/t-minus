@@ -47,7 +47,8 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - Local run: the push server serves the app and `/api` on one port (see `server/README.md`,
   `DRY_RUN=1`), open `http://localhost:8790/`.
 - Push server (`server/`, the only backend and the only runtime dependency, `web-push`; it also
-  serves the app's files, answers setup's "Show nearby", `GET /api/nearby`, and proxies the app's MBTA
+  serves the app's files, answers setup's "Show nearby", `GET /api/nearby`, auto-route's `GET /api/stops`
+  and `GET /api/plan`, and proxies the app's MBTA
   requests, `GET /api/mbta/*`):
   `npm --prefix server ci`, then see `server/README.md` (env vars, `DRY_RUN=1`). `server/app.mjs`
   has no npm imports so `test/server.test.js` runs in `npm test`. The MBTA key goes only into

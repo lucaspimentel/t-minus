@@ -5,10 +5,10 @@
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=be3148b49c';
+} from './core.js?v=77a01dd857';
 
 const ROUTE_LIMIT = 60;
 
@@ -71,7 +71,8 @@ const NEARBY_RADIUS = 0.003;
 // `onReset(apiKey)`: "Delete all trips and settings" (after a confirm); the app reloads.
 // `onPlan(trip)`: open on the auto-route planner ("Go somewhere else…"); the picked option is
 // handed back as a one-off trip (labeled, not saved) and Cancel closes setup.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, nearby = null, onReset = null, startImport = false, onPlan = null }) {
+// `planApi(path, params)`: the T-Minus server's /stops and /plan (buses); null: rail only, in the browser.
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, nearby = null, onReset = null, startImport = false, onPlan = null, planApi = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -86,9 +87,12 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
   // "Set up a trip" with no trips opens a new trip; "Import trips" the list with the import box.
   let editing = savedTrips().length || startImport || onPlan ? null : editor(null, 0, emptyTrip(0));
-  // Auto-route: { from, to (station ids), edit ('from' | 'to' | null: the search shown), query,
-  // walkBefore, walkAfter, oneOff (from the main screen) }.
-  let planner = onPlan ? { from: null, to: null, edit: 'from', query: '', walkBefore: 5, walkAfter: 5, oneOff: true } : null;
+  // Auto-route: { from, to ({ id, name, routes: [{ id, label, color }] }), edit ('from' | 'to' |
+  // null: the search shown), query, found (the server's matches), near (nearby list), byRoute
+  // ({ query, route, docs }), plan ({ key, loading, options, error, local }), walkBefore, walkAfter,
+  // oneOff (from the main screen) }.
+  const newPlanner = oneOff => ({ from: null, to: null, edit: 'from', query: '', walkBefore: 5, walkAfter: 5, oneOff });
+  let planner = onPlan ? newPlanner(true) : null;
   let routes = null;
   // { legIdx (null = new leg), step, query, near, ... }. Steps: 'search' (stations and routes);
   // station-first 'to' { from }; route-first 'board' → 'alight' → 'also' { route, board, alight,
@@ -228,7 +232,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   }
 
   function planTrip() {
-    planner = { from: null, to: null, edit: 'from', query: '', walkBefore: 5, walkAfter: 5, oneOff: false };
+    planner = newPlanner(false);
     listMessages = [];
     loadRailNetwork().then(render).catch(() => {});
     render();
@@ -362,8 +366,84 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // ---------- auto-route ----------
 
-  // Stations From and To (each a search until picked), the walks, then up to 3 ways on rail
+  // From and To (each a search until picked), the walks, then up to 3 ways. With the server
+  // (`planApi`): stations and bus stops by name, Nearby, or By route…, and its plans (buses and
+  // rail). Without it, or when it fails between two stations: rail only, in the browser
   // (planRoutes). Setup opens the pick in the trip editor; the main screen gets a one-off trip.
+  let searchTimer = null;
+  const routeTagOf = (ids, colorOf) => {
+    const look = id => { const r = routeById(id); const l = railNet?.lines.find(x => x.id === id); return { label: r ? shortRouteLabel(r) : l?.label ?? id, color: r?.attributes?.color ?? l?.color }; };
+    return h('span', { class: 'tag' }, dot(colorOf ?? look(ids[0]).color), commonLabel(ids.map(id => look(id).label), true));
+  };
+  const placeTags = place => place.routes.map(r => h('span', { class: 'tag conn' }, dot(r.color), r.label));
+  // A station from the rail network, as the server describes places.
+  const stationPlace = id => {
+    const st = networkStation(railNet, id);
+    return { id: st?.id ?? id, name: st?.name ?? id, routes: railConnections({ id: st?.id ?? id }, railStops).map(c => ({ id: c.label, label: c.label, color: c.color })) };
+  };
+
+  function setPlace(key, place) {
+    const p = planner;
+    p[key] = place;
+    p.edit = !p.from ? 'from' : !p.to ? 'to' : null;
+    Object.assign(p, { query: '', found: null, near: null, byRoute: null, nearError: null });
+    loadPlan();
+    render();
+  }
+
+  // Server search, 250 ms after typing stops; stations from the rail network meanwhile and on failure.
+  function searchPlaces() {
+    const p = planner;
+    clearTimeout(searchTimer);
+    const q = p.query.trim();
+    if (!planApi || q.length < 2) { p.found = null; return; }
+    searchTimer = setTimeout(() => planApi('/stops', { q }).then(r => {
+      if (planner !== p || p.query.trim() !== q) return;
+      p.found = r.stops;
+      render();
+    }, () => {}), 250);
+  }
+
+  function nearbyPlaces() {
+    const p = planner;
+    Object.assign(p, { near: { loading: true }, byRoute: null });
+    render();
+    const fail = msg => { if (planner === p) { p.near = { error: msg }; render(); } };
+    if (!navigator.geolocation) return fail("Couldn't get your location.");
+    navigator.geolocation.getCurrentPosition(pos => {
+      planApi('/stops', { lat: pos.coords.latitude.toFixed(5), lon: pos.coords.longitude.toFixed(5) })
+        .then(r => { if (planner === p) { p.near = { stops: r.stops }; render(); } }, e => fail(e.message || String(e)));
+    }, err => fail(err.code === err.PERMISSION_DENIED ? 'Location is off for this app.' : "Couldn't get your location."),
+    { maximumAge: 60_000, timeout: 10_000 });
+  }
+
+  async function routeStops(route) {
+    const p = planner;
+    p.byRoute = { ...p.byRoute, route, docs: null, query: '' };
+    render();
+    try {
+      const docs = await Promise.all([0, 1].map(d => loadStops(route.id, d)));
+      if (planner === p && p.byRoute?.route === route) { p.byRoute.docs = docs; render(); }
+    } catch (e) { if (planner === p) { p.byRoute.error = e.message || String(e); render(); } }
+  }
+
+  // The ways between From and To: the server's, else (stations only) the browser's rail search.
+  function loadPlan() {
+    const p = planner;
+    if (!p.from || !p.to) { p.plan = null; return; }
+    const key = `${p.from.id}>${p.to.id}`;
+    if (p.plan?.key === key) return;
+    const local = () => {
+      const a = networkStation(railNet, p.from.id);
+      const b = networkStation(railNet, p.to.id);
+      return a && b ? { key, local: true, options: planRoutes(railNet, a.id, b.id) } : { key, error: 'Needs the T-Minus server.' };
+    };
+    if (!planApi) { p.plan = local(); return; }
+    p.plan = { key, loading: true };
+    planApi('/plan', { from: p.from.id, to: p.to.id }).then(r => ({ key, options: r.options, from: r.from, to: r.to }), local)
+      .then(plan => { if (planner === p && p.plan?.key === key) { p.plan = plan; render(); } });
+  }
+
   function plannerScreen() {
     const p = planner;
     const head = h('div', { class: 'setup-head' },
@@ -373,34 +453,62 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       loadRailNetwork().then(render).catch(e => { listMessages = errs([`Couldn't load stations: ${e.message || e}`]); render(); });
       return [head, ...listMessages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)), h('div', { class: 'muted' }, 'Loading stations…')];
     }
-    const station = id => networkStation(railNet, id);
+    if (planApi && !routes) loadRoutes().then(rs => { routes = rs; render(); }).catch(() => {});
     const field = (key, label) => {
-      if (p.edit !== key && p[key]) {
-        return h('div', { class: 'field' }, label, h('button', { type: 'button', class: 'item', id: `plan-${key}`, onclick: () => { p.edit = key; p.query = ''; render(); } },
-          h('span', { class: 'main' }, station(p[key])?.name ?? p[key], ' '), ...stationLines(p[key]), h('span', { class: 'change' }, 'Change')));
-      }
+      const open = () => { Object.assign(p, { edit: key, query: '', found: null, near: null, byRoute: null }); render(); };
       if (p.edit !== key) {
-        return h('div', { class: 'field' }, label, h('button', { type: 'button', class: 'item', id: `plan-${key}`, onclick: () => { p.edit = key; p.query = ''; render(); } }, 'Choose a station'));
+        return h('div', { class: 'field' }, label, h('button', { type: 'button', class: 'item', id: `plan-${key}`, onclick: open },
+          ...(p[key] ? [h('span', { class: 'main' }, p[key].name, ' '), ...placeTags(p[key]), h('span', { class: 'change' }, 'Change')] : [planApi ? 'Choose a stop or station' : 'Choose a station'])));
       }
+      const placeButton = (place, extra = null) => h('button', { type: 'button', class: 'item', onclick: () => setPlace(key, { id: place.id, name: place.name, routes: place.routes }) },
+        h('b', {}, place.name), ' ', ...placeTags(place), extra,
+        place.toward?.length ? h('div', { class: 'muted' }, `toward ${place.toward.join(' / ')}`) : null);
       const list = h('div', { class: 'list' });
-      const fill = () => list.replaceChildren(...searchStations(railNet, p.query).slice(0, 8).map(st => h('button', { type: 'button', class: 'item', onclick: () => {
-        p[key] = st.id;
-        p.edit = !p.from ? 'from' : !p.to ? 'to' : null;
-        p.query = '';
-        render();
-      } }, h('b', {}, st.name), ...stationLines(st.id))));
+      const fill = () => {
+        if (p.found && p.query.trim().length >= 2) return list.replaceChildren(...p.found.map(x => placeButton(x)));
+        list.replaceChildren(...searchStations(railNet, p.query).slice(0, 8).map(st => placeButton(stationPlace(st.id))));
+      };
       fill();
+      const extras = [];
+      if (planApi && p.near) {
+        extras.push(p.near.loading ? h('div', { class: 'muted' }, 'Finding stops nearby…')
+          : p.near.error ? h('div', { class: 'msg err' }, p.near.error)
+            : h('div', { class: 'list' }, ...(p.near.stops.length ? p.near.stops.map(x => placeButton(x, h('span', { class: 'dist' }, ` ${formatDistance(x.meters)}`))) : [h('div', { class: 'muted' }, 'No stops found nearby.')])));
+      }
+      if (planApi && p.byRoute) {
+        const b = p.byRoute;
+        if (!b.route) {
+          const rl = h('div', { class: 'list' });
+          const fillRoutes = () => rl.replaceChildren(...(routes ? searchRoutes(routes, b.query).slice(0, ROUTE_LIMIT) : []).map(r => h('button', { type: 'button', class: 'item', onclick: () => routeStops(r) },
+            dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), routeEnds(r) && h('span', { class: 'muted' }, ` ${routeEnds(r)}`))));
+          fillRoutes();
+          extras.push(h('input', { type: 'search', id: 'plan-route-search', 'aria-label': 'Search routes', placeholder: 'Search routes', value: b.query, oninput: e => { b.query = e.target.value; fillRoutes(); } }), rl);
+        } else {
+          const r = b.route;
+          const tag = { id: r.id, label: shortRouteLabel(r), color: r.attributes.color };
+          const head2 = h('div', { class: 'muted' }, `${routeLabel(r)} · `, h('button', { type: 'button', class: 'link', onclick: () => { b.route = null; render(); } }, 'Change'));
+          if (b.error) extras.push(head2, h('div', { class: 'msg err' }, b.error));
+          else if (!b.docs) extras.push(head2, h('div', { class: 'muted' }, 'Loading stops…'));
+          else {
+            const g = boardGroups(...b.docs);
+            const stopButton = st => h('button', { type: 'button', class: 'item', onclick: () => setPlace(key, { id: st.id, name: st.attributes.name, routes: [tag] }) }, st.attributes.name);
+            const towardOf = d => r.attributes.direction_destinations?.[d] ?? `direction ${d}`;
+            extras.push(head2, h('div', { class: 'list' }, ...g.both.map(stopButton),
+              ...g.only.flatMap((l, d) => (l.length ? [h('div', { class: 'section-head' }, `Toward ${towardOf(d)} only`), ...l.map(stopButton)] : []))));
+          }
+        }
+      }
       return h('div', { class: 'field' }, h('label', { for: 'picker-search' }, label),
-        h('input', { type: 'search', id: 'picker-search', placeholder: 'Search stations', value: p.query, oninput: e => { p.query = e.target.value; fill(); } }), list);
-    };
-    const options = p.from && p.to ? planRoutes(railNet, p.from, p.to) : null;
-    const lineOf = id => railNet.lines.find(l => l.id === id);
-    const legTag = l => {
-      const routes = [l.route, ...l.also];
-      return h('span', { class: 'tag' }, dot(lineOf(l.route)?.color), commonLabel(routes.map(r => lineOf(r)?.label ?? r), true));
+        h('input', { type: 'search', id: 'picker-search', placeholder: planApi ? 'Search stops and stations' : 'Search stations', value: p.query,
+          oninput: e => { p.query = e.target.value; p.near = null; p.byRoute = null; fill(); searchPlaces(); } }),
+        planApi && h('div', { class: 'btns plan-ways' },
+          h('button', { type: 'button', onclick: nearbyPlaces }, 'Nearby'),
+          h('button', { type: 'button', onclick: () => { Object.assign(p, { byRoute: { query: '' }, near: null }); render(); } }, 'By route…')),
+        ...(p.near || p.byRoute ? extras : [list]));
     };
     const pick = o => {
-      const form = planToForm(railNet, o, p.walkBefore, p.walkAfter);
+      const plan = p.plan;
+      const form = plan.local ? planToForm(railNet, o, p.walkBefore, p.walkAfter) : optionToForm(o, plan.from ?? p.from.name, plan.to ?? p.to.name, p.walkBefore, p.walkAfter);
       if (p.oneOff) {
         const cfg = { trips: [formToTrip(form)] };
         loadRoutes().then(rs => { routes = rs; }).catch(() => {}).finally(() => onPlan((routes ? labelLegs(cfg, routes) : cfg).trips[0]));
@@ -412,21 +520,31 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       editing.initial = null; // Cancel asks before dropping a planned trip
       render();
     };
-    const optionList = options && (options.length
-      ? [h('div', { class: 'muted section' }, p.oneOff ? 'Pick one to see its departures' : 'Pick one to review and save'),
-        h('div', { class: 'list', id: 'plan-options' }, ...options.map(o => h('button', { type: 'button', class: 'item', onclick: () => pick(o) },
-          h('b', {}, ...o.legs.flatMap((l, i) => [i > 0 && ' → ', legTag(l)])),
-          h('div', { class: 'muted' }, [o.transfers.length ? `${o.transfers.length} transfer${o.transfers.length === 1 ? '' : 's'} at ${o.transfers.join(', ')}` : 'No transfers',
-            `${o.stops} stop${o.stops === 1 ? '' : 's'}`].join(' · ')))))]
-      : [h('div', { class: 'msg' }, 'No way on the subway with 2 transfers or fewer.')]);
+    const lineOf = id => railNet.lines.find(l => l.id === id);
+    const optionText = o => {
+      const n = o.transfers.length;
+      const at = o.transfers.map(t => (typeof t === 'string' ? t : `${t.name}${t.meters ? ` (walk ${t.meters} m)` : ''}`)).join(', ');
+      return [n ? `${n} transfer${n === 1 ? '' : 's'} at ${at}` : 'No transfers',
+        o.minutes != null ? `~${o.minutes + p.walkBefore + p.walkAfter} min` : `${o.stops} stop${o.stops === 1 ? '' : 's'}`].join(' · ');
+    };
+    const plan = p.plan;
+    const optionList = !plan ? []
+      : plan.loading ? [h('div', { class: 'muted section' }, 'Finding ways…')]
+        : plan.error ? [h('div', { class: 'msg' }, plan.error)]
+          : plan.options.length
+            ? [h('div', { class: 'muted section' }, p.oneOff ? 'Pick one to see its departures' : 'Pick one to review and save'),
+              h('div', { class: 'list', id: 'plan-options' }, ...plan.options.map(o => h('button', { type: 'button', class: 'item', onclick: () => pick(o) },
+                h('b', {}, ...o.legs.flatMap((l, i) => [i > 0 && ' → ', routeTagOf([l.route, ...l.also], plan.local ? lineOf(l.route)?.color : null)])),
+                h('div', { class: 'muted' }, optionText(o)))))]
+            : [h('div', { class: 'msg' }, plan.local ? 'No way on the subway with 2 transfers or fewer.' : 'No way with 2 transfers or fewer.')];
     return [head,
       h('div', { class: 'card' },
         field('from', 'From'),
         field('to', 'To'),
         h('div', { class: 'field-pair' },
-          numberField('Minutes to first station', p.walkBefore, v => { p.walkBefore = v; }),
-          numberField('Minutes from last station', p.walkAfter, v => { p.walkAfter = v; }))),
-      ...(optionList ?? [])];
+          numberField('Minutes to first stop', p.walkBefore, v => { p.walkBefore = v; }),
+          numberField('Minutes from last stop', p.walkAfter, v => { p.walkAfter = v; }))),
+      ...optionList];
   }
 
   // ---------- trip screen ----------

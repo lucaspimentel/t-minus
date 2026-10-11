@@ -132,3 +132,32 @@ for (const scheme of ['light', 'dark']) {
     expect(await violations(page)).toEqual([]);
   });
 }
+
+for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on the planner's bus stop search, By route… and server options (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openApp(page, { time: '07:00' });
+    const MAIN = { id: '25996', name: 'Main St @ South St', routes: [{ id: '132', label: 'Bus 132', color: 'FFC72C' }], toward: ['Malden'] };
+    const STATE = { id: 'place-state', name: 'State', routes: [{ id: 'Orange', label: 'Orange', color: 'ED8B00' }], toward: ['Forest Hills'] };
+    await page.route(/\/api\/(stops|plan)\?/, route => {
+      const u = new URL(route.request().url());
+      if (u.pathname.endsWith('/plan')) {
+        return route.fulfill({ json: { from: MAIN.name, to: STATE.name, options: [{ legs: [{ route: '132', also: [], direction_id: 1, stop: '25996', alight: '5991' }, { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state' }], transfers: [{ name: 'Washington St @ Oak Grove Sta → Oak Grove', meters: 32, min: 3 }], minutes: 32 }] } });
+      }
+      const q = u.searchParams.get('q')?.toLowerCase() ?? '';
+      return route.fulfill({ json: { stops: [MAIN, STATE].filter(s => s.name.toLowerCase().includes(q)) } });
+    });
+    await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+    await page.locator('#picker-search').fill('main st');
+    await expect(page.locator('#setup .list .item', { hasText: 'toward Malden' })).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+    await page.locator('#setup .list .item').first().click();
+    await page.locator('#setup').getByRole('button', { name: 'By route…', exact: true }).click();
+    await page.locator('#plan-route-search').fill('132');
+    expect(await violations(page)).toEqual([]);
+    await page.locator('#picker-search').fill('state');
+    await page.locator('#setup .list .item', { hasText: 'State' }).first().click();
+    await expect(page.locator('#plan-options .item')).toHaveCount(1);
+    expect(await violations(page)).toEqual([]);
+  });
+}

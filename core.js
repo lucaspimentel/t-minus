@@ -443,14 +443,302 @@ export function planRoutes(net, fromId, toId, maxTransfers = 2, limit = 3) {
 export function planToForm(net, option, walkBefore, walkAfter) {
   const name = id => networkStation(net, id)?.name ?? id;
   const legs = option.legs;
+  return optionToForm(option, name(legs[0].stop), name(legs[legs.length - 1].alight), walkBefore, walkAfter);
+}
+
+// The form for any planned option (rail or the server's, with buses): transfer minutes from the
+// option's transfers when given (a walk between stops), else the default.
+export function optionToForm(option, fromName, toName, walkBefore, walkAfter) {
+  const legs = option.legs;
   return {
-    name: `${name(legs[0].stop)} to ${name(legs[legs.length - 1].alight)}`,
+    name: `${fromName} to ${toName}`,
     window: null, near: false, timingLeg: null, walkBefore, walkAfter,
     transit: legs.map((l, i) => ({
       route: l.route, direction_id: l.direction_id, stop: l.stop, alight: l.alight, ...(l.also.length && { also: [...l.also] }),
-      transferBefore: i === 0 ? 0 : defaultTransferMinutes(legs[i - 1].alight, l.stop),
+      transferBefore: i === 0 ? 0 : option.transfers?.[i - 1]?.min ?? defaultTransferMinutes(legs[i - 1].alight, l.stop),
     })),
   };
+}
+
+// ---------- auto-route with buses (the server's network) ----------
+
+// Typical speeds (km/h) for hops with no midday schedule: bus, light rail, subway (route types 3, 0, 1).
+const HOP_KMH = { 3: 13, 0: 18, 1: 30 };
+export const WALK_TRANSFER_METERS = 250;
+const WALK_M_PER_MIN = 80;
+const SAME_STOP_TRANSFER_MIN = 3;
+
+// The date for the midday ride-time sample: the next weekday (today on a weekday).
+export function nextWeekday(nowMs) {
+  let { date } = serviceDate(nowMs);
+  for (;;) {
+    const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+    if (dow >= 1 && dow <= 5) return date;
+    date = addDays(date, 1);
+  }
+}
+
+// The planning network from /routes (types 0,1,3), /route_patterns (include=representative_trip.stops)
+// and a midday /schedules sample of the same routes:
+// { routes: { id: { label, color, type, dest } }, stops: { id: { id, name, lat, lon, parent } },
+//   stations: { id: { id, name, lat, lon } }, patterns: [{ route, direction, stops: [id], mins: [hop minutes] }] }.
+// Rail keeps its canonical patterns; buses (none canonical) their typical ones (typicality 1).
+// Hop minutes: the median over the sample's trips between the two stops, else distance at HOP_KMH.
+export function transitNetwork(routesDoc, patternsDoc, schedulesDoc) {
+  const routes = {};
+  for (const r of routesDoc?.data ?? []) {
+    const a = r.attributes ?? {};
+    routes[r.id] = { label: shortRouteLabel(r), color: a.color ?? null, type: a.type, dest: a.direction_destinations ?? [] };
+  }
+  const inc = new Map((patternsDoc?.included ?? []).map(x => [`${x.type}/${x.id}`, x]));
+  const stops = {};
+  const stations = {};
+  const patterns = [];
+  for (const p of patternsDoc?.data ?? []) {
+    const route = p.relationships?.route?.data?.id;
+    const r = routes[route];
+    const a = p.attributes ?? {};
+    if (!r || !(r.type === 3 ? a.typicality === 1 : a.canonical === true)) continue;
+    const trip = inc.get(`trip/${p.relationships?.representative_trip?.data?.id}`);
+    const ids = [];
+    for (const ref of trip?.relationships?.stops?.data ?? []) {
+      const st = inc.get(`stop/${ref.id}`);
+      const sa = st?.attributes ?? {};
+      const parent = st?.relationships?.parent_station?.data?.id ?? null;
+      stops[ref.id] ??= { id: ref.id, name: sa.name ?? ref.id, lat: sa.latitude ?? null, lon: sa.longitude ?? null, parent };
+      if (parent) stations[parent] ??= { id: parent, name: sa.name ?? parent, lat: sa.latitude ?? null, lon: sa.longitude ?? null };
+      if (ids.at(-1) !== ref.id) ids.push(ref.id);
+    }
+    if (ids.length > 1) patterns.push({ route, direction: a.direction_id, stops: ids });
+  }
+  // Median minutes per consecutive stop pair (by trip, in stop_sequence order).
+  const byTrip = new Map();
+  for (const s of schedulesDoc?.data ?? []) {
+    const trip = s.relationships?.trip?.data?.id;
+    const stop = s.relationships?.stop?.data?.id;
+    const t = Date.parse(s.attributes?.departure_time ?? s.attributes?.arrival_time ?? '');
+    if (!trip || !stop || !Number.isFinite(t)) continue;
+    if (!byTrip.has(trip)) byTrip.set(trip, []);
+    byTrip.get(trip).push({ stop, seq: s.attributes?.stop_sequence ?? 0, t });
+  }
+  const pairs = new Map();
+  for (const list of byTrip.values()) {
+    list.sort((x, y) => x.seq - y.seq);
+    for (let i = 1; i < list.length; i++) {
+      const k = `${list[i - 1].stop}>${list[i].stop}`;
+      if (!pairs.has(k)) pairs.set(k, []);
+      pairs.get(k).push((list[i].t - list[i - 1].t) / MIN);
+    }
+  }
+  const median = xs => { const v = [...xs].sort((a, b) => a - b); const m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+  for (const p of patterns) {
+    const kmh = HOP_KMH[routes[p.route].type] ?? HOP_KMH[3];
+    p.mins = p.stops.slice(1).map((b, i) => {
+      const a = p.stops[i];
+      const seen = pairs.get(`${a}>${b}`);
+      if (seen?.length) return Math.max(0, median(seen));
+      const A = stops[a], B = stops[b];
+      return A.lat != null && B.lat != null ? distanceMeters(A, B) / 1000 / kmh * 60 : 2;
+    });
+  }
+  return { routes, stops, stations, patterns };
+}
+
+// A stop or station id's stops (a station: its platforms and berths).
+const stopsAt = (net, id) => (net.stations[id] ? Object.values(net.stops).filter(s => s.parent === id).map(s => s.id) : net.stops[id] ? [id] : []);
+// What a leg or a search result names: the stop's station if it has one, else the stop.
+const placeOf = (net, id) => net.stops[id]?.parent ?? id;
+const placeName = (net, id) => (net.stations[id] ?? net.stops[id])?.name ?? id;
+
+// Per-network indexes (built once): patterns by stop, and nearby stops on a ~250 m grid.
+const netIndex = new WeakMap();
+function indexOf(net) {
+  let ix = netIndex.get(net);
+  if (ix) return ix;
+  const at = new Map(); // stop → [[pattern index, position]]
+  net.patterns.forEach((p, pi) => p.stops.forEach((s, i) => { if (!at.has(s)) at.set(s, []); at.get(s).push([pi, i]); }));
+  const CELL = 0.003;
+  const cellOf = s => `${Math.floor(s.lat / CELL)},${Math.floor(s.lon / CELL)}`;
+  const grid = new Map();
+  for (const s of Object.values(net.stops)) {
+    if (s.lat == null) continue;
+    const k = cellOf(s);
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(s);
+  }
+  // Stops you can change to from `id`: itself and its station's other stops (3 min), others within
+  // WALK_TRANSFER_METERS (max(3, meters / 80) min): [{ id, min, meters }].
+  const near = new Map();
+  const transfersFrom = id => {
+    if (near.has(id)) return near.get(id);
+    const s = net.stops[id];
+    const out = new Map([[id, { id, min: SAME_STOP_TRANSFER_MIN, meters: 0 }]]);
+    if (s?.lat != null) {
+      const [cy, cx] = cellOf(s).split(',').map(Number);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        for (const o of grid.get(`${cy + dy},${cx + dx}`) ?? []) {
+          if (out.has(o.id) || !at.has(o.id)) continue;
+          const same = s.parent && o.parent === s.parent;
+          const m = distanceMeters(s, o);
+          if (same) out.set(o.id, { id: o.id, min: SAME_STOP_TRANSFER_MIN, meters: 0 });
+          else if (m <= WALK_TRANSFER_METERS) out.set(o.id, { id: o.id, min: Math.max(SAME_STOP_TRANSFER_MIN, Math.ceil(m / WALK_M_PER_MIN)), meters: Math.round(m) });
+        }
+      }
+    }
+    if (s?.parent) for (const o of Object.values(net.stops)) if (o.parent === s.parent && !out.has(o.id) && at.has(o.id)) out.set(o.id, { id: o.id, min: SAME_STOP_TRANSFER_MIN, meters: 0 });
+    const list = [...out.values()];
+    near.set(id, list);
+    return list;
+  };
+  ix = { at, transfersFrom };
+  netIndex.set(net, ix);
+  return ix;
+}
+
+// Up to `limit` ways from one stop or station to another with at most `maxTransfers` changes, on
+// the network's patterns (buses and rail). A leg rides one pattern between two of its stops; other
+// routes whose patterns serve both stops in the same direction ride along (`also`). Changes: the
+// same stop or station (3 min), or a walk to a stop within WALK_TRANSFER_METERS. No route ridden
+// twice in one direction, no stop passed twice. Ranked by transfers, then minutes (rides and
+// changes; walks between stops count twice); an option with more transfers is kept only if it ranks
+// above every option with fewer.
+// Each: { legs: [{ route, also, direction_id, stop, alight }], transfers: [{ name ("Downtown Crossing", or
+// "Downtown Crossing → Park Street" for a walk between stations), meters (walked), min }], minutes }
+// (stops named by their station when they have one).
+export function planTrips(net, fromId, toId, maxTransfers = 2, limit = 3) {
+  const origin = stopsAt(net, fromId);
+  const target = new Set(stopsAt(net, toId));
+  if (!origin.length || !target.size || fromId === toId) return [];
+  const { at, transfersFrom } = indexOf(net);
+  const found = [];
+  // Per stop and number of legs, the best minutes boarding there (label pruning, with slack for
+  // other options: a board is skipped once it is 20+ min worse than the best seen).
+  const best = new Map();
+  const SLACK = 20;
+  // `spent`: minutes so far; `cost`: the same with walks between stops counted twice (getting off
+  // a stop early to walk farther ranks below riding on to the stop by the station).
+  const walk = (boards, path, used, seen, spent, cost) => {
+    for (const b of boards) {
+      const key = `${b.id}#${path.length}`;
+      const t = cost + b.min + b.meters / WALK_M_PER_MIN;
+      const m = spent + b.min;
+      if ((best.get(key) ?? Infinity) + SLACK < t) continue;
+      if (t < (best.get(key) ?? Infinity)) best.set(key, t);
+      for (const [pi, i] of at.get(b.id) ?? []) {
+        const p = net.patterns[pi];
+        const rk = `${p.route}/${p.direction}`;
+        if (used.has(rk)) continue;
+        let ride = 0;
+        const via = [];
+        for (let j = i + 1; j < p.stops.length; j++) {
+          const s = p.stops[j];
+          ride += p.mins[j - 1];
+          if (seen.has(s)) break;
+          via.push(s);
+          const leg = { pattern: pi, from: b.id, to: s, minutes: ride, walk: b };
+          if (target.has(s)) { found.push({ path: [...path, leg], minutes: m + ride, cost: t + ride }); continue; }
+          if (path.length < maxTransfers) {
+            const nextUsed = new Set(used).add(rk);
+            const nextSeen = new Set([...seen, ...via]);
+            walk(transfersFrom(s).filter(x => !nextSeen.has(x.id) || x.id === s), [...path, leg], nextUsed, nextSeen, m + ride, t + ride);
+          }
+        }
+      }
+    }
+  };
+  walk(origin.map(id => ({ id, min: 0, meters: 0 })), [], new Set(), new Set(origin), 0, 0);
+  // Other routes making the same ride (same direction, both stops in order).
+  const alsoFor = (pi, a, b) => {
+    const p = net.patterns[pi];
+    const out = new Set();
+    for (const q of net.patterns) {
+      if (q.route === p.route || q.direction !== p.direction) continue;
+      const i = q.stops.indexOf(a);
+      if (i >= 0 && q.stops.indexOf(b) > i) out.add(q.route);
+    }
+    return [...out];
+  };
+  const seenSig = new Set();
+  const options = [];
+  for (const f of found.sort((x, y) => x.path.length - y.path.length || x.cost - y.cost)) {
+    const legs = f.path.map(l => {
+      const p = net.patterns[l.pattern];
+      return { route: p.route, also: alsoFor(l.pattern, l.from, l.to), direction_id: p.direction, stop: placeOf(net, l.from), alight: placeOf(net, l.to) };
+    });
+    const sig = legs.map(l => `${l.route}@${l.stop}>${l.alight}`).join('|');
+    const shape = legs.map(l => [l.route, ...l.also].sort().join('/')).join('|') + '#' + legs.map(l => l.stop).join();
+    if (seenSig.has(sig) || seenSig.has(shape)) continue;
+    seenSig.add(sig);
+    seenSig.add(shape);
+    options.push({
+      legs,
+      transfers: f.path.slice(1).map((l, k) => {
+        const off = placeName(net, placeOf(net, f.path[k].to));
+        const on = placeName(net, placeOf(net, l.from));
+        return { name: off === on ? on : `${off} → ${on}`, meters: l.walk.meters, min: l.walk.min };
+      }),
+      minutes: Math.round(f.minutes),
+      cost: f.cost,
+    });
+  }
+  return options
+    .filter(o => options.every(x => x.legs.length >= o.legs.length || x.cost > o.cost))
+    .map(({ cost: _, ...o }) => o)
+    .slice(0, limit);
+}
+
+// Stations and stops whose name contains the query (names starting with it first), each once by
+// its station: [{ id, name, routes: [{ id, label, color }], toward: [destinations] }].
+export function searchNetworkStops(net, query, limit = 20) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const places = new Map();
+  for (const s of Object.values(net.stops)) {
+    const id = s.parent ?? s.id;
+    const name = placeName(net, id);
+    if (!name.toLowerCase().includes(q)) continue;
+    if (!places.has(id)) places.set(id, { id, name, stops: [] });
+    places.get(id).stops.push(s.id);
+  }
+  return [...places.values()]
+    .sort((a, b) => (a.name.toLowerCase().startsWith(q) ? 0 : 1) - (b.name.toLowerCase().startsWith(q) ? 0 : 1) || a.name.localeCompare(b.name))
+    .slice(0, limit)
+    .map(p => placeSummary(net, p.id, p.name, p.stops));
+}
+
+// A place's routes (MBTA order: rail first) and where they head from it.
+function placeSummary(net, id, name, ids) {
+  const { at } = indexOf(net);
+  const routes = new Map();
+  const toward = new Set();
+  for (const s of ids) {
+    for (const [pi, i] of at.get(s) ?? []) {
+      const p = net.patterns[pi];
+      if (i === p.stops.length - 1) continue; // nothing leaves from a pattern's last stop
+      const r = net.routes[p.route];
+      routes.set(p.route, { id: p.route, label: r?.label ?? p.route, color: r?.color ?? null, type: r?.type });
+      if (r?.dest?.[p.direction]) toward.add(r.dest[p.direction]);
+    }
+  }
+  const rank = r => (r.type === 3 ? 1 : 0);
+  return { id, name, routes: [...routes.values()].sort((a, b) => rank(a) - rank(b)).map(({ type: _, ...r }) => r), toward: [...toward] };
+}
+
+// Stops and stations within `meters` of a point, nearest first (each once by its station), with
+// their distance: [{ ...placeSummary, meters }].
+export function nearbyNetworkStops(net, lat, lon, meters = 400, limit = 12) {
+  const places = new Map();
+  for (const s of Object.values(net.stops)) {
+    if (s.lat == null) continue;
+    const d = distanceMeters({ lat, lon }, s);
+    if (d > meters) continue;
+    const id = s.parent ?? s.id;
+    const p = places.get(id);
+    if (!p) places.set(id, { id, d, stops: [s.id] });
+    else { p.d = Math.min(p.d, d); p.stops.push(s.id); }
+  }
+  return [...places.values()].sort((a, b) => a.d - b.d).slice(0, limit)
+    .map(p => ({ ...placeSummary(net, p.id, placeName(net, p.id), p.stops), meters: Math.round(p.d) }));
 }
 
 // A leg's routes cut down to `keep` (at least one stays; the first kept becomes primary).

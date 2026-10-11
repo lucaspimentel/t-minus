@@ -10,6 +10,7 @@ import {
   headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
   rideAlertText, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
+  transitNetwork, planTrips, searchNetworkStops, nearbyNetworkStops, nextWeekday,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -30,6 +31,9 @@ const MBTA_BUDGET = 800; // MBTA calls per minute past which proxy misses are re
 const MAX_MEMORY_COPIES = 2000; // the proxy's realtime copies, in memory
 const MAX_DISK_COPIES = 2000; // its static copies, in SQLite
 const MBTA_TIMEOUT_MS = 10_000;
+const NETWORK_TIMEOUT_MS = 60_000; // the network's large requests (patterns ~3 MB, schedules ~12 MB)
+const NETWORK_RETRY_MS = 10 * MIN; // after a failed daily rebuild (the old network stays)
+const MAX_PLANS = 500; // cached plans (from > to), cleared with each new network
 
 // The app's files (an allowlist: nothing else under the repo root is served).
 const STATIC = {
@@ -44,6 +48,9 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
   const hits = new Map(); // ip -> { minute, count }
   let tests = []; // pending test notifications: { subscription, at }
   const nearbyStopsCache = new Map(); // cell -> { at, stops }
+  let network = null; // auto-route: { net, at } (transitNetwork), rebuilt daily
+  let building = null;
+  const plans = new Map(); // `${from}>${to}` -> planTrips options
   const nearbySetCache = new Map(); // stop ids + hour -> { routeIds, schedules }
   const files = new Map(); // file -> { body, etag }
   let ticking = false;
@@ -246,6 +253,31 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
 
     if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true, reminders: store.count() });
     if (req.method === 'GET' && path === '/vapid') return reply(res, 200, { publicKey });
+    // Auto-route: stop search (by name or near a point) and plans, from the daily network.
+    if (req.method === 'GET' && (path === '/stops' || path === '/plan')) {
+      let net;
+      try { net = await transit(t); } catch (e) { log(`network: ${e.message}`); return reply(res, 503, { error: 'Network unavailable' }); }
+      const q = url.searchParams;
+      if (path === '/stops' && q.has('q')) {
+        const text = q.get('q').trim();
+        if (text.length < 2 || text.length > 60) return reply(res, 400, { error: 'q must be 2-60 characters' });
+        return reply(res, 200, { stops: searchNetworkStops(net, text) });
+      }
+      if (path === '/stops') {
+        const lat = Number(q.get('lat'));
+        const lon = Number(q.get('lon'));
+        if (!(lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5)) return reply(res, 400, { error: 'lat/lon must be near Boston' });
+        return reply(res, 200, { stops: nearbyNetworkStops(net, lat, lon) });
+      }
+      const from = q.get('from') ?? '';
+      const to = q.get('to') ?? '';
+      const known = id => !!(net.stops[id] || net.stations[id]);
+      if (!known(from) || !known(to)) return reply(res, 400, { error: 'from and to must be stop or station ids' });
+      const key = `${from}>${to}`;
+      const options = plans.get(key) ?? remember(plans, key, planTrips(net, from, to), MAX_PLANS);
+      const name = id => (net.stations[id] ?? net.stops[id]).name;
+      return reply(res, 200, { from: name(from), to: name(to), options });
+    }
     if (req.method === 'GET' && path === '/nearby') {
       const lat = Number(url.searchParams.get('lat'));
       const lon = Number(url.searchParams.get('lon'));
@@ -330,6 +362,57 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       return reply(res, found ? 204 : 404, undefined);
     }
     return reply(res, 404, { error: 'Not found' });
+  }
+
+  // ---------- auto-route network ----------
+
+  // The network for /stops and /plan: built on first use and daily after (3 MBTA requests; see
+  // transitNetwork). A failed rebuild keeps the old one and tries again in NETWORK_RETRY_MS.
+  async function transit(t) {
+    if (network && t - network.at < DAY) return network.net;
+    building ??= buildNetwork(t)
+      // Without the ride-time sample (distance only), tried again sooner.
+      .then(({ net, partial }) => { network = { net, at: partial ? now() - DAY + NETWORK_RETRY_MS : now() }; plans.clear(); return net; })
+      .finally(() => { building = null; });
+    try {
+      return await building;
+    } catch (e) {
+      if (!network) throw e;
+      log(`network rebuild failed (kept the old one): ${e.message}`);
+      network.at = t - DAY + NETWORK_RETRY_MS;
+      return network.net;
+    }
+  }
+
+  // Large one-off documents, not kept in the MBTA cache.
+  async function networkDoc(path, params) {
+    const qs = new URLSearchParams(params);
+    if (apiKey) qs.set('api_key', apiKey);
+    const res = await fetch(`${API}${path}?${qs}`, { headers: { Accept: 'application/vnd.api+json' }, signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`MBTA ${path}: HTTP ${res.status}`);
+    return res.json();
+  }
+
+  async function buildNetwork(t) {
+    const routes = await networkDoc('/routes', {
+      'filter[type]': '0,1,3', 'fields[route]': 'short_name,long_name,type,color,direction_destinations,sort_order',
+    });
+    const ids = routes.data.map(r => r.id).join(',');
+    const patterns = await networkDoc('/route_patterns', {
+      'filter[route]': ids, include: 'representative_trip.stops',
+      'fields[route_pattern]': 'direction_id,canonical,typicality', 'fields[trip]': '', 'fields[stop]': 'name,latitude,longitude',
+    });
+    // Ride minutes from a weekday's midday trips; without them, distance at typical speeds.
+    let sample = null;
+    try {
+      sample = await networkDoc('/schedules', {
+        'filter[route]': ids, 'filter[date]': nextWeekday(t), 'filter[min_time]': '11:00', 'filter[max_time]': '13:00',
+        'fields[schedule]': 'departure_time,stop_sequence',
+      });
+    } catch (e) { log(`network schedules: ${e.message}`); }
+    const net = transitNetwork(routes, patterns, sample);
+    log(`network: ${net.patterns.length} patterns, ${Object.keys(net.stops).length} stops${sample ? '' : ' (no ride-time sample)'}`);
+    return { net, partial: !sample };
   }
 
   // ---------- nearby (setup's "Show nearby") ----------

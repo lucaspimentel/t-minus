@@ -375,7 +375,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-11 · 37456fcac9</footer>
+    <footer class="version">Version 2026-10-11 · a5bed14638</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -398,8 +398,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=be3148b49c';
-import { openSetup } from './setup.js?v=76060a8a4c';
+} from './core.js?v=77a01dd857';
+import { openSetup } from './setup.js?v=b484caf7b1';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -936,6 +936,13 @@ async function pushApi(method, path, body) {
 
 // Setup's "Show nearby" from the push server ({ routes: [{ id, meters }] }, a few KB instead of
 // up to ~230 KB of schedules); setup falls back to the MBTA when this fails or takes over 3 s.
+// Auto-route's /stops and /plan (the first call after a deploy waits for the network: ~15 s).
+async function planFromServer(path, params) {
+  const res = await fetch(`${SERVER_API}${path}?${new URLSearchParams(params)}`, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 async function nearbyFromServer({ lat, lon }) {
   const res = await fetch(`${SERVER_API}/nearby?lat=${lat}&lon=${lon}`, { signal: AbortSignal.timeout(3000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1627,6 +1634,7 @@ function showSetup({ importOpen = false, plan = false } = {}) {
     hideToast,
     testPush: SERVER_API ? { supported: pushSupported, send: testPush } : null,
     nearby: SERVER_API ? nearbyFromServer : null,
+    planApi: SERVER_API ? planFromServer : null,
     onClose: closeSetup,
     onReset: resetApp,
     startImport: importOpen,
