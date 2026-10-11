@@ -19,10 +19,11 @@ there now" screen, or both; ranking (fewest transfers, total time, least walking
 several); route-only or time-aware (skip routes not running now). Phase 1 (station to station on
 rail: "+ Add trip (auto-route)" in setup, "Go somewhere else…" one-off trips) is done.
 
-- Phase 2, buses: either the MBTA API at runtime through the server (nearby stops → routes →
-  reach; too many requests for the keyless limit), or static GTFS on the server (nightly download,
-  unzipped with Node's zlib, a RAPTOR-style search up to 2 transfers; memory and a nightly job on
-  Railway). Leaning toward GTFS on the server.
+- Phase 2, buses: designed (see "Auto-route with buses" in `DESIGN.md`): the server builds the
+  network daily from `/route_patterns` (typical bus patterns) plus a midday `/schedules` sample for
+  ride minutes, and answers `/api/plan` and `/api/stops`. Bus stops are found by name search, nearby,
+  or route then stop. Search: up to 2 transfers, walks between stops up to 250 m, ranked by
+  transfers then estimated minutes. Without the server, rail-only in the browser. Next: plan and build.
 - Phase 3, addresses: geocoding through the server with a cache (Nominatim, Photon, MassGIS, or
   a paid key; the service sees the searched addresses), "From here" from the browser's location,
   stops within a walking radius at each end, walk minutes from the distance (see the deferred

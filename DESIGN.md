@@ -679,6 +679,9 @@ Base: `https://api-v3.mbta.com` (V3 API, JSON:API format, GTFS/GTFS-Realtime bas
 - Directions come from `include=trip` with `fields[trip]=headsign` on the same predictions and
   schedules (verified 2026-10-04: 132 "Malden" / "Redstone", Orange "Forest Hills" / "Oak
   Grove"; schedules carry it too). One small included record per trip; no extra requests.
+- Bus route patterns (verified 2026-10-11): none is `canonical`; `typicality: 1` marks the
+  typical ones (334 of 582, every bus route has at least one). Representative trips of bus
+  patterns aren't in current schedules (`/schedules?filter[trip]=` returns nothing for them).
 - `schedule_relationship` on predictions (API reference): `ADDED` is "an extra trip that was
   added in addition to a running schedule"; the best practices page adds that a prediction may
   have no `schedule` when "we know a vehicle is running on the route" but can't match it to a
@@ -1025,6 +1028,49 @@ the setup data is small on the wire. In order, if more people use the app keyles
   serves the app and `/api`; open `http://localhost:8790/`.
 - Deploy: Railway redeploys on pushes to `main` that touch its watch paths.
 - Icons: `icons/icon.svg` is the source; PNGs are rendered from it.
+
+## Auto-route with buses (phase 2, designed, not built)
+
+Phase 1 (station to station on rail, in the browser) is built; see Setup view. Phase 2 adds bus
+stops as From/To and buses as legs. Decided 2026-10-11:
+
+- **Network data:** `/route_patterns` for every bus and rail route with
+  `include=representative_trip.stops` (stops in order, names, coordinates), as the rail network
+  already does. Bus routes have no canonical patterns (`canonical: false` on all of them, verified
+  2026-10-11), so buses use the typical ones (`typicality: 1`): 334 of 582 patterns, covering
+  all 152 bus routes (34 route/directions have more than one, e.g. branches); rail keeps
+  `canonical: true`. One request: 3.0 MB (340 KB gzipped), 6,772 stops. No GTFS zip (24.6 MB,
+  mostly per-trip stop times; a parser and a nightly job for data this needs only a little of).
+- **Ride minutes:** representative trips have no current schedules (0 of 222 asked, verified
+  2026-10-11), so run times come from one `/schedules` request for all routes on the next
+  weekday, 11:00-13:00 (verified for buses: 10.6 MB, 416 KB gzipped, 5 s, 1,447 trips on 132 routes),
+  `fields[schedule]=departure_time,stop_sequence`: per route and direction, the median minutes
+  between consecutive stops over the trips that serve both. Routes with no midday trips (the 20
+  peak-only and express ones) fall back to distance along the stops at a typical speed (bus
+  ~13 km/h, light rail ~18, subway ~30).
+- **Where:** the server builds the network once a day with its key (the request budget is 2
+  requests a day) and keeps it in memory. `GET /api/plan?from=<stop or station id>&to=…&walkBefore=&walkAfter=`
+  answers with up to 3 options in phase 1's shape (`{ legs, transfers, minutes, stops }`).
+  `GET /api/stops?q=` searches its stops and stations by name for the pickers. The phone
+  downloads nothing large.
+- **Search:** rounds of legs (RAPTOR-style) over the patterns, at most 2 transfers (3 legs).
+  - A leg rides one pattern from a stop to a later stop. Other routes whose patterns serve both
+    stops in the same direction ride along in `also` (like Green branches today, e.g. 116/117).
+  - A station counts as all its platforms.
+  - Transfers: the same stop or station (3 min), or a walk between stops up to 250 m (minutes =
+    max(3, ⌈meters / 80⌉), straight-line distance).
+  - Same pruning as phase 1: no route ridden twice in one direction, no stop passed twice.
+  - Ranked by transfers, then estimated minutes (walks + rides + transfer times). An option with
+    more transfers is shown only if it is faster than every option with fewer.
+  - Each option: "● Bus 132 → ● Orange", "1 transfer at Oak Grove · ~38 min".
+- **Picking From/To:** one search over stations and bus stops by name (with each stop's
+  routes), "Nearby" (stops around the phone's location, as setup's "Show nearby"), and route
+  then stop (setup's manual picker). The rest is phase 1's: setup opens the pick in the trip
+  editor, "Go somewhere else…" makes a one-off trip.
+- **Without the server** (unreachable, or no push server configured): phase 1's rail-only
+  search in the browser for station-to-station, and bus stops say "Needs the T-Minus server".
+- Not in phase 2: addresses (phase 3), commuter rail and ferry, time-aware search (a route not
+  running now is still offered; the trip's rows then show no departures).
 
 ## Future extensions
 
