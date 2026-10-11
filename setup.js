@@ -4,11 +4,11 @@
 // and the setup-time requests.
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
-  searchRoutes, searchStops, boardGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
+  searchRoutes, searchStops, boardGroups, dropOffGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=77a01dd857';
+} from './core.js?v=8ef226b4bd';
 
 const ROUTE_LIMIT = 60;
 
@@ -87,11 +87,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
   // "Set up a trip" with no trips opens a new trip; "Import trips" the list with the import box.
   let editing = savedTrips().length || startImport || onPlan ? null : editor(null, 0, emptyTrip(0));
-  // Auto-route: { from, to ({ id, name, routes: [{ id, label, color }] }), edit ('from' | 'to' |
-  // null: the search shown), query, found (the server's matches), near (nearby list), byRoute
-  // ({ query, route, docs }), plan ({ key, loading, options, error, local }), walkBefore, walkAfter,
-  // oneOff (from the main screen) }.
-  const newPlanner = oneOff => ({ from: null, to: null, edit: 'from', query: '', walkBefore: 5, walkAfter: 5, oneOff });
+  // Auto-route: { from, to ({ id, name, routes: [{ id, label, color }] }, picked in the leg picker's
+  // plan mode), plan ({ key, loading, options, error, local }), walkBefore, walkAfter, oneOff (from
+  // the main screen) }.
+  const newPlanner = oneOff => ({ from: null, to: null, walkBefore: 5, walkAfter: 5, oneOff });
   let planner = onPlan ? newPlanner(true) : null;
   let routes = null;
   // { legIdx (null = new leg), step, query, near, ... }. Steps: 'search' (stations and routes);
@@ -366,11 +365,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // ---------- auto-route ----------
 
-  // From and To (each a search until picked), the walks, then up to 3 ways. With the server
-  // (`planApi`): stations and bus stops by name, Nearby, or By route…, and its plans (buses and
-  // rail). Without it, or when it fails between two stations: rail only, in the browser
-  // (planRoutes). Setup opens the pick in the trip editor; the main screen gets a one-off trip.
-  let searchTimer = null;
+  // From and To (each picked in the leg picker: a station, a route's stop, or Show nearby), the
+  // walks, then up to 3 ways: the server's plans (`planApi`: buses and rail), else (or when it
+  // fails, between two stations) rail only, in the browser (planRoutes). Setup opens the pick in
+  // the trip editor; the main screen gets a one-off trip.
   const routeTagOf = (ids, colorOf) => {
     const look = id => { const r = routeById(id); const l = railNet?.lines.find(x => x.id === id); return { label: r ? shortRouteLabel(r) : l?.label ?? id, color: r?.attributes?.color ?? l?.color }; };
     return h('span', { class: 'tag' }, dot(colorOf ?? look(ids[0]).color), commonLabel(ids.map(id => look(id).label), true));
@@ -385,46 +383,21 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   function setPlace(key, place) {
     const p = planner;
     p[key] = place;
-    p.edit = !p.from ? 'from' : !p.to ? 'to' : null;
-    Object.assign(p, { query: '', found: null, near: null, byRoute: null, nearError: null });
     loadPlan();
     render();
   }
 
-  // Server search, 250 ms after typing stops; stations from the rail network meanwhile and on failure.
-  function searchPlaces() {
-    const p = planner;
-    clearTimeout(searchTimer);
-    const q = p.query.trim();
-    if (!planApi || q.length < 2) { p.found = null; return; }
-    searchTimer = setTimeout(() => planApi('/stops', { q }).then(r => {
-      if (planner !== p || p.query.trim() !== q) return;
-      p.found = r.stops;
-      render();
-    }, () => {}), 250);
-  }
-
-  function nearbyPlaces() {
-    const p = planner;
-    Object.assign(p, { near: { loading: true }, byRoute: null });
+  // From or To: the leg picker in plan mode (`planField`): stations, routes then a stop, or
+  // Show nearby; the pick returns to the planner.
+  function openPlanPicker(key) {
+    picker = { legIdx: null, planField: key, step: 'search', query: '' };
+    loadRoutes().then(r => { routes = r; render(); }).catch(e => { if (picker) picker.error = e.message || String(e); render(); });
     render();
-    const fail = msg => { if (planner === p) { p.near = { error: msg }; render(); } };
-    if (!navigator.geolocation) return fail("Couldn't get your location.");
-    navigator.geolocation.getCurrentPosition(pos => {
-      planApi('/stops', { lat: pos.coords.latitude.toFixed(5), lon: pos.coords.longitude.toFixed(5) })
-        .then(r => { if (planner === p) { p.near = { stops: r.stops }; render(); } }, e => fail(e.message || String(e)));
-    }, err => fail(err.code === err.PERMISSION_DENIED ? 'Location is off for this app.' : "Couldn't get your location."),
-    { maximumAge: 60_000, timeout: 10_000 });
   }
-
-  async function routeStops(route) {
-    const p = planner;
-    p.byRoute = { ...p.byRoute, route, docs: null, query: '' };
-    render();
-    try {
-      const docs = await Promise.all([0, 1].map(d => loadStops(route.id, d)));
-      if (planner === p && p.byRoute?.route === route) { p.byRoute.docs = docs; render(); }
-    } catch (e) { if (planner === p) { p.byRoute.error = e.message || String(e); render(); } }
+  function pickPlace(place) {
+    const key = picker.planField;
+    picker = null;
+    setPlace(key, place);
   }
 
   // The ways between From and To: the server's, else (stations only) the browser's rail search.
@@ -453,61 +426,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       loadRailNetwork().then(render).catch(e => { listMessages = errs([`Couldn't load stations: ${e.message || e}`]); render(); });
       return [head, ...listMessages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)), h('div', { class: 'muted' }, 'Loading stations…')];
     }
-    if (planApi && !routes) loadRoutes().then(rs => { routes = rs; render(); }).catch(() => {});
-    const field = (key, label) => {
-      const open = () => { Object.assign(p, { edit: key, query: '', found: null, near: null, byRoute: null }); render(); };
-      if (p.edit !== key) {
-        return h('div', { class: 'field' }, label, h('button', { type: 'button', class: 'item', id: `plan-${key}`, onclick: open },
-          ...(p[key] ? [h('span', { class: 'main' }, p[key].name, ' '), ...placeTags(p[key]), h('span', { class: 'change' }, 'Change')] : [planApi ? 'Choose a stop or station' : 'Choose a station'])));
-      }
-      const placeButton = (place, extra = null) => h('button', { type: 'button', class: 'item', onclick: () => setPlace(key, { id: place.id, name: place.name, routes: place.routes }) },
-        h('b', {}, place.name), ' ', ...placeTags(place), extra,
-        place.toward?.length ? h('div', { class: 'muted' }, `toward ${place.toward.join(' / ')}`) : null);
-      const list = h('div', { class: 'list' });
-      // An empty list is hidden (no gap before To).
-      const fill = () => {
-        if (p.found && p.query.trim().length >= 2) list.replaceChildren(...p.found.map(x => placeButton(x)));
-        else list.replaceChildren(...searchStations(railNet, p.query).slice(0, 8).map(st => placeButton(stationPlace(st.id))));
-        list.hidden = !list.childElementCount;
-      };
-      fill();
-      const extras = [];
-      if (planApi && p.near) {
-        extras.push(p.near.loading ? h('div', { class: 'muted' }, 'Finding stops nearby…')
-          : p.near.error ? h('div', { class: 'msg err' }, p.near.error)
-            : h('div', { class: 'list' }, ...(p.near.stops.length ? p.near.stops.map(x => placeButton(x, h('span', { class: 'dist' }, ` ${formatDistance(x.meters)}`))) : [h('div', { class: 'muted' }, 'No stops found nearby.')])));
-      }
-      if (planApi && p.byRoute) {
-        const b = p.byRoute;
-        if (!b.route) {
-          const rl = h('div', { class: 'list' });
-          const fillRoutes = () => rl.replaceChildren(...(routes ? searchRoutes(routes, b.query).slice(0, ROUTE_LIMIT) : []).map(r => h('button', { type: 'button', class: 'item', onclick: () => routeStops(r) },
-            dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), routeEnds(r) && h('span', { class: 'muted' }, ` ${routeEnds(r)}`))));
-          fillRoutes();
-          extras.push(h('input', { type: 'search', id: 'plan-route-search', 'aria-label': 'Search routes', placeholder: 'Search routes', value: b.query, oninput: e => { b.query = e.target.value; fillRoutes(); } }), rl);
-        } else {
-          const r = b.route;
-          const tag = { id: r.id, label: shortRouteLabel(r), color: r.attributes.color };
-          const head2 = h('div', { class: 'muted' }, `${routeLabel(r)} · `, h('button', { type: 'button', class: 'link', onclick: () => { b.route = null; render(); } }, 'Change'));
-          if (b.error) extras.push(head2, h('div', { class: 'msg err' }, b.error));
-          else if (!b.docs) extras.push(head2, h('div', { class: 'muted' }, 'Loading stops…'));
-          else {
-            const g = boardGroups(...b.docs);
-            const stopButton = st => h('button', { type: 'button', class: 'item', onclick: () => setPlace(key, { id: st.id, name: st.attributes.name, routes: [tag] }) }, st.attributes.name);
-            const towardOf = d => r.attributes.direction_destinations?.[d] ?? `direction ${d}`;
-            extras.push(head2, h('div', { class: 'list' }, ...g.both.map(stopButton),
-              ...g.only.flatMap((l, d) => (l.length ? [h('div', { class: 'section-head' }, `Toward ${towardOf(d)} only`), ...l.map(stopButton)] : []))));
-          }
-        }
-      }
-      return h('div', { class: 'field' }, h('label', { for: 'picker-search' }, label),
-        h('input', { type: 'search', id: 'picker-search', placeholder: planApi ? 'Search stops and stations' : 'Search stations', value: p.query,
-          oninput: e => { p.query = e.target.value; p.near = null; p.byRoute = null; fill(); searchPlaces(); } }),
-        planApi && h('div', { class: 'btns plan-ways' },
-          h('button', { type: 'button', onclick: nearbyPlaces }, 'Nearby'),
-          h('button', { type: 'button', onclick: () => { Object.assign(p, { byRoute: { query: '' }, near: null }); render(); } }, 'By route…')),
-        ...(p.near || p.byRoute ? extras : [list]));
-    };
+    if (!routes) loadRoutes().then(rs => { routes = rs; render(); }).catch(() => {});
+    const field = (key, label) => h('div', { class: 'field' }, label,
+      h('button', { type: 'button', class: 'item', id: `plan-${key}`, onclick: () => openPlanPicker(key) },
+        ...(p[key] ? [h('span', { class: 'main' }, p[key].name, ' '), ...placeTags(p[key]), h('span', { class: 'change' }, 'Change')] : ['Choose a stop or station'])));
     const pick = o => {
       const plan = p.plan;
       const form = plan.local ? planToForm(railNet, o, p.walkBefore, p.walkAfter) : optionToForm(o, plan.from ?? p.from.name, plan.to ?? p.to.name, p.walkBefore, p.walkAfter);
@@ -922,12 +844,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const found = searchRoutes(routes, q);
       const routeButton = r => h('button', { type: 'button', class: 'item', onclick: () => chooseRoute(r) }, dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), routeEnds(r) && h('span', { class: 'muted' }, ` ${routeEnds(r)}`));
       const stationButton = st => h('button', { type: 'button', class: 'item station', onclick: () => {
+        if (picker.planField) return pickPlace(stationPlace(st.id));
         picker = { ...picker, step: 'to', from: st.id, query: '' };
         render();
       } }, h('b', {}, st.name), ...stationLines(st.id));
       const showAll = h('button', { type: 'button', class: 'add', onclick: () => { picker.allRoutes = true; render(); } }, 'Show all routes');
       // The first leg of the trip (a new trip's first, or changing leg 1).
-      const firstLeg = picker.legIdx === 0 || (picker.legIdx == null && !editing.form.transit.length);
+      const firstLeg = !!picker.planField || picker.legIdx === 0 || (picker.legIdx == null && !editing.form.transit.length);
       if (q.trim()) {
         const stations = railNet ? searchStations(railNet, q).slice(0, 8) : [];
         return [
@@ -1020,8 +943,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const toward = d => `toward ${destination(picker.route.id, d)}`;
     if (picker.step === 'board') {
       // Stops served both ways first, then each direction's own (the two sides of a street).
-      const { both, only } = boardGroups(...docs);
+      // Auto-route's To: the stops you can get off at instead.
+      const { both, only } = picker.planField === 'to' ? dropOffGroups(...docs) : boardGroups(...docs);
+      const r = picker.route;
       const pick = s => h('button', { type: 'button', class: 'item', onclick: () => {
+        if (picker.planField) return pickPlace({ id: s.id, name: s.attributes?.name ?? s.id, routes: [{ id: r.id, label: shortRouteLabel(r), color: r.attributes?.color }] });
         picker = { ...picker, board: s.id, step: 'alight', query: '' };
         render();
       } }, s.attributes?.name ?? s.id);
@@ -1058,7 +984,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   }
 
   function pickerScreen() {
-    const titles = { search: picker.legIdx == null ? 'Add a leg' : 'Change leg', to: 'Where do you get off?', board: 'Where do you board?', alight: 'Where do you get off?', also: 'Also take' };
+    const plan = { from: { search: 'From', board: 'From: where do you board?' }, to: { search: 'To', board: 'To: where do you get off?' } }[picker.planField];
+    const titles = { search: picker.legIdx == null ? 'Add a leg' : 'Change leg', to: 'Where do you get off?', board: 'Where do you board?', alight: 'Where do you get off?', also: 'Also take', ...plan };
     const back = () => {
       const prev = { search: null, to: 'search', board: 'search', alight: 'board', also: 'alight' }[picker.step];
       // The nearby list goes back to the plain first-leg list.
@@ -1108,7 +1035,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       window.scrollTo(0, restore ? scrollY[screen] : 0);
     }
     shown = screen;
-    if ((picker && picker.step !== 'also') || (planner && !editing)) root.querySelector('#picker-search')?.focus({ preventScroll: true });
+    if (picker && picker.step !== 'also') root.querySelector('#picker-search')?.focus({ preventScroll: true });
   }
 
   root.hidden = false;

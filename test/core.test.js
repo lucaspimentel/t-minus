@@ -6,8 +6,8 @@ import {
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
-  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, searchNetworkStops, nearbyNetworkStops, nextWeekday, optionToForm, defaultTransferMinutes,
+  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, UPDATE_MIN, testPushText,
@@ -1232,16 +1232,6 @@ test('planTrips: bus to rail to bus, walks up to 250 m between stops, routes rid
   assert.deepEqual(form.transit.map(l => [l.route, l.also, l.transferBefore]), [['B1', ['B3'], 0], ['Orange', undefined, 3], ['B2', undefined, 3]]);
 });
 
-test('searchNetworkStops, nearbyNetworkStops: places by name or distance, with their routes and directions', () => {
-  const net = smallNetwork();
-  assert.deepEqual(searchNetworkStops(net, 'hub'), [
-    { id: 'place-hub', name: 'Hub', routes: [{ id: 'Orange', label: 'Orange', color: 'ABCDEF' }], toward: ['End'] },
-    { id: 'hb', name: 'Hub Busway', routes: [], toward: [] }, // the end of B1 and B3
-  ]);
-  assert.deepEqual(searchNetworkStops(net, ''), []);
-  assert.deepEqual(nearbyNetworkStops(net, 42.42, -71.0801).map(p => [p.id, p.meters]), [['place-mid', 8], ['m1', 51]]);
-});
-
 test('nextWeekday: today on a weekday, else Monday', () => {
   assert.equal(nextWeekday(Date.parse('2026-10-09T09:00:00-04:00')), '2026-10-09'); // Friday
   assert.equal(nextWeekday(Date.parse('2026-10-10T09:00:00-04:00')), '2026-10-12'); // Saturday
@@ -1307,6 +1297,10 @@ test('boardGroups and alightGroups: no direction step', () => {
   assert.deepEqual(alightGroups(bus0, bus1, 'b1').map(x => [x.direction, x.stops.map(y => y.id)]), [[1, ['a1', 'T']]]);
   assert.deepEqual(alightGroups(bus0, bus1, 'nope'), []);
   assert.deepEqual(boardGroups(null, bus1).only[1].length, 3); // not its last stop
+  // Getting off (auto-route's To by route): each direction without its first stop.
+  const d = dropOffGroups(bus0, bus1);
+  assert.deepEqual([d.both.map(x => x.id), d.only.map(l => l.map(x => x.id))], [[], [['a0', 'b0', 'M'], ['b1', 'a1', 'T']]]);
+  assert.deepEqual(dropOffGroups(orange0, orange1).both.map(x => x.id), ['place-mlmnl', 'place-welln']);
 });
 
 test('searchStops, stopsAfter, and defaultTransferMinutes', () => {

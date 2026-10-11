@@ -492,16 +492,11 @@ function smallNetwork() {
   };
 }
 
-test('auto-route: the network is built from 3 MBTA requests a day; stops by name or nearby; plans', async () => {
+test('auto-route: the network is built from 3 MBTA requests a day; plans', async () => {
   const s = await setup();
   try {
     s.world.network = smallNetwork();
     const get = async path => { const r = await s.call('GET', path); return { status: r.status, body: await r.json() }; };
-    const found = await get('/api/stops?q=main%20st');
-    assert.deepEqual(found.body.stops, [{ id: '25996', name: 'Main St @ South St', routes: [{ id: '132', label: 'Bus 132', color: null }], toward: ['Malden'] }]);
-    const netCalls = () => s.world.calls.filter(c => ['/routes', '/route_patterns', '/schedules'].includes(c)).length;
-    assert.equal(netCalls(), 3);
-    assert.deepEqual((await get('/api/stops?lat=42.4367&lon=-71.0711')).body.stops.map(x => x.id), ['place-ogmnl', '5991']);
     const plan = await get('/api/plan?from=25996&to=place-state');
     assert.deepEqual(plan.body, {
       from: 'Main St @ South St', to: 'State',
@@ -511,21 +506,22 @@ test('auto-route: the network is built from 3 MBTA requests a day; stops by name
         minutes: 14 + 3 + 15,
       }],
     });
+    const netCalls = () => s.world.calls.filter(c => ['/routes', '/route_patterns', '/schedules'].includes(c)).length;
+    assert.equal(netCalls(), 3);
     // Bad input; the same network all day (no more requests), rebuilt the next.
     assert.equal((await get('/api/plan?from=25996&to=nowhere')).status, 400);
-    assert.equal((await get('/api/stops?q=m')).status, 400);
-    assert.equal((await get('/api/stops?lat=1&lon=2')).status, 400);
+    assert.equal((await get('/api/stops?q=main')).status, 404); // no stop search (the app picks by route)
     assert.equal(netCalls(), 3);
     s.world.clock += 24 * 60 * 60_000;
     s.world.network.sampleFails = true; // distance only, and a failed fetch keeps no one waiting
-    await get('/api/stops?q=state');
+    assert.equal((await get('/api/plan?from=25996&to=place-state')).status, 200);
     assert.equal(netCalls(), 6);
     // A failed rebuild keeps the old network.
     s.world.clock += 24 * 60 * 60_000;
     s.world.failing = true;
-    const kept = await get('/api/stops?q=state');
+    const kept = await get('/api/plan?from=25996&to=place-state');
     assert.equal(kept.status, 200);
-    assert.deepEqual(kept.body.stops.map(x => x.id), ['place-state']);
+    assert.equal(kept.body.options.length, 1);
   } finally { await s.close(); }
 });
 

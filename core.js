@@ -687,60 +687,6 @@ export function planTrips(net, fromId, toId, maxTransfers = 2, limit = 3) {
     .slice(0, limit);
 }
 
-// Stations and stops whose name contains the query (names starting with it first), each once by
-// its station: [{ id, name, routes: [{ id, label, color }], toward: [destinations] }].
-export function searchNetworkStops(net, query, limit = 20) {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  const places = new Map();
-  for (const s of Object.values(net.stops)) {
-    const id = s.parent ?? s.id;
-    const name = placeName(net, id);
-    if (!name.toLowerCase().includes(q)) continue;
-    if (!places.has(id)) places.set(id, { id, name, stops: [] });
-    places.get(id).stops.push(s.id);
-  }
-  return [...places.values()]
-    .sort((a, b) => (a.name.toLowerCase().startsWith(q) ? 0 : 1) - (b.name.toLowerCase().startsWith(q) ? 0 : 1) || a.name.localeCompare(b.name))
-    .slice(0, limit)
-    .map(p => placeSummary(net, p.id, p.name, p.stops));
-}
-
-// A place's routes (MBTA order: rail first) and where they head from it.
-function placeSummary(net, id, name, ids) {
-  const { at } = indexOf(net);
-  const routes = new Map();
-  const toward = new Set();
-  for (const s of ids) {
-    for (const [pi, i] of at.get(s) ?? []) {
-      const p = net.patterns[pi];
-      if (i === p.stops.length - 1) continue; // nothing leaves from a pattern's last stop
-      const r = net.routes[p.route];
-      routes.set(p.route, { id: p.route, label: r?.label ?? p.route, color: r?.color ?? null, type: r?.type });
-      if (r?.dest?.[p.direction]) toward.add(r.dest[p.direction]);
-    }
-  }
-  const rank = r => (r.type === 3 ? 1 : 0);
-  return { id, name, routes: [...routes.values()].sort((a, b) => rank(a) - rank(b)).map(({ type: _, ...r }) => r), toward: [...toward] };
-}
-
-// Stops and stations within `meters` of a point, nearest first (each once by its station), with
-// their distance: [{ ...placeSummary, meters }].
-export function nearbyNetworkStops(net, lat, lon, meters = 400, limit = 12) {
-  const places = new Map();
-  for (const s of Object.values(net.stops)) {
-    if (s.lat == null) continue;
-    const d = distanceMeters({ lat, lon }, s);
-    if (d > meters) continue;
-    const id = s.parent ?? s.id;
-    const p = places.get(id);
-    if (!p) places.set(id, { id, d, stops: [s.id] });
-    else { p.d = Math.min(p.d, d); p.stops.push(s.id); }
-  }
-  return [...places.values()].sort((a, b) => a.d - b.d).slice(0, limit)
-    .map(p => ({ ...placeSummary(net, p.id, placeName(net, p.id), p.stops), meters: Math.round(p.d) }));
-}
-
 // A leg's routes cut down to `keep` (at least one stays; the first kept becomes primary).
 export function trimRoutes(leg, keep) {
   const routes = legRoutes(leg).filter(r => keep.includes(r));
@@ -766,7 +712,16 @@ export function servesInOrder(doc, boardId, alightId) {
 // boarded, so a terminus goes under the direction leaving from it (Malden Center: toward
 // Redstone only).
 export function boardGroups(doc0, doc1) {
-  const lists = [doc0?.data ?? [], doc1?.data ?? []].map(l => l.slice(0, -1));
+  return stopGroups([doc0, doc1].map(d => (d?.data ?? []).slice(0, -1)));
+}
+
+// Auto-route's To by route: stops you can get off at in either direction (each direction's first
+// stop left out, as boardGroups leaves out the last), grouped the same way.
+export function dropOffGroups(doc0, doc1) {
+  return stopGroups([doc0, doc1].map(d => (d?.data ?? []).slice(1)));
+}
+
+function stopGroups(lists) {
   const ids = lists.map(l => new Set(l.map(s => s.id)));
   return {
     both: lists[0].filter(s => ids[1].has(s.id)),

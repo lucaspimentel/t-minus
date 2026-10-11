@@ -303,8 +303,6 @@
   .field-pair { display: flex; gap: 10px; align-items: flex-end; }
   .field-pair > .field { flex: 1; min-width: 0; }
   .field > .item { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; }
-  .plan-ways { margin-top: 8px; }
-  .setup .plan-ways button { font-size: 14px; padding: 6px 12px; }
   .field .item .change { margin-left: auto; color: var(--accent-text); font-size: 14px; }
   .check { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 14px; }
   .setup .check input { width: auto; margin: 0; }
@@ -377,7 +375,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-11 · a12140aa25</footer>
+    <footer class="version">Version 2026-10-11 · 2096527d05</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -400,8 +398,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=77a01dd857';
-import { openSetup } from './setup.js?v=a5cfdab371';
+} from './core.js?v=8ef226b4bd';
+import { openSetup } from './setup.js?v=a886ee95ad';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';

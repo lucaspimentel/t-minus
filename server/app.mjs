@@ -10,7 +10,7 @@ import {
   headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
   rideAlertText, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
-  transitNetwork, planTrips, searchNetworkStops, nearbyNetworkStops, nextWeekday,
+  transitNetwork, planTrips, nextWeekday,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -253,22 +253,11 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
 
     if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true, reminders: store.count() });
     if (req.method === 'GET' && path === '/vapid') return reply(res, 200, { publicKey });
-    // Auto-route: stop search (by name or near a point) and plans, from the daily network.
-    if (req.method === 'GET' && (path === '/stops' || path === '/plan')) {
+    // Auto-route: plans from the daily network.
+    if (req.method === 'GET' && path === '/plan') {
       let net;
       try { net = await transit(t); } catch (e) { log(`network: ${e.message}`); return reply(res, 503, { error: 'Network unavailable' }); }
       const q = url.searchParams;
-      if (path === '/stops' && q.has('q')) {
-        const text = q.get('q').trim();
-        if (text.length < 2 || text.length > 60) return reply(res, 400, { error: 'q must be 2-60 characters' });
-        return reply(res, 200, { stops: searchNetworkStops(net, text) });
-      }
-      if (path === '/stops') {
-        const lat = Number(q.get('lat'));
-        const lon = Number(q.get('lon'));
-        if (!(lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5)) return reply(res, 400, { error: 'lat/lon must be near Boston' });
-        return reply(res, 200, { stops: nearbyNetworkStops(net, lat, lon) });
-      }
       const from = q.get('from') ?? '';
       const to = q.get('to') ?? '';
       const known = id => !!(net.stops[id] || net.stations[id]);
@@ -366,7 +355,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
 
   // ---------- auto-route network ----------
 
-  // The network for /stops and /plan: built on first use and daily after (3 MBTA requests; see
+  // The network for /plan: built on first use and daily after (3 MBTA requests; see
   // transitNetwork). A failed rebuild keeps the old one and tries again in NETWORK_RETRY_MS.
   async function transit(t) {
     if (network && t - network.at < DAY) return network.net;

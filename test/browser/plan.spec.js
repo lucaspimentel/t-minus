@@ -13,7 +13,9 @@ const button = (page, name) => setup(page).getByRole('button', { name, exact: tr
 const toast = page => page.locator('#toast');
 const options = page => setup(page).locator('#plan-options .item');
 
-async function pickStation(page, query, name) {
+// From or To: the leg picker (plan mode), a station by name; back on the planner.
+async function pickStation(page, field, query, name) {
+  await setup(page).locator(`#plan-${field}`).click();
   await setup(page).locator('#picker-search').fill(query);
   await setup(page).locator('.list .item', { hasText: name }).first().click();
 }
@@ -22,17 +24,15 @@ test('setup: auto-route lists the ways between two stations and opens the pick i
   await openApp(page, { time: '07:00' });
   await page.locator('#open-setup').click();
   await button(page, '+ Add trip (auto-route)').click();
-  await pickStation(page, 'oak gr', 'Oak Grove');
-  await pickStation(page, 'kendall', 'Kendall/MIT');
+  await pickStation(page, 'from', 'oak gr', 'Oak Grove');
+  await pickStation(page, 'to', 'kendall', 'Kendall/MIT');
   await expect(options(page)).toHaveCount(3);
   await expect(options(page).first()).toHaveText(/^Orange → Red\s*1 transfer at Downtown Crossing · 12 stops$/);
   await expect(options(page).nth(1)).toHaveText(/^Orange → Green → Red\s*2 transfers at Haymarket, Park Street · 11 stops$/);
   // Change a station: the search comes back for it.
-  await setup(page).locator('#plan-to').click();
-  await pickStation(page, 'state', 'State');
+  await pickStation(page, 'to', 'state', 'State');
   await expect(options(page)).toHaveText([/^Orange\s*No transfers · 8 stops$/]);
-  await setup(page).locator('#plan-to').click();
-  await pickStation(page, 'kendall', 'Kendall/MIT');
+  await pickStation(page, 'to', 'kendall', 'Kendall/MIT');
   await setup(page).getByLabel('Minutes from last stop').fill('7');
   await options(page).first().click();
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove to Kendall/MIT');
@@ -52,8 +52,8 @@ test('setup: no way within 2 transfers says so; the manual button still builds a
   await openApp(page, { time: '07:00' });
   await page.locator('#open-setup').click();
   await button(page, '+ Add trip (auto-route)').click();
-  await pickStation(page, 'mattapan', 'Mattapan');
-  await pickStation(page, 'wonderland', 'Wonderland');
+  await pickStation(page, 'from', 'mattapan', 'Mattapan');
+  await pickStation(page, 'to', 'wonderland', 'Wonderland');
   await expect(setup(page)).toContainText('No way on the subway with 2 transfers or fewer.');
   await button(page, 'Cancel').click();
   await button(page, '+ Add trip (manual)').click();
@@ -64,8 +64,8 @@ test('setup: no way within 2 transfers says so; the manual button still builds a
 // 5:20, 15 min to State); 5-min walks.
 async function goSomewhere(page) {
   await page.getByRole('button', { name: 'Go somewhere else…' }).click();
-  await pickStation(page, 'oak gr', 'Oak Grove');
-  await pickStation(page, 'state', 'State');
+  await pickStation(page, 'from', 'oak gr', 'Oak Grove');
+  await pickStation(page, 'to', 'state', 'State');
   await options(page).first().click();
   await tick(page, 1000);
 }
