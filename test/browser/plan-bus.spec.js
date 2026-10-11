@@ -81,6 +81,11 @@ test('Nearby lists the server\'s stops near the phone; By route… picks a stop 
   await openApp(page, { time: '07:00' });
   await stubServer(page, { near: [{ ...STATE, id: 'place-ogmnl', name: 'Oak Grove', meters: 67 }] });
   await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+  // Layout: a gap between the search and the buttons; nothing listed, no gap before To.
+  const box = sel => setup(page).locator(sel).first().boundingBox();
+  const [search, ways, to] = [await box('#picker-search'), await box('.plan-ways'), await box('#plan-to')];
+  expect(ways.y - (search.y + search.height)).toBeGreaterThanOrEqual(6);
+  expect(to.y - (ways.y + ways.height)).toBeLessThanOrEqual(36); // the To label (~20 px) and its margin
   await button(page, 'Nearby').click();
   await expect(setup(page).locator('.list .item')).toHaveText([/^Oak Grove\s*Orange\s*Blue\s*70 m\s*toward Forest Hills \/ Oak Grove$/]);
   await setup(page).locator('.list .item').first().click();

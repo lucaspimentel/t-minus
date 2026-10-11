@@ -464,9 +464,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         h('b', {}, place.name), ' ', ...placeTags(place), extra,
         place.toward?.length ? h('div', { class: 'muted' }, `toward ${place.toward.join(' / ')}`) : null);
       const list = h('div', { class: 'list' });
+      // An empty list is hidden (no gap before To).
       const fill = () => {
-        if (p.found && p.query.trim().length >= 2) return list.replaceChildren(...p.found.map(x => placeButton(x)));
-        list.replaceChildren(...searchStations(railNet, p.query).slice(0, 8).map(st => placeButton(stationPlace(st.id))));
+        if (p.found && p.query.trim().length >= 2) list.replaceChildren(...p.found.map(x => placeButton(x)));
+        else list.replaceChildren(...searchStations(railNet, p.query).slice(0, 8).map(st => placeButton(stationPlace(st.id))));
+        list.hidden = !list.childElementCount;
       };
       fill();
       const extras = [];
