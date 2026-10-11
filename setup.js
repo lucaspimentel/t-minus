@@ -5,10 +5,10 @@
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=3d84517d3e';
+} from './core.js?v=be3148b49c';
 
 const ROUTE_LIMIT = 60;
 
@@ -69,7 +69,9 @@ const NEARBY_RADIUS = 0.003;
 // `testPush`: { supported, send() } for "Send test notification" (null: no push server).
 // `startImport`: open on the list with the import box (the main screen's "Import trips").
 // `onReset(apiKey)`: "Delete all trips and settings" (after a confirm); the app reloads.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, nearby = null, onReset = null, startImport = false }) {
+// `onPlan(trip)`: open on the auto-route planner ("Go somewhere else…"); the picked option is
+// handed back as a one-off trip (labeled, not saved) and Cancel closes setup.
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, nearby = null, onReset = null, startImport = false, onPlan = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -83,7 +85,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // `initial`: the form as opened (JSON), to tell whether Cancel discards edits (null: always).
   const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
   // "Set up a trip" with no trips opens a new trip; "Import trips" the list with the import box.
-  let editing = savedTrips().length || startImport ? null : editor(null, 0, emptyTrip(0));
+  let editing = savedTrips().length || startImport || onPlan ? null : editor(null, 0, emptyTrip(0));
+  // Auto-route: { from, to (station ids), edit ('from' | 'to' | null: the search shown), query,
+  // walkBefore, walkAfter, oneOff (from the main screen) }.
+  let planner = onPlan ? { from: null, to: null, edit: 'from', query: '', walkBefore: 5, walkAfter: 5, oneOff: true } : null;
   let routes = null;
   // { legIdx (null = new leg), step, query, near, ... }. Steps: 'search' (stations and routes);
   // station-first 'to' { from }; route-first 'board' → 'alight' → 'also' { route, board, alight,
@@ -222,6 +227,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     render();
   }
 
+  function planTrip() {
+    planner = { from: null, to: null, edit: 'from', query: '', walkBefore: 5, walkAfter: 5, oneOff: false };
+    listMessages = [];
+    loadRailNetwork().then(render).catch(() => {});
+    render();
+  }
+
   function addTrip() {
     const n = savedTrips().length;
     editing = editor(null, n, emptyTrip(n));
@@ -314,9 +326,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('div', { class: 'list trips' }, trips.map((t, i) => tripRow(t, i, trips.length))),
       // No trips (the last one deleted): the add button stands out, as in an empty trip's legs.
       trips.length
-        ? h('button', { type: 'button', class: 'add', onclick: addTrip }, '+ Add trip')
+        ? [h('button', { type: 'button', class: 'add', onclick: planTrip }, '+ Add trip (auto-route)'),
+          h('button', { type: 'button', class: 'add', onclick: addTrip }, '+ Add trip (manual)')]
         : h('div', { class: 'legs-empty' }, `No trips yet. ${NO_TRIPS_HELP}`,
-          h('button', { type: 'button', class: 'primary add', onclick: addTrip }, '+ Add trip')),
+          h('button', { type: 'button', class: 'primary add', onclick: planTrip }, '+ Add trip (auto-route)'),
+          h('button', { type: 'button', class: 'add', onclick: addTrip }, '+ Add trip (manual)')),
       h('div', { class: 'muted section' }, 'Settings'),
       h('div', { class: 'card' },
         numberField('Departures shown (1-8)', app.departureCount, v => { app.departureCount = v; }, { min: '1', max: '8' }),
@@ -344,6 +358,75 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       } }, 'Delete all trips and settings')),
       onReset && h('div', { class: 'push-hint reset-note' }, 'Removes trips, settings and saved data. Keeps the MBTA API key.'),
     ];
+  }
+
+  // ---------- auto-route ----------
+
+  // Stations From and To (each a search until picked), the walks, then up to 3 ways on rail
+  // (planRoutes). Setup opens the pick in the trip editor; the main screen gets a one-off trip.
+  function plannerScreen() {
+    const p = planner;
+    const head = h('div', { class: 'setup-head' },
+      h('button', { type: 'button', onclick: () => { if (p.oneOff) onClose(); else { planner = null; render(); } } }, 'Cancel'),
+      h('b', {}, p.oneOff ? 'Go somewhere else' : 'Add trip (auto-route)'), h('span'));
+    if (!railNet) {
+      loadRailNetwork().then(render).catch(e => { listMessages = errs([`Couldn't load stations: ${e.message || e}`]); render(); });
+      return [head, ...listMessages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)), h('div', { class: 'muted' }, 'Loading stations…')];
+    }
+    const station = id => networkStation(railNet, id);
+    const field = (key, label) => {
+      if (p.edit !== key && p[key]) {
+        return h('div', { class: 'field' }, label, h('button', { type: 'button', class: 'item', id: `plan-${key}`, onclick: () => { p.edit = key; p.query = ''; render(); } },
+          h('span', { class: 'main' }, station(p[key])?.name ?? p[key], ' '), ...stationLines(p[key]), h('span', { class: 'change' }, 'Change')));
+      }
+      if (p.edit !== key) {
+        return h('div', { class: 'field' }, label, h('button', { type: 'button', class: 'item', id: `plan-${key}`, onclick: () => { p.edit = key; p.query = ''; render(); } }, 'Choose a station'));
+      }
+      const list = h('div', { class: 'list' });
+      const fill = () => list.replaceChildren(...searchStations(railNet, p.query).slice(0, 8).map(st => h('button', { type: 'button', class: 'item', onclick: () => {
+        p[key] = st.id;
+        p.edit = !p.from ? 'from' : !p.to ? 'to' : null;
+        p.query = '';
+        render();
+      } }, h('b', {}, st.name), ...stationLines(st.id))));
+      fill();
+      return h('div', { class: 'field' }, h('label', { for: 'picker-search' }, label),
+        h('input', { type: 'search', id: 'picker-search', placeholder: 'Search stations', value: p.query, oninput: e => { p.query = e.target.value; fill(); } }), list);
+    };
+    const options = p.from && p.to ? planRoutes(railNet, p.from, p.to) : null;
+    const lineOf = id => railNet.lines.find(l => l.id === id);
+    const legTag = l => {
+      const routes = [l.route, ...l.also];
+      return h('span', { class: 'tag' }, dot(lineOf(l.route)?.color), commonLabel(routes.map(r => lineOf(r)?.label ?? r), true));
+    };
+    const pick = o => {
+      const form = planToForm(railNet, o, p.walkBefore, p.walkAfter);
+      if (p.oneOff) {
+        const cfg = { trips: [formToTrip(form)] };
+        loadRoutes().then(rs => { routes = rs; }).catch(() => {}).finally(() => onPlan((routes ? labelLegs(cfg, routes) : cfg).trips[0]));
+        return;
+      }
+      planner = null;
+      const n = savedTrips().length;
+      editing = editor(null, n, form);
+      editing.initial = null; // Cancel asks before dropping a planned trip
+      render();
+    };
+    const optionList = options && (options.length
+      ? [h('div', { class: 'muted section' }, p.oneOff ? 'Pick one to see its departures' : 'Pick one to review and save'),
+        h('div', { class: 'list', id: 'plan-options' }, ...options.map(o => h('button', { type: 'button', class: 'item', onclick: () => pick(o) },
+          h('b', {}, ...o.legs.flatMap((l, i) => [i > 0 && ' → ', legTag(l)])),
+          h('div', { class: 'muted' }, [o.transfers.length ? `${o.transfers.length} transfer${o.transfers.length === 1 ? '' : 's'} at ${o.transfers.join(', ')}` : 'No transfers',
+            `${o.stops} stop${o.stops === 1 ? '' : 's'}`].join(' · ')))))]
+      : [h('div', { class: 'msg' }, 'No way on the subway with 2 transfers or fewer.')]);
+    return [head,
+      h('div', { class: 'card' },
+        field('from', 'From'),
+        field('to', 'To'),
+        h('div', { class: 'field-pair' },
+          numberField('Minutes to first station', p.walkBefore, v => { p.walkBefore = v; }),
+          numberField('Minutes from last station', p.walkAfter, v => { p.walkAfter = v; }))),
+      ...(optionList ?? [])];
   }
 
   // ---------- trip screen ----------
@@ -897,15 +980,15 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let shown = null;
   const scrollY = { list: 0, trip: 0 };
   function render() {
-    const screen = picker ? `picker:${picker.step}` : editing ? 'trip' : 'list';
+    const screen = picker ? `picker:${picker.step}` : editing ? 'trip' : planner ? 'plan' : 'list';
     if (screen !== shown && (shown === 'list' || shown === 'trip')) scrollY[shown] = window.scrollY;
-    root.replaceChildren(...(picker ? pickerScreen() : editing ? tripScreen() : listScreen()).filter(Boolean));
+    root.replaceChildren(...(picker ? pickerScreen() : editing ? tripScreen() : planner ? plannerScreen() : listScreen()).flat().filter(Boolean));
     if (screen !== shown) {
       const restore = screen === 'list' || (screen === 'trip' && shown?.startsWith('picker:'));
       window.scrollTo(0, restore ? scrollY[screen] : 0);
     }
     shown = screen;
-    if (picker && picker.step !== 'also') root.querySelector('#picker-search')?.focus({ preventScroll: true });
+    if ((picker && picker.step !== 'also') || (planner && !editing)) root.querySelector('#picker-search')?.focus({ preventScroll: true });
   }
 
   root.hidden = false;

@@ -153,6 +153,24 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:05`
    `from == to` is the whole day; overlapping windows: first in the list wins).
 4. Otherwise the last trip used (so a location pick sticks after walking away).
 
+A one-off trip (below) comes before all of these while it exists, unless another trip was
+picked by hand after it was made (`chooseTrip`).
+
+### One-off trip ("Go somewhere else…")
+
+- The main list ends with "Go somewhere else…" (under "Show more rides"). It opens the
+  auto-route planner (see Setup view); picking a way makes a one-off trip (`t-minus:one-off`,
+  `{ trip, at }`), labeled from the route list like a saved trip but never written into the saved
+  config. It is shown after the saved trips (`withOneOff`), so saved trips keep their indices,
+  and works like any trip: rows, tracking, reminders, stop alerts.
+- The trip dropdown names it "Oak Grove to State (one-off)" (with one saved trip the two side-by-side
+  buttons stay). While it is shown, a bar under the status line reads "One-off trip" with Save
+  and "✕ Remove".
+- Save: it becomes the last saved trip at once (same name, no time window; same index, so its
+  state carries over), toast "Trip saved". ✕ Remove: its reminders, en-route state and stop
+  alerts are dropped, toast with Undo (restores them). A new plan replaces it. It is removed by
+  itself when its ride is over (Done on the ride card, or the ride ending).
+
 Location is requested only when some trip has `near` (choosing "When I'm near its first
 stop" in the trip screen triggers the permission prompt): `getCurrentPosition` (low accuracy,
 fix up to 5 min old, 10 s timeout) on launch and on return to the foreground, not while the
@@ -443,11 +461,25 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Opened from the gear button, and automatically on first run (no valid config). Polling
   pauses while it is open.
 - List screen: one row per saved trip (name, time window, route chain like
-  "● Bus 132 → ● Orange") with ↑/↓ to reorder, "Add trip", then a Settings card (departures
+  "● Bus 132 → ● Orange") with ↑/↓ to reorder, "+ Add trip (auto-route)" and "+ Add trip
+  (manual)", then a Settings card (departures
   shown, minutes early at the stop, minutes to keep the screen on before leave-by, API key), Export/Import, and "Reload app" (reloads the
   page, e.g. to pick up a new version in the installed PWA). Done saves changed app-wide
   fields and closes setup; it is disabled until a trip has been saved.
-- Trip screen (tap a row, or "Add trip"): name, "Show automatically" (During a time window,
+- Auto-route ("+ Add trip (auto-route)", and the main screen's "Go somewhere else…"): From and
+  To stations (each a station search until picked; tap to change), minutes to the first and
+  from the last station (5 and 5), then up to 3 ways on rail (`planRoutes`): "● Orange → ● Red",
+  "1 transfer at Downtown Crossing · 12 stops". The search runs in the browser over the rail
+  network (no requests beyond loading it): at most 2 transfers, each leg a `legBetween` (Green
+  branches serving both stations in one leg), no route ridden twice in one direction, changes
+  within one station, no station passed twice (no riding past a change and back). Ranked by
+  transfers, then stops, then the change stations' names; an option with more transfers is shown
+  only if it rides fewer stops than every option with fewer. None: "No way on the subway with 2
+  transfers or fewer." (e.g. Mattapan to Wonderland needs 3). In setup the pick opens the trip
+  editor (`planToForm`: "Oak Grove to Kendall/MIT", 3 min to change within a station, no time
+  window) to review and save; from the main screen it becomes the one-off trip. Buses and
+  addresses are later phases (`TODO.md`).
+- Trip screen (tap a row, or "Add trip (manual)"): name, "Show automatically" (During a time window,
   with from/until fields / When I'm near its first stop / Never (only when chosen)), time to the first stop
   and from the last stop, transit legs with a transfer time between them, "Add return trip",
   "Delete trip" (also for the only trip: the config keeps `trips: []` and the settings). Cancel
@@ -463,7 +495,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   | First launch; launch with `trips: []`; Reset | the empty main screen |
   | "Set up a trip" | a new trip; its Cancel returns to the empty main screen |
   | "Import trips" | the setup list with the import box open |
-  | Deleting the last trip (in setup) | the setup list: "No trips yet. " + the help line, an orange "+ Add trip" |
+  | Deleting the last trip (in setup) | the setup list: "No trips yet. " + the help line, an orange "+ Add trip (auto-route)" and "+ Add trip (manual)" |
   | Done with no trips | the empty main screen (settings alone are saved as `trips: []`) |
 - Reordering and deleting trips also save right away.
 - Reset (last section of setup): "Delete all trips and settings" asks to confirm ("Delete all

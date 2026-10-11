@@ -113,3 +113,22 @@ for (const scheme of ['light', 'dark']) {
     expect(await violations(page)).toEqual([]);
   });
 }
+
+for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on the auto-route planner and a one-off trip (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openApp(page, { time: '07:00' });
+    await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+    await page.locator('#picker-search').fill('oak gr');
+    expect(await violations(page)).toEqual([]);
+    await page.locator('#setup .list .item', { hasText: 'Oak Grove' }).click();
+    await page.locator('#picker-search').fill('kendall');
+    await page.locator('#setup .list .item', { hasText: 'Kendall/MIT' }).click();
+    await expect(page.locator('#plan-options .item')).toHaveCount(3);
+    expect(await violations(page)).toEqual([]);
+    await page.locator('#plan-options .item').first().click();
+    await expect(page.locator('#oneoff')).toBeVisible();
+    await tick(page, 1000);
+    expect(await violations(page)).toEqual([]);
+  });
+}

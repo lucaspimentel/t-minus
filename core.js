@@ -379,6 +379,80 @@ export function legBetween(net, fromId, toId) {
   return { route: routes[0], also: routes.slice(1), direction };
 }
 
+// Auto-route (station to station on rail): up to `limit` ways from one station to another with
+// at most `maxTransfers` changes, each leg a `legBetween` (Green branches serving both stations in
+// one leg). No route rides twice in one direction (no Orange → Green → Orange; Green E → Green B
+// at a shared station and Braintree → JFK/UMass → Ashmont are fine), transfers are within one station, and no station is passed twice (no
+// riding past a change and back). Ranked by transfers, then stops ridden, then the transfer
+// stations' names; an option with more transfers is kept only if it rides fewer stops than every
+// option with fewer. Each option:
+// { legs: [{ route, also, direction_id, stop, alight }], transfers: [station name], stops }.
+export function planRoutes(net, fromId, toId, maxTransfers = 2, limit = 3) {
+  const from = networkStation(net, fromId)?.id;
+  const to = networkStation(net, toId)?.id;
+  if (!from || !to || from === to) return [];
+  const name = id => net.stations.find(s => s.id === id)?.name ?? id;
+  // Per station, the stations one leg away: Map<to, { leg, stops, via }> (fewest stops on the
+  // leg's routes; `via`: the stations passed after `a`, `to` included).
+  const memo = new Map();
+  const hops = a => {
+    if (memo.has(a)) return memo.get(a);
+    const out = new Map();
+    for (const p of net.patterns) {
+      const i = p.stations.indexOf(a);
+      if (i < 0) continue;
+      for (let j = i + 1; j < p.stations.length; j++) {
+        const b = p.stations[j];
+        if (!out.has(b)) {
+          const leg = legBetween(net, a, b);
+          if (leg) out.set(b, { leg, stops: Infinity, via: [] });
+        }
+        const h = out.get(b);
+        if (h && p.direction === h.leg.direction && [h.leg.route, ...h.leg.also].includes(p.route) && j - i < h.stops) {
+          h.stops = j - i;
+          h.via = p.stations.slice(i + 1, j + 1);
+        }
+      }
+    }
+    memo.set(a, out);
+    return out;
+  };
+  const found = [];
+  const walk = (at, path, used, seen) => {
+    if (path.length > maxTransfers) return;
+    for (const [b, { leg, stops, via }] of hops(at)) {
+      const routes = [leg.route, ...leg.also].map(r => `${r}/${leg.direction}`);
+      if (via.some(x => seen.has(x)) || routes.some(r => used.has(r))) continue;
+      const next = [...path, { from: at, to: b, leg, stops }];
+      if (b === to) found.push(next);
+      else walk(b, next, new Set([...used, ...routes]), new Set([...seen, ...via]));
+    }
+  };
+  walk(from, [], new Set(), new Set([from]));
+  const options = found.map(path => ({
+    legs: path.map(h => ({ route: h.leg.route, also: h.leg.also, direction_id: h.leg.direction, stop: h.from, alight: h.to })),
+    transfers: path.slice(1).map(h => name(h.from)),
+    stops: path.reduce((n, h) => n + h.stops, 0),
+  }));
+  options.sort((a, b) => a.transfers.length - b.transfers.length || a.stops - b.stops || a.transfers.join().localeCompare(b.transfers.join()));
+  return options.filter(o => options.every(x => x.transfers.length >= o.transfers.length || x.stops > o.stops)).slice(0, limit);
+}
+
+// A trip editor form (tripToForm's shape) for a planned option: named "Oak Grove to Kendall/MIT",
+// with the walks given and the default transfer time (3 min within a station).
+export function planToForm(net, option, walkBefore, walkAfter) {
+  const name = id => networkStation(net, id)?.name ?? id;
+  const legs = option.legs;
+  return {
+    name: `${name(legs[0].stop)} to ${name(legs[legs.length - 1].alight)}`,
+    window: null, near: false, timingLeg: null, walkBefore, walkAfter,
+    transit: legs.map((l, i) => ({
+      route: l.route, direction_id: l.direction_id, stop: l.stop, alight: l.alight, ...(l.also.length && { also: [...l.also] }),
+      transferBefore: i === 0 ? 0 : defaultTransferMinutes(legs[i - 1].alight, l.stop),
+    })),
+  };
+}
+
 // A leg's routes cut down to `keep` (at least one stays; the first kept becomes primary).
 export function trimRoutes(leg, keep) {
   const routes = legRoutes(leg).filter(r => keep.includes(r));

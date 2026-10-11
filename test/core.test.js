@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, defaultTransferMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, UPDATE_MIN, testPushText,
@@ -1125,6 +1125,39 @@ test('rail network: station search, reachable stations per branch, legs between 
   const leg = { route: 'Green-B', also: ['Green-C', 'Green-D'] };
   assert.deepEqual(trimRoutes(leg, ['Green-C', 'Green-D']), { route: 'Green-C', also: ['Green-D'] });
   assert.deepEqual(trimRoutes(leg, []), { route: 'Green-B', also: ['Green-C', 'Green-D'] });
+});
+
+test('planRoutes: station to station on rail, fewest transfers, then fewest stops', () => {
+  const net = railNetwork(JSON.parse(readFileSync('test/browser/fixtures/rail-network.json', 'utf8')),
+    JSON.parse(readFileSync('test/browser/fixtures/routes.json', 'utf8')).data);
+  const brief = (a, b) => planRoutes(net, a, b).map(o => [o.legs.map(l => [l.route, ...l.also].join('/')).join(' > '), o.transfers.join(', '), o.stops]);
+  // A 2-transfer option is kept for riding fewer stops.
+  assert.deepEqual(brief('place-ogmnl', 'place-knncl'), [
+    ['Orange > Red', 'Downtown Crossing', 12],
+    ['Orange > Green-D/Green-E > Red', 'Haymarket, Park Street', 11],
+    ['Orange > Green-D/Green-E > Red', 'North Station, Park Street', 11],
+  ]);
+  // Direct: the Green branches serving both stations in one leg; detours with more stops dropped.
+  assert.deepEqual(brief('place-pktrm', 'place-kencl'), [['Green-B/Green-C/Green-D', '', 5]]);
+  // A change between Green branches, but no riding past Copley and back.
+  assert.deepEqual(brief('place-hsmnl', 'place-kencl'), [['Green-E > Green-B/Green-C/Green-D', 'Copley', 13]]);
+  // The same route the other way (Braintree to Ashmont via JFK/UMass).
+  assert.deepEqual(brief('place-brntn', 'place-asmnl'), [['Red > Red', 'JFK/UMass', 9]]);
+  // Platforms map to their stations; 3 transfers is beyond the limit; same station or off the network: none.
+  assert.deepEqual(brief('70036', 'place-dwnxg'), [['Orange', '', 9]]);
+  assert.deepEqual(brief('place-matt', 'place-wondl'), []);
+  assert.equal(planRoutes(net, 'place-matt', 'place-wondl', 3).length > 0, true);
+  assert.deepEqual(brief('place-ogmnl', 'place-ogmnl'), []);
+  assert.deepEqual(brief('5991', 'place-ogmnl'), []);
+  // The editor's form: named from the stations, walks given, 3 min to change within a station.
+  assert.deepEqual(planToForm(net, planRoutes(net, 'place-ogmnl', 'place-knncl')[1], 5, 7), {
+    name: 'Oak Grove to Kendall/MIT', window: null, near: false, timingLeg: null, walkBefore: 5, walkAfter: 7,
+    transit: [
+      { route: 'Orange', direction_id: 0, stop: 'place-ogmnl', alight: 'place-haecl', transferBefore: 0 },
+      { route: 'Green-D', also: ['Green-E'], direction_id: 0, stop: 'place-haecl', alight: 'place-pktrm', transferBefore: 3 },
+      { route: 'Red', direction_id: 1, stop: 'place-pktrm', alight: 'place-knncl', transferBefore: 3 },
+    ],
+  });
 });
 
 test('commonLabel: shared words, then the rest', () => {

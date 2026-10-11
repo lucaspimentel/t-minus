@@ -299,6 +299,11 @@
   }
   .field { display: block; margin: 10px 0 0; font-size: 14px; color: var(--muted); }
   .field input { margin-top: 4px; }
+  /* Auto-route: the two walk fields side by side; a picked station's "Change" at the right. */
+  .field-pair { display: flex; gap: 10px; align-items: flex-end; }
+  .field-pair > .field { flex: 1; min-width: 0; }
+  .field > .item { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; }
+  .field .item .change { margin-left: auto; color: var(--accent-text); font-size: 14px; }
   .check { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 14px; }
   .setup .check input { width: auto; margin: 0; }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -360,6 +365,8 @@
       <button class="icon-btn" id="open-setup" aria-label="Setup" title="Setup">&#x2699;</button>
     </header>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
+    <div class="enroute-bar" id="oneoff" hidden><span class="en-status">One-off trip</span>
+      <button type="button" id="oneoff-save">Save</button><button type="button" id="oneoff-remove" aria-label="Remove one-off trip">✕ Remove</button></div>
     <div class="enroute-bar" id="enroute" hidden></div>
     <p class="status stale" id="loadfail" hidden>The app failed to start, probably a partial update.
       <button id="reload" class="big-btn" type="button">Reload</button></p>
@@ -368,7 +375,7 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-10 · b69636d903</footer>
+    <footer class="version">Version 2026-10-11 · 37456fcac9</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -391,8 +398,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=3d84517d3e';
-import { openSetup } from './setup.js?v=61e3955268';
+} from './core.js?v=be3148b49c';
+import { openSetup } from './setup.js?v=76060a8a4c';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -420,8 +427,27 @@ function loadConfig() {
 store.del('t-minus:direction'); // override key from the old format
 // The stored config (it may have no trips, keeping the settings); `config` is set only with trips.
 let savedConfig = loadConfig();
-let config = savedConfig?.trips.length ? savedConfig : null;
-let tripIdx = config ? pickTrip(Date.now(), config, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP)) : 0;
+// A one-off trip from "Go somewhere else…" (auto-route): { trip, at }. Shown after the saved trips,
+// never written into the saved config, until removed (✕), saved, replaced, or its ride ends.
+const KEY_ONE_OFF = 't-minus:one-off';
+function loadOneOff() {
+  const o = store.get(KEY_ONE_OFF);
+  return o?.trip && validateConfig({ trips: [o.trip] }).length === 0 ? o : null;
+}
+let oneOff = loadOneOff();
+// The trips shown: the saved ones, then the one-off; null with neither.
+function withOneOff(saved) {
+  const trips = [...(saved?.trips ?? []), ...(oneOff ? [oneOff.trip] : [])];
+  return trips.length ? { ...saved, trips } : null;
+}
+let config = withOneOff(savedConfig);
+const oneOffIdx = () => (oneOff && config ? config.trips.length - 1 : -1);
+// pickTrip, but the one-off while it exists, unless another trip was picked by hand since.
+function chooseTrip(now, override, near = -1) {
+  if (oneOff && !(override && override.setAt >= oneOff.at && override.index !== oneOffIdx())) return oneOffIdx();
+  return pickTrip(now, config, override, store.get(KEY_LAST_TRIP), near);
+}
+let tripIdx = config ? chooseTrip(Date.now(), store.get(KEY_OVERRIDE)) : 0;
 // Per-trip cache, one doc per transit leg:
 // { predictions: [doc], schedules: {docs, date, coversEndOfService, at}, alerts: {doc, at},
 //   nextDay: {docs, date, at} (next service day's schedules, fetched once today's run out),
@@ -683,7 +709,11 @@ function syncEnRoute(now) {
     }
     s = { ...s, ride };
   }
-  if (!enRouteActive(s, walkAfter, now)) { setEnRoute(null); return null; }
+  if (!enRouteActive(s, walkAfter, now)) {
+    setEnRoute(null);
+    if (s.ride && tripIdx === oneOffIdx()) setTimeout(() => removeOneOff(false)); // its ride is over
+    return null;
+  }
   if (JSON.stringify(s) !== before) setEnRoute(s);
   return s;
 }
@@ -721,7 +751,7 @@ let toggleKey = null;
 function renderToggle() {
   const t = $('toggle');
   const trips = config?.trips ?? [];
-  const key = JSON.stringify([trips.map(x => x.name), tripIdx]);
+  const key = JSON.stringify([trips.map(x => x.name), tripIdx, oneOffIdx()]);
   if (key === toggleKey) return;
   toggleKey = key;
   t.hidden = trips.length < 2;
@@ -729,7 +759,7 @@ function renderToggle() {
     const select = el('select');
     select.setAttribute('aria-label', 'Trip');
     select.append(...trips.map((trip, i) => {
-      const o = el('option', null, trip.name);
+      const o = el('option', null, i === oneOffIdx() ? `${trip.name} (one-off)` : trip.name);
       o.value = String(i);
       o.selected = i === tripIdx;
       return o;
@@ -1138,6 +1168,7 @@ function render() {
   const now = Date.now();
   renderToggle();
   $('refresh').hidden = !config; // nothing to refresh without trips
+  $('oneoff').hidden = !config || tripIdx !== oneOffIdx();
 
   const status = $('status');
   const statusText = $('status-text');
@@ -1227,8 +1258,9 @@ function render() {
     ...(prevOpen ? prev.map(r => renderRow(r, now, false, null, null, true)) : [])] : [];
   const more = current.length && currentRows(now, s, extraRows + 4).length > current.length
     ? [listButton('Show more rides ▾', 'more', () => { extraRows += 4; render(); })] : [];
-  if (rows.length) setRows(...top, ...rows, ...more);
-  else setRows(...top, el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''));
+  const go = listButton('Go somewhere else…', 'go', () => showSetup({ plan: true }));
+  if (rows.length) setRows(...top, ...rows, ...more, go);
+  else setRows(...top, el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''), go);
 }
 
 // "Show previous rides" / "Show more rides": full-width buttons in the list.
@@ -1488,7 +1520,11 @@ function renderRideCard(s, now) {
     btns.append(btn(nextOpen ? open : closed, () => { nextOpen = !nextOpen; render(); }));
   }
   btns.append(phase.kind === 'arrived'
-    ? btn('Done', () => { rideNote = null; laterOpen = false; nextOpen = false; stopsOpen = null; setEnRoute(null); render(); schedulePoll(); })
+    ? btn('Done', () => {
+      rideNote = null; laterOpen = false; nextOpen = false; stopsOpen = null; setEnRoute(null);
+      if (tripIdx === oneOffIdx()) return removeOneOff(false); // a one-off ends with its ride
+      render(); schedulePoll();
+    })
     : btn('Cancel trip', cancelTracking));
   li.append(btns);
   if (laterOpen && later.length) {
@@ -1577,7 +1613,7 @@ function setTrip(i, manual) {
 // ---------- setup ----------
 
 // Polling and rendering pause while setup is open; saving there replaces the config.
-function showSetup({ importOpen = false } = {}) {
+function showSetup({ importOpen = false, plan = false } = {}) {
   if (setupView) return;
   clearTimeout(pollTimer);
   hideToast();
@@ -1594,21 +1630,90 @@ function showSetup({ importOpen = false } = {}) {
     onClose: closeSetup,
     onReset: resetApp,
     startImport: importOpen,
+    onPlan: plan ? trip => { setOneOff(trip); closeSetup(); } : null,
     // Each trip saves on its own while setup stays open.
     onSave(cfg, warning) {
       savedConfig = cfg;
-      config = cfg.trips.length ? cfg : null;
+      config = withOneOff(cfg);
       store.set(KEY_CONFIG, cfg);
       store.del(KEY_OVERRIDE);
       store.del(KEY_EN_ROUTE);
       cache = {};
       lastTiming.clear();
       notice = warning;
-      tripIdx = config ? pickTrip(Date.now(), config, null, store.get(KEY_LAST_TRIP), located()) : 0;
+      tripIdx = config ? chooseTrip(Date.now(), null, located()) : 0;
       if (config) locate(); // the saved trips may now use location
     },
   });
 }
+
+// ---------- one-off trip ----------
+
+// A trip's reminders, en-route state (and its stop alerts on the server) and cached data, dropped;
+// returns { state, reminders } for Undo.
+function dropTripState(idx) {
+  const all = store.get(KEY_EN_ROUTE) ?? {};
+  const state = all[idx] ?? null;
+  if (state?.alert?.id) pushApi('DELETE', `/rides/${state.alert.id}`).catch(() => {});
+  delete all[idx];
+  store.set(KEY_EN_ROUTE, all);
+  const removed = cancelTripReminders(idx);
+  delete cache[idx];
+  lastTiming.delete(idx);
+  return { state, reminders: removed };
+}
+
+// "Go somewhere else…" picked a way: it replaces any one-off and is shown.
+function setOneOff(trip) {
+  if (oneOffIdx() >= 0) dropTripState(oneOffIdx());
+  oneOff = { trip, at: Date.now() };
+  store.set(KEY_ONE_OFF, oneOff);
+  config = withOneOff(savedConfig);
+  tripIdx = oneOffIdx();
+}
+
+// ✕ Remove (with Undo), or silently once its ride is over.
+function removeOneOff(undo = true) {
+  const idx = oneOffIdx();
+  if (idx < 0) return;
+  const prev = oneOff;
+  const dropped = dropTripState(idx);
+  oneOff = null;
+  store.del(KEY_ONE_OFF);
+  config = withOneOff(savedConfig);
+  tripIdx = config ? chooseTrip(Date.now(), store.get(KEY_OVERRIDE), located()) : 0;
+  render();
+  if (config) refresh({ force: !cache[tripIdx] });
+  if (!undo) return;
+  showToast('One-off trip removed', 'Undo', () => {
+    oneOff = prev;
+    store.set(KEY_ONE_OFF, prev);
+    config = withOneOff(savedConfig);
+    tripIdx = oneOffIdx();
+    if (dropped.state) {
+      const all = store.get(KEY_EN_ROUTE) ?? {};
+      all[tripIdx] = withoutAlert(dropped.state);
+      store.set(KEY_EN_ROUTE, all);
+    }
+    restoreReminders(tripIdx, dropped.reminders);
+    render();
+    refresh({ force: true });
+  });
+}
+
+// Save: the one-off becomes the last saved trip (same index, so its state carries over).
+function saveOneOff() {
+  if (!oneOff) return;
+  savedConfig = { ...(savedConfig ?? {}), trips: [...(savedConfig?.trips ?? []), oneOff.trip] };
+  store.set(KEY_CONFIG, savedConfig);
+  oneOff = null;
+  store.del(KEY_ONE_OFF);
+  config = withOneOff(savedConfig);
+  render();
+  showToast('Trip saved');
+}
+$('oneoff-save').onclick = saveOneOff;
+$('oneoff-remove').onclick = () => removeOneOff();
 
 // Setup's "Delete all trips and settings": cancels pending reminders, clears everything the app
 // stored except the API key (and the tests' push-server override), and reloads to first run.
@@ -1711,7 +1816,7 @@ function locate() {
 // a trip with an active "Leaving now" / "At the stop".
 function autoSwitch() {
   if (!config || setupView) return;
-  const t = enRouteState() ? tripIdx : pickTrip(Date.now(), config, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP), located());
+  const t = enRouteState() ? tripIdx : chooseTrip(Date.now(), store.get(KEY_OVERRIDE), located());
   if (t !== tripIdx) setTrip(t, false);
   else render();
 }
