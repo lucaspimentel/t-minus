@@ -10,7 +10,7 @@ import {
   headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
   rideAlertText, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
-  transitNetwork, planTrips, pointEnds, nextWeekday,
+  transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -34,6 +34,9 @@ const MBTA_TIMEOUT_MS = 10_000;
 const NETWORK_TIMEOUT_MS = 60_000; // the network's large requests (patterns ~3 MB, schedules ~12 MB)
 const NETWORK_RETRY_MS = 10 * MIN; // after a failed daily rebuild (the old network stays)
 const MAX_PLANS = 500; // cached plans (from > to), cleared with each new network
+const TIMED_CANDIDATES = 8; // "Go somewhere else…": candidates timed from now
+const TIMED_TTL = 30_000; // timed answers, shared by the phones' 60 s refreshes
+const MAX_TIMED = 200;
 // Auto-route's place search (addresses and named places): Photon, else Nominatim (1 request a
 // second, its usage policy), near Boston. The searched text is never logged.
 const PHOTON = 'https://photon.komoot.io/api/';
@@ -97,6 +100,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
   let building = null;
   const plans = new Map(); // `${from}>${to}` -> planTrips options
   const places = new Map(); // lowercased query -> { at, places }
+  const timedPlans = new Map(); // plan key + walks + slack -> { at, body }
   let nominatimAt = -Infinity; // its last request (1 a second)
   const nearbySetCache = new Map(); // stop ids + hour -> { routeIds, schedules }
   const files = new Map(); // file -> { body, etag }
@@ -323,8 +327,22 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       const to = end(q.get('to') ?? '');
       if (!from || !to) return reply(res, 400, { error: 'from and to must be up to 4 stop or station ids, or @lat,lon near Boston' });
       const key = `${from.key}>${to.key}`;
-      const options = plans.get(key) ?? remember(plans, key, planTrips(net, from.ends, to.ends), MAX_PLANS);
-      return reply(res, 200, { from: from.name, to: to.name, options });
+      if (q.get('now') !== '1') {
+        const options = plans.get(key) ?? remember(plans, key, planTrips(net, from.ends, to.ends), MAX_PLANS);
+        return reply(res, 200, { from: from.name, to: to.name, options });
+      }
+      // Timed from now ("Go somewhere else…"): the walks at a stop or station end and the stop
+      // slack come from the app (a point's walks come with each option).
+      const minutes = (name, dflt) => { const v = q.has(name) ? Number(q.get(name)) : NaN; return Number.isInteger(v) && v >= 0 && v <= 60 ? v : dflt; };
+      const walks = { wb: minutes('wb', 5), wa: minutes('wa', 5), slack: minutes('slack', 1) };
+      const tkey = `${key}#${walks.wb},${walks.wa},${walks.slack}`;
+      const hit = timedPlans.get(tkey);
+      if (hit && t - hit.at < TIMED_TTL) return reply(res, 200, hit.body);
+      const pkey = `${key}#${TIMED_CANDIDATES}`;
+      const candidates = plans.get(pkey) ?? remember(plans, pkey, planTrips(net, from.ends, to.ends, 2, TIMED_CANDIDATES), MAX_PLANS);
+      const body = { from: from.name, to: to.name, ...(await timePlans(candidates, from, to, walks, t)) };
+      if (!body.timedError) remember(timedPlans, tkey, { at: t, body }, MAX_TIMED);
+      return reply(res, 200, body);
     }
     if (req.method === 'GET' && path === '/places') {
       const query = (url.searchParams.get('q') ?? '').trim().replace(/\s+/g, ' ');
@@ -421,6 +439,42 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       return reply(res, found ? 204 : 404, undefined);
     }
     return reply(res, 404, { error: 'Not found' });
+  }
+
+  // ---------- auto-route: timed from now ----------
+
+  // Each candidate as a trip (its walks: a point's from the option, else the app's), its legs'
+  // predictions and next-2-hours schedules (each distinct leg fetched once, through the shared
+  // cache), and its first catchable row. `options`: the timed ones, ranked (timedOptions); none
+  // within the window: the untimed ones with `none`; MBTA failing: the untimed ones with
+  // `timedError`.
+  async function timePlans(candidates, from, to, walks, t) {
+    const untimed = candidates.slice(0, 3);
+    if (!candidates.length) return { options: [] };
+    const w = scheduleWindow(t, 5, TIMED_WINDOW_MIN);
+    const win = { 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime };
+    const docs = new Map(); // leg query -> Promise<[predictions, schedules]>
+    const legDocs = l => {
+      const query = legQuery(l);
+      const k = JSON.stringify(query);
+      if (!docs.has(k)) docs.set(k, Promise.all([mbta('/predictions', query), mbta('/schedules', { ...query, ...win })]));
+      return docs.get(k);
+    };
+    try {
+      const rows = await Promise.all(candidates.map(async o => {
+        const wb = typeof from.ends === 'string' ? walks.wb : o.walkBefore;
+        const wa = typeof to.ends === 'string' ? walks.wa : o.walkAfter;
+        const trip = formToTrip(optionToForm(o, '', '', wb, wa));
+        const got = await Promise.all(tripShape(trip).transit.map(legDocs));
+        const row = rowsFromDocs(trip, got.map(d => d[0]), got.map(d => d[1]), 0, t, walks.slack, 3).find(r => !r.missed);
+        return row && row.firstDep <= t + TIMED_WINDOW_MIN * MIN ? row : null;
+      }));
+      const options = timedOptions(candidates, rows, TIMED_CANDIDATES);
+      return options.length ? { options, timed: true } : { options: untimed, none: true };
+    } catch (e) {
+      log(`timed plan: ${e.message}`);
+      return { options: untimed, timedError: true };
+    }
   }
 
   // ---------- auto-route place search ----------

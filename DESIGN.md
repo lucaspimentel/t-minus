@@ -730,7 +730,10 @@ still holds, to stay well inside it either way:
   phone sends one `/api/plan` per From/To pair; picking From/To costs what the manual leg
   picker does (setup's `/routes` and `/stops` copies, "Show nearby"). Without the server,
   the rail network only (above). Place search (`/api/places`) costs no MBTA requests: one per
-  paused query to the server, which asks Photon (or Nominatim) unless cached.
+  paused query to the server, which asks Photon (or Nominatim) unless cached. Timed options
+  ("Go somewhere else…", `now=1`): `/predictions` and a 2-hour `/schedules` per distinct leg of
+  up to 8 candidates under the server's key and cache (~20-40 requests, fewer when shared or
+  cached), answers cached 30 s; the phone refreshes once a minute while the list is open.
 
 A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 requests; a 4-leg trip
 ≤ 4 req/min. Rapid reloads can still hit the limit (seen in testing with ~8 fresh loads in a
@@ -1141,6 +1144,31 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   rail-only search plans between two stations, and a bus stop says "Needs the T-Minus server.".
 - Not in phase 2: addresses (phase 3, below), commuter rail and ferry, time-aware search (a route not
   running now is still offered; the trip's rows then show no departures).
+
+## Live times for "Go somewhere else…"
+
+Built 2026-10-12 (grilled with mockups: layout C chosen of three). The route-only search can't
+see that the 132 runs hourly at midday or that the 171 runs only early mornings; a one-off trip
+is for now, so its options are timed.
+
+- **Server:** `GET /api/plan?…&now=1&wb=&wa=&slack=` (the walk fields at a stop or station end,
+  the stop slack setting). Up to 8 candidates from `planTrips`, each made a trip
+  (`optionToForm`, `formToTrip`; a point end's walks from the option) and timed with the
+  reminders' engine: per distinct leg, `/predictions` and the next 2 hours of `/schedules`
+  (`TIMED_WINDOW_MIN`), then `rowsFromDocs` and its first row not missed (catchable leaving now:
+  walk and slack). No departure within 2 hours: dropped. `timedOptions` ranks the rest by
+  arrival, then fewer transfers, then the search's order (rail favored); each gets `leave`
+  (leave-by), `arrive` and `deps` ([{ dep, live }] per leg); `timed: true`. All dropped: the
+  untimed 3 with `none`; the MBTA failing: the untimed 3 with `timedError` (not cached).
+  Answers are cached 30 s per pair, walks and slack.
+- **App:** only "Go somewhere else…" asks (setup's "+ Add trip (auto-route)" stays untimed: a
+  saved trip is used at many times of day; the rail-only fallback too). "Finding ways…" until
+  the timed answer; the best 3 shown as "Arrive 2:31pm · ~39 min", "Leave 1:52pm (in 4 min)"
+  ("Leave now" once due), the walks, each ride with its departure ("● Orange 1:57pm to Oak
+  Grove"). Every 60 s while open, the times refresh in place: the order stays (`optionKey`), a
+  departure that passed rolls to its next one, an option with nothing left drops. "Nothing runs
+  in the next 2 hours." / "Times unavailable." above the untimed options. Picking works as
+  before (the one-off trip's own rows time it).
 
 ## Addresses and places (phase 3)
 

@@ -798,6 +798,21 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
     .map(({ chain: _c, stationWalk: _w, ...o }) => o);
 }
 
+// "Go somewhere else…" with live times: `rows[i]` is option i's first catchable row (rowsFromDocs;
+// null: nothing within the window). Ranked by arrival, then fewer transfers, then the search's
+// order (which already favors rail); options without a row are dropped. Each: the option with
+// `leave` (leave-by), `arrive` (eta) and `deps` ([{ dep, live }] per transit leg).
+export const TIMED_WINDOW_MIN = 120;
+export function timedOptions(options, rows, limit = 8) {
+  return options.map((o, i) => ({ o, i, r: rows[i] })).filter(x => x.r)
+    .sort((a, b) => a.r.eta - b.r.eta || a.o.transfers.length - b.o.transfers.length || a.i - b.i)
+    .slice(0, limit)
+    .map(({ o, r }) => ({ ...o, leave: r.leaveBy, arrive: r.eta, deps: r.legs.map(l => ({ dep: l.dep, live: l.source === 'live' })) }));
+}
+
+// The same option in two answers (a timed list's refresh): its routes and stops.
+export const optionKey = o => o.legs.map(l => `${l.route}@${l.stop}>${l.alight}`).join('|');
+
 // A leg's routes cut down to `keep` (at least one stays; the first kept becomes primary).
 export function trimRoutes(leg, keep) {
   const routes = legRoutes(leg).filter(r => keep.includes(r));

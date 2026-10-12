@@ -556,6 +556,39 @@ test('auto-route: plans from a point (@lat,lon) use the stops within a walk, wit
   } finally { await s.close(); }
 });
 
+test('auto-route timed from now (now=1): first catchable rows, ranked by arrival, cached 30 s; none or failing: untimed', async () => {
+  const s = await setup();
+  try {
+    s.world.network = smallNetwork();
+    const get = async path => { const r = await s.call('GET', path); return { status: r.status, body: await r.json() }; };
+    // 07:00: the 132 at 07:10 (scheduled), Orange at 07:33 (live) to State 07:50; walks 5 + 5, slack 1.
+    const q = '/api/plan?from=25996&to=place-state&now=1&wb=5&wa=5&slack=1';
+    const timed = await get(q);
+    assert.equal(timed.body.timed, true);
+    const [o] = timed.body.options;
+    assert.deepEqual([o.leave, o.arrive], [at('07:04'), at('07:55')]);
+    assert.deepEqual(o.deps, [{ dep: at('07:10'), live: false }, { dep: at('07:33'), live: true }]);
+    // Without the walks and slack: 5, 5 and 1.
+    assert.equal((await get('/api/plan?from=25996&to=place-state&now=1')).body.options[0].leave, at('07:04'));
+    // The untimed plan is unchanged.
+    assert.equal((await get('/api/plan?from=25996&to=place-state')).body.options[0].leave, undefined);
+    // Cached 30 s (the phones refresh every 60 s).
+    const calls = s.world.calls.length;
+    s.world.clock += 20_000;
+    await get(q);
+    assert.equal(s.world.calls.length, calls);
+    // Nothing within 2 hours (20:00: every fake departure has left): the untimed options, with `none`.
+    s.world.clock = at('20:00');
+    const none = await get(q);
+    assert.deepEqual([none.body.none, none.body.options.length, none.body.options[0].leave], [true, 1, undefined]);
+    // The MBTA failing: untimed, with `timedError` (not cached).
+    s.world.clock += 40_000;
+    s.world.failing = true;
+    const failed = await get(q);
+    assert.deepEqual([failed.status, failed.body.timedError, failed.body.options.length], [200, true, 1]);
+  } finally { await s.close(); }
+});
+
 test('places: Photon near Boston, stops left out, cached a day; Nominatim when Photon fails or finds nothing', async () => {
   const s = await setup();
   try {

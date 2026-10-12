@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, defaultTransferMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, UPDATE_MIN, testPushText,
@@ -1373,6 +1373,19 @@ test('planTrips: an option with more transfers than one above it, and no faster,
   // Faster with the extra transfer: kept.
   net.patterns[1].mins = [10, 10];
   assert.deepEqual(planTrips(net, 's', 'd').map(o => [o.legs.map(l => l.route).join('>'), o.minutes]), [['R>B', 28], ['R>C>D', 21]]);
+});
+
+test('timedOptions: by arrival, then fewer transfers, then the search order; no row: dropped', () => {
+  const opt = (id, n) => ({ legs: [{ route: id, stop: 'a', alight: 'b' }], transfers: new Array(n).fill({}) });
+  const row = (leaveBy, eta, live) => ({ leaveBy, eta, legs: [{ dep: leaveBy + 5, source: live ? 'live' : 'scheduled' }] });
+  const opts = [opt('A', 1), opt('B', 2), opt('C', 1), opt('D', 0), opt('E', 0)];
+  const out = timedOptions(opts, [row(10, 50, true), row(5, 40, false), row(12, 50, false), null, row(20, 50, false)]);
+  assert.deepEqual(out.map(o => o.legs[0].route), ['B', 'E', 'A', 'C']);
+  assert.deepEqual([out[0].leave, out[0].arrive, out[0].deps], [5, 40, [{ dep: 10, live: false }]]);
+  assert.deepEqual(out[2].deps, [{ dep: 15, live: true }]);
+  assert.equal(timedOptions(opts, [null, null, null, null, null]).length, 0);
+  assert.equal(timedOptions(opts, [row(1, 2), row(1, 3), row(1, 4), row(1, 5), row(1, 6)], 3).length, 3);
+  assert.equal(optionKey(opts[0]), 'A@a>b');
 });
 
 test('nextWeekday: today on a weekday, else Monday', () => {

@@ -2,7 +2,7 @@
 // focus kept across the once-a-second redraw, and the screen-reader announcements (#announce).
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { openApp, tick, tickTo } from './helpers.js';
+import { openApp, tick, tickTo, at } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -120,7 +120,9 @@ for (const scheme of ['light', 'dark']) {
     await openApp(page, { time: '07:00' });
     await page.route(/\/api\/plan\?/, route => route.fulfill({ json: { from: 'Main St @ South St', to: 'State', options: [{
       legs: [{ route: '132', also: [], direction_id: 1, stop: '25996', alight: '5991' }, { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state' }],
-      transfers: [{ name: 'Washington St @ Oak Grove Sta → Oak Grove', meters: 32, min: 3 }], minutes: 32 }] } }));
+      transfers: [{ name: 'Washington St @ Oak Grove Sta → Oak Grove', meters: 32, min: 3 }], minutes: 32,
+      // Timed from now (the one-off planner's rows).
+      leave: at('07:04'), arrive: at('07:55'), deps: [{ dep: at('07:10'), live: false }, { dep: at('07:33'), live: true }] }], timed: true } }));
     await page.route(/\/api\/places\?/, route => route.fulfill({ json: { places: [{ name: 'Fenway Park', detail: '4 Jersey Street, Boston', lat: 42.34646, lon: -71.0971 }] } }));
     await page.getByRole('button', { name: 'Go somewhere else…' }).click();
     expect(await violations(page)).toEqual([]);

@@ -109,7 +109,7 @@ test('main screen: Current location as From makes a one-off trip named from its 
   await setup(page).locator('#plan-here').click();
   await expect(setup(page).locator('#plan-from')).toHaveText(/^Current location\s*Change$/);
   await pickStation(page, 'to', 'state', 'State');
-  expect(calls.plan).toEqual(['?from=%4042.45031%2C-71.07029&to=place-state']);
+  expect(calls.plan).toEqual([expect.stringMatching(/^\?from=%4042\.45031%2C-71\.07029&to=place-state&now=1&/)]); // timed from now
   await options(page).first().click();
   await expect(page.locator('#oneoff')).toBeVisible();
   const oneOff = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:one-off')).trip);

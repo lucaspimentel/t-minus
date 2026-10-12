@@ -5,14 +5,15 @@
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=e8ca2617e1';
+} from './core.js?v=67eeea924d';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
 const PLACE_DEBOUNCE_MS = 300;
+const TIMED_REFRESH_MS = 60_000; // "Go somewhere else…": live times while the list is open
 
 // Session caches (kept across openSetup calls; route and stop lists rarely change), backed by
 // copies kept on the phone (`keptCopy`).
@@ -419,8 +420,36 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     };
     if (!planApi) { p.plan = local(); return; }
     p.plan = { key, loading: true };
-    planApi('/plan', { from: p.from.id, to: p.to.id }).then(r => ({ key, options: r.options, from: r.from, to: r.to }), local)
-      .then(plan => { if (planner === p && p.plan?.key === key) { p.plan = plan; render(); } });
+    planApi('/plan', planQuery(p)).then(r => ({ key, options: r.options, from: r.from, to: r.to, ...timedFields(r) }), local)
+      .then(plan => {
+        if (planner !== p || p.plan?.key !== key) return;
+        // Timed: the 3 best shown; refreshes keep them, in this order.
+        if (plan.timed) { plan.all = plan.options; plan.options = plan.options.slice(0, 3); plan.shown = plan.options.map(optionKey); startTimedRefresh(p, key); }
+        p.plan = plan;
+        render();
+      });
+  }
+
+  // "Go somewhere else…" asks for live times from now (the server times up to 8 candidates);
+  // setup's planner doesn't (a saved trip is used at many times of day).
+  const planQuery = p => ({ from: p.from.id, to: p.to.id, ...(p.oneOff && { now: 1, wb: p.walkBefore, wa: p.walkAfter, slack: app.stopSlackMinutes }) });
+  const timedFields = r => ({ ...(r.timed && { timed: true }), ...(r.none && { none: true }), ...(r.timedError && { timedError: true }) });
+
+  // Every TIMED_REFRESH_MS while the timed list is open: new times for the shown options (a
+  // departure that passed rolls to its next one), in the same order; one with nothing left drops.
+  let timedTimer = null;
+  function startTimedRefresh(p, key) {
+    clearInterval(timedTimer);
+    timedTimer = setInterval(() => {
+      if (planner !== p || p.plan?.key !== key || !p.plan.timed) { clearInterval(timedTimer); timedTimer = null; return; }
+      planApi('/plan', planQuery(p)).then(r => {
+        if (planner !== p || p.plan?.key !== key || !r.timed) return;
+        const byKey = new Map(r.options.map(o => [optionKey(o), o]));
+        p.plan.options = p.plan.shown.map(k => byKey.get(k)).filter(Boolean);
+        p.plan.shown = p.plan.options.map(optionKey);
+        render();
+      }, () => {});
+    }, TIMED_REFRESH_MS);
   }
 
   function plannerScreen() {
@@ -465,13 +494,21 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const board = l => (local ? stationName(l.stop) : l.stopName ?? l.stop);
       const alight = l => (local ? stationName(l.alight) : l.alightName ?? l.alight);
       const muted = text => h('div', { class: 'muted' }, text);
+      // Timed: "Arrive 2:31pm · ~39 min", "Leave 1:52pm (in 4 min)", each ride's departure.
+      const now = Date.now();
+      const inMin = o.leave != null && Math.round((o.leave - now) / 60_000);
+      const head = o.arrive != null
+        ? [h('b', {}, `Arrive ${formatTime(o.arrive, now)} · ~${Math.round((o.arrive - o.leave) / 60_000)} min`),
+          muted(inMin > 0 ? `Leave ${formatTime(o.leave, now)} (in ${inMin} min)` : 'Leave now')]
+        : [h('b', {}, o.minutes != null ? `~${o.minutes + wb + wa} min` : `${o.stops} stop${o.stops === 1 ? '' : 's'}`)];
       return [
-        h('b', {}, o.minutes != null ? `~${o.minutes + wb + wa} min` : `${o.stops} stop${o.stops === 1 ? '' : 's'}`),
+        ...head,
         wb > 0 && muted(`Walk ${wb} min to ${board(o.legs[0])}`),
         ...o.legs.flatMap((l, i) => {
           const t = o.transfers[i - 1];
+          const dep = o.deps?.[i] ? `${formatTime(o.deps[i].dep, now)} ` : '';
           return [i > 0 && t?.meters > 0 && muted(`Walk ${t.meters} m to ${board(l)}`),
-            h('div', { class: 'ride' }, routeTagOf([l.route, ...l.also], local ? lineOf(l.route)?.color : null), h('span', { class: 'muted' }, ` to ${alight(l)}`))];
+            h('div', { class: 'ride' }, routeTagOf([l.route, ...l.also], local ? lineOf(l.route)?.color : null), h('span', { class: 'muted' }, ` ${dep}to ${alight(l)}`))];
         }),
         wa > 0 && muted(`Walk ${wa} min to ${p.to.name}`),
       ].filter(Boolean);
@@ -481,7 +518,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       : plan.loading ? [h('div', { class: 'muted section' }, 'Finding ways…')]
         : plan.error ? [h('div', { class: 'msg' }, plan.error)]
           : plan.options.length
-            ? [h('div', { class: 'muted section' }, p.oneOff ? 'Pick one to see its departures' : 'Pick one to review and save'),
+            ? [plan.none && h('div', { class: 'msg' }, 'Nothing runs in the next 2 hours.'),
+              plan.timedError && h('div', { class: 'msg' }, 'Times unavailable.'),
+              h('div', { class: 'muted section' }, p.oneOff ? 'Pick one to see its departures' : 'Pick one to review and save'),
               h('div', { class: 'list', id: 'plan-options' }, ...plan.options.map(o => h('button', { type: 'button', class: 'item option', onclick: () => pick(o) },
                 ...optionRows(o, plan.local))))]
             : [h('div', { class: 'msg' }, plan.local ? 'No way on the subway with 2 transfers or fewer.' : 'No way with 2 transfers or fewer.')];
