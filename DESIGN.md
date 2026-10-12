@@ -1168,10 +1168,10 @@ point → stops → plan on the live network) and two grill rounds with mockups.
 - **Picker (plan mode):** the search reads "Search stations, routes, places"; with 3+ characters
   and a 300 ms pause, Places load under Stations and Routes ("Searching places…", "No places
   found.", "Place search is unavailable right now."), each "Fenway Park · 4 Jersey Street,
-  Boston". From's list starts with "Current location · plan from where you are" (the browser's
-  location; "Location is off for this app." when denied). A place is `@lat,lon` with its name.
+  Boston". From's and To's lists start with "Current location · plan from (to) where you are"
+  (the browser's location; "Location is off for this app." when denied; To added 2026-10-12). A place is `@lat,lon` with its name.
 - **Planner:** a point end has no walk field (its walk comes with each option); the trip is
-  named "Fenway Park to State", "Current location" by the first stop's name. Only stops and legs
+  named "Fenway Park to State", "Current location" by the first (From) or last (To) stop's name. Only stops and legs
   are saved, no coordinates. Without the server: "Needs the T-Minus server.".
 - Live (2026-10-12): 600 Main St, Melrose → Fenway Park: 137 → Orange → Green, ~53-56 min;
   350 Washington St, Malden → MGH: Orange to North Station or Orange → Red to Charles/MGH,

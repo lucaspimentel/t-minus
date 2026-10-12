@@ -441,9 +441,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const pick = o => {
       const plan = p.plan;
       const [wb, wa] = walks(o);
-      // Your location has no name of its own: the trip is named from the first stop.
+      // Your location has no name of its own: the trip is named from the first (or last) stop.
       const fromName = p.from.current ? o.legs[0].stopName ?? p.from.name : p.from.name;
-      const form = plan.local ? planToForm(railNet, o, wb, wa) : optionToForm(o, fromName, p.to.name, wb, wa);
+      const toName = p.to.current ? o.legs.at(-1).alightName ?? p.to.name : p.to.name;
+      const form = plan.local ? planToForm(railNet, o, wb, wa) : optionToForm(o, fromName, toName, wb, wa);
       if (p.oneOff) {
         const cfg = { trips: [formToTrip(form)] };
         loadRoutes().then(rs => { routes = rs; }).catch(() => {}).finally(() => onPlan((routes ? labelLegs(cfg, routes) : cfg).trips[0]));
@@ -891,7 +892,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('b', {}, pl.name), pl.detail && h('span', { class: 'muted' }, ` · ${pl.detail}`)))];
   }
 
-  // Auto-route's "Current location": the phone's position as From.
+  // Auto-route's "Current location": the phone's position as From or To.
   function useMyLocation() {
     picker = { ...picker, hereLoading: true, hereError: null };
     render();
@@ -974,9 +975,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
           // lists what is around you (location asked on tap, each time).
           const searchesPlaces = picker.planField && planApi;
           return [
-            // Auto-route's From: plan from where you are.
-            searchesPlaces && picker.planField === 'from' && h('button', { type: 'button', class: 'item', id: 'plan-here', disabled: !!picker.hereLoading, onclick: useMyLocation },
-              h('b', {}, 'Current location'), h('span', { class: 'muted' }, picker.hereLoading ? ' · finding your location…' : ' · plan from where you are')),
+            // Auto-route's From or To: plan from (or to) where you are.
+            searchesPlaces && h('button', { type: 'button', class: 'item', id: 'plan-here', disabled: !!picker.hereLoading, onclick: useMyLocation },
+              h('b', {}, 'Current location'), h('span', { class: 'muted' }, picker.hereLoading ? ' · finding your location…' : ` · plan ${picker.planField} where you are`)),
             picker.hereError ? h('div', { class: 'muted' }, picker.hereError) : null,
             firstLeg ? h('button', { type: 'button', class: 'add', disabled: !!picker.meLoading, onclick: showNearMe },
               picker.meLoading ? 'Finding your location…' : 'Show nearby stops and stations') : null,

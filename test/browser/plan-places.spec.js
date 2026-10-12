@@ -88,9 +88,9 @@ test('place search down or empty says so; stations and routes still list', async
   await tick(page, 400);
   await expect(list(page)).toContainText('Place search is unavailable right now.');
   await expect(setup(page).locator('.list .item.station', { hasText: 'State' })).toBeVisible();
-  // To has no "Current location".
+  // To offers "Current location" too.
   await setup(page).locator('#picker-search').fill('');
-  await expect(setup(page).locator('#plan-here')).toHaveCount(0);
+  await expect(setup(page).locator('#plan-here')).toHaveText('Current location · plan to where you are');
   await page.unroute(/\/api\/places\?/);
   await stub(page, { places: [] });
   await setup(page).locator('#picker-search').fill('nowhere st');
@@ -115,6 +115,23 @@ test('main screen: Current location as From makes a one-off trip named from its 
   const oneOff = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:one-off')).trip);
   expect(oneOff.name).toBe('Main St @ South St to State');
   expect(oneOff.legs[0]).toEqual({ kind: 'walk', minutes: 3 });
+});
+
+test('setup: Current location as To; the trip is named for its last stop', async ({ page, context }) => {
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 42.358, longitude: -71.0577 });
+  await openApp(page, { time: '07:00' });
+  const calls = await stub(page);
+  await page.locator('#open-setup').click();
+  await button(page, '+ Add trip (auto-route)').click();
+  await pickStation(page, 'from', 'oak gr', 'Oak Grove');
+  await setup(page).locator('#plan-to').click();
+  await setup(page).locator('#plan-here').click();
+  await expect(setup(page).locator('#plan-to')).toHaveText(/^Current location\s*Change$/);
+  await expect(setup(page).getByLabel('Minutes from last stop')).toHaveCount(0);
+  expect(calls.plan).toEqual(['?from=place-ogmnl&to=%4042.358%2C-71.0577']);
+  await options(page).first().click();
+  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove to State');
 });
 
 test('Current location without permission says so and keeps the list', async ({ page }) => {
