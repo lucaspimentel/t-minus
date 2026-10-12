@@ -478,6 +478,10 @@ const WAIT_CAP_MIN = 30;
 const WAIT_DEFAULT_MIN = 30; // none midday (peak-only, overnight): ranked as the least frequent
 // Ranking: each transfer also costs this many minutes (a 44-min ride with 2 changes beats 52 with 1).
 const TRANSFER_PENALTY_MIN = 5;
+// Ranking: bus minutes count 1.25× (traffic; less reliable than rail). Of two ways equal on paper,
+// the one with more of the ride on the subway ranks first (State to Main St: Orange to Oak Grove,
+// then the 132, over the 132 from Malden Center).
+const BUS_RIDE_WEIGHT = 1.25;
 
 // The date for the midday ride-time sample: the next weekday (today on a weekday).
 export function nextWeekday(nowMs) {
@@ -658,7 +662,8 @@ function changeAt(net, place) {
 // the network's patterns (buses and rail). A leg rides one pattern between two of its stops; other
 // routes whose patterns serve both stops in the same direction ride along (`also`). Changes: the
 // same stop or station (3 min), or a walk to a stop within WALK_TRANSFER_METERS. No route ridden
-// twice (either direction), no station passed twice. Ranked by total minutes: walks, rides,
+// twice (either direction), no station passed twice. Ranked by total minutes: walks, rides (bus
+// minutes × BUS_RIDE_WEIGHT),
 // changes (walks between stops count twice), each change's expected wait, and TRANSFER_PENALTY_MIN
 // per transfer. One option per route chain (a line's branches as one) and change stations
 // (`changeAt`).
@@ -698,6 +703,7 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
         // Changing (not the first leg): the expected wait for this route here, in the ranking only.
         const wait = path.length ? p.waits?.[i] ?? WAIT_DEFAULT_MIN : 0;
         let ride = 0;
+        const weight = net.routes[p.route]?.type === 3 ? BUS_RIDE_WEIGHT : 1;
         const via = [];
         for (let j = i + 1; j < p.stops.length; j++) {
           const s = p.stops[j];
@@ -708,7 +714,7 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
           const leg = { pattern: pi, from: b.id, to: s, minutes: ride, walk: b };
           if (target.has(s)) {
             const after = target.get(s);
-            found.push({ path: [...path, leg], minutes: m + ride, after, cost: t + wait + ride + after + TRANSFER_PENALTY_MIN * path.length });
+            found.push({ path: [...path, leg], minutes: m + ride, after, cost: t + wait + ride * weight + after + TRANSFER_PENALTY_MIN * path.length });
             continue;
           }
           if (path.length < maxTransfers) {
@@ -717,7 +723,7 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
             // Change here, within this station, or walk to a place not passed yet (not back to a
             // station ridden through: Blue past State to Government Center, then walk to State).
             const here = placeOf(net, s);
-            walk(transfersFrom(s).filter(x => placeOf(net, x.id) === here || !nextSeen.has(placeOf(net, x.id))), [...path, leg], nextUsed, nextSeen, m + ride, t + wait + ride);
+            walk(transfersFrom(s).filter(x => placeOf(net, x.id) === here || !nextSeen.has(placeOf(net, x.id))), [...path, leg], nextUsed, nextSeen, m + ride, t + wait + ride * weight);
           }
         }
       }

@@ -1086,8 +1086,10 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
     westbound platform at Park Street, so Wonderland to Park Street listed Green-B, -C and -D as
     three options; now one leg, "Green-C/B/D/E".
   - Ranked by total estimated minutes (phase 3; before, fewest transfers came first, and a 52-min
-    one-change trip ranked above a 44-min two-change one): walks to and from a point, rides,
-    transfer times, plus 5 min per transfer. Walks between stops count twice: riding one more
+    one-change trip ranked above a 44-min two-change one): walks to and from a point, rides
+    (bus minutes × 1.25: traffic makes buses less reliable, so of two ways equal on paper the one
+    with more subway ranks first; State to Main St @ South St: Orange to Oak Grove then the 132,
+    over the 132 from Malden Center), transfer times, plus 5 min per transfer. Walks between stops count twice: riding one more
     stop to the one by the station beats getting off a stop early to walk 124 m (seen live at
     Oak Grove).
   - Each change also adds its expected wait to the ranking: half the gap between the route's

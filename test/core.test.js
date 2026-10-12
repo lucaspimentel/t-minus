@@ -1326,7 +1326,8 @@ test('pointEnds: the nearest stop of each pattern within 800 m, with walk minute
 test('planTrips: ranked by total minutes with 5 per transfer; no route twice; one option per line\'s branches', () => {
   const stops = [['s', 42.30, -71.10], ['x', 42.31, -71.10], ['d', 42.32, -71.10], ['q1', 42.3101, -71.1001], ['q2', 42.3102, -71.1002]];
   // Direct D: 8 hops of 5 = 40 min. A to x (10) then F to d (10): 10 + 3 + 5 wait + 10 + 5 = 33.
-  const net = bareNetwork([['d', 'D', 3, ['s', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'd']], ['a', 'A', 3, ['s', 'm8', 'x']], ['f', 'F', 3, ['x', 'm9', 'd']]],
+  // (Rail, so the bus weight stays out of it.)
+  const net = bareNetwork([['d', 'D', 1, ['s', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'd']], ['a', 'A', 1, ['s', 'm8', 'x']], ['f', 'F', 1, ['x', 'm9', 'd']]],
     [...stops, ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => [`m${i}`, 42.5 + i / 100, -71.5])]);
   assert.deepEqual(planTrips(net, 's', 'd').map(o => o.legs.map(l => l.route).join('>')), ['A>F', 'D']);
   net.patterns[0].mins = net.patterns[0].mins.map(() => 3.875); // direct: 31 min, under 28 + 5 for the transfer
@@ -1354,6 +1355,14 @@ test('planTrips: no walk from one station to another (a new fare), but Downtown 
     [['s', 42.30, -71.10], ['la', 42.31, -71.10, 'place-dwnxg'], ['lb', 42.3115, -71.10, 'place-pktrm'],
       ['lh', 42.35, -71.15, 'place-haecl'], ['lh2', 42.3501, -71.1501, 'place-haecl'], ['d', 42.33, -71.10]]);
   assert.deepEqual(planTrips(both, 's', 'd').map(o => o.transfers[0].name), ['LH']); // Haymarket's stand-in
+});
+
+test('planTrips: bus minutes weigh more: of two ways equal on paper, more of it on the subway first', () => {
+  // R (subway) s → x → y; bus B from x (2 hops) or B2 from y (1 hop): 5 + 3 + 10 = 10 + 3 + 5 = 18 min.
+  const net = bareNetwork([['r', 'R', 1, ['s', 'x', 'y']], ['b', 'B', 3, ['xb', 'm', 'd']], ['b2', 'B2', 3, ['yb', 'd']]],
+    [['s', 42.30, -71.10, 'place-s'], ['x', 42.31, -71.10, 'place-x'], ['y', 42.32, -71.10, 'place-y'], ['xb', 42.31, -71.10, 'place-x'],
+      ['yb', 42.32, -71.10, 'place-y'], ['m', 42.33, -71.12], ['d', 42.34, -71.10]]);
+  assert.deepEqual(planTrips(net, 's', 'd').map(o => [o.transfers[0].name, o.minutes]), [['Y', 18], ['X', 18]]);
 });
 
 test('nextWeekday: today on a weekday, else Monday', () => {
