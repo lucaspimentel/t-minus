@@ -1243,6 +1243,37 @@ test('planTrips: bus to rail to bus, walks up to 250 m between stops, routes rid
   assert.deepEqual(form.transit.map(l => [l.route, l.also, l.transferBefore]), [['B1', ['B3'], 0], ['Orange', undefined, 3], ['B2', undefined, 3]]);
 });
 
+test('planTrips: expected waits at changes rank a frequent line above a slightly faster rare one', () => {
+  // Waits: half the gap between the sample's departures (2 hours), capped at 30; none sampled: 10.
+  const dep = (trip, r, st, t) => ({ attributes: { departure_time: iso(t), stop_sequence: 1 }, relationships: { trip: { data: { id: trip } }, stop: { data: { id: st } }, route: { data: { id: r } } } });
+  const net = transitNetwork({ data: [route('A', 3, ['X', 'S']), route('F', 3, ['D', 'X']), route('R', 3, ['D', 'X'])] }, {
+    data: ['a', 'f', 'r'].map(id => ({ type: 'route_pattern', id, attributes: { direction_id: 0, typicality: 1 }, relationships: { route: { data: { id: id.toUpperCase() } }, representative_trip: { data: { id: `rt-${id}` } } } })),
+    included: [
+      { type: 'trip', id: 'rt-a', relationships: { stops: { data: [{ id: 's' }, { id: 'x' }] } } },
+      { type: 'trip', id: 'rt-f', relationships: { stops: { data: [{ id: 'x' }, { id: 'd' }] } } },
+      { type: 'trip', id: 'rt-r', relationships: { stops: { data: [{ id: 'x' }, { id: 'd' }] } } },
+      stop('s', 'S St', 42.40, -71.20), stop('x', 'X Sq', 42.41, -71.20), stop('d', 'D St', 42.42, -71.20),
+    ],
+  }, { data: [...Array.from({ length: 12 }, (_, i) => dep(`f${i}`, 'F', 'x', `11:${String(i * 10 % 60).padStart(2, '0')}`)), dep('r0', 'R', 'x', '11:00'), dep('r1', 'R', 'x', '12:00')] });
+  assert.deepEqual(net.patterns.map(p => [p.route, p.waits]), [['A', [10, 10]], ['F', [5, 10]], ['R', [30, 10]]]);
+  net.patterns[0].mins = [10];
+  net.patterns[1].mins = [12];
+  net.patterns[2].mins = [10];
+  // F: 12 min + 5 wait beats R: 10 min + 30 wait (R rides along); minutes leave the wait out.
+  assert.deepEqual(planTrips(net, 's', 'd').map(o => [o.legs[1].route, o.legs[1].also, o.minutes]), [['F', ['R'], 10 + 3 + 12]]);
+});
+
+test('planTrips: changes at different stops of one bus street are one option', () => {
+  // A stops at x1 then x2; B at y1 (by x1) then y2 (by x2): change at either pair, no station near.
+  const net = transitNetwork({ data: [route('A', 3, ['N', 'S']), route('B', 3, ['D', 'N'])] }, {
+    data: [pattern('a', 'A', 0, ['s', 'x1', 'x2'], { typicality: 1 })[0], pattern('b', 'B', 0, ['y1', 'y2', 'd'], { typicality: 1 })[0]],
+    included: [pattern('a', 'A', 0, ['s', 'x1', 'x2'], {})[1], pattern('b', 'B', 0, ['y1', 'y2', 'd'], {})[1],
+      stop('s', 'S St', 42.40, -71.20), stop('x1', 'X1', 42.41, -71.20), stop('x2', 'X2', 42.42, -71.20),
+      stop('y1', 'Y1', 42.4101, -71.2001), stop('y2', 'Y2', 42.4201, -71.2001), stop('d', 'D St', 42.40, -71.25)],
+  }, null);
+  assert.equal(planTrips(net, 's', 'd').length, 1);
+});
+
 test('nextWeekday: today on a weekday, else Monday', () => {
   assert.equal(nextWeekday(Date.parse('2026-10-09T09:00:00-04:00')), '2026-10-09'); // Friday
   assert.equal(nextWeekday(Date.parse('2026-10-10T09:00:00-04:00')), '2026-10-12'); // Saturday

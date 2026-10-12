@@ -1072,10 +1072,17 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   - Ranked by transfers, then estimated minutes (rides + transfer times), with walks between
     stops counted twice: riding one more stop to the one by the station beats getting off a stop
     early to walk 124 m (seen live at Oak Grove). An option with more transfers is shown only if
-    it ranks above every option with fewer. Options riding the same routes and getting off at
-    the same places before each transfer are one option (the best ranked): State to Main St @
-    South St listed Orange → 132 via Oak Grove twice, walking to Washington St @ Oak Grove
-    Station (95 m) or 349 Washington St (198 m).
+    it ranks above every option with fewer.
+  - Each change also adds its expected wait to the ranking: half the gap between the route's
+    departures at that stop in the midday sample (2 hours), capped at 30 min; 10 min when the
+    sample has none. The shown "~N min" leaves waits out (the 132 runs hourly at midday: every
+    option ending with it would read ~30 min longer). Davis to Main St @ South St listed three
+    96/89 → 101 → 132 chains (~42–45 min on paper, the 96 and 101 every 20–40 min); with waits:
+    89 → Orange → 132 (Malden, Oak Grove), then Red → Orange → 132.
+  - One option per route chain and change stations (the best ranked). A change at a bus stop
+    counts as the station within 250 m of it, else as any bus stop: the 96 → 101 changes at
+    several Medford Sq stops are one option; Orange → 132 via Malden Center and via Oak Grove
+    are two. (Before: Orange → 132 via Oak Grove was listed twice, walking 95 m or 198 m.)
   - A leg's stops are named by their station when they have one (rail platforms, busway berths).
   - Each option: "● Bus 132 → ● Orange → ● Red", "2 transfers at Washington St opp Oak Grove Sta →
     Oak Grove (walk 96 m), Downtown Crossing · ~49 min" (a walk between two places names both;

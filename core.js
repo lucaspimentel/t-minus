@@ -467,6 +467,11 @@ const HOP_KMH = { 3: 13, 0: 18, 1: 30 };
 export const WALK_TRANSFER_METERS = 250;
 const WALK_M_PER_MIN = 80;
 const SAME_STOP_TRANSFER_MIN = 3;
+// Expected wait when changing: half the gap between departures in the midday sample (2 hours),
+// capped; a route and stop with none in the sample (or no sample) gets the default.
+const SAMPLE_WINDOW_MIN = 120;
+const WAIT_CAP_MIN = 30;
+const WAIT_DEFAULT_MIN = 10;
 
 // The date for the midday ride-time sample: the next weekday (today on a weekday).
 export function nextWeekday(nowMs) {
@@ -481,7 +486,8 @@ export function nextWeekday(nowMs) {
 // The planning network from /routes (types 0,1,3), /route_patterns (include=representative_trip.stops)
 // and a midday /schedules sample of the same routes:
 // { routes: { id: { label, color, type, dest } }, stops: { id: { id, name, lat, lon, parent } },
-//   stations: { id: { id, name, lat, lon } }, patterns: [{ route, direction, stops: [id], mins: [hop minutes] }] }.
+//   stations: { id: { id, name, lat, lon } },
+//   patterns: [{ route, direction, stops: [id], mins: [hop minutes], waits: [expected wait at each stop] }] }.
 // Rail keeps its canonical patterns; buses (none canonical) their typical ones (typicality 1).
 // Hop minutes: the median over the sample's trips between the two stops, else distance at HOP_KMH.
 export function transitNetwork(routesDoc, patternsDoc, schedulesDoc) {
@@ -513,9 +519,12 @@ export function transitNetwork(routesDoc, patternsDoc, schedulesDoc) {
   }
   // Median minutes per consecutive stop pair (by trip, in stop_sequence order).
   const byTrip = new Map();
+  const deps = new Map(); // route@stop → departures in the sample
   for (const s of schedulesDoc?.data ?? []) {
     const trip = s.relationships?.trip?.data?.id;
     const stop = s.relationships?.stop?.data?.id;
+    const route = s.relationships?.route?.data?.id;
+    if (route && stop && s.attributes?.departure_time) deps.set(`${route}@${stop}`, (deps.get(`${route}@${stop}`) ?? 0) + 1);
     const t = Date.parse(s.attributes?.departure_time ?? s.attributes?.arrival_time ?? '');
     if (!trip || !stop || !Number.isFinite(t)) continue;
     if (!byTrip.has(trip)) byTrip.set(trip, []);
@@ -539,6 +548,10 @@ export function transitNetwork(routesDoc, patternsDoc, schedulesDoc) {
       if (seen?.length) return Math.max(0, median(seen));
       const A = stops[a], B = stops[b];
       return A.lat != null && B.lat != null ? distanceMeters(A, B) / 1000 / kmh * 60 : 2;
+    });
+    p.waits = p.stops.map(id => {
+      const n = deps.get(`${p.route}@${id}`);
+      return n ? Math.min(WAIT_CAP_MIN, SAMPLE_WINDOW_MIN / n / 2) : WAIT_DEFAULT_MIN;
     });
   }
   return { routes, stops, stations, patterns };
@@ -595,13 +608,29 @@ function indexOf(net) {
   return ix;
 }
 
+// Where a change happens, for telling options apart: the station, a bus stop's station within a
+// walk, else '*' (any bus stop).
+function changeAt(net, place) {
+  if (net.stations[place]) return place;
+  const s = net.stops[place];
+  if (s?.lat == null) return '*';
+  let best = '*', bestM = WALK_TRANSFER_METERS;
+  for (const st of Object.values(net.stations)) {
+    if (st.lat == null) continue;
+    const m = distanceMeters(s, st);
+    if (m <= bestM) { best = st.id; bestM = m; }
+  }
+  return best;
+}
+
 // Up to `limit` ways from one stop or station to another with at most `maxTransfers` changes, on
 // the network's patterns (buses and rail). A leg rides one pattern between two of its stops; other
 // routes whose patterns serve both stops in the same direction ride along (`also`). Changes: the
 // same stop or station (3 min), or a walk to a stop within WALK_TRANSFER_METERS. No route ridden
 // twice in one direction, no stop passed twice. Ranked by transfers, then minutes (rides and
-// changes; walks between stops count twice); an option with more transfers is kept only if it ranks
-// above every option with fewer.
+// changes; walks between stops count twice; plus each change's expected wait); an option with more
+// transfers is kept only if it ranks above every option with fewer. One option per route chain and
+// change stations (`changeAt`). `minutes` leaves the waits out.
 // Each: { legs: [{ route, also, direction_id, stop, alight }], transfers: [{ name ("Downtown Crossing", or
 // "Downtown Crossing → Park Street" for a walk between stations), meters (walked), min }], minutes }
 // (stops named by their station when they have one).
@@ -629,6 +658,8 @@ export function planTrips(net, fromId, toId, maxTransfers = 2, limit = 3) {
         const p = net.patterns[pi];
         const rk = `${p.route}/${p.direction}`;
         if (used.has(rk)) continue;
+        // Changing (not the first leg): the expected wait for this route here, in the ranking only.
+        const wait = path.length ? p.waits?.[i] ?? WAIT_DEFAULT_MIN : 0;
         let ride = 0;
         const via = [];
         for (let j = i + 1; j < p.stops.length; j++) {
@@ -637,11 +668,11 @@ export function planTrips(net, fromId, toId, maxTransfers = 2, limit = 3) {
           if (seen.has(s)) break;
           via.push(s);
           const leg = { pattern: pi, from: b.id, to: s, minutes: ride, walk: b };
-          if (target.has(s)) { found.push({ path: [...path, leg], minutes: m + ride, cost: t + ride }); continue; }
+          if (target.has(s)) { found.push({ path: [...path, leg], minutes: m + ride, cost: t + wait + ride }); continue; }
           if (path.length < maxTransfers) {
             const nextUsed = new Set(used).add(rk);
             const nextSeen = new Set([...seen, ...via]);
-            walk(transfersFrom(s).filter(x => !nextSeen.has(x.id) || x.id === s), [...path, leg], nextUsed, nextSeen, m + ride, t + ride);
+            walk(transfersFrom(s).filter(x => !nextSeen.has(x.id) || x.id === s), [...path, leg], nextUsed, nextSeen, m + ride, t + wait + ride);
           }
         }
       }
@@ -668,8 +699,9 @@ export function planTrips(net, fromId, toId, maxTransfers = 2, limit = 3) {
     });
     const sig = legs.map(l => `${l.route}@${l.stop}>${l.alight}`).join('|');
     const shape = legs.map(l => [l.route, ...l.also].sort().join('/')).join('|') + '#' + legs.map(l => l.stop).join();
-    // The same routes getting off at the same places: only the stop you walk to differs.
-    const ride = legs.map(l => [l.route, ...l.also].sort().join('/')).join('|') + '>' + legs.slice(0, -1).map(l => l.alight).join();
+    // The same routes changing at the same stations: one option. A change at a bus stop counts as
+    // the station within a walk of it, else as any bus stop (Medford Sq's stops are one change).
+    const ride = legs.map(l => l.route).join('|') + '>' + legs.slice(0, -1).map(l => changeAt(net, l.alight)).join();
     if (seenSig.has(sig) || seenSig.has(shape) || seenSig.has(ride)) continue;
     seenSig.add(sig);
     seenSig.add(shape);
