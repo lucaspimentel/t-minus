@@ -57,13 +57,14 @@ test('setup: a route\'s stop to a station; the pick opens in the editor with the
   await setup(page).locator('#picker-search').fill('132');
   await setup(page).locator('.list .item', { hasText: 'Bus 132' }).first().click();
   await expect(title(page)).toHaveText('From: where do you board?');
-  // Main St @ South St has a stop on each side: the one toward Malden.
-  await setup(page).locator('.list .section-head', { hasText: 'toward Malden' })
-    .locator('xpath=following-sibling::button[contains(., "Main St @ South St")][1]').click();
+  // The two sides of a street are one row; a stop without a partner says which way it goes.
+  await expect(setup(page).locator('.list .item', { hasText: 'Main St @ South St' })).toHaveText(['Main St @ South St · both sides']);
+  await expect(setup(page).locator('.list .item', { hasText: '349 Washington St' })).toHaveText(['349 Washington St · toward Redstone Shopping Center only']);
+  await setup(page).locator('.list .item', { hasText: 'Main St @ South St' }).click();
   await expect(setup(page).locator('#plan-from')).toHaveText(/^Main St @ South St\s*Bus 132\s*Change$/);
   await pickStation(page, 'to', 'state', 'State');
   await expect(options(page)).toHaveText([/^Bus 132 → Orange\s*1 transfer at Washington St @ Oak Grove Sta → Oak Grove \(walk 32 m\) · ~42 min$/]);
-  expect(calls).toEqual(['?from=25996&to=place-state']);
+  expect(calls).toEqual(['?from=15982%2C25996&to=place-state']); // both sides: the server picks
   await options(page).first().click();
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Main St @ South St to State');
   await expect(setup(page).getByLabel('Minutes to transfer')).toHaveValue('3');

@@ -480,13 +480,13 @@ function smallNetwork() {
     { type: 'route_pattern', id, attributes: { direction_id: 0, ...attrs }, relationships: { route: { data: { id: route } }, representative_trip: { data: { id: `rt-${id}` } } } },
     { type: 'trip', id: `rt-${id}`, relationships: { stops: { data: ids.map(x => ({ id: x })) } } },
   ];
-  const pats = [pattern('p132', '132', ['25996', '5991'], { typicality: 1 }), pattern('pOL', 'Orange', ['70036', '70022'], { canonical: true })];
+  const pats = [pattern('p132', '132', ['25996', '5991'], { typicality: 1 }), pattern('p132o', '132', ['5991', '15982'], { typicality: 1 }), pattern('pOL', 'Orange', ['70036', '70022'], { canonical: true })];
   const sched = (trip, list) => list.map(([st, t], i) => ({ attributes: { departure_time: iso(t), stop_sequence: i + 1 }, relationships: { trip: { data: { id: trip } }, stop: { data: { id: st } } } }));
   return {
     routes: [{ type: 'route', id: '132', attributes: { type: 3, short_name: '132', direction_destinations: ['Malden', 'Redstone'] } },
       { type: 'route', id: 'Orange', attributes: { type: 1, long_name: 'Orange Line', color: 'ED8B00', direction_destinations: ['Forest Hills', 'Oak Grove'] } }],
     patterns: pats.map(p => p[0]),
-    included: [...pats.map(p => p[1]), stop('25996', 'Main St @ South St', 42.45, -71.07), stop('5991', 'Washington St @ Oak Grove Sta', 42.436927, -71.071292),
+    included: [...pats.map(p => p[1]), stop('25996', 'Main St @ South St', 42.45, -71.07), stop('15982', 'Main St @ South St', 42.4501, -71.0701), stop('5991', 'Washington St @ Oak Grove Sta', 42.436927, -71.071292),
       stop('70036', 'Oak Grove', 42.43668, -71.071097, 'place-ogmnl'), stop('70022', 'State', 42.358978, -71.057598, 'place-state')],
     sample: [...sched('s1', [['25996', '12:00'], ['5991', '12:14']]), ...sched('s2', [['70036', '12:20'], ['70022', '12:35']])],
   };
@@ -510,6 +510,9 @@ test('auto-route: the network is built from 3 MBTA requests a day; plans', async
     assert.equal(netCalls(), 3);
     // Bad input; the same network all day (no more requests), rebuilt the next.
     assert.equal((await get('/api/plan?from=25996&to=nowhere')).status, 400);
+    // Both sides of a street: the side the route needs (15982 isn't served toward Oak Grove).
+    assert.deepEqual((await get('/api/plan?from=15982,25996&to=place-state')).body.options[0].legs[0].stop, '25996');
+    assert.equal((await get('/api/plan?from=a,b,c,d,25996&to=place-state')).status, 400);
     assert.equal((await get('/api/stops?q=main')).status, 404); // no stop search (the app picks by route)
     assert.equal(netCalls(), 3);
     s.world.clock += 24 * 60 * 60_000;

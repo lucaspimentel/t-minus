@@ -6,7 +6,7 @@ import {
   tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
-  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
+  tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
@@ -1216,6 +1216,8 @@ test('planTrips: bus to rail to bus, walks up to 250 m between stops, routes rid
   assert.deepEqual(planTrips(net, 'nowhere', 'z1'), []);
   // At most 2 transfers.
   assert.deepEqual(planTrips(net, 'a1', 'z1', 1), []);
+  // Comma-separated ids: either side of a street.
+  assert.deepEqual(planTrips(net, 'nowhere,a1', 'z1')[0].legs[0].stop, 'a1');
   // Walks count twice in the ranking: riding one more stop to the one by the station beats
   // getting off 200 m away (1 min sooner by bus).
   const near = transitNetwork({ data: [route('B5', 3, ['Hub', 'Elm']), route('Orange', 1, ['End', 'Hub'])] }, {
@@ -1236,6 +1238,26 @@ test('nextWeekday: today on a weekday, else Monday', () => {
   assert.equal(nextWeekday(Date.parse('2026-10-09T09:00:00-04:00')), '2026-10-09'); // Friday
   assert.equal(nextWeekday(Date.parse('2026-10-10T09:00:00-04:00')), '2026-10-12'); // Saturday
   assert.equal(nextWeekday(Date.parse('2026-10-11T23:00:00-04:00')), '2026-10-12'); // Sunday
+});
+
+test('stopPairs: the two sides of a street as one place (names normalized, or within 25 m)', () => {
+  assert.equal(normalStopName('132 Brookline Ave opp Fullerton St'), normalStopName('Brookline Ave @ Fullerton St'));
+  assert.equal(normalStopName('Longwood Ave @ Brookline Ave'), normalStopName('Brookline Ave @ Longwood Ave'));
+  // The recorded 132: Main St @ South St on both sides; 349 Washington St has no partner.
+  const docs = ['0', '1'].map(d => JSON.parse(readFileSync(`test/browser/fixtures/stops-132-${d}.json`, 'utf8')));
+  const rows = stopPairs(boardGroups(...docs));
+  const row = name => rows.find(r => r.name === name);
+  assert.deepEqual(row('Main St @ South St'), { ids: ['15982', '25996'], name: 'Main St @ South St', names: ['Main St @ South St', 'Main St @ South St'], both: true, toward: null });
+  assert.deepEqual(row('Washington St @ Francis St').names, ['Washington St opp Francis St', 'Washington St @ Francis St']); // the "@" name shown
+  assert.deepEqual(row('349 Washington St'), { ids: ['5967'], name: '349 Washington St', both: false, toward: 0 });
+  assert.equal(rows.filter(r => r.both).length, 24);
+  // Made up: the same name 3.5 km apart (a loop) stays apart; two names 20 m apart pair; a stop pairs once.
+  const st = (id, name, lat, lon) => ({ id, attributes: { name, latitude: lat, longitude: lon } });
+  const made = stopPairs({ both: [], only: [
+    [st('a', 'Mass Ave @ Albany St', 42.330, -71.07), st('b', 'Summer St @ Lincoln St', 42.400, -71.07)],
+    [st('c', 'Mass Ave @ Albany St', 42.361, -71.07), st('d', 'Summer St @ Chestnut St', 42.40015, -71.07), st('e', 'Summer St opp Lincoln St', 42.40016, -71.07)],
+  ] });
+  assert.deepEqual(made.map(r => [r.ids, r.both, r.toward]), [[['a'], false, 0], [['b', 'd'], true, null], [['c'], false, 1], [['e'], false, 1]]);
 });
 
 test('commonLabel: shared words, then the rest', () => {

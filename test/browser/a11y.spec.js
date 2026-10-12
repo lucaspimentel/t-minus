@@ -127,6 +127,8 @@ for (const scheme of ['light', 'dark']) {
     await page.locator('#picker-search').fill('132');
     expect(await violations(page)).toEqual([]);
     await page.locator('#setup .list .item', { hasText: 'Bus 132' }).first().click();
+    await expect(page.locator('#setup .list .item', { hasText: 'both sides' }).first()).toBeVisible(); // paired rows
+    expect(await violations(page)).toEqual([]);
     await page.locator('#setup .list .item', { hasText: 'Main St @ South St' }).first().click();
     await page.locator('#plan-to').click();
     await page.locator('#picker-search').fill('state');

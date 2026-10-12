@@ -606,8 +606,9 @@ function indexOf(net) {
 // "Downtown Crossing → Park Street" for a walk between stations), meters (walked), min }], minutes }
 // (stops named by their station when they have one).
 export function planTrips(net, fromId, toId, maxTransfers = 2, limit = 3) {
-  const origin = stopsAt(net, fromId);
-  const target = new Set(stopsAt(net, toId));
+  // Ids may be comma-separated (both sides of a street): any of them.
+  const origin = String(fromId).split(',').flatMap(id => stopsAt(net, id));
+  const target = new Set(String(toId).split(',').flatMap(id => stopsAt(net, id)));
   if (!origin.length || !target.size || fromId === toId) return [];
   const { at, transfersFrom } = indexOf(net);
   const found = [];
@@ -727,6 +728,40 @@ function stopGroups(lists) {
     both: lists[0].filter(s => ids[1].has(s.id)),
     only: [lists[0].filter(s => !ids[1].has(s.id)), lists[1].filter(s => !ids[0].has(s.id))],
   };
+}
+
+// Auto-route's stop list for a route: each stop paired with the other direction's stop across the
+// street, so you pick a place and the planner picks the side. A pair: the same name once "opp" is
+// read as "@", a leading house number dropped and the two streets in either order, within
+// PAIR_NAME_METERS; or any stop within PAIR_NEAR_METERS (same spot, cross streets named
+// differently). Each stop pairs once, with the nearest match. `groups`: boardGroups or
+// dropOffGroups. Rows: { ids, name (the "@" one of a pair), names (a pair's two, for search),
+// both, toward (direction of an unpaired stop; null for one served both ways) }: shared stops,
+// then direction 0's order, then direction 1's unpaired stops.
+const PAIR_NAME_METERS = 150;
+const PAIR_NEAR_METERS = 25;
+export const normalStopName = name => name.toLowerCase().replace(/\s+(opp|opposite)\s+/g, ' @ ').replace(/\s+/g, ' ').trim()
+  .replace(/^\d+[a-z]?\s+/, '').split(' @ ').map(x => x.trim()).sort().join(' @ ');
+export function stopPairs(groups) {
+  const pos = s => ({ lat: s.attributes?.latitude, lon: s.attributes?.longitude });
+  const name = s => s.attributes?.name ?? s.id;
+  const used = new Set();
+  const rows = groups.both.map(s => ({ ids: [s.id], name: name(s), both: false, toward: null }));
+  for (const a of groups.only[0]) {
+    let best = null;
+    for (const b of groups.only[1]) {
+      if (used.has(b.id) || !Number.isFinite(pos(a).lat) || !Number.isFinite(pos(b).lat)) continue;
+      const m = distanceMeters(pos(a), pos(b));
+      const ok = m <= PAIR_NEAR_METERS || (m <= PAIR_NAME_METERS && normalStopName(name(a)) === normalStopName(name(b)));
+      if (ok && (!best || m < best.m)) best = { b, m };
+    }
+    if (!best) { rows.push({ ids: [a.id], name: name(a), both: false, toward: 0 }); continue; }
+    used.add(best.b.id);
+    const at = / opp /i.test(name(a)) && !/ opp /i.test(name(best.b)) ? name(best.b) : name(a);
+    rows.push({ ids: [a.id, best.b.id], name: at, both: true, toward: null, names: [name(a), name(best.b)] });
+  }
+  for (const b of groups.only[1]) if (!used.has(b.id)) rows.push({ ids: [b.id], name: name(b), both: false, toward: 1 });
+  return rows;
 }
 
 // Drop-off choices from a board stop (id or child platform): per direction serving it, the

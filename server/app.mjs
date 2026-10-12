@@ -260,11 +260,12 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       const q = url.searchParams;
       const from = q.get('from') ?? '';
       const to = q.get('to') ?? '';
-      const known = id => !!(net.stops[id] || net.stations[id]);
-      if (!known(from) || !known(to)) return reply(res, 400, { error: 'from and to must be stop or station ids' });
+      // Up to 4 comma-separated ids each (both sides of a street: either one).
+      const known = list => { const ids = list.split(','); return ids.length <= 4 && ids.every(id => !!(net.stops[id] || net.stations[id])); };
+      if (!known(from) || !known(to)) return reply(res, 400, { error: 'from and to must be up to 4 stop or station ids' });
       const key = `${from}>${to}`;
       const options = plans.get(key) ?? remember(plans, key, planTrips(net, from, to), MAX_PLANS);
-      const name = id => (net.stations[id] ?? net.stops[id]).name;
+      const name = list => { const id = list.split(',')[0]; return (net.stations[id] ?? net.stops[id]).name; };
       return reply(res, 200, { from: name(from), to: name(to), options });
     }
     if (req.method === 'GET' && path === '/nearby') {

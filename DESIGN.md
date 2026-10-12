@@ -1059,7 +1059,7 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   and keeps it in memory (~870 KB as JSON; built in ~0.6 s). A failed rebuild keeps the old network
   and retries in 10 min; a build without the ride-time sample (distance only) is retried in 10 min
   too; no network at all: 503. Endpoint (rate-limited like the rest of `/api`):
-  - `GET /api/plan?from=&to=` (stop or station ids): `{ from, to (names), options }` (`planTrips`;
+  - `GET /api/plan?from=&to=` (stop or station ids, up to 4 comma-separated per side): `{ from, to (names), options }` (`planTrips`;
     cached per pair until the next network). Measured on live data: 40-700 ms per plan.
   The phone downloads nothing large.
 - **Search:** rounds of legs (RAPTOR-style) over the patterns, at most 2 transfers (3 legs).
@@ -1085,7 +1085,21 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   Bay State Rd). A station sets the field. A route opens its stop list ("From: where do you
   board?" / "To: where do you get off?"; both directions, then "Toward … only"; To leaves out each
   direction's first stop, `dropOffGroups`, as From leaves out the last); a stop sets the field,
-  tagged with that route. "Show nearby" works as on a first leg (stations, then routes, with
+  tagged with that route. The stop list pairs the two sides of a street into one row (`stopPairs`):
+  "Main St @ South St · both sides"; a stop without a partner reads "· toward Redstone Shopping
+  Center only". A pair: the same name once "opp"/"opposite" is read as "@", a leading house
+  number dropped and the two streets in either order (`normalStopName`), within 150 m; or any
+  stop of the other direction within 25 m (the same spot, named for different cross streets:
+  "Summer St @ Lincoln St" / "Summer St @ Chestnut St", 13 m). Each stop pairs once, with the
+  nearest. The row shows the "@" name; search matches either. Measured over all bus routes'
+  typical patterns (2026-10-12): 55% of one direction's 5,016 stops pair (identical names only:
+  19%; normalized names: 41%); 60 m by distance alone would pair 66% but joins different corners
+  ("Massachusetts Ave @ Trowbridge St" with "Mt Auburn St @ Putnam Ave", 49 m), and names alone
+  join loop stops 3.5 km apart (route 1, "Massachusetts Ave @ Albany St"). A pair is sent as both
+  ids (`from=15982,25996`; up to 4 per side) and the planner boards (or gets off) on whichever
+  side the route needs; the saved leg names that side. The manual leg picker keeps per-direction
+  lists (the side you board decides the direction there).
+  "Show nearby" works as on a first leg (stations, then routes, with
   distances; a route's stops nearest first). The rest is phase 1's: setup opens
   the pick in the trip editor (`optionToForm`: the walk's minutes as the transfer), "Go somewhere
   else…" makes a one-off trip. The walk fields read "Minutes to first stop" / "from last stop".

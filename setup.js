@@ -4,11 +4,11 @@
 // and the setup-time requests.
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
-  searchRoutes, searchStops, boardGroups, dropOffGroups, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
+  searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=8ef226b4bd';
+} from './core.js?v=5520c634f5';
 
 const ROUTE_LIMIT = 60;
 
@@ -432,7 +432,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         ...(p[key] ? [h('span', { class: 'main' }, p[key].name, ' '), ...placeTags(p[key]), h('span', { class: 'change' }, 'Change')] : ['Choose a stop or station'])));
     const pick = o => {
       const plan = p.plan;
-      const form = plan.local ? planToForm(railNet, o, p.walkBefore, p.walkAfter) : optionToForm(o, plan.from ?? p.from.name, plan.to ?? p.to.name, p.walkBefore, p.walkAfter);
+      const form = plan.local ? planToForm(railNet, o, p.walkBefore, p.walkAfter) : optionToForm(o, p.from.name, p.to.name, p.walkBefore, p.walkAfter);
       if (p.oneOff) {
         const cfg = { trips: [formToTrip(form)] };
         loadRoutes().then(rs => { routes = rs; }).catch(() => {}).finally(() => onPlan((routes ? labelLegs(cfg, routes) : cfg).trips[0]));
@@ -943,11 +943,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const toward = d => `toward ${destination(picker.route.id, d)}`;
     if (picker.step === 'board') {
       // Stops served both ways first, then each direction's own (the two sides of a street).
-      // Auto-route's To: the stops you can get off at instead.
-      const { both, only } = picker.planField === 'to' ? dropOffGroups(...docs) : boardGroups(...docs);
-      const r = picker.route;
+      if (picker.planField) return planStopRows(docs);
+      const { both, only } = boardGroups(...docs);
       const pick = s => h('button', { type: 'button', class: 'item', onclick: () => {
-        if (picker.planField) return pickPlace({ id: s.id, name: s.attributes?.name ?? s.id, routes: [{ id: r.id, label: shortRouteLabel(r), color: r.attributes?.color }] });
         picker = { ...picker, board: s.id, step: 'alight', query: '' };
         render();
       } }, s.attributes?.name ?? s.id);
@@ -980,6 +978,26 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const found = searchStops(stops, q);
       return found.length ? [heading(toward(g.direction)), ...found.map(s => h('button', { type: 'button', class: 'item', onclick: () => chooseAlight(s.id, g.direction) },
         s.attributes?.name ?? s.id, ...lineTags(conn.get(s.id) ?? [])))] : [];
+    });
+  }
+
+  // Auto-route's stop list for a route: the two sides of a street as one row (stopPairs; the
+  // planner picks the side), "toward … only" for a stop without a partner. From lists stops you
+  // can board, To those you can get off at. After "Show nearby", nearest first.
+  function planStopRows(docs) {
+    const r = picker.route;
+    const groups = picker.planField === 'to' ? dropOffGroups(...docs) : boardGroups(...docs);
+    const byId = new Map([...groups.both, ...groups.only.flat()].map(s => [s.id, s]));
+    const q = picker.query.trim().toLowerCase();
+    let rows = stopPairs(groups).filter(row => !q || (row.names ?? [row.name]).some(n => n.toLowerCase().includes(q)));
+    const here = picker.here;
+    const meters = row => (here ? Math.min(...row.ids.map(id => { const a = byId.get(id)?.attributes ?? {}; return Number.isFinite(a.latitude) ? distanceMeters(here, { lat: a.latitude, lon: a.longitude }) : Infinity; })) : null);
+    if (here) rows = rows.map(row => ({ ...row, m: meters(row) })).sort((a, b) => a.m - b.m);
+    return rows.map(row => {
+      const note = row.both ? ' · both sides' : row.toward != null ? ` · toward ${destination(r.id, row.toward)} only` : '';
+      const b = h('button', { type: 'button', class: 'item', onclick: () => pickPlace({ id: row.ids.join(','), name: row.name, routes: [{ id: r.id, label: shortRouteLabel(r), color: r.attributes?.color }] }) },
+        row.name, note && h('span', { class: 'muted' }, note));
+      return here && Number.isFinite(row.m) ? withDist(b, h('span', { class: 'dist' }, formatDistance(row.m))) : b;
     });
   }
 
