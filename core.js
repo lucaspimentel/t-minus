@@ -760,7 +760,14 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
     seenSig.add(sig);
     seenSig.add(shape);
     seenSig.add(ride);
+    // A walk between two stations (only Downtown Crossing to Park Street, inside the gates).
+    const stationWalk = f.path.slice(1).some((l, k) => {
+      const [off, on] = [placeOf(net, f.path[k].to), placeOf(net, l.from)];
+      return off !== on && !!net.stations[off] && !!net.stations[on];
+    });
     options.push({
+      chain: legs.map(l => l.route.split('-')[0]).join('|'),
+      stationWalk,
       legs,
       transfers: f.path.slice(1).map((l, k) => {
         const off = placeName(net, placeOf(net, f.path[k].to));
@@ -771,9 +778,14 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
       walkBefore: f.path[0].walk.before ?? 0,
       walkAfter: f.after,
     });
-    if (options.length === limit) break;
+    if (options.length === limit * 4) break;
   }
-  return options;
+  // The walk between stations only when no option on the same lines changes within a station
+  // (Orange to Green: Haymarket or North Station over Downtown Crossing → Park Street, 185 m).
+  return options
+    .filter(o => !o.stationWalk || !options.some(x => !x.stationWalk && x.chain === o.chain))
+    .slice(0, limit)
+    .map(({ chain: _c, stationWalk: _w, ...o }) => o);
 }
 
 // A leg's routes cut down to `keep` (at least one stays; the first kept becomes primary).

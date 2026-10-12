@@ -1076,7 +1076,8 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
     max(3, ⌈meters / 80⌉), straight-line distance). Never a walk from one station to another:
     it leaves the fare gates and costs a new fare (Melrose to Kenmore listed Orange to Chinatown,
     a 165 m walk to Boylston, then Green, over Haymarket or North Station); Downtown Crossing to
-    Park Street is joined inside the gates and stays.
+    Park Street is joined inside the gates, but its 185 m walk only shows when no option on the
+    same lines changes within one station (Orange → Green: Haymarket or North Station first).
   - No route on two legs, in either direction and riding along included (Harvard to Logan listed
     Red → SL1 riding along to World Trade Center → SL1 again). No station (or stop) passed
     twice, by station, not platform: Revere Beach to Main St @ South St listed Blue past State to

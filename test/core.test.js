@@ -1349,6 +1349,11 @@ test('planTrips: no walk from one station to another (a new fare), but Downtown 
   assert.deepEqual(planTrips(walk('place-a', 'place-b'), 's', 'd'), []); // Chinatown to Boylston
   assert.equal(planTrips(walk('place-dwnxg', 'place-pktrm'), 's', 'd').length, 1); // inside the gates
   assert.equal(planTrips(walk('place-a', undefined), 's', 'd').length, 1); // to a bus stop: fine
+  // Downtown Crossing → Park Street only when no option on the same lines changes within a station.
+  const both = bareNetwork([['l1', 'L1', 1, ['s', 'la', 'lh']], ['l2', 'L2', 1, ['lh2', 'lb', 'd']]],
+    [['s', 42.30, -71.10], ['la', 42.31, -71.10, 'place-dwnxg'], ['lb', 42.3115, -71.10, 'place-pktrm'],
+      ['lh', 42.35, -71.15, 'place-haecl'], ['lh2', 42.3501, -71.1501, 'place-haecl'], ['d', 42.33, -71.10]]);
+  assert.deepEqual(planTrips(both, 's', 'd').map(o => o.transfers[0].name), ['LH']); // Haymarket's stand-in
 });
 
 test('nextWeekday: today on a weekday, else Monday', () => {
