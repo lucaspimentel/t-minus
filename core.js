@@ -788,8 +788,12 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
   }
   // The walk between stations only when no option on the same lines changes within a station
   // (Orange to Green: Haymarket or North Station over Downtown Crossing → Park Street, 185 m).
+  // An option with more transfers than one ranked above it, and no faster, has no reason to show
+  // (State to Main St: Orange → 137 → 132, 42 min, under Orange → 132, 37).
+  const total = o => o.minutes + o.walkBefore + o.walkAfter;
   return options
     .filter(o => !o.stationWalk || !options.some(x => !x.stationWalk && x.chain === o.chain))
+    .filter((o, i, kept) => !kept.some((x, j) => j < i && x.transfers.length < o.transfers.length && total(x) <= total(o)))
     .slice(0, limit)
     .map(({ chain: _c, stationWalk: _w, ...o }) => o);
 }

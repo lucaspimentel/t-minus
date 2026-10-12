@@ -1103,6 +1103,9 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
     counts as the station within 250 m of it, else as any bus stop: the 96 → 101 changes at
     several Medford Sq stops are one option; Orange → 132 via Malden Center and via Oak Grove
     are two. (Before: Orange → 132 via Oak Grove was listed twice, walking 95 m or 198 m.)
+  - An option with more transfers than one ranked above it, and no faster (total minutes shown),
+    is left out: State to Main St @ South St listed Orange → 137/131 → 132 (~42 min) under
+    Orange → 132 (~37).
   - A leg's stops are named by their station when they have one (rail platforms, busway berths).
   - Each option is an itinerary (phase 3, chosen from three mockups): "~54 min", "Walk 3 min to
     Main St @ Grove St", one line per ride ("● Bus 132 to Malden Center"), "Walk 120 m to

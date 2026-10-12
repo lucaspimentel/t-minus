@@ -1365,6 +1365,16 @@ test('planTrips: bus minutes weigh more: of two ways equal on paper, more of it 
   assert.deepEqual(planTrips(net, 's', 'd').map(o => [o.transfers[0].name, o.minutes]), [['Y', 18], ['X', 18]]);
 });
 
+test('planTrips: an option with more transfers than one above it, and no faster, is left out', () => {
+  // R to x, then bus B to d (18 min); or R, bus C to y, bus D to d (21 min, one more transfer).
+  const net = bareNetwork([['r', 'R', 1, ['s', 'x']], ['b', 'B', 3, ['x', 'm', 'd']], ['c', 'C', 3, ['x', 'y']], ['dd', 'D', 3, ['y', 'd']]],
+    [['s', 42.30, -71.10], ['x', 42.31, -71.10], ['m', 42.32, -71.12], ['y', 42.32, -71.08], ['d', 42.33, -71.10]]);
+  assert.deepEqual(planTrips(net, 's', 'd').map(o => [o.legs.map(l => l.route).join('>'), o.minutes]), [['R>B', 18]]);
+  // Faster with the extra transfer: kept.
+  net.patterns[1].mins = [10, 10];
+  assert.deepEqual(planTrips(net, 's', 'd').map(o => [o.legs.map(l => l.route).join('>'), o.minutes]), [['R>B', 28], ['R>C>D', 21]]);
+});
+
 test('nextWeekday: today on a weekday, else Monday', () => {
   assert.equal(nextWeekday(Date.parse('2026-10-09T09:00:00-04:00')), '2026-10-09'); // Friday
   assert.equal(nextWeekday(Date.parse('2026-10-10T09:00:00-04:00')), '2026-10-12'); // Saturday
