@@ -158,13 +158,14 @@ picked by hand after it was made (`chooseTrip`).
 
 ### One-off trip ("Go somewhere else…")
 
-- The main list ends with "Go somewhere else…" (under "Show more rides"). It opens the
+- "Go somewhere else…" sits under the trip buttons (moved there from the end of the list,
+  2026-10-12), shown with the rows (not during a ride, nor without trips). It opens the
   auto-route planner (see Setup view); picking a way makes a one-off trip (`t-minus:one-off`,
   `{ trip, at }`), labeled from the route list like a saved trip but never written into the saved
   config. It is shown after the saved trips (`withOneOff`), so saved trips keep their indices,
   and works like any trip: rows, tracking, reminders, stop alerts.
 - The trip dropdown names it "Oak Grove to State (one-off)" (with one saved trip the two side-by-side
-  buttons stay). While it is shown, a bar under the status line reads "One-off trip" with Save
+  buttons stay). While it is shown, a bar under "Go somewhere else…" reads "One-off trip" with Save
   and "✕ Remove".
 - Save: it becomes the last saved trip at once (same name, no time window; same index, so its
   state carries over), toast "Trip saved". ✕ Remove: its reminders, en-route state and stop
@@ -216,7 +217,7 @@ out.
 
 ### En route ("Leaving now" / "At the stop")
 
-For leaving earlier or later than leave-by. A bar under the status line always offers
+For leaving earlier or later than leave-by. A bar under the trip buttons always offers
 [Leaving now] [At the stop]; while active it reads "Walking · at the stop ~9:25am"
 [At the stop] [Cancel] or "At the stop since 9:23am" [Cancel].
 
@@ -345,7 +346,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   by the timing vehicle's trip id while the page is open.
 - Pressed feedback: buttons darken and shrink to 97% while pressed; rows only darken (an
   inset overlay, `--press`). iOS's gray tap highlight is off.
-- Status line (per trip): "Loading…" until that trip's first fetch completes ("Still
+- Status line (per trip; at the bottom, centered just above the version since 2026-10-12, errors
+  included): "Loading…" until that trip's first fetch completes ("Still
   loading… (MBTA is slow)" after 5 s; the list stays empty, "No upcoming departures found."
   only after a completed fetch), then "Updated 8:04pm" ("Updated 8:04pm (25 min ago)" in
   amber once older than two poll intervals, e.g. back in the app before the refresh lands;

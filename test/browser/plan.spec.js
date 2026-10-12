@@ -75,6 +75,11 @@ async function goSomewhere(page) {
 
 test('main screen: Go somewhere else… makes a one-off trip, kept across reloads, removed with Undo, then saved', async ({ page }) => {
   await openApp(page, { time: '07:00' });
+  // Under the trip buttons, above the rows; the status line at the bottom, above the version.
+  const order = await page.evaluate(() => ['header', '#go-elsewhere', '#rows', '#status', 'footer.version']
+    .map(sel => document.querySelector(sel).getBoundingClientRect().top));
+  expect(order).toEqual([...order].sort((x, y) => x - y));
+  await expect(page.locator('#status-text')).toHaveText('Updated 7:00am');
   await goSomewhere(page);
   const bar = page.locator('#oneoff');
   await expect(bar).toBeVisible();

@@ -83,7 +83,9 @@
     .ptr-icon { transition: none; }
     .ptr.busy .ptr-ring { animation: none; opacity: .4; }
   }
-  .status { font-size: 13px; color: var(--muted); margin: 0 0 12px; min-height: 18px; }
+  /* At the bottom, just above the version. */
+  .status { font-size: 13px; color: var(--muted); margin: 16px 0 0; min-height: 18px; text-align: center; }
+  .go-btn { margin-bottom: 12px; } /* "Go somewhere else…", under the trip buttons */
   .status.stale { color: var(--red); }
   .status.old { color: var(--amber); }
   .status .link {
@@ -364,7 +366,7 @@
       <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh"><span>&#x21bb;</span></button>
       <button class="icon-btn" id="open-setup" aria-label="Setup" title="Setup">&#x2699;</button>
     </header>
-    <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
+    <button class="list-btn go-btn" id="go-elsewhere" type="button" hidden>Go somewhere else…</button>
     <div class="enroute-bar" id="oneoff" hidden><span class="en-status">One-off trip</span>
       <button type="button" id="oneoff-save">Save</button><button type="button" id="oneoff-remove" aria-label="Remove one-off trip">✕ Remove</button></div>
     <div class="enroute-bar" id="enroute" hidden></div>
@@ -375,7 +377,8 @@
     <div class="update-card" id="newversion" role="status" hidden>
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
-    <footer class="version">Version 2026-10-12 · 14ff9799a1</footer>
+    <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
+    <footer class="version">Version 2026-10-12 · cc065907a8</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -1176,6 +1179,7 @@ function render() {
   renderToggle();
   $('refresh').hidden = !config; // nothing to refresh without trips
   $('oneoff').hidden = !config || tripIdx !== oneOffIdx();
+  $('go-elsewhere').hidden = true; // shown with the rows (not while riding, nor without trips)
 
   const status = $('status');
   const statusText = $('status-text');
@@ -1265,9 +1269,9 @@ function render() {
     ...(prevOpen ? prev.map(r => renderRow(r, now, false, null, null, true)) : [])] : [];
   const more = current.length && currentRows(now, s, extraRows + 4).length > current.length
     ? [listButton('Show more rides ▾', 'more', () => { extraRows += 4; render(); })] : [];
-  const go = listButton('Go somewhere else…', 'go', () => showSetup({ plan: true }));
-  if (rows.length) setRows(...top, ...rows, ...more, go);
-  else setRows(...top, el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''), go);
+  $('go-elsewhere').hidden = false;
+  if (rows.length) setRows(...top, ...rows, ...more);
+  else setRows(...top, el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''));
 }
 
 // "Show previous rides" / "Show more rides": full-width buttons in the list.
@@ -1744,6 +1748,7 @@ function closeSetup() {
 }
 
 $('open-setup').onclick = () => showSetup();
+$('go-elsewhere').onclick = () => showSetup({ plan: true });
 
 // ---------- timers ----------
 
