@@ -665,28 +665,35 @@ export function planTrips(net, fromId, toId, maxTransfers = 2, limit = 3) {
         for (let j = i + 1; j < p.stops.length; j++) {
           const s = p.stops[j];
           ride += p.mins[j - 1];
-          if (seen.has(s)) break;
-          via.push(s);
+          // `seen` holds places (a stop's station, else the stop): no station passed twice.
+          if (seen.has(placeOf(net, s))) break;
+          via.push(placeOf(net, s));
           const leg = { pattern: pi, from: b.id, to: s, minutes: ride, walk: b };
           if (target.has(s)) { found.push({ path: [...path, leg], minutes: m + ride, cost: t + wait + ride }); continue; }
           if (path.length < maxTransfers) {
             const nextUsed = new Set(used).add(rk);
             const nextSeen = new Set([...seen, ...via]);
-            walk(transfersFrom(s).filter(x => !nextSeen.has(x.id) || x.id === s), [...path, leg], nextUsed, nextSeen, m + ride, t + wait + ride);
+            // Change here, within this station, or walk to a place not passed yet (not back to a
+            // station ridden through: Blue past State to Government Center, then walk to State).
+            const here = placeOf(net, s);
+            walk(transfersFrom(s).filter(x => placeOf(net, x.id) === here || !nextSeen.has(placeOf(net, x.id))), [...path, leg], nextUsed, nextSeen, m + ride, t + wait + ride);
           }
         }
       }
     }
   };
-  walk(origin.map(id => ({ id, min: 0, meters: 0 })), [], new Set(), new Set(origin), 0, 0);
-  // Other routes making the same ride (same direction, both stops in order).
+  walk(origin.map(id => ({ id, min: 0, meters: 0 })), [], new Set(), new Set(origin.map(id => placeOf(net, id))), 0, 0);
+  // Other routes making the same ride (same direction, both places in order: by station, since
+  // the Green branches each have their own platform at Park Street).
   const alsoFor = (pi, a, b) => {
     const p = net.patterns[pi];
+    const [pa, pb] = [placeOf(net, a), placeOf(net, b)];
     const out = new Set();
     for (const q of net.patterns) {
       if (q.route === p.route || q.direction !== p.direction) continue;
-      const i = q.stops.indexOf(a);
-      if (i >= 0 && q.stops.indexOf(b) > i) out.add(q.route);
+      const places = q.stops.map(x => placeOf(net, x));
+      const i = places.indexOf(pa);
+      if (i >= 0 && places.indexOf(pb, i + 1) > i) out.add(q.route);
     }
     return [...out];
   };

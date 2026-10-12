@@ -1274,6 +1274,27 @@ test('planTrips: changes at different stops of one bus street are one option', (
   assert.equal(planTrips(net, 's', 'd').length, 1);
 });
 
+test('planTrips: no walking back to a station ridden through; branches with their own platforms ride along', () => {
+  // L rides A → B → C (C 190 m past B); M leaves B for E; bus N from beside E (n1, or n2 a bit
+  // farther) to D. Every option changes at B, none rides to C and walks back to B.
+  const lines = transitNetwork({ data: [route('L', 1, ['C', 'A']), route('M', 1, ['E', 'B']), route('N', 3, ['D', 'E']), route('G1', 0, ['Y', 'X']), route('G2', 0, ['Y', 'X'])] }, {
+    data: [pattern('l', 'L', 0, ['la', 'lb', 'lc'], { canonical: true })[0], pattern('m', 'M', 0, ['mb', 'me'], { canonical: true })[0],
+      pattern('n', 'N', 0, ['n1', 'n2', 'nd'], { typicality: 1 })[0],
+      pattern('g1', 'G1', 0, ['gx', 'gy1'], { canonical: true })[0], pattern('g2', 'G2', 0, ['gx', 'gy2'], { canonical: true })[0]],
+    included: [pattern('l', 'L', 0, ['la', 'lb', 'lc'], {})[1], pattern('m', 'M', 0, ['mb', 'me'], {})[1], pattern('n', 'N', 0, ['n1', 'n2', 'nd'], {})[1],
+      pattern('g1', 'G1', 0, ['gx', 'gy1'], {})[1], pattern('g2', 'G2', 0, ['gx', 'gy2'], {})[1],
+      stop('la', 'A', 42.30, -71.10, 'place-a'), stop('lb', 'B', 42.31, -71.10, 'place-b'), stop('lc', 'C', 42.3118, -71.10, 'place-c'),
+      stop('mb', 'B', 42.3101, -71.1001, 'place-b'), stop('me', 'E', 42.33, -71.12, 'place-e'),
+      stop('n1', 'N1', 42.3301, -71.12), stop('n2', 'N2', 42.3315, -71.12), stop('nd', 'D St', 42.35, -71.12),
+      stop('gx', 'X', 42.35, -71.05, 'place-x'), stop('gy1', 'Y', 42.36, -71.05, 'place-y'), stop('gy2', 'Y', 42.3601, -71.0501, 'place-y')],
+  }, null);
+  const options = planTrips(lines, 'place-a', 'nd');
+  assert.ok(options.length);
+  assert.deepEqual(options.map(o => o.transfers[0].name), options.map(() => 'B'));
+  // G1 and G2 stop at their own platforms at Y: one leg, the other riding along.
+  assert.deepEqual(planTrips(lines, 'place-x', 'place-y').map(o => [o.legs[0].route, o.legs[0].also]), [['G1', ['G2']]]);
+});
+
 test('nextWeekday: today on a weekday, else Monday', () => {
   assert.equal(nextWeekday(Date.parse('2026-10-09T09:00:00-04:00')), '2026-10-09'); // Friday
   assert.equal(nextWeekday(Date.parse('2026-10-10T09:00:00-04:00')), '2026-10-12'); // Saturday

@@ -1068,7 +1068,12 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   - A station counts as all its platforms.
   - Transfers: the same stop or station (3 min), or a walk between stops up to 250 m (minutes =
     max(3, ⌈meters / 80⌉), straight-line distance).
-  - Same pruning as phase 1: no route ridden twice in one direction, no stop passed twice.
+  - Same pruning as phase 1: no route ridden twice in one direction, no station (or stop) passed
+    twice, by station, not platform: Revere Beach to Main St @ South St listed Blue past State to
+    Government Center, then a 156 m walk back to State for the Orange Line.
+  - Routes riding along on a leg match by station too: the Green branches each have their own
+    westbound platform at Park Street, so Wonderland to Park Street listed Green-B, -C and -D as
+    three options; now one leg, "Green-C/B/D/E".
   - Ranked by transfers, then estimated minutes (rides + transfer times), with walks between
     stops counted twice: riding one more stop to the one by the station beats getting off a stop
     early to walk 124 m (seen live at Oak Grove). An option with more transfers is shown only if
