@@ -1073,7 +1073,10 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
     stops in the same direction ride along in `also` (like Green branches today, e.g. 116/117).
   - A station counts as all its platforms.
   - Transfers: the same stop or station (3 min), or a walk between stops up to 250 m (minutes =
-    max(3, ⌈meters / 80⌉), straight-line distance).
+    max(3, ⌈meters / 80⌉), straight-line distance). Never a walk from one station to another:
+    it leaves the fare gates and costs a new fare (Melrose to Kenmore listed Orange to Chinatown,
+    a 165 m walk to Boylston, then Green, over Haymarket or North Station); Downtown Crossing to
+    Park Street is joined inside the gates and stays.
   - No route on two legs, in either direction and riding along included (Harvard to Logan listed
     Red → SL1 riding along to World Trade Center → SL1 again). No station (or stop) passed
     twice, by station, not platform: Revere Beach to Main St @ South St listed Blue past State to

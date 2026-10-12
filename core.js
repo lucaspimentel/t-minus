@@ -467,6 +467,10 @@ const HOP_KMH = { 3: 13, 0: 18, 1: 30 };
 export const WALK_TRANSFER_METERS = 250;
 const WALK_M_PER_MIN = 80;
 const SAME_STOP_TRANSFER_MIN = 3;
+// A walk between two different stations leaves the fare gates (a new fare), so changes between
+// stations are only within one, except pairs joined inside the gates.
+const IN_SYSTEM_PAIRS = new Set(['place-dwnxg|place-pktrm', 'place-pktrm|place-dwnxg']);
+const stationWalkOk = (a, b) => !a || !b || a === b || IN_SYSTEM_PAIRS.has(`${a}|${b}`);
 // Expected wait when changing: half the gap between departures in the midday sample (2 hours),
 // capped; a route and stop with none in the sample (or no sample) gets the default.
 const SAMPLE_WINDOW_MIN = 120;
@@ -582,7 +586,9 @@ function indexOf(net) {
     grid.get(k).push(s);
   }
   // Stops you can change to from `id`: itself and its station's other stops (3 min), others within
-  // WALK_TRANSFER_METERS (max(3, meters / 80) min): [{ id, min, meters }].
+  // WALK_TRANSFER_METERS (max(3, meters / 80) min), never another station's (Chinatown to
+  // Boylston: out of the gates and a new fare; Downtown Crossing to Park Street is inside):
+  // [{ id, min, meters }].
   const near = new Map();
   const transfersFrom = id => {
     if (near.has(id)) return near.get(id);
@@ -596,7 +602,7 @@ function indexOf(net) {
           const same = s.parent && o.parent === s.parent;
           const m = distanceMeters(s, o);
           if (same) out.set(o.id, { id: o.id, min: SAME_STOP_TRANSFER_MIN, meters: 0 });
-          else if (m <= WALK_TRANSFER_METERS) out.set(o.id, { id: o.id, min: Math.max(SAME_STOP_TRANSFER_MIN, Math.ceil(m / WALK_M_PER_MIN)), meters: Math.round(m) });
+          else if (m <= WALK_TRANSFER_METERS && stationWalkOk(s.parent, o.parent)) out.set(o.id, { id: o.id, min: Math.max(SAME_STOP_TRANSFER_MIN, Math.ceil(m / WALK_M_PER_MIN)), meters: Math.round(m) });
         }
       }
     }

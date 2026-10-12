@@ -1342,6 +1342,15 @@ test('planTrips: ranked by total minutes with 5 per transfer; no route twice; on
   assert.equal(planTrips(branches, 's', 'd').length, 1);
 });
 
+test('planTrips: no walk from one station to another (a new fare), but Downtown Crossing to Park Street', () => {
+  // L1 to A's platform, then L2 from B's (~170 m away).
+  const walk = (a, b) => bareNetwork([['l1', 'L1', 1, ['s', 'la']], ['l2', 'L2', 1, ['lb', 'd']]],
+    [['s', 42.30, -71.10], ['la', 42.31, -71.10, a], ['lb', 42.3115, -71.10, b], ['d', 42.33, -71.10]]);
+  assert.deepEqual(planTrips(walk('place-a', 'place-b'), 's', 'd'), []); // Chinatown to Boylston
+  assert.equal(planTrips(walk('place-dwnxg', 'place-pktrm'), 's', 'd').length, 1); // inside the gates
+  assert.equal(planTrips(walk('place-a', undefined), 's', 'd').length, 1); // to a bus stop: fine
+});
+
 test('nextWeekday: today on a weekday, else Monday', () => {
   assert.equal(nextWeekday(Date.parse('2026-10-09T09:00:00-04:00')), '2026-10-09'); // Friday
   assert.equal(nextWeekday(Date.parse('2026-10-10T09:00:00-04:00')), '2026-10-12'); // Saturday
