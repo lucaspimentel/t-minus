@@ -12,6 +12,8 @@ const setup = page => page.locator('#setup');
 const button = (page, name) => setup(page).getByRole('button', { name, exact: true });
 const toast = page => page.locator('#toast');
 const options = page => setup(page).locator('#plan-options .item');
+// An option's lines: the total, the walks and each ride.
+const lines = (page, i) => options(page).nth(i).locator(':scope > *');
 
 // From or To: the leg picker (plan mode), a station by name; back on the planner.
 async function pickStation(page, field, query, name) {
@@ -27,11 +29,12 @@ test('setup: auto-route lists the ways between two stations and opens the pick i
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'kendall', 'Kendall/MIT');
   await expect(options(page)).toHaveCount(3);
-  await expect(options(page).first()).toHaveText(/^Orange → Red\s*1 transfer at Downtown Crossing · 12 stops$/);
-  await expect(options(page).nth(1)).toHaveText(/^Orange → Green → Red\s*2 transfers at Haymarket, Park Street · 11 stops$/);
+  await expect(lines(page, 0)).toHaveText(['12 stops', 'Walk 5 min to Oak Grove', 'Orange to Downtown Crossing', 'Red to Kendall/MIT', 'Walk 5 min to Kendall/MIT']);
+  await expect(lines(page, 1)).toHaveText(['11 stops', 'Walk 5 min to Oak Grove', 'Orange to Haymarket', /^Green.* to Park Street$/, 'Red to Kendall/MIT', 'Walk 5 min to Kendall/MIT']);
   // Change a station: the search comes back for it.
   await pickStation(page, 'to', 'state', 'State');
-  await expect(options(page)).toHaveText([/^Orange\s*No transfers · 8 stops$/]);
+  await expect(options(page)).toHaveCount(1);
+  await expect(lines(page, 0)).toHaveText(['8 stops', 'Walk 5 min to Oak Grove', 'Orange to State', 'Walk 5 min to State']);
   await pickStation(page, 'to', 'kendall', 'Kendall/MIT');
   await setup(page).getByLabel('Minutes from last stop').fill('7');
   await options(page).first().click();

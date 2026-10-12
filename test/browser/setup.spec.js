@@ -499,7 +499,7 @@ test('Show nearby lists the stations and routes around you, nearest first; a rou
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
   await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
-  await button(page, 'Show nearby').click();
+  await button(page, 'Show nearby stops and stations').click();
   await expect(setup(page).getByText('Near you · within 800 m')).toBeVisible();
   const items = setup(page).locator('.list .item');
   // Stations: Oak Grove (its recorded network position, ~90 m); Malden Center is ~1.3 km away.
@@ -535,7 +535,7 @@ test('Show nearby lists the stations and routes around you, nearest first; a rou
   // Back twice: the plain first-leg list again.
   await button(page, 'Back').click();
   await button(page, 'Back').click();
-  await expect(button(page, 'Show nearby')).toBeVisible();
+  await expect(button(page, 'Show nearby stops and stations')).toBeVisible();
 });
 
 test('Show nearby without location permission says so and keeps the list', async ({ page }) => {
@@ -547,7 +547,7 @@ test('Show nearby without location permission says so and keeps the list', async
   await openApp(page, { time: '07:00', config: null, waitForRows: false, init });
   await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
-  await button(page, 'Show nearby').click();
+  await button(page, 'Show nearby stops and stations').click();
   await expect(setup(page).getByText('Location is off for this app.')).toBeVisible();
   await expect(setup(page).locator('.list .item', { hasText: 'Forest Hills - Oak Grove' })).toBeVisible();
 });
@@ -557,7 +557,7 @@ test('Show nearby is only on the first leg', async ({ page }) => {
   await setup(page).locator('.trip-row .item').first().click();
   await button(page, '+ Add transit leg').click();
   await expect(setup(page).locator('#picker-search')).toBeVisible();
-  await expect(button(page, 'Show nearby')).toHaveCount(0);
+  await expect(button(page, 'Show nearby stops and stations')).toHaveCount(0);
 });
 
 // Route and stop lists kept on the phone (7 days, refreshed in the background).
@@ -642,7 +642,7 @@ test('Show nearby uses the push server\'s digest when it answers, and no MBTA sc
   });
   await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
-  await button(page, 'Show nearby').click();
+  await button(page, 'Show nearby stops and stations').click();
   await expect(setup(page).getByText('Near you · within 800 m')).toBeVisible();
   expect(asked).toEqual(['lat=42.4385&lon=-71.0711']);
   const routes = (await setup(page).locator('.list .item:not(.station)').allInnerTexts()).map(t => t.replace(/\s+/g, ' ').trim());

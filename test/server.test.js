@@ -25,6 +25,14 @@ async function setup({ staticRoot = null } = {}) {
   const world = { clock: at('07:00'), bus: '07:10', orange: '07:33', orange2: null, rideStops: {}, cancelled: false, failing: false, calls: [] };
   const mbtaFetch = async (url, opts) => {
     const u = new URL(url);
+    // Place search: world.photon / world.nominatim (a doc, or 'fail').
+    if (u.host === 'photon.komoot.io' || u.host === 'nominatim.openstreetmap.org') {
+      const which = u.host.startsWith('photon') ? 'photon' : 'nominatim';
+      world.calls.push(which);
+      world.placeQueries = [...(world.placeQueries ?? []), u.searchParams.get('q')];
+      const doc = world[which];
+      return doc === 'fail' || !doc ? { ok: false, status: 503 } : { ok: true, status: 200, json: async () => doc };
+    }
     world.calls.push(u.pathname);
     await world.gate;
     if (world.failing) return { ok: false, status: world.failing === true ? 500 : world.failing };
@@ -501,9 +509,12 @@ test('auto-route: the network is built from 3 MBTA requests a day; plans', async
     assert.deepEqual(plan.body, {
       from: 'Main St @ South St', to: 'State',
       options: [{
-        legs: [{ route: '132', also: [], direction_id: 0, stop: '25996', alight: '5991' }, { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state' }],
+        legs: [
+          { route: '132', also: [], direction_id: 0, stop: '25996', alight: '5991', stopName: 'Main St @ South St', alightName: 'Washington St @ Oak Grove Sta' },
+          { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state', stopName: 'Oak Grove', alightName: 'State' },
+        ],
         transfers: [{ name: 'Washington St @ Oak Grove Sta → Oak Grove', meters: 32, min: 3 }],
-        minutes: 14 + 3 + 15,
+        minutes: 14 + 3 + 15, walkBefore: 0, walkAfter: 0,
       }],
     });
     const netCalls = () => s.world.calls.filter(c => ['/routes', '/route_patterns', '/schedules'].includes(c)).length;
@@ -525,6 +536,64 @@ test('auto-route: the network is built from 3 MBTA requests a day; plans', async
     const kept = await get('/api/plan?from=25996&to=place-state');
     assert.equal(kept.status, 200);
     assert.equal(kept.body.options.length, 1);
+  } finally { await s.close(); }
+});
+
+test('auto-route: plans from a point (@lat,lon) use the stops within a walk, with the walks', async () => {
+  const s = await setup();
+  try {
+    s.world.network = smallNetwork();
+    const get = async path => { const r = await s.call('GET', path); return { status: r.status, body: await r.json() }; };
+    // ~40 m from Main St @ South St (25996): its walk counts and comes back.
+    const plan = await get('/api/plan?from=@42.4503,-71.0703&to=place-state');
+    assert.equal(plan.status, 200);
+    assert.equal(plan.body.from, null); // the app names a point
+    assert.equal(plan.body.to, 'State');
+    assert.deepEqual(plan.body.options.map(o => [o.legs[0].stop, o.walkBefore]), [['25996', 1]]);
+    assert.equal((await get('/api/plan?from=@40.7,-74.0&to=place-state')).status, 400); // not near Boston
+    assert.equal((await get('/api/plan?from=@abc&to=place-state')).status, 400);
+    assert.deepEqual((await get('/api/plan?from=@42.30,-71.30&to=place-state')).body.options, []); // no stop within 800 m
+  } finally { await s.close(); }
+});
+
+test('places: Photon near Boston, stops left out, cached a day; Nominatim when Photon fails or finds nothing', async () => {
+  const s = await setup();
+  try {
+    const get = async q => { const r = await s.call('GET', `/api/places?q=${encodeURIComponent(q)}`); return { status: r.status, body: await r.json() }; };
+    const feature = (props, lon, lat) => ({ properties: props, geometry: { coordinates: [lon, lat] } });
+    s.world.photon = { features: [
+      feature({ name: 'Fenway', osm_key: 'railway', osm_value: 'halt', city: 'Boston' }, -71.1, 42.34),
+      feature({ name: 'Fenway Park', osm_key: 'leisure', osm_value: 'stadium', housenumber: '4', street: 'Jersey Street', city: 'Boston' }, -71.097104, 42.346462),
+      feature({ name: 'Fenway', osm_key: 'highway', osm_value: 'residential', city: 'Boston' }, -71.1, 42.345),
+      feature({ name: 'Fenway', osm_key: 'highway', osm_value: 'primary', city: 'Boston' }, -71.1, 42.346), // the same street again
+      feature({ osm_key: 'building', osm_value: 'yes', housenumber: '350', street: 'Washington Street', city: 'Malden' }, -71.07155, 42.43872),
+      feature({ name: 'Kenmore @ Fenway', osm_key: 'highway', osm_value: 'bus_stop', city: 'Boston' }, -71.1, 42.35),
+    ] };
+    const r = await get('  fenway ');
+    assert.deepEqual(r.body.places, [
+      { name: 'Fenway Park', detail: '4 Jersey Street, Boston', lat: 42.34646, lon: -71.0971 },
+      { name: 'Fenway', detail: 'street, Boston', lat: 42.345, lon: -71.1 },
+      { name: '350 Washington Street', detail: 'Malden', lat: 42.43872, lon: -71.07155 },
+    ]);
+    assert.deepEqual(s.world.placeQueries, ['fenway']);
+    await get('Fenway'); // cached (any case)
+    assert.equal(s.world.calls.filter(c => c === 'photon').length, 1);
+    assert.equal((await get('fe')).status, 400);
+    // Photon down: Nominatim; again within a second: unavailable (its 1 request a second).
+    s.world.photon = 'fail';
+    s.world.nominatim = [{ name: 'Massachusetts General Hospital', category: 'amenity', type: 'hospital', lat: '42.362862', lon: '-71.068751', address: { house_number: '55', road: 'Fruit Street', city: 'Boston' } }];
+    assert.deepEqual((await get('mgh')).body.places, [{ name: 'Massachusetts General Hospital', detail: '55 Fruit Street, Boston', lat: 42.36286, lon: -71.06875 }]);
+    assert.equal((await get('mgh 2')).status, 502);
+    // Photon with only stops: Nominatim's street.
+    s.world.clock += 2000;
+    s.world.photon = { features: [feature({ name: 'Main St @ Grove St', osm_key: 'highway', osm_value: 'bus_stop', city: 'Melrose' }, -71.06, 42.45)] };
+    s.world.nominatim = [{ name: 'Main Street', category: 'highway', type: 'primary', lat: '42.45465', lon: '-71.06556', address: { road: 'Main Street', city: 'Melrose' } }];
+    assert.deepEqual((await get('600 Main St Melrose')).body.places, [{ name: 'Main Street', detail: 'street, Melrose', lat: 42.45465, lon: -71.06556 }]);
+    // Both down: 502, nothing cached.
+    s.world.clock += 2000;
+    s.world.nominatim = 'fail';
+    s.world.photon = 'fail';
+    assert.equal((await get('assembly row')).status, 502);
   } finally { await s.close(); }
 });
 

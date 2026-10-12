@@ -8,9 +8,11 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=e17762bb7b';
+} from './core.js?v=734d7a676c';
 
 const ROUTE_LIMIT = 60;
+const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
+const PLACE_DEBOUNCE_MS = 300;
 
 // Session caches (kept across openSetup calls; route and stop lists rarely change), backed by
 // copies kept on the phone (`keptCopy`).
@@ -373,7 +375,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const look = id => { const r = routeById(id); const l = railNet?.lines.find(x => x.id === id); return { label: r ? shortRouteLabel(r) : l?.label ?? id, color: r?.attributes?.color ?? l?.color }; };
     return h('span', { class: 'tag' }, dot(colorOf ?? look(ids[0]).color), commonLabel(ids.map(id => look(id).label), true));
   };
-  const placeTags = place => place.routes.map(r => h('span', { class: 'tag conn' }, dot(r.color), r.label));
+  const placeTags = place => place.point
+    ? [place.detail && h('span', { class: 'muted' }, `· ${place.detail}`)]
+    : place.routes.map(r => h('span', { class: 'tag conn' }, dot(r.color), r.label));
+  // An address, a place or the phone's location: planned from the stops within a walk ("@lat,lon").
+  const pointPlace = (lat, lon, name, detail) => ({ id: `@${lat},${lon}`, name, detail, point: { lat, lon }, routes: [] });
   // A station from the rail network, as the server describes places.
   const stationPlace = id => {
     const st = networkStation(railNet, id);
@@ -430,9 +436,14 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const field = (key, label) => h('div', { class: 'field' }, label,
       h('button', { type: 'button', class: 'item', id: `plan-${key}`, onclick: () => openPlanPicker(key) },
         ...(p[key] ? [h('span', { class: 'main' }, p[key].name, ' '), ...placeTags(p[key]), h('span', { class: 'change' }, 'Change')] : ['Choose a stop or station'])));
+    // A point end's walk is the option's own; otherwise the field's.
+    const walks = o => [p.from.point ? o.walkBefore ?? 0 : p.walkBefore, p.to.point ? o.walkAfter ?? 0 : p.walkAfter];
     const pick = o => {
       const plan = p.plan;
-      const form = plan.local ? planToForm(railNet, o, p.walkBefore, p.walkAfter) : optionToForm(o, p.from.name, p.to.name, p.walkBefore, p.walkAfter);
+      const [wb, wa] = walks(o);
+      // Your location has no name of its own: the trip is named from the first stop.
+      const fromName = p.from.current ? o.legs[0].stopName ?? p.from.name : p.from.name;
+      const form = plan.local ? planToForm(railNet, o, wb, wa) : optionToForm(o, fromName, p.to.name, wb, wa);
       if (p.oneOff) {
         const cfg = { trips: [formToTrip(form)] };
         loadRoutes().then(rs => { routes = rs; }).catch(() => {}).finally(() => onPlan((routes ? labelLegs(cfg, routes) : cfg).trips[0]));
@@ -445,11 +456,24 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       render();
     };
     const lineOf = id => railNet.lines.find(l => l.id === id);
-    const optionText = o => {
-      const n = o.transfers.length;
-      const at = o.transfers.map(t => (typeof t === 'string' ? t : `${t.name}${t.meters ? ` (walk ${t.meters} m)` : ''}`)).join(', ');
-      return [n ? `${n} transfer${n === 1 ? '' : 's'} at ${at}` : 'No transfers',
-        o.minutes != null ? `~${o.minutes + p.walkBefore + p.walkAfter} min` : `${o.stops} stop${o.stops === 1 ? '' : 's'}`].join(' · ');
+    const stationName = id => networkStation(railNet, id)?.name ?? id;
+    // An option as an itinerary: the total, the walk to the first stop, each ride to where you get
+    // off (and a walk between stops), the walk at the end.
+    const optionRows = (o, local) => {
+      const [wb, wa] = walks(o);
+      const board = l => (local ? stationName(l.stop) : l.stopName ?? l.stop);
+      const alight = l => (local ? stationName(l.alight) : l.alightName ?? l.alight);
+      const muted = text => h('div', { class: 'muted' }, text);
+      return [
+        h('b', {}, o.minutes != null ? `~${o.minutes + wb + wa} min` : `${o.stops} stop${o.stops === 1 ? '' : 's'}`),
+        wb > 0 && muted(`Walk ${wb} min to ${board(o.legs[0])}`),
+        ...o.legs.flatMap((l, i) => {
+          const t = o.transfers[i - 1];
+          return [i > 0 && t?.meters > 0 && muted(`Walk ${t.meters} m to ${board(l)}`),
+            h('div', { class: 'ride' }, routeTagOf([l.route, ...l.also], local ? lineOf(l.route)?.color : null), h('span', { class: 'muted' }, ` to ${alight(l)}`))];
+        }),
+        wa > 0 && muted(`Walk ${wa} min to ${p.to.name}`),
+      ].filter(Boolean);
     };
     const plan = p.plan;
     const optionList = !plan ? []
@@ -457,17 +481,17 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         : plan.error ? [h('div', { class: 'msg' }, plan.error)]
           : plan.options.length
             ? [h('div', { class: 'muted section' }, p.oneOff ? 'Pick one to see its departures' : 'Pick one to review and save'),
-              h('div', { class: 'list', id: 'plan-options' }, ...plan.options.map(o => h('button', { type: 'button', class: 'item', onclick: () => pick(o) },
-                h('b', {}, ...o.legs.flatMap((l, i) => [i > 0 && ' → ', routeTagOf([l.route, ...l.also], plan.local ? lineOf(l.route)?.color : null)])),
-                h('div', { class: 'muted' }, optionText(o)))))]
+              h('div', { class: 'list', id: 'plan-options' }, ...plan.options.map(o => h('button', { type: 'button', class: 'item option', onclick: () => pick(o) },
+                ...optionRows(o, plan.local))))]
             : [h('div', { class: 'msg' }, plan.local ? 'No way on the subway with 2 transfers or fewer.' : 'No way with 2 transfers or fewer.')];
     return [head,
       h('div', { class: 'card' },
         field('from', 'From'),
         field('to', 'To'),
-        h('div', { class: 'field-pair' },
-          numberField('Minutes to first stop', p.walkBefore, v => { p.walkBefore = v; }),
-          numberField('Minutes from last stop', p.walkAfter, v => { p.walkAfter = v; }))),
+        // A point end's walks come with each option.
+        (!p.from?.point || !p.to?.point) && h('div', { class: 'field-pair' },
+          !p.from?.point && numberField('Minutes to first stop', p.walkBefore, v => { p.walkBefore = v; }),
+          !p.to?.point && numberField('Minutes from last stop', p.walkAfter, v => { p.walkAfter = v; }))),
       ...optionList];
   }
 
@@ -836,6 +860,52 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   };
   const stationLines = (id, exclude = []) => lineTags(railConnections({ id }, railStops, exclude));
 
+  // Auto-route's Places (addresses and named places, through the T-Minus server): searched once
+  // the query has PLACE_MIN_CHARS and typing pauses PLACE_DEBOUNCE_MS; the list redraws when they
+  // arrive. Rows for the Places section, or null (not in plan mode, or too short).
+  let pickerListEl = null;
+  let placeTimer = null;
+  function placesFor(raw) {
+    const q = raw.trim().replace(/\s+/g, ' ');
+    if (!picker.planField || !planApi || q.length < PLACE_MIN_CHARS) return null;
+    const heading = h('div', { class: 'muted section-head' }, 'Places');
+    const got = picker.places;
+    if (got?.q !== q) {
+      // A token, not the picker object: picker updates copy it.
+      const token = {};
+      picker.places = { q, loading: true, token };
+      clearTimeout(placeTimer);
+      placeTimer = setTimeout(() => {
+        planApi('/places', { q }).then(r => ({ q, list: r.places }), () => ({ q, error: true })).then(res => {
+          if (picker?.places?.token !== token) return;
+          picker.places = res;
+          if (picker.query.trim().replace(/\s+/g, ' ') === q) pickerListEl?.replaceChildren(...pickerList());
+        });
+      }, PLACE_DEBOUNCE_MS);
+      return [heading, h('div', { class: 'muted' }, 'Searching places…')];
+    }
+    if (got.loading) return [heading, h('div', { class: 'muted' }, 'Searching places…')];
+    if (got.error) return [heading, h('div', { class: 'muted' }, 'Place search is unavailable right now.')];
+    if (!got.list.length) return [heading, h('div', { class: 'muted' }, 'No places found.')];
+    return [heading, ...got.list.map(pl => h('button', { type: 'button', class: 'item place', onclick: () => pickPlace(pointPlace(pl.lat, pl.lon, pl.name, pl.detail)) },
+      h('b', {}, pl.name), pl.detail && h('span', { class: 'muted' }, ` · ${pl.detail}`)))];
+  }
+
+  // Auto-route's "Current location": the phone's position as From.
+  function useMyLocation() {
+    picker = { ...picker, hereLoading: true, hereError: null };
+    render();
+    const opened = picker;
+    const fail = msg => { if (picker === opened) { picker = { ...picker, hereLoading: false, hereError: msg }; render(); } };
+    if (!navigator.geolocation) return fail("Couldn't get your location.");
+    navigator.geolocation.getCurrentPosition(pos => {
+      if (picker !== opened) return;
+      const round = x => Number(x.toFixed(5));
+      pickPlace({ ...pointPlace(round(pos.coords.latitude), round(pos.coords.longitude), 'Current location', null), current: true });
+    }, err => fail(err.code === err.PERMISSION_DENIED ? 'Location is off for this app.' : "Couldn't get your location."),
+    { maximumAge: 60_000, timeout: 10_000 });
+  }
+
   function pickerList() {
     const q = picker.query;
     const heading = text => h('div', { class: 'muted section-head' }, text);
@@ -853,11 +923,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const firstLeg = !!picker.planField || picker.legIdx === 0 || (picker.legIdx == null && !editing.form.transit.length);
       if (q.trim()) {
         const stations = railNet ? searchStations(railNet, q).slice(0, 8) : [];
+        const places = placesFor(q);
         return [
           stations.length ? heading('Stations') : null, ...stations.map(stationButton),
-          stations.length && found.length ? heading('Routes') : null,
+          (stations.length || places) && found.length ? heading('Routes') : null,
           ...found.slice(0, ROUTE_LIMIT).map(routeButton),
           found.length > ROUTE_LIMIT ? h('div', { class: 'muted' }, `${found.length - ROUTE_LIMIT} more; refine the search.`) : null,
+          ...(places ?? []),
         ].filter(Boolean);
       }
       if (!picker.allRoutes) {
@@ -900,11 +972,16 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         } else {
           // A first leg: the rail lines; type to find a station or a bus route. "Show nearby"
           // lists what is around you (location asked on tap, each time).
+          const searchesPlaces = picker.planField && planApi;
           return [
+            // Auto-route's From: plan from where you are.
+            searchesPlaces && picker.planField === 'from' && h('button', { type: 'button', class: 'item', id: 'plan-here', disabled: !!picker.hereLoading, onclick: useMyLocation },
+              h('b', {}, 'Current location'), h('span', { class: 'muted' }, picker.hereLoading ? ' · finding your location…' : ' · plan from where you are')),
+            picker.hereError ? h('div', { class: 'muted' }, picker.hereError) : null,
             firstLeg ? h('button', { type: 'button', class: 'add', disabled: !!picker.meLoading, onclick: showNearMe },
-              picker.meLoading ? 'Finding your location…' : 'Show nearby') : null,
+              picker.meLoading ? 'Finding your location…' : 'Show nearby stops and stations') : null,
             picker.meError ? h('div', { class: 'muted' }, picker.meError) : null,
-            h('div', { class: 'muted' }, 'Type a station (e.g. Oak Grove) or a route (e.g. 132).'),
+            h('div', { class: 'muted' }, searchesPlaces ? 'Type a station (e.g. Oak Grove), a route (e.g. 132), an address or a place.' : 'Type a station (e.g. Oak Grove) or a route (e.g. 132).'),
             ...found.filter(r => r.attributes?.type <= 1).map(routeButton), showAll].filter(Boolean);
         }
       }
@@ -1029,9 +1106,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     }
     const list = h('div', { class: 'list' }, pickerList());
     const search = h('input', {
-      type: 'search', id: 'picker-search', placeholder: picker.step === 'search' ? 'Search stations or routes' : picker.step === 'to' ? 'Search stations' : 'Search stops',
+      type: 'search', id: 'picker-search',
+      placeholder: picker.step === 'search' ? (picker.planField && planApi ? 'Search stations, routes, places' : 'Search stations or routes') : picker.step === 'to' ? 'Search stations' : 'Search stops',
       value: picker.query, oninput: e => { picker.query = e.target.value; list.replaceChildren(...pickerList()); },
     });
+    pickerListEl = list;
     // Header, context and search stay at the top while the list scrolls under them (and iOS's
     // scroll for the keyboard can't slide the search under the header).
     // Changing an existing leg: removing it lives here, as "Delete trip" lives in the trip editor.

@@ -1,5 +1,5 @@
 // Leave-time reminders and stop alerts (followed rides): the HTTP API (/api/*) and the polling loop; also setup's "Show nearby"
-// (/api/nearby), the MBTA proxy (/api/mbta/*, a shared cache under the server's key) and the app's own files. No npm imports, so tests load it directly; main.mjs wires
+// (/api/nearby), auto-route (/api/plan, /api/places: addresses and places), the MBTA proxy (/api/mbta/*, a shared cache under the server's key) and the app's own files. No npm imports, so tests load it directly; main.mjs wires
 // in web-push, the store, and the clock.
 import { randomUUID, createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
@@ -10,7 +10,7 @@ import {
   headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
   rideAlertText, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
-  transitNetwork, planTrips, nextWeekday,
+  transitNetwork, planTrips, pointEnds, nextWeekday,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -34,6 +34,16 @@ const MBTA_TIMEOUT_MS = 10_000;
 const NETWORK_TIMEOUT_MS = 60_000; // the network's large requests (patterns ~3 MB, schedules ~12 MB)
 const NETWORK_RETRY_MS = 10 * MIN; // after a failed daily rebuild (the old network stays)
 const MAX_PLANS = 500; // cached plans (from > to), cleared with each new network
+// Auto-route's place search (addresses and named places): Photon, else Nominatim (1 request a
+// second, its usage policy), near Boston. The searched text is never logged.
+const PHOTON = 'https://photon.komoot.io/api/';
+const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+const PLACES_BBOX = [-71.6, 42.0, -70.6, 42.75]; // west, south, east, north: the MBTA area, roughly
+const PLACES_TIMEOUT_MS = 6000; // Photon's public instance answers in ~1.5-4 s
+const PLACES_TTL = DAY;
+const MAX_PLACE_QUERIES = 500;
+const MAX_PLACES = 5;
+const USER_AGENT = 'T-Minus (https://t-minus.lucasp.net)';
 
 // The app's files (an allowlist: nothing else under the repo root is served).
 const STATIC = {
@@ -43,6 +53,41 @@ const STATIC = {
 };
 const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
 
+const nearBoston = (lat, lon) => lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5;
+const TRANSIT_KINDS = /^(highway=(bus_stop|platform)|public_transport=|railway=(station|halt|stop|tram_stop|subway_entrance|platform)|amenity=(bus_station|shelter))/;
+const round5 = x => Number(Number(x).toFixed(5));
+// A place's second line: its street address and town, or what it is and the town.
+function placeDetail({ house, street, city, kind }) {
+  const what = /^place=(suburb|neighbourhood|quarter)/.test(kind) ? 'neighborhood' : kind.startsWith('highway=') ? 'street' : null;
+  const addr = street ? [house, street].filter(Boolean).join(' ') : null;
+  return [what ?? addr, city].filter(Boolean).join(', ');
+}
+function uniquePlaces(list) {
+  const seen = new Set();
+  return list.filter(p => p.name && !TRANSIT_KINDS.test(p.kind) && !seen.has(`${p.name}|${p.detail}`) && seen.add(`${p.name}|${p.detail}`))
+    .slice(0, MAX_PLACES).map(({ kind: _, ...p }) => p);
+}
+function photonPlaces(doc) {
+  return uniquePlaces((doc?.features ?? []).map(f => {
+    const a = f.properties ?? {};
+    const kind = `${a.osm_key}=${a.osm_value}`;
+    const [lon, lat] = f.geometry?.coordinates ?? [];
+    const house = a.housenumber, street = a.street, city = a.city ?? a.town ?? a.village ?? a.district;
+    // An address alone (no name): the street address as the name, the town as the detail.
+    if (!a.name && street) return { name: [house, street].filter(Boolean).join(' '), detail: city ?? '', lat: round5(lat), lon: round5(lon), kind };
+    return { name: a.name, detail: placeDetail({ house, street: a.name === street ? null : street, city, kind }), lat: round5(lat), lon: round5(lon), kind };
+  }));
+}
+function nominatimPlaces(list) {
+  return uniquePlaces((Array.isArray(list) ? list : []).map(x => {
+    const a = x.address ?? {};
+    const kind = `${x.category}=${x.type}`;
+    const house = a.house_number, street = a.road, city = a.city ?? a.town ?? a.village ?? a.suburb;
+    const name = x.name || [house, street].filter(Boolean).join(' ') || String(x.display_name ?? '').split(',')[0];
+    return { name, detail: placeDetail({ house: x.name ? house : null, street: x.name ? street : null, city, kind }), lat: round5(x.lat), lon: round5(x.lon), kind };
+  }));
+}
+
 export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {} }) {
   const schedules = new Map(); // reminder id -> { at, docs }
   const hits = new Map(); // ip -> { minute, count }
@@ -51,6 +96,8 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
   let network = null; // auto-route: { net, at } (transitNetwork), rebuilt daily
   let building = null;
   const plans = new Map(); // `${from}>${to}` -> planTrips options
+  const places = new Map(); // lowercased query -> { at, places }
+  let nominatimAt = -Infinity; // its last request (1 a second)
   const nearbySetCache = new Map(); // stop ids + hour -> { routeIds, schedules }
   const files = new Map(); // file -> { body, etag }
   let ticking = false;
@@ -258,20 +305,42 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       let net;
       try { net = await transit(t); } catch (e) { log(`network: ${e.message}`); return reply(res, 503, { error: 'Network unavailable' }); }
       const q = url.searchParams;
-      const from = q.get('from') ?? '';
-      const to = q.get('to') ?? '';
-      // Up to 4 comma-separated ids each (both sides of a street: either one).
-      const known = list => { const ids = list.split(','); return ids.length <= 4 && ids.every(id => !!(net.stops[id] || net.stations[id])); };
-      if (!known(from) || !known(to)) return reply(res, 400, { error: 'from and to must be up to 4 stop or station ids' });
-      const key = `${from}>${to}`;
-      const options = plans.get(key) ?? remember(plans, key, planTrips(net, from, to), MAX_PLANS);
-      const name = list => { const id = list.split(',')[0]; return (net.stations[id] ?? net.stops[id]).name; };
-      return reply(res, 200, { from: name(from), to: name(to), options });
+      // Up to 4 comma-separated ids each (both sides of a street: either one), or a point
+      // ("@lat,lon": an address, a place, the phone's location; ~10 m, the stops within a walk).
+      const end = raw => {
+        const pt = /^@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(raw);
+        if (pt) {
+          const [lat, lon] = [Number(pt[1]), Number(pt[2])];
+          if (!nearBoston(lat, lon)) return null;
+          const key = `@${lat.toFixed(4)},${lon.toFixed(4)}`;
+          return { key, ends: pointEnds(net, { lat: Number(lat.toFixed(4)), lon: Number(lon.toFixed(4)) }), name: null };
+        }
+        const ids = raw.split(',');
+        if (ids.length > 4 || !ids.every(id => !!(net.stops[id] || net.stations[id]))) return null;
+        return { key: raw, ends: raw, name: (net.stations[ids[0]] ?? net.stops[ids[0]]).name };
+      };
+      const from = end(q.get('from') ?? '');
+      const to = end(q.get('to') ?? '');
+      if (!from || !to) return reply(res, 400, { error: 'from and to must be up to 4 stop or station ids, or @lat,lon near Boston' });
+      const key = `${from.key}>${to.key}`;
+      const options = plans.get(key) ?? remember(plans, key, planTrips(net, from.ends, to.ends), MAX_PLANS);
+      return reply(res, 200, { from: from.name, to: to.name, options });
+    }
+    if (req.method === 'GET' && path === '/places') {
+      const query = (url.searchParams.get('q') ?? '').trim().replace(/\s+/g, ' ');
+      if (query.length < 3 || query.length > 100) return reply(res, 400, { error: 'q must be 3 to 100 characters' });
+      const key = query.toLowerCase();
+      const hit = places.get(key);
+      if (hit && t - hit.at < PLACES_TTL) return reply(res, 200, { places: hit.places });
+      const found = await searchPlaces(query, t);
+      if (!found) return reply(res, 502, { error: 'Place search unavailable' });
+      if (found.length) remember(places, key, { at: t, places: found }, MAX_PLACE_QUERIES); // an empty answer is asked again
+      return reply(res, 200, { places: found });
     }
     if (req.method === 'GET' && path === '/nearby') {
       const lat = Number(url.searchParams.get('lat'));
       const lon = Number(url.searchParams.get('lon'));
-      if (!(lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5)) return reply(res, 400, { error: 'lat/lon must be near Boston' });
+      if (!nearBoston(lat, lon)) return reply(res, 400, { error: 'lat/lon must be near Boston' });
       return reply(res, 200, await nearby(lat, lon, t));
     }
 
@@ -352,6 +421,35 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       return reply(res, found ? 204 : 404, undefined);
     }
     return reply(res, 404, { error: 'Not found' });
+  }
+
+  // ---------- auto-route place search ----------
+
+  // Up to MAX_PLACES { name, detail, lat, lon }: Photon, else (failed or nothing found) Nominatim;
+  // null when both fail.
+  // Stops and stations are left out (the picker lists them itself).
+  async function searchPlaces(query, t) {
+    const get = async u => {
+      const r = await fetch(u, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' }, signal: AbortSignal.timeout(PLACES_TIMEOUT_MS) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    };
+    let photonOk = false;
+    try {
+      // 15: transit stops and road pieces are dropped (no lang: "en" lost Fenway Park).
+      const qs = new URLSearchParams({ q: query, limit: '15', lat: '42.36', lon: '-71.06', bbox: PLACES_BBOX.join(',') });
+      const found = photonPlaces(await get(`${PHOTON}?${qs}`));
+      photonOk = true;
+      // Nothing but stops (600 Main St, Melrose isn't in OSM as an address): Nominatim may
+      // still find the street.
+      if (found.length) return found;
+    } catch (e) { log(`places: Photon ${e.message}`); }
+    if (t - nominatimAt < 1000) return photonOk ? [] : null;
+    nominatimAt = t;
+    try {
+      const qs = new URLSearchParams({ q: query, format: 'jsonv2', addressdetails: '1', limit: '10', viewbox: PLACES_BBOX.join(','), bounded: '1' });
+      return nominatimPlaces(await get(`${NOMINATIM}?${qs}`));
+    } catch (e) { log(`places: Nominatim ${e.message}`); return null; }
   }
 
   // ---------- auto-route network ----------

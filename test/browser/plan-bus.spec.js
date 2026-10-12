@@ -11,14 +11,18 @@ test.beforeEach(({ page }) => {
 const setup = page => page.locator('#setup');
 const button = (page, name) => setup(page).getByRole('button', { name, exact: true });
 const options = page => setup(page).locator('#plan-options .item');
+const lines = (page, i) => options(page).nth(i).locator(':scope > *');
 const title = page => setup(page).locator('.setup-head b');
 
 const PLAN = {
   from: 'Main St @ South St', to: 'State',
   options: [{
-    legs: [{ route: '132', also: [], direction_id: 1, stop: '25996', alight: '5991' }, { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state' }],
+    legs: [
+      { route: '132', also: [], direction_id: 1, stop: '25996', alight: '5991', stopName: 'Main St @ South St', alightName: 'Washington St @ Oak Grove Sta' },
+      { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state', stopName: 'Oak Grove', alightName: 'State' },
+    ],
     transfers: [{ name: 'Washington St @ Oak Grove Sta → Oak Grove', meters: 32, min: 3 }],
-    minutes: 32,
+    minutes: 32, walkBefore: 0, walkAfter: 0,
   }],
 };
 
@@ -63,7 +67,7 @@ test('setup: a route\'s stop to a station; the pick opens in the editor with the
   await setup(page).locator('.list .item', { hasText: 'Main St @ South St' }).click();
   await expect(setup(page).locator('#plan-from')).toHaveText(/^Main St @ South St\s*Bus 132\s*Change$/);
   await pickStation(page, 'to', 'state', 'State');
-  await expect(options(page)).toHaveText([/^Bus 132 → Orange\s*1 transfer at Washington St @ Oak Grove Sta → Oak Grove \(walk 32 m\) · ~42 min$/]);
+  await expect(lines(page, 0)).toHaveText(['~42 min', 'Walk 5 min to Main St @ South St', 'Bus 132 to Washington St @ Oak Grove Sta', 'Walk 32 m to Oak Grove', 'Orange to State', 'Walk 5 min to State']);
   expect(calls).toEqual(['?from=15982%2C25996&to=place-state']); // both sides: the server picks
   await options(page).first().click();
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Main St @ South St to State');
@@ -93,7 +97,7 @@ test('Show nearby in the picker; To by route lists the stops you can get off at;
   await stubPlan(page);
   await page.getByRole('button', { name: 'Go somewhere else…' }).click();
   await setup(page).locator('#plan-from').click();
-  await button(page, 'Show nearby').click();
+  await button(page, 'Show nearby stops and stations').click();
   await setup(page).locator('.list .item.station', { hasText: 'Oak Grove' }).click();
   await expect(setup(page).locator('#plan-from')).toContainText('Oak Grove');
   await setup(page).locator('#plan-to').click();
@@ -114,7 +118,7 @@ test('without the server: stations still plan in the browser (rail only); a bus 
   await page.getByRole('button', { name: 'Go somewhere else…' }).click();
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
-  await expect(options(page)).toHaveText([/^Orange\s*No transfers · 8 stops$/]);
+  await expect(lines(page, 0)).toHaveText(['8 stops', 'Walk 5 min to Oak Grove', 'Orange to State', 'Walk 5 min to State']);
   await pickStop(page, 'from', '132', 'Main St @ South St');
   await expect(setup(page)).toContainText('Needs the T-Minus server.');
 });

@@ -105,7 +105,7 @@ for (const scheme of ['light', 'dark']) {
     await page.locator('.empty .big-btn').click();
     const setup = page.locator('#setup');
     await setup.getByRole('button', { name: '+ Add transit leg', exact: true }).click();
-    await setup.getByRole('button', { name: 'Show nearby' }).click();
+    await setup.getByRole('button', { name: 'Show nearby stops and stations' }).click();
     await expect(setup.getByText('Near you · within 800 m')).toBeVisible();
     expect(await violations(page)).toEqual([]);
     await setup.locator('.list .item', { hasText: 'Bus 132' }).click();
@@ -115,15 +115,22 @@ for (const scheme of ['light', 'dark']) {
 }
 
 for (const scheme of ['light', 'dark']) {
-  test(`axe finds nothing on the auto-route planner, its picker and a one-off trip (${scheme})`, async ({ page }) => {
+  test(`axe finds nothing on the auto-route planner, its picker (Places, Current location) and a one-off trip (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await openApp(page, { time: '07:00' });
     await page.route(/\/api\/plan\?/, route => route.fulfill({ json: { from: 'Main St @ South St', to: 'State', options: [{
       legs: [{ route: '132', also: [], direction_id: 1, stop: '25996', alight: '5991' }, { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state' }],
       transfers: [{ name: 'Washington St @ Oak Grove Sta → Oak Grove', meters: 32, min: 3 }], minutes: 32 }] } }));
+    await page.route(/\/api\/places\?/, route => route.fulfill({ json: { places: [{ name: 'Fenway Park', detail: '4 Jersey Street, Boston', lat: 42.34646, lon: -71.0971 }] } }));
     await page.getByRole('button', { name: 'Go somewhere else…' }).click();
     expect(await violations(page)).toEqual([]);
     await page.locator('#plan-from').click();
+    await expect(page.locator('#plan-here')).toBeVisible(); // Current location
+    expect(await violations(page)).toEqual([]);
+    await page.locator('#picker-search').fill('fenway');
+    await tick(page, 400);
+    await expect(page.locator('#setup .list .item.place')).toHaveCount(1); // Places
+    expect(await violations(page)).toEqual([]);
     await page.locator('#picker-search').fill('132');
     expect(await violations(page)).toEqual([]);
     await page.locator('#setup .list .item', { hasText: 'Bus 132' }).first().click();
@@ -134,6 +141,7 @@ for (const scheme of ['light', 'dark']) {
     await page.locator('#picker-search').fill('state');
     await page.locator('#setup .list .item.station', { hasText: 'State' }).click();
     await expect(page.locator('#plan-options .item')).toHaveCount(1);
+    await expect(page.locator('#plan-options .item .ride')).toHaveCount(2); // the itinerary rows
     expect(await violations(page)).toEqual([]);
     await page.locator('#plan-options .item').first().click();
     await expect(page.locator('#oneoff')).toBeVisible();

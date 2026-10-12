@@ -7,8 +7,9 @@ alerts (`POST /api/rides`, `PUT` / `DELETE /api/rides/:id`): a heads-up 3 stops 
 drop-off, "get off" with the drop-off next, and missed connections (see `DESIGN.md`,
 Notifications and Hosting). It also answers setup's "Show nearby" (`GET /api/nearby?lat&lon`: the routes around a
 point with their distances), auto-route (`GET /api/plan?from&to`:
-plans with buses, from a network built daily from 3 MBTA requests; see `DESIGN.md`,
-"Auto-route with buses"), and proxies the app's MBTA requests (`GET /api/mbta/<path>?…`:
+plans with buses, from a network built daily from 3 MBTA requests, from stops, stations or a
+point `@lat,lon`; `GET /api/places?q`: addresses and places from Photon, else Nominatim; see
+`DESIGN.md`, "Auto-route with buses" and "Addresses and places"), and proxies the app's MBTA requests (`GET /api/mbta/<path>?…`:
 an allowlist, the server's key, a shared cache, stale copies with `x-data-age` when the MBTA
 fails, 120 requests/min per IP; see `DESIGN.md`, "MBTA data caching").
 

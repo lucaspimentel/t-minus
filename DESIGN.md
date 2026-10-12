@@ -727,7 +727,8 @@ still holds, to stay well inside it either way:
   `/route_patterns`, the midday `/schedules` sample); stop searches and plans cost none. The
   phone sends one `/api/plan` per From/To pair; picking From/To costs what the manual leg
   picker does (setup's `/routes` and `/stops` copies, "Show nearby"). Without the server,
-  the rail network only (above).
+  the rail network only (above). Place search (`/api/places`) costs no MBTA requests: one per
+  paused query to the server, which asks Photon (or Nominatim) unless cached.
 
 A 2-leg trip polls at ≤ 2 req/min (60s) plus a load burst of about 5-7 requests; a 4-leg trip
 ≤ 4 req/min. Rapid reloads can still hit the limit (seen in testing with ~8 fresh loads in a
@@ -1059,8 +1060,11 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   and keeps it in memory (~870 KB as JSON; built in ~0.6 s). A failed rebuild keeps the old network
   and retries in 10 min; a build without the ride-time sample (distance only) is retried in 10 min
   too; no network at all: 503. Endpoint (rate-limited like the rest of `/api`):
-  - `GET /api/plan?from=&to=` (stop or station ids, up to 4 comma-separated per side): `{ from, to (names), options }` (`planTrips`;
-    cached per pair until the next network). Measured on live data: 40-700 ms per plan.
+  - `GET /api/plan?from=&to=` (stop or station ids, up to 4 comma-separated per side, or a point
+    `@lat,lon`, phase 3): `{ from, to (names; null for a point), options }` (`planTrips`;
+    cached per pair until the next network, a point rounded to ~10 m). Measured on live data:
+    40-700 ms per plan between stops, 0.1-1.8 s from and to points.
+  - `GET /api/places?q=` (phase 3, below).
   The phone downloads nothing large.
 - **Search:** rounds of legs (RAPTOR-style) over the patterns, at most 2 transfers (3 legs).
   - A leg rides one pattern from a stop to a later stop. Other routes whose patterns serve both
@@ -1068,31 +1072,35 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   - A station counts as all its platforms.
   - Transfers: the same stop or station (3 min), or a walk between stops up to 250 m (minutes =
     max(3, ⌈meters / 80⌉), straight-line distance).
-  - Same pruning as phase 1: no route ridden twice in one direction, no station (or stop) passed
+  - No route on two legs, in either direction and riding along included (Harvard to Logan listed
+    Red → SL1 riding along to World Trade Center → SL1 again). No station (or stop) passed
     twice, by station, not platform: Revere Beach to Main St @ South St listed Blue past State to
     Government Center, then a 156 m walk back to State for the Orange Line.
   - Routes riding along on a leg match by station too: the Green branches each have their own
     westbound platform at Park Street, so Wonderland to Park Street listed Green-B, -C and -D as
     three options; now one leg, "Green-C/B/D/E".
-  - Ranked by transfers, then estimated minutes (rides + transfer times), with walks between
-    stops counted twice: riding one more stop to the one by the station beats getting off a stop
-    early to walk 124 m (seen live at Oak Grove). An option with more transfers is shown only if
-    it ranks above every option with fewer.
+  - Ranked by total estimated minutes (phase 3; before, fewest transfers came first, and a 52-min
+    one-change trip ranked above a 44-min two-change one): walks to and from a point, rides,
+    transfer times, plus 5 min per transfer. Walks between stops count twice: riding one more
+    stop to the one by the station beats getting off a stop early to walk 124 m (seen live at
+    Oak Grove).
   - Each change also adds its expected wait to the ranking: half the gap between the route's
-    departures at that stop in the midday sample (2 hours), capped at 30 min; 10 min when the
-    sample has none. The shown "~N min" leaves waits out (the 132 runs hourly at midday: every
+    departures at that stop in the midday sample (2 hours), capped at 30 min; 30 min too when the
+    sample has none (peak-only and overnight routes, e.g. the 171; was 10). The shown "~N min" leaves waits out (the 132 runs hourly at midday: every
     option ending with it would read ~30 min longer). Davis to Main St @ South St listed three
     96/89 → 101 → 132 chains (~42–45 min on paper, the 96 and 101 every 20–40 min); with waits:
     89 → Orange → 132 (Malden, Oak Grove), then Red → Orange → 132.
-  - One option per route chain and change stations (the best ranked). A change at a bus stop
+  - One option per route chain (a line's branches as one: Green-B and Green-D are both Green) and
+    change stations (the best ranked). A change at a bus stop
     counts as the station within 250 m of it, else as any bus stop: the 96 → 101 changes at
     several Medford Sq stops are one option; Orange → 132 via Malden Center and via Oak Grove
     are two. (Before: Orange → 132 via Oak Grove was listed twice, walking 95 m or 198 m.)
   - A leg's stops are named by their station when they have one (rail platforms, busway berths).
-  - Each option: "● Bus 132 → ● Orange → ● Red", "2 transfers at Washington St opp Oak Grove Sta →
-    Oak Grove (walk 96 m), Downtown Crossing · ~49 min" (a walk between two places names both;
-    minutes include the walks to the first and from the last stop). Live, Main St @ South St to
-    Kendall/MIT: 132 → Orange → Red, ~39 min plus the walks.
+  - Each option is an itinerary (phase 3, chosen from three mockups): "~54 min", "Walk 3 min to
+    Main St @ Grove St", one line per ride ("● Bus 132 to Malden Center"), "Walk 120 m to
+    Clarendon St" for a walk between stops, "Walk 5 min to Fenway Park". The total includes the
+    walks (a point end's from the option, else the field's). The rail-only fallback's options
+    show their stop count instead of minutes. Legs carry `stopName` / `alightName`.
 - **Picking From/To:** the planner shows From and To as buttons; each opens the manual leg
   picker in plan mode (`picker.planField`), titled "From" / "To", Back to the planner. Its search
   ("Search stations or routes") lists Stations (rail line tags) and Routes, never bus stop names
@@ -1114,14 +1122,55 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   ids (`from=15982,25996`; up to 4 per side) and the planner boards (or gets off) on whichever
   side the route needs; the saved leg names that side. The manual leg picker keeps per-direction
   lists (the side you board decides the direction there).
-  "Show nearby" works as on a first leg (stations, then routes, with
+  "Show nearby stops and stations" (renamed from "Show nearby" in phase 3, in both pickers) works as on a first leg (stations, then routes, with
   distances; a route's stops nearest first). The rest is phase 1's: setup opens
   the pick in the trip editor (`optionToForm`: the walk's minutes as the transfer), "Go somewhere
   else…" makes a one-off trip. The walk fields read "Minutes to first stop" / "from last stop".
 - **Without the server** (unreachable, an error, or no push server configured): phase 1's
   rail-only search plans between two stations, and a bus stop says "Needs the T-Minus server.".
-- Not in phase 2: addresses (phase 3), commuter rail and ferry, time-aware search (a route not
+- Not in phase 2: addresses (phase 3, below), commuter rail and ferry, time-aware search (a route not
   running now is still offered; the trip's rows then show no departures).
+
+## Addresses and places (phase 3)
+
+Built 2026-10-12 after a spike (MassGIS, Photon and Nominatim on 6 addresses and 12 places, then
+point → stops → plan on the live network) and two grill rounds with mockups.
+
+- **Geocoder:** Photon (komoot's public instance, OSM data) through the server, Nominatim when
+  Photon fails or finds nothing usable. Photon found 11 of 11 places it answered (Fenway Park,
+  MGH, Logan, MelroseWakefield Hospital, Whole Foods Medford…) and full addresses; Nominatim
+  missed "Melrose-Wakefield Hospital"; MassGIS (the state's address points, no key) is exact for
+  full addresses but finds no place names, ignores the area in its suggestions ("600 Main St Mel":
+  Mashpee, Hyannis, Wareham) and scored the Malden 600 Main Street as high as the Melrose one.
+  Photon's public instance answers in ~1.5-4 s (measured 2026-10-12; the server waits 6 s).
+  600 Main St, Melrose isn't in OSM as an address: Photon returns only bus stops there, and
+  Nominatim's "Main Street · street, Melrose" is the fallback.
+- **Endpoint:** `GET /api/places?q=` (3-100 characters): `{ places: [{ name, detail, lat, lon }] }`,
+  up to 5, near Boston (Photon: `lat/lon` 42.36,-71.06 and a bbox of the MBTA area, `limit=15`,
+  no `lang`: `lang=en` lost Fenway Park; Nominatim: `viewbox`, `bounded=1`, at most 1 request a
+  second, its usage policy). Stops, stations, platforms and shelters are left out (the picker
+  lists stations and routes itself); the same name and detail once. `detail`: the street address
+  and town, "street, Boston", "neighborhood, Boston", or the town for a bare address. Cached per
+  lowercased query for a day (500 queries; an empty answer isn't cached); 502 when both fail.
+  The searched text goes to Photon (or Nominatim) and is never logged.
+- **Stops near a point** (`pointEnds`): the nearest stop of each pattern within 800 m (per
+  pattern, not per route: a route's nearest stop can be where one of its patterns ends), walk
+  minutes = ⌈meters × 1.3 / 80⌉ (straight line × 1.3 for streets). Each start's walk counts in
+  the ranking (a 1-min walk to an earlier stop beats a 9-min walk to a later one) and comes back
+  as the option's `walkBefore` / `walkAfter`. Each starting stop keeps its own "places passed"
+  (riding from one may pass another).
+- **Picker (plan mode):** the search reads "Search stations, routes, places"; with 3+ characters
+  and a 300 ms pause, Places load under Stations and Routes ("Searching places…", "No places
+  found.", "Place search is unavailable right now."), each "Fenway Park · 4 Jersey Street,
+  Boston". From's list starts with "Current location · plan from where you are" (the browser's
+  location; "Location is off for this app." when denied). A place is `@lat,lon` with its name.
+- **Planner:** a point end has no walk field (its walk comes with each option); the trip is
+  named "Fenway Park to State", "Current location" by the first stop's name. Only stops and legs
+  are saved, no coordinates. Without the server: "Needs the T-Minus server.".
+- Live (2026-10-12): 600 Main St, Melrose → Fenway Park: 137 → Orange → Green, ~53-56 min;
+  350 Washington St, Malden → MGH: Orange to North Station or Orange → Red to Charles/MGH,
+  ~31-33 min; Harvard Square → Logan: Red → SL1, ~44 min; 24 Beacon St → Encore: Orange → 109,
+  ~29 min.
 
 ## Future extensions
 

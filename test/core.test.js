@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, nextWeekday, optionToForm, defaultTransferMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, UPDATE_MIN, testPushText,
@@ -1202,8 +1202,8 @@ test('planTrips: bus to rail to bus, walks up to 250 m between stops, routes rid
   const net = smallNetwork();
   const [hub] = planTrips(net, 'a1', 'place-mid');
   assert.deepEqual(hub.legs, [
-    { route: 'B1', also: ['B3'], direction_id: 0, stop: 'a1', alight: 'hb' },
-    { route: 'Orange', also: [], direction_id: 0, stop: 'place-hub', alight: 'place-mid' },
+    { route: 'B1', also: ['B3'], direction_id: 0, stop: 'a1', alight: 'hb', stopName: 'Elm St', alightName: 'Hub Busway' },
+    { route: 'Orange', also: [], direction_id: 0, stop: 'place-hub', alight: 'place-mid', stopName: 'Hub', alightName: 'Mid' },
   ]);
   assert.deepEqual(hub.transfers, [{ name: 'Hub Busway → Hub', meters: 33, min: 3 }]);
   assert.equal(hub.minutes, 11 + 3 + 2); // B1 11, change 3, Orange ~2.2
@@ -1244,7 +1244,7 @@ test('planTrips: bus to rail to bus, walks up to 250 m between stops, routes rid
 });
 
 test('planTrips: expected waits at changes rank a frequent line above a slightly faster rare one', () => {
-  // Waits: half the gap between the sample's departures (2 hours), capped at 30; none sampled: 10.
+  // Waits: half the gap between the sample's departures (2 hours), capped at 30; none sampled: 30.
   const dep = (trip, r, st, t) => ({ attributes: { departure_time: iso(t), stop_sequence: 1 }, relationships: { trip: { data: { id: trip } }, stop: { data: { id: st } }, route: { data: { id: r } } } });
   const net = transitNetwork({ data: [route('A', 3, ['X', 'S']), route('F', 3, ['D', 'X']), route('R', 3, ['D', 'X'])] }, {
     data: ['a', 'f', 'r'].map(id => ({ type: 'route_pattern', id, attributes: { direction_id: 0, typicality: 1 }, relationships: { route: { data: { id: id.toUpperCase() } }, representative_trip: { data: { id: `rt-${id}` } } } })),
@@ -1255,7 +1255,7 @@ test('planTrips: expected waits at changes rank a frequent line above a slightly
       stop('s', 'S St', 42.40, -71.20), stop('x', 'X Sq', 42.41, -71.20), stop('d', 'D St', 42.42, -71.20),
     ],
   }, { data: [...Array.from({ length: 12 }, (_, i) => dep(`f${i}`, 'F', 'x', `11:${String(i * 10 % 60).padStart(2, '0')}`)), dep('r0', 'R', 'x', '11:00'), dep('r1', 'R', 'x', '12:00')] });
-  assert.deepEqual(net.patterns.map(p => [p.route, p.waits]), [['A', [10, 10]], ['F', [5, 10]], ['R', [30, 10]]]);
+  assert.deepEqual(net.patterns.map(p => [p.route, p.waits]), [['A', [30, 30]], ['F', [5, 30]], ['R', [30, 30]]]);
   net.patterns[0].mins = [10];
   net.patterns[1].mins = [12];
   net.patterns[2].mins = [10];
@@ -1293,6 +1293,53 @@ test('planTrips: no walking back to a station ridden through; branches with thei
   assert.deepEqual(options.map(o => o.transfers[0].name), options.map(() => 'B'));
   // G1 and G2 stop at their own platforms at Y: one leg, the other riding along.
   assert.deepEqual(planTrips(lines, 'place-x', 'place-y').map(o => [o.legs[0].route, o.legs[0].also]), [['G1', ['G2']]]);
+});
+
+// A network from bare patterns ([id, route, type, stops]) and stops ([id, lat, lon, parent?]), with
+// set ride minutes per hop and waits per stop.
+function bareNetwork(pats, stops, mins = 5, wait = 5) {
+  const rs = [...new Set(pats.map(p => p[1]))].map(r => route(r, pats.find(p => p[1] === r)[2], ['To', 'From']));
+  const ps = pats.map(([id, r, type, ids, dir = 0]) => pattern(id, r, dir, ids, type === 3 ? { typicality: 1 } : { canonical: true }));
+  const net = transitNetwork({ data: rs }, { data: ps.map(p => p[0]), included: [...ps.map(p => p[1]), ...stops.map(([id, lat, lon, parent]) => stop(id, id.toUpperCase(), lat, lon, parent))] }, null);
+  for (const p of net.patterns) { p.mins = p.stops.slice(1).map(() => mins); p.waits = p.stops.map(() => wait); }
+  return net;
+}
+
+test('pointEnds: the nearest stop of each pattern within 800 m, with walk minutes', () => {
+  const net = smallNetwork();
+  // a1 is ~330 m from the point, a2 ~490 m: B1 and B3 both stop at a1 first. Walk: × 1.3, 80 m/min.
+  const ends = pointEnds(net, { lat: 42.40, lon: -71.096 });
+  assert.deepEqual(ends.map(e => e.id), ['a1']);
+  assert.equal(ends[0].min, Math.ceil(ends[0].meters * 1.3 / 80));
+  assert.ok(ends[0].meters > 300 && ends[0].meters < 360);
+  assert.deepEqual(pointEnds(net, { lat: 42.40, lon: -71.096 }, 200), []);
+  // From a point: walks count; the walk to the first stop comes back as walkBefore.
+  // a1 is one stop (~5 min) before a2 on B1: a 1-min walk to a1 beats a 9-min walk to a2.
+  const [o] = planTrips(net, [{ id: 'a1', min: 1 }, { id: 'a2', min: 9 }], 'place-mid');
+  assert.equal(o.legs[0].stop, 'a1');
+  assert.equal(o.walkBefore, 1);
+  assert.equal(o.walkAfter, 0);
+  const [back] = planTrips(net, 'place-hub', [{ id: 'o2', min: 4 }]);
+  assert.deepEqual([back.legs[0].alight, back.walkAfter], ['place-mid', 4]);
+});
+
+test('planTrips: ranked by total minutes with 5 per transfer; no route twice; one option per line\'s branches', () => {
+  const stops = [['s', 42.30, -71.10], ['x', 42.31, -71.10], ['d', 42.32, -71.10], ['q1', 42.3101, -71.1001], ['q2', 42.3102, -71.1002]];
+  // Direct D: 8 hops of 5 = 40 min. A to x (10) then F to d (10): 10 + 3 + 5 wait + 10 + 5 = 33.
+  const net = bareNetwork([['d', 'D', 3, ['s', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'd']], ['a', 'A', 3, ['s', 'm8', 'x']], ['f', 'F', 3, ['x', 'm9', 'd']]],
+    [...stops, ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => [`m${i}`, 42.5 + i / 100, -71.5])]);
+  assert.deepEqual(planTrips(net, 's', 'd').map(o => o.legs.map(l => l.route).join('>')), ['A>F', 'D']);
+  net.patterns[0].mins = net.patterns[0].mins.map(() => 3.875); // direct: 31 min, under 28 + 5 for the transfer
+  assert.deepEqual(planTrips(net, 's', 'd').map(o => o.legs.map(l => l.route).join('>')), ['D', 'A>F']);
+  // L out and L back (other direction): never.
+  const loop = bareNetwork([['l0', 'L', 3, ['s', 'x']], ['l1', 'L', 3, ['x', 'd'], 1]], stops);
+  assert.deepEqual(planTrips(loop, 's', 'd'), []);
+  // A route riding along on one leg isn't ridden again on the next (G2 rides along s → x, then G2).
+  const along = bareNetwork([['g1', 'G1', 3, ['s', 'x']], ['g2', 'G2', 3, ['s', 'x', 'd']]], stops);
+  assert.deepEqual(planTrips(along, 's', 'd').map(o => o.legs.map(l => [l.route, ...l.also].join('/')).join('>')), ['G2']);
+  // Two branches of one line from two bus stops by x: one option.
+  const branches = bareNetwork([['a', 'A', 3, ['s', 'x']], ['b1', 'T-1', 3, ['q1', 'd']], ['b2', 'T-2', 3, ['q2', 'd']]], stops);
+  assert.equal(planTrips(branches, 's', 'd').length, 1);
 });
 
 test('nextWeekday: today on a weekday, else Monday', () => {
