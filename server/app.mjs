@@ -445,7 +445,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
 
   // Each candidate as a trip (its walks: a point's from the option, else the app's), its legs'
   // predictions and next-2-hours schedules (each distinct leg fetched once, through the shared
-  // cache), and its first catchable row. `options`: the timed ones, ranked (timedOptions); none
+  // cache), and its first catchable row, timed on its last leg. `options`: the timed ones, ranked (timedOptions); none
   // within the window: the untimed ones with `none`; MBTA failing: the untimed ones with
   // `timedError`.
   async function timePlans(candidates, from, to, walks, t) {
@@ -465,8 +465,11 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
         const wb = typeof from.ends === 'string' ? walks.wb : o.walkBefore;
         const wa = typeof to.ends === 'string' ? walks.wa : o.walkAfter;
         const trip = formToTrip(optionToForm(o, '', '', wb, wa));
-        const got = await Promise.all(tripShape(trip).transit.map(legDocs));
-        const row = rowsFromDocs(trip, got.map(d => d[0]), got.map(d => d[1]), 0, t, walks.slack, 3).find(r => !r.missed);
+        const transit = tripShape(trip).transit;
+        const got = await Promise.all(transit.map(legDocs));
+        // Timed on the last leg: earlier legs take the latest vehicle that still makes it (the
+        // same arrival, leaving as late as possible, not waiting 45 min at Oak Grove for the 132).
+        const row = rowsFromDocs(trip, got.map(d => d[0]), got.map(d => d[1]), transit.length - 1, t, walks.slack, 3).find(r => !r.missed);
         return row && row.firstDep <= t + TIMED_WINDOW_MIN * MIN ? row : null;
       }));
       const options = timedOptions(candidates, rows, TIMED_CANDIDATES);

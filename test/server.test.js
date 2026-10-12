@@ -51,6 +51,8 @@ async function setup({ staticRoot = null } = {}) {
       data = [rec('schedule', 'b9', '5991', '07:20')].map(r => ({ ...r, relationships: { ...r.relationships, route: { data: { id: '132' } } } }));
     }
     if (route === '132' && u.pathname === '/schedules') data = [rec('schedule', 'b1', '25996', world.bus), rec('schedule', 'b1', '5991', '07:25')];
+    // A second 132 (world.bus2: [Main St, Oak Grove]).
+    if (route === '132' && u.pathname === '/schedules' && world.bus2) data.push(rec('schedule', 'b2', '25996', world.bus2[0]), rec('schedule', 'b2', '5991', world.bus2[1]));
     if (route === 'Orange' && u.pathname === '/predictions' && !world.cancelled) data = [rec('prediction', 'o1', 'place-ogmnl', world.orange), rec('prediction', 'o1', 'place-state', '07:50')];
     // A scheduled Orange trip with no prediction (its train predicted as an ADDED trip, or not running).
     if (route === 'Orange' && u.pathname === '/schedules' && world.orangeGhost) data = [rec('schedule', 'og', 'place-ogmnl', world.orangeGhost), rec('schedule', 'og', 'place-state', '07:47')];
@@ -586,6 +588,17 @@ test('auto-route timed from now (now=1): first catchable rows, ranked by arrival
     s.world.failing = true;
     const failed = await get(q);
     assert.deepEqual([failed.status, failed.body.timedError, failed.body.options.length], [200, true, 1]);
+  } finally { await s.close(); }
+});
+
+test('auto-route timed: on the last leg, so the first leg is the latest that still makes it', async () => {
+  const s = await setup();
+  try {
+    s.world.network = smallNetwork();
+    // Two 132s make the 07:33 Orange: 07:10 (at Oak Grove 07:25) and 07:15 (07:28). The later one.
+    s.world.bus2 = ['07:15', '07:28'];
+    const r = await (await s.call('GET', '/api/plan?from=25996&to=place-state&now=1&wb=5&wa=5&slack=1')).json();
+    assert.deepEqual([r.options[0].leave, r.options[0].deps[0].dep], [at('07:09'), at('07:15')]);
   } finally { await s.close(); }
 });
 

@@ -1155,8 +1155,10 @@ is for now, so its options are timed.
   the stop slack setting). Up to 8 candidates from `planTrips`, each made a trip
   (`optionToForm`, `formToTrip`; a point end's walks from the option) and timed with the
   reminders' engine: per distinct leg, `/predictions` and the next 2 hours of `/schedules`
-  (`TIMED_WINDOW_MIN`), then `rowsFromDocs` and its first row not missed (catchable leaving now:
-  walk and slack). No departure within 2 hours: dropped. `timedOptions` ranks the rest by
+  (`TIMED_WINDOW_MIN`), then `rowsFromDocs` timed on the last leg and its first row not missed
+  (catchable leaving now: walk and slack). On the last leg, earlier legs take the latest vehicle
+  that still makes it: the first live check (6:20pm, State to Main St) left at 6:25 for a 6:31
+  Orange and waited at Oak Grove for the 7:33 132. No departure within 2 hours: dropped. `timedOptions` ranks the rest by
   arrival, then fewer transfers, then the search's order (rail favored); each gets `leave`
   (leave-by), `arrive` and `deps` ([{ dep, live }] per leg); `timed: true`. All dropped: the
   untimed 3 with `none`; the MBTA failing: the untimed 3 with `timedError` (not cached).
