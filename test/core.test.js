@@ -1228,6 +1228,15 @@ test('planTrips: bus to rail to bus, walks up to 250 m between stops, routes rid
   }, null);
   near.patterns[0].mins = [10, 1];
   assert.deepEqual(planTrips(near, 'e1', 'place-mid')[0].legs[0].alight, 'by');
+  // The same routes getting off at the same station: one option, whichever bus stop you walk to.
+  const twoStops = transitNetwork({ data: [route('Q', 3, ['Qz', 'Mid']), route('Orange', 1, ['End', 'Hub'])] }, {
+    data: [pattern('q', 'Q', 0, ['q1', 'q2', 'qz'], { typicality: 1 })[0], pattern('or', 'Orange', 0, ['o1', 'o2'], { canonical: true })[0]],
+    included: [pattern('q', 'Q', 0, ['q1', 'q2', 'qz'], {})[1], pattern('or', 'Orange', 0, ['o1', 'o2'], {})[1],
+      stop('q1', 'Mid Busway', 42.4204, -71.0804), stop('q2', 'Up St', 42.4215, -71.0800), stop('qz', 'Q Sq', 42.43, -71.06),
+      stop('o1', 'Hub', 42.4102, -71.0800, 'place-hub'), stop('o2', 'Mid', 42.42, -71.08, 'place-mid')],
+  }, null);
+  const viaMid = planTrips(twoStops, 'place-hub', 'qz');
+  assert.deepEqual(viaMid.map(o => o.legs.map(l => [l.route, l.stop])), [[['Orange', 'place-hub'], ['Q', 'q1']]]);
   // The editor's form: the walk's minutes as the transfer.
   const form = optionToForm(zed, 'Elm St', 'Zed Sq', 5, 4);
   assert.equal(form.name, 'Elm St to Zed Sq');

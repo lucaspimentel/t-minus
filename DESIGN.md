@@ -1072,7 +1072,10 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   - Ranked by transfers, then estimated minutes (rides + transfer times), with walks between
     stops counted twice: riding one more stop to the one by the station beats getting off a stop
     early to walk 124 m (seen live at Oak Grove). An option with more transfers is shown only if
-    it ranks above every option with fewer.
+    it ranks above every option with fewer. Options riding the same routes and getting off at
+    the same places before each transfer are one option (the best ranked): State to Main St @
+    South St listed Orange → 132 via Oak Grove twice, walking to Washington St @ Oak Grove
+    Station (95 m) or 349 Washington St (198 m).
   - A leg's stops are named by their station when they have one (rail platforms, busway berths).
   - Each option: "● Bus 132 → ● Orange → ● Red", "2 transfers at Washington St opp Oak Grove Sta →
     Oak Grove (walk 96 m), Downtown Crossing · ~49 min" (a walk between two places names both;

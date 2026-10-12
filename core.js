@@ -668,9 +668,12 @@ export function planTrips(net, fromId, toId, maxTransfers = 2, limit = 3) {
     });
     const sig = legs.map(l => `${l.route}@${l.stop}>${l.alight}`).join('|');
     const shape = legs.map(l => [l.route, ...l.also].sort().join('/')).join('|') + '#' + legs.map(l => l.stop).join();
-    if (seenSig.has(sig) || seenSig.has(shape)) continue;
+    // The same routes getting off at the same places: only the stop you walk to differs.
+    const ride = legs.map(l => [l.route, ...l.also].sort().join('/')).join('|') + '>' + legs.slice(0, -1).map(l => l.alight).join();
+    if (seenSig.has(sig) || seenSig.has(shape) || seenSig.has(ride)) continue;
     seenSig.add(sig);
     seenSig.add(shape);
+    seenSig.add(ride);
     options.push({
       legs,
       transfers: f.path.slice(1).map((l, k) => {
