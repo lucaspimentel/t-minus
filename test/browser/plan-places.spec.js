@@ -2,7 +2,7 @@
 // server's /api/places, stubbed), "Current location", plans from a point (@lat,lon) with each
 // option's own walks, and the itinerary rows.
 import { test, expect } from '@playwright/test';
-import { openApp, tick } from './helpers.js';
+import { openApp, tick, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -10,8 +10,8 @@ test.beforeEach(({ page }) => {
 
 const setup = page => page.locator('#setup');
 const button = (page, name) => setup(page).getByRole('button', { name, exact: true });
-const options = page => setup(page).locator('#plan-options .item');
-const lines = (page, i) => options(page).nth(i).locator(':scope > *');
+const options = planOptions;
+const lines = optionLines;
 const list = page => setup(page).locator('.list');
 
 const FENWAY = { name: 'Fenway Park', detail: '4 Jersey Street, Boston', lat: 42.34646, lon: -71.0971 };
@@ -71,8 +71,11 @@ test('setup: an address or place from the search; the plan walks from it; the pi
   await expect(setup(page).getByLabel('Minutes from last stop')).toHaveValue('5');
   await pickStation(page, 'to', 'state', 'State');
   expect(calls.plan).toEqual(['?from=%4042.34646%2C-71.0971&to=place-state']);
-  await expect(lines(page, 0)).toHaveText(['~40 min', 'Walk 3 min to Main St @ South St', 'Bus 132 to Washington St @ Oak Grove Sta', 'Walk 32 m to Oak Grove', 'Orange to State', 'Walk 5 min to State']);
-  await options(page).first().click();
+  await expect(lines(page, 0)).toHaveText(['~40 min', /^Bus 132\s*Orange$/]);
+  // The option's own walk from the place; the field's at the station.
+  const tl = await expandOption(page);
+  await expect(tl.locator('.step.walk')).toHaveText(['Walk 3 min', 'Walk 3 min to transfer', 'Walk 5 min']);
+  await pickOption(page);
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Fenway Park to State');
   await expect(setup(page).getByLabel('Minutes to first stop')).toHaveValue('3');
   await expect(setup(page).getByLabel('Minutes from last stop')).toHaveValue('5');
@@ -110,7 +113,7 @@ test('main screen: Current location as From makes a one-off trip named from its 
   await expect(setup(page).locator('#plan-from')).toHaveText(/^Current location\s*Change$/);
   await pickStation(page, 'to', 'state', 'State');
   expect(calls.plan).toEqual([expect.stringMatching(/^\?from=%4042\.45031%2C-71\.07029&to=place-state&now=1&/)]); // timed from now
-  await options(page).first().click();
+  await pickOption(page);
   await expect(page.locator('#oneoff')).toBeVisible();
   const oneOff = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:one-off')).trip);
   expect(oneOff.name).toBe('Main St @ South St to State');
@@ -130,7 +133,7 @@ test('setup: Current location as To; the trip is named for its last stop', async
   await expect(setup(page).locator('#plan-to')).toHaveText(/^Current location\s*Change$/);
   await expect(setup(page).getByLabel('Minutes from last stop')).toHaveCount(0);
   expect(calls.plan).toEqual(['?from=place-ogmnl&to=%4042.358%2C-71.0577']);
-  await options(page).first().click();
+  await pickOption(page);
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove to State');
 });
 

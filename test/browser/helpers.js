@@ -102,3 +102,18 @@ export async function drag(page, [x, y], dy, { release = false, steps = 10 } = {
 export const riding = (vehicle, stops = null) => stops == null
   ? new RegExp(`^(${vehicle} · (\\d+ stops? · )?(\\d+|<1) min|Next stop: get off)$`)
   : new RegExp(`^${vehicle} · ${stops} stops? · (\\d+|<1) min$`);
+
+// Auto-route options (setup.js): cards like the rows. `optionLines` is a collapsed card's head
+// and route strip; `pickOption` expands one and taps its button ("See departures" / "Review and
+// save").
+export const planOptions = page => page.locator('#setup #plan-options > .row');
+export const optionLines = (page, i) => planOptions(page).nth(i).locator('.opt-head, .row-toggle > .detail:not(.summary), .strip');
+export async function expandOption(page, i = 0) {
+  const toggle = planOptions(page).nth(i).locator('.row-toggle');
+  if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+  return planOptions(page).nth(i).locator('.timeline');
+}
+export async function pickOption(page, i = 0) {
+  await expandOption(page, i);
+  await planOptions(page).nth(i).locator('.row-foot button').click();
+}

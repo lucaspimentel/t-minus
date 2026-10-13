@@ -5,10 +5,10 @@
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=67eeea924d';
+} from './core.js?v=c8a60c63c7';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -75,7 +75,7 @@ const NEARBY_RADIUS = 0.003;
 // `onPlan(trip)`: open on the auto-route planner ("Go somewhere else…"); the picked option is
 // handed back as a one-off trip (labeled, not saved) and Cancel closes setup.
 // `planApi(path, params)`: the T-Minus server's /stops and /plan (buses); null: rail only, in the browser.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, nearby = null, onReset = null, startImport = false, onPlan = null, planApi = null }) {
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, nearby = null, onReset = null, startImport = false, onPlan = null, planApi = null, timeline = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -372,9 +372,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // walks, then up to 3 ways: the server's plans (`planApi`: buses and rail), else (or when it
   // fails, between two stations) rail only, in the browser (planRoutes). Setup opens the pick in
   // the trip editor; the main screen gets a one-off trip.
-  const routeTagOf = (ids, colorOf) => {
+  // A leg's routes as one label and color ("Bus 132", "Orange").
+  const routeLook = (ids, colorOf) => {
     const look = id => { const r = routeById(id); const l = railNet?.lines.find(x => x.id === id); return { label: r ? shortRouteLabel(r) : l?.label ?? id, color: r?.attributes?.color ?? l?.color }; };
-    return h('span', { class: 'tag' }, dot(colorOf ?? look(ids[0]).color), commonLabel(ids.map(id => look(id).label), true));
+    return { label: commonLabel(ids.map(id => look(id).label), true), color: colorOf ?? look(ids[0]).color };
   };
   const placeTags = place => place.point
     ? [place.detail && h('span', { class: 'muted' }, `· ${place.detail}`)]
@@ -437,11 +438,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // Every TIMED_REFRESH_MS while the timed list is open: new times for the shown options (a
   // departure that passed rolls to its next one), in the same order; one with nothing left drops.
+  // Skipped while an option is expanded (its timeline stays as read).
   let timedTimer = null;
   function startTimedRefresh(p, key) {
     clearInterval(timedTimer);
     timedTimer = setInterval(() => {
       if (planner !== p || p.plan?.key !== key || !p.plan.timed) { clearInterval(timedTimer); timedTimer = null; return; }
+      if (p.plan.open?.size) return; // paused while an option is expanded
       planApi('/plan', planQuery(p)).then(r => {
         if (planner !== p || p.plan?.key !== key || !r.timed) return;
         const byKey = new Map(r.options.map(o => [optionKey(o), o]));
@@ -487,31 +490,35 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     };
     const lineOf = id => railNet.lines.find(l => l.id === id);
     const stationName = id => networkStation(railNet, id)?.name ?? id;
-    // An option as an itinerary: the total, the walk to the first stop, each ride to where you get
-    // off (and a walk between stops), the walk at the end.
-    const optionRows = (o, local) => {
+    // An option as a card like a main-list row. Head: "Arrive 8:48pm · ~44 min" and "Leave 8:03pm
+    // (in 44 min)", or "~40 min" untimed. Collapsed: its routes and the first ride's badge;
+    // expanded (a tap): its timeline (Leave, walks, rides, transfers, Arrive) and the pick button.
+    const optionCard = (o, local) => {
       const [wb, wa] = walks(o);
       const board = l => (local ? stationName(l.stop) : l.stopName ?? l.stop);
       const alight = l => (local ? stationName(l.alight) : l.alightName ?? l.alight);
-      const muted = text => h('div', { class: 'muted' }, text);
-      // Timed: "Arrive 2:31pm · ~39 min", "Leave 1:52pm (in 4 min)", each ride's departure.
+      const k = optionKey(o);
+      const open = !!p.plan.open?.has(k); // expanded (p.plan.open: optionKeys)
+      const tags = o.legs.map(l => routeLook([l.route, ...l.also], local ? lineOf(l.route)?.color : null));
       const now = Date.now();
       const inMin = o.leave != null && Math.round((o.leave - now) / 60_000);
       const head = o.arrive != null
-        ? [h('b', {}, `Arrive ${formatTime(o.arrive, now)} · ~${Math.round((o.arrive - o.leave) / 60_000)} min`),
-          muted(inMin > 0 ? `Leave ${formatTime(o.leave, now)} (in ${inMin} min)` : 'Leave now')]
-        : [h('b', {}, o.minutes != null ? `~${o.minutes + wb + wa} min` : `${o.stops} stop${o.stops === 1 ? '' : 's'}`)];
-      return [
-        ...head,
-        wb > 0 && muted(`Walk ${wb} min to ${board(o.legs[0])}`),
-        ...o.legs.flatMap((l, i) => {
-          const t = o.transfers[i - 1];
-          const dep = o.deps?.[i] ? `${formatTime(o.deps[i].dep, now)} ` : '';
-          return [i > 0 && t?.meters > 0 && muted(`Walk ${t.meters} m to ${board(l)}`),
-            h('div', { class: 'ride' }, routeTagOf([l.route, ...l.also], local ? lineOf(l.route)?.color : null), h('span', { class: 'muted' }, ` ${dep}to ${alight(l)}`))];
-        }),
-        wa > 0 && muted(`Walk ${wa} min to ${p.to.name}`),
-      ].filter(Boolean);
+        ? [h('b', { class: 'opt-head' }, `Arrive ${formatTime(o.arrive, now)} · ~${Math.round((o.arrive - o.leave) / 60_000)} min`),
+          h('div', { class: 'detail' }, inMin > 0 ? `Leave ${formatTime(o.leave, now)} (in ${inMin} min)` : 'Leave now')]
+        : [h('b', { class: 'opt-head' }, o.minutes != null ? `~${o.minutes + wb + wa} min` : `${o.stops} stop${o.stops === 1 ? '' : 's'}`)];
+      const first = o.deps?.[0];
+      const toggle = h('button', { type: 'button', class: 'row-toggle', 'aria-expanded': String(open), 'data-focus': `option:${k}` }, ...head,
+        !open && h('div', { class: 'strip' }, ...tags.flatMap(t => [h('span', { class: 'seg' }), h('span', { class: 'stop' }, dot(t.color), t.label)]), h('span', { class: 'seg' })),
+        !open && h('div', { class: 'detail summary' }, first ? h('span', { class: `badge ${first.source}` }, sourceText(first)) : h('span'), h('span', { class: 'chev' }, '▾')));
+      const card = h('li', { class: 'row option', onclick: () => { const opened = (p.plan.open ??= new Set()); if (!opened.delete(k)) opened.add(k); render(); } }, toggle);
+      if (open) {
+        const legs = o.legs.map((l, i) => ({ ...tags[i], from: board(l), to: alight(l) }));
+        card.append(timeline?.(optionSteps(o, { walkBefore: wb, walkAfter: wa, slack: app.stopSlackMinutes, legs }), `option:${k}`) ?? '',
+          h('div', { class: 'row-foot' },
+            h('button', { type: 'button', class: 'track-btn', 'data-focus': `pick:${k}`, onclick: e => { e.stopPropagation(); pick(o); } }, p.oneOff ? 'See departures' : 'Review and save'),
+            h('span', { class: 'chev' }, '▴')));
+      }
+      return card;
     };
     const plan = p.plan;
     const optionList = !plan ? []
@@ -521,8 +528,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
             ? [plan.none && h('div', { class: 'msg' }, 'Nothing runs in the next 2 hours.'),
               plan.timedError && h('div', { class: 'msg' }, 'Times unavailable.'),
               h('div', { class: 'muted section' }, p.oneOff ? 'Pick one to see its departures' : 'Pick one to review and save'),
-              h('div', { class: 'list', id: 'plan-options' }, ...plan.options.map(o => h('button', { type: 'button', class: 'item option', onclick: () => pick(o) },
-                ...optionRows(o, plan.local))))]
+              h('ul', { class: 'rows', id: 'plan-options' }, ...plan.options.map(o => optionCard(o, plan.local)))]
             : [h('div', { class: 'msg' }, plan.local ? 'No way on the subway with 2 transfers or fewer.' : 'No way with 2 transfers or fewer.')];
     return [head,
       h('div', { class: 'card' },

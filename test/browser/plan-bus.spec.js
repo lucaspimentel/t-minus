@@ -2,7 +2,7 @@
 // Show nearby), the T-Minus server's /api/plan (stubbed here; the server's own tests cover the
 // search), and the fallback when the server fails.
 import { test, expect } from '@playwright/test';
-import { openApp, tick } from './helpers.js';
+import { openApp, tick, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -10,8 +10,8 @@ test.beforeEach(({ page }) => {
 
 const setup = page => page.locator('#setup');
 const button = (page, name) => setup(page).getByRole('button', { name, exact: true });
-const options = page => setup(page).locator('#plan-options .item');
-const lines = (page, i) => options(page).nth(i).locator(':scope > *');
+const options = planOptions;
+const lines = optionLines;
 const title = page => setup(page).locator('.setup-head b');
 
 const PLAN = {
@@ -67,9 +67,12 @@ test('setup: a route\'s stop to a station; the pick opens in the editor with the
   await setup(page).locator('.list .item', { hasText: 'Main St @ South St' }).click();
   await expect(setup(page).locator('#plan-from')).toHaveText(/^Main St @ South St\s*Bus 132\s*Change$/);
   await pickStation(page, 'to', 'state', 'State');
-  await expect(lines(page, 0)).toHaveText(['~42 min', 'Walk 5 min to Main St @ South St', 'Bus 132 to Washington St @ Oak Grove Sta', 'Walk 32 m to Oak Grove', 'Orange to State', 'Walk 5 min to State']);
+  await expect(lines(page, 0)).toHaveText(['~42 min', /^Bus 132\s*Orange$/]);
+  const tl = await expandOption(page);
+  await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St @ Oak Grove Sta', 'Oak Grove', 'State']);
+  await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min', 'Walk 3 min to transfer', 'Walk 5 min']);
   expect(calls).toEqual(['?from=15982%2C25996&to=place-state']); // both sides: the server picks
-  await options(page).first().click();
+  await pickOption(page);
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Main St @ South St to State');
   await expect(setup(page).getByLabel('Minutes to transfer')).toHaveValue('3');
   await expect(setup(page).locator('.leg-item')).toHaveText([/Bus 132.*Main St @ South St → Washington St/, /Orange.*Oak Grove → State/]);
@@ -83,7 +86,7 @@ test('main screen: a one-off trip from a bus stop has the bus and the train', as
   await page.getByRole('button', { name: 'Go somewhere else…' }).click();
   await pickStop(page, 'from', '132', 'Main St @ South St');
   await pickStation(page, 'to', 'state', 'State');
-  await options(page).first().click();
+  await pickOption(page);
   await tick(page, 1000);
   await expect(page.locator('#oneoff')).toBeVisible();
   await expect(page.locator('.row .strip').first()).toHaveText(/Bus 132\s*Orange/);
@@ -118,7 +121,7 @@ test('without the server: stations still plan in the browser (rail only); a bus 
   await page.getByRole('button', { name: 'Go somewhere else…' }).click();
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
-  await expect(lines(page, 0)).toHaveText(['8 stops', 'Walk 5 min to Oak Grove', 'Orange to State', 'Walk 5 min to State']);
+  await expect(lines(page, 0)).toHaveText(['8 stops', /^Orange$/]);
   await pickStop(page, 'from', '132', 'Main St @ South St');
   await expect(setup(page)).toContainText('Needs the T-Minus server.');
 });

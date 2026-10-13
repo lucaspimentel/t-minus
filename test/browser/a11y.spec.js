@@ -2,7 +2,7 @@
 // focus kept across the once-a-second redraw, and the screen-reader announcements (#announce).
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { openApp, tick, tickTo, at } from './helpers.js';
+import { openApp, tick, tickTo, at, planOptions, expandOption, pickOption } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -142,10 +142,11 @@ for (const scheme of ['light', 'dark']) {
     await page.locator('#plan-to').click();
     await page.locator('#picker-search').fill('state');
     await page.locator('#setup .list .item.station', { hasText: 'State' }).click();
-    await expect(page.locator('#plan-options .item')).toHaveCount(1);
-    await expect(page.locator('#plan-options .item .ride')).toHaveCount(2); // the itinerary rows
+    await expect(planOptions(page)).toHaveCount(1);
     expect(await violations(page)).toEqual([]);
-    await page.locator('#plan-options .item').first().click();
+    await expect((await expandOption(page)).locator('.step.ride')).toHaveCount(2); // the option's timeline
+    expect(await violations(page)).toEqual([]);
+    await pickOption(page);
     await expect(page.locator('#oneoff')).toBeVisible();
     await tick(page, 1000);
     expect(await violations(page)).toEqual([]);

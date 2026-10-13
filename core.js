@@ -801,13 +801,43 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
 // "Go somewhere else…" with live times: `rows[i]` is option i's first catchable row (rowsFromDocs;
 // null: nothing within the window). Ranked by arrival, then fewer transfers, then the search's
 // order (which already favors rail); options without a row are dropped. Each: the option with
-// `leave` (leave-by), `arrive` (eta) and `deps` ([{ dep, live }] per transit leg).
+// `leave` (leave-by), `arrive` (eta) and `deps` ([{ dep, arr, source, headsign?, every? }] per
+// transit leg).
 export const TIMED_WINDOW_MIN = 120;
 export function timedOptions(options, rows, limit = 8) {
   return options.map((o, i) => ({ o, i, r: rows[i] })).filter(x => x.r)
     .sort((a, b) => a.r.eta - b.r.eta || a.o.transfers.length - b.o.transfers.length || a.i - b.i)
     .slice(0, limit)
-    .map(({ o, r }) => ({ ...o, leave: r.leaveBy, arrive: r.eta, deps: r.legs.map(l => ({ dep: l.dep, live: l.source === 'live' })) }));
+    .map(({ o, r }) => ({ ...o, leave: r.leaveBy, arrive: r.eta, deps: r.legs.map(l => ({ dep: l.dep, arr: l.arr, source: l.source, ...(l.headsign && { headsign: l.headsign }), ...(l.every && { every: l.every }) })) }));
+}
+
+// An auto-route option as timeline steps (timelineSteps' shape): Leave, the walk, each ride
+// (`legs`: [{ label, color, from, to }] per option leg) with its timed vehicle (o.deps) and the
+// transfers between, the walk, Arrive. Untimed: no times, durations or badges; a transfer is its
+// walk ("Walk 3 min to transfer"), or "Transfer" in the station.
+export function optionSteps(o, { walkBefore, walkAfter, slack = 0, legs }) {
+  const timed = o.leave != null;
+  const steps = [{ kind: 'end', label: 'Leave', time: timed ? o.leave : null }];
+  const parts = [walkBefore > 0 && `Walk ${walkBefore} min`, timed && slack > 0 && `${slack} min early at the stop`].filter(Boolean);
+  if (parts.length) steps.push({ kind: 'walk', text: parts.join(' · '), walking: walkBefore > 0 });
+  o.legs.forEach((l, i) => {
+    const d = timed ? o.deps?.[i] : null;
+    if (i > 0) {
+      const prev = timed ? o.deps?.[i - 1] : null;
+      const t = o.transfers?.[i - 1];
+      const min = typeof t === 'object' ? t?.min : 0;
+      steps.push(d && prev ? { kind: 'walk', text: `${formatCountdown(d.dep - prev.arr)} to transfer`, walking: true }
+        : min > 0 ? { kind: 'walk', text: `Walk ${min} min to transfer`, walking: true } : { kind: 'walk', text: 'Transfer', walking: false });
+    }
+    const { label, color, from, to } = legs[i];
+    steps.push({
+      kind: 'leg', from, to, minutes: d ? formatCountdown(d.arr - d.dep) : null,
+      leg: { label, color, ...(d && { dep: d.dep, arr: d.arr, source: d.source, ...(d.headsign && { headsign: d.headsign }), ...(d.every && { every: d.every }) }) },
+    });
+  });
+  if (walkAfter > 0) steps.push({ kind: 'walk', text: `Walk ${walkAfter} min`, walking: true });
+  steps.push({ kind: 'end', label: 'Arrive', time: timed ? o.arrive : null });
+  return steps;
 }
 
 // The same option in two answers (a timed list's refresh): its routes and stops.

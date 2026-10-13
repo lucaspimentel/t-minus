@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, UPDATE_MIN, testPushText,
@@ -1377,15 +1377,33 @@ test('planTrips: an option with more transfers than one above it, and no faster,
 
 test('timedOptions: by arrival, then fewer transfers, then the search order; no row: dropped', () => {
   const opt = (id, n) => ({ legs: [{ route: id, stop: 'a', alight: 'b' }], transfers: new Array(n).fill({}) });
-  const row = (leaveBy, eta, live) => ({ leaveBy, eta, legs: [{ dep: leaveBy + 5, source: live ? 'live' : 'scheduled' }] });
+  const row = (leaveBy, eta, live) => ({ leaveBy, eta, legs: [{ dep: leaveBy + 5, arr: eta - 5, source: live ? 'live' : 'scheduled', ...(live && { headsign: 'Forest Hills' }) }] });
   const opts = [opt('A', 1), opt('B', 2), opt('C', 1), opt('D', 0), opt('E', 0)];
   const out = timedOptions(opts, [row(10, 50, true), row(5, 40, false), row(12, 50, false), null, row(20, 50, false)]);
   assert.deepEqual(out.map(o => o.legs[0].route), ['B', 'E', 'A', 'C']);
-  assert.deepEqual([out[0].leave, out[0].arrive, out[0].deps], [5, 40, [{ dep: 10, live: false }]]);
-  assert.deepEqual(out[2].deps, [{ dep: 15, live: true }]);
+  assert.deepEqual([out[0].leave, out[0].arrive, out[0].deps], [5, 40, [{ dep: 10, arr: 35, source: 'scheduled' }]]);
+  assert.deepEqual(out[2].deps, [{ dep: 15, arr: 45, source: 'live', headsign: 'Forest Hills' }]);
   assert.equal(timedOptions(opts, [null, null, null, null, null]).length, 0);
   assert.equal(timedOptions(opts, [row(1, 2), row(1, 3), row(1, 4), row(1, 5), row(1, 6)], 3).length, 3);
   assert.equal(optionKey(opts[0]), 'A@a>b');
+});
+
+test('optionSteps: a timed option as timeline steps; untimed: no times, transfers by their walk', () => {
+  const M = 60_000;
+  const legs = [{ label: 'Bus 132', color: 'FFC72C', from: 'Main St @ South St', to: 'Washington St opp Oak Grove Sta' },
+    { label: 'Orange', color: 'ED8B00', from: 'Oak Grove', to: 'State' }];
+  const o = { legs: [{}, {}], transfers: [{ name: 'x', meters: 96, min: 3 }] };
+  const timed = { ...o, leave: 0, arrive: 45 * M, deps: [{ dep: 4 * M, arr: 15 * M, source: 'live', headsign: 'Malden' }, { dep: 22 * M, arr: 40 * M, source: 'scheduled' }] };
+  const steps = optionSteps(timed, { walkBefore: 3, walkAfter: 5, slack: 1, legs });
+  assert.deepEqual(steps.map(s => s.kind === 'leg' ? `${s.leg.label} ${s.minutes} ${s.leg.source} ${s.from}>${s.to}` : s.kind === 'walk' ? s.text : `${s.label} ${s.time}`), [
+    'Leave 0', 'Walk 3 min · 1 min early at the stop', 'Bus 132 11 min live Main St @ South St>Washington St opp Oak Grove Sta',
+    '7 min to transfer', 'Orange 18 min scheduled Oak Grove>State', 'Walk 5 min', `Arrive ${45 * M}`]);
+  assert.deepEqual(steps[2].leg, { label: 'Bus 132', color: 'FFC72C', dep: 4 * M, arr: 15 * M, source: 'live', headsign: 'Malden' });
+  const plain = optionSteps(o, { walkBefore: 3, walkAfter: 0, slack: 1, legs });
+  assert.deepEqual(plain.map(s => s.text ?? s.time ?? s.minutes ?? null), [null, 'Walk 3 min', null, 'Walk 3 min to transfer', null, null]);
+  assert.deepEqual(plain[2].leg, { label: 'Bus 132', color: 'FFC72C' });
+  // Rail only (the browser's search): transfers are station names, in the station.
+  assert.equal(optionSteps({ legs: [{}, {}], transfers: ['Oak Grove'] }, { walkBefore: 0, walkAfter: 0, legs })[2].text, 'Transfer');
 });
 
 test('nextWeekday: today on a weekday, else Monday', () => {

@@ -199,6 +199,10 @@
     text-decoration: underline; cursor: pointer; box-shadow: none !important; transform: none !important;
   }
   .enroute-bar.ride-btns { margin: 12px 0 0; }
+  /* Auto-route options: cards like the rows (setup). */
+  .setup button.row-toggle { padding: 0; border: 0; border-radius: 6px; background: none; font-size: inherit; }
+  .row.option .opt-head { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  #plan-options { margin-top: 6px; grid-template-columns: minmax(0, 1fr); } /* long stop names cut, not widen */
   .toast {
     position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 10;
     max-width: 360px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px;
@@ -378,7 +382,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-12 · 78ce0dce80</footer>
+    <footer class="version">Version 2026-10-12 · b585daa0f3</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -401,8 +405,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=67eeea924d';
-import { openSetup } from './setup.js?v=0511ad21c9';
+} from './core.js?v=c8a60c63c7';
+import { openSetup } from './setup.js?v=a34b913f44';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1132,7 +1136,7 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
   };
   const stopLine = (name, time, id, cls, leg) => {
     const line = el('div', `step stop${cls}${fullStops.has(id) ? ' full' : ''}`);
-    line.append(el('span', 'node'), el('span', 'n', name ?? '—'), el('span', 't', legTime(leg, time, now)));
+    line.append(el('span', 'node'), el('span', 'n', name ?? '—'), el('span', 't', time == null ? '' : legTime(leg, time, now)));
     if (name) {
       line.onclick = e => {
         e.stopPropagation();
@@ -1147,7 +1151,7 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     if (s.kind === 'end') {
       // "Leave 10:30pm" / "Arrive 11:16pm": a gray node with the time in the stops' column.
       const line = el('div', `step end${walkState(i)}`);
-      line.append(el('span', 'node end-node'), el('span', 'n', s.label), el('span', 't', `${s.approx ? '~' : ''}${formatTime(s.time, now)}`));
+      line.append(el('span', 'node end-node'), el('span', 'n', s.label), el('span', 't', s.time == null ? '' : `${s.approx ? '~' : ''}${formatTime(s.time, now)}`));
       timeline.append(line);
       continue;
     }
@@ -1158,8 +1162,9 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     const leg = el('div', 'tl-leg');
     leg.style.setProperty('--c', s.leg.color ? `#${s.leg.color}` : 'var(--muted)');
     // "Orange Line · 15 min LIVE", then "toward Forest Hills" (the trip's headsign) below.
-    const ride = el('div', `step ride${legState(i, 'ride')}`, `${lineLabel(s.leg)} · ${s.minutes}`);
-    ride.append(badge(s.leg));
+    // Untimed (an auto-route option in setup): the line alone.
+    const ride = el('div', `step ride${legState(i, 'ride')}`, s.minutes ? `${lineLabel(s.leg)} · ${s.minutes}` : lineLabel(s.leg));
+    if (s.leg.source) ride.append(badge(s.leg));
     if (s.leg.headsign) ride.append(el('div', 'toward', toward(s.leg)));
     leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from'), s.leg), ride,
       ...(along?.leg === i ? along.rows : []), stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to'), s.leg));
@@ -1639,6 +1644,8 @@ function showSetup({ importOpen = false, plan = false } = {}) {
     testPush: SERVER_API ? { supported: pushSupported, send: testPush } : null,
     nearby: SERVER_API ? nearbyFromServer : null,
     planApi: SERVER_API ? planFromServer : null,
+    // Auto-route options drawn like an expanded row.
+    timeline: (steps, key) => renderTimeline(steps, Date.now(), { key }),
     onClose: closeSetup,
     onReset: resetApp,
     startImport: importOpen,

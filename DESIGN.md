@@ -1110,11 +1110,15 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
     is left out: State to Main St @ South St listed Orange → 137/131 → 132 (~42 min) under
     Orange → 132 (~37).
   - A leg's stops are named by their station when they have one (rail platforms, busway berths).
-  - Each option is an itinerary (phase 3, chosen from three mockups): "~54 min", "Walk 3 min to
-    Main St @ Grove St", one line per ride ("● Bus 132 to Malden Center"), "Walk 120 m to
-    Clarendon St" for a walk between stops, "Walk 5 min to Fenway Park". The total includes the
-    walks (a point end's from the option, else the field's). The rail-only fallback's options
-    show their stop count instead of minutes. Legs carry `stopName` / `alightName`.
+  - Each option is a card like a main-list row (2026-10-13, from mockups; before: text
+    itinerary rows). Collapsed (all, at first): "~54 min" and the route strip ("● Bus 132 —
+    ● Orange"). A tap expands it to the timeline the rows use (`optionSteps` → `renderTimeline`,
+    passed to setup as `timeline`): Leave, the walk, each ride's bar from its boarding stop to its
+    drop-off, "Walk 3 min to transfer" ("Transfer" in a station), the walk, Arrive; untimed, no
+    times, durations or badges. The card's button picks it ("Review and save" in setup, "See
+    departures" for a one-off trip). The total includes the walks (a point end's from the
+    option, else the field's). The rail-only fallback's options show their stop count instead of
+    minutes. Legs carry `stopName` / `alightName`.
 - **Picking From/To:** the planner shows From and To as buttons; each opens the manual leg
   picker in plan mode (`picker.planField`), titled "From" / "To", Back to the planner. Its search
   ("Search stations or routes") lists Stations (rail line tags) and Routes, never bus stop names
@@ -1160,15 +1164,19 @@ is for now, so its options are timed.
   that still makes it: the first live check (6:20pm, State to Main St) left at 6:25 for a 6:31
   Orange and waited at Oak Grove for the 7:33 132. No departure within 2 hours: dropped. `timedOptions` ranks the rest by
   arrival, then fewer transfers, then the search's order (rail favored); each gets `leave`
-  (leave-by), `arrive` and `deps` ([{ dep, live }] per leg); `timed: true`. All dropped: the
+  (leave-by), `arrive` and `deps` ([{ dep, arr, source, headsign? }] per leg); `timed: true`. All dropped: the
   untimed 3 with `none`; the MBTA failing: the untimed 3 with `timedError` (not cached).
   Answers are cached 30 s per pair, walks and slack.
 - **App:** only "Go somewhere else…" asks (setup's "+ Add trip (auto-route)" stays untimed: a
   saved trip is used at many times of day; the rail-only fallback too). "Finding ways…" until
-  the timed answer; the best 3 shown as "Arrive 2:31pm · ~39 min", "Leave 1:52pm (in 4 min)"
-  ("Leave now" once due), the walks, each ride with its departure ("● Orange 1:57pm to Oak
-  Grove"). Every 60 s while open, the times refresh in place: the order stays (`optionKey`), a
-  departure that passed rolls to its next one, an option with nothing left drops. "Nothing runs
+  the timed answer; the best 3 as cards (2026-10-13, from mockups: arrival first, collapsible
+  like the rows): "Arrive 2:31pm · ~39 min", "Leave 1:52pm (in 4 min)" ("Leave now" once due),
+  the route strip and the first ride's LIVE / SCHEDULED badge. Expanded: the main list's
+  timeline with each stop's time, "Orange Line · 18 min LIVE / toward Forest Hills", "7 min to
+  transfer" (the wait between vehicles, as on the rows), then "See departures". Every 60 s while
+  open and no option is expanded (an expanded timeline stays as read), the times refresh in
+  place: the order stays (`optionKey`), a departure that passed rolls to its next one, an option
+  with nothing left drops. "Nothing runs
   in the next 2 hours." / "Times unavailable." above the untimed options. Picking works as
   before (the one-off trip's own rows time it).
 

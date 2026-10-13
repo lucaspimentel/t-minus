@@ -2,7 +2,7 @@
 // trip editor; the main screen's "Go somewhere else…" makes a one-off trip (Save, ✕ Remove,
 // removed once its ride is over). Stations from the recorded rail network.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo } from './helpers.js';
+import { openApp, tick, tickTo, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -11,9 +11,9 @@ test.beforeEach(({ page }) => {
 const setup = page => page.locator('#setup');
 const button = (page, name) => setup(page).getByRole('button', { name, exact: true });
 const toast = page => page.locator('#toast');
-const options = page => setup(page).locator('#plan-options .item');
+const options = planOptions;
 // An option's lines: the total, the walks and each ride.
-const lines = (page, i) => options(page).nth(i).locator(':scope > *');
+const lines = optionLines;
 
 // From or To: the leg picker (plan mode), a station by name; back on the planner.
 async function pickStation(page, field, query, name) {
@@ -29,15 +29,25 @@ test('setup: auto-route lists the ways between two stations and opens the pick i
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'kendall', 'Kendall/MIT');
   await expect(options(page)).toHaveCount(3);
-  await expect(lines(page, 0)).toHaveText(['12 stops', 'Walk 5 min to Oak Grove', 'Orange to Downtown Crossing', 'Red to Kendall/MIT', 'Walk 5 min to Kendall/MIT']);
-  await expect(lines(page, 1)).toHaveText(['11 stops', 'Walk 5 min to Oak Grove', 'Orange to Haymarket', /^Green.* to Park Street$/, 'Red to Kendall/MIT', 'Walk 5 min to Kendall/MIT']);
+  await expect(lines(page, 0)).toHaveText(['12 stops', /^Orange\s*Red$/]);
+  await expect(lines(page, 1)).toHaveText(['11 stops', /^Orange\s*Green.*Red$/]);
+  // Expanded: the timeline, without times (a saved trip is used at many times of day).
+  const tl = await expandOption(page, 1);
+  await expect(tl.locator('.step.stop .n')).toHaveText(['Oak Grove', 'Haymarket', 'Haymarket', 'Park Street', 'Park Street', 'Kendall/MIT']);
+  await expect(tl.locator('.step.ride')).toHaveText(['Orange Line', /^Green Line/, 'Red Line']);
+  await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min', 'Transfer', 'Transfer', 'Walk 5 min']);
+  await expect(tl.locator('.step.stop .t, .step.end .t')).toHaveText(['', '', '', '', '', '', '', '']);
+  await expect(tl.locator('.badge')).toHaveCount(0);
+  await expect(options(page).nth(1).locator('.row-foot button')).toHaveText('Review and save');
+  await options(page).nth(1).locator('.row-toggle').click(); // collapses
+  await expect(options(page).nth(1).locator('.timeline')).toHaveCount(0);
   // Change a station: the search comes back for it.
   await pickStation(page, 'to', 'state', 'State');
   await expect(options(page)).toHaveCount(1);
-  await expect(lines(page, 0)).toHaveText(['8 stops', 'Walk 5 min to Oak Grove', 'Orange to State', 'Walk 5 min to State']);
+  await expect(lines(page, 0)).toHaveText(['8 stops', /^Orange$/]);
   await pickStation(page, 'to', 'kendall', 'Kendall/MIT');
   await setup(page).getByLabel('Minutes from last stop').fill('7');
-  await options(page).first().click();
+  await pickOption(page);
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove to Kendall/MIT');
   await expect(setup(page).getByLabel('Minutes to first stop')).toHaveValue('5');
   await expect(setup(page).getByLabel('Minutes from last stop')).toHaveValue('7');
@@ -69,7 +79,7 @@ async function goSomewhere(page) {
   await page.getByRole('button', { name: 'Go somewhere else…' }).click();
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
-  await options(page).first().click();
+  await pickOption(page);
   await tick(page, 1000);
 }
 

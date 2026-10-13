@@ -569,7 +569,7 @@ test('auto-route timed from now (now=1): first catchable rows, ranked by arrival
     assert.equal(timed.body.timed, true);
     const [o] = timed.body.options;
     assert.deepEqual([o.leave, o.arrive], [at('07:04'), at('07:55')]);
-    assert.deepEqual(o.deps, [{ dep: at('07:10'), live: false }, { dep: at('07:33'), live: true }]);
+    assert.deepEqual(o.deps.map(d => [d.dep, d.source]), [[at('07:10'), 'scheduled'], [at('07:33'), 'live']]);
     // Without the walks and slack: 5, 5 and 1.
     assert.equal((await get('/api/plan?from=25996&to=place-state&now=1')).body.options[0].leave, at('07:04'));
     // The untimed plan is unchanged.
