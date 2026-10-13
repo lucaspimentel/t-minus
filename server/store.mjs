@@ -1,6 +1,7 @@
 // Reminders and followed rides (stop alerts, `kind: 'ride'`) in SQLite (node:sqlite, $DATA_DIR/reminders.db): columns for what the server
 // queries, the whole reminder as JSON in `body`. Writes are per row. Also the MBTA proxy's static
-// copies (`mbta_cache`: routes, stops, route patterns), kept across restarts.
+// copies (`mbta_cache`: routes, stops, route patterns), kept across restarts, and the pushes sent to
+// each phone in the last 24 h (`push_log`, the setup's "Pending notifications").
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -25,6 +26,13 @@ export function openStore(dir) {
       fetched_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS mbta_cache_fetched ON mbta_cache (fetched_at);
+    CREATE TABLE IF NOT EXISTS push_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      endpoint TEXT NOT NULL,
+      at INTEGER NOT NULL,
+      body TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS push_log_endpoint ON push_log (endpoint, at);
   `);
   const q = {
     add: db.prepare('INSERT INTO reminders (id, endpoint, next_poll_at, body) VALUES (?, ?, ?, ?)'),
@@ -36,6 +44,12 @@ export function openStore(dir) {
     all: db.prepare('SELECT body FROM reminders ORDER BY next_poll_at'),
     count: db.prepare('SELECT count(*) AS n FROM reminders'),
     countFor: db.prepare('SELECT count(*) AS n FROM reminders WHERE endpoint = ?'),
+    forEndpoint: db.prepare('SELECT body FROM reminders WHERE endpoint = ? ORDER BY next_poll_at'),
+    deleteFor: db.prepare('DELETE FROM reminders WHERE endpoint = ?'),
+    logAdd: db.prepare('INSERT INTO push_log (endpoint, at, body) VALUES (?, ?, ?)'),
+    logPruneOld: db.prepare('DELETE FROM push_log WHERE at < ?'),
+    logPruneFor: db.prepare('DELETE FROM push_log WHERE endpoint = ? AND id NOT IN (SELECT id FROM push_log WHERE endpoint = ? ORDER BY id DESC LIMIT ?)'),
+    logFor: db.prepare('SELECT body FROM push_log WHERE endpoint = ? AND at >= ? ORDER BY id DESC'),
     cacheGet: db.prepare('SELECT body, last_modified, fetched_at FROM mbta_cache WHERE key = ?'),
     cachePut: db.prepare('INSERT OR REPLACE INTO mbta_cache (key, body, last_modified, fetched_at) VALUES (?, ?, ?, ?)'),
     cacheTouch: db.prepare('UPDATE mbta_cache SET fetched_at = ? WHERE key = ?'),
@@ -52,6 +66,16 @@ export function openStore(dir) {
     all: () => parse(q.all.all()),
     count: () => q.count.get().n,
     countFor: endpoint => q.countFor.get(endpoint).n,
+    forEndpoint: endpoint => parse(q.forEndpoint.all(endpoint)),
+    deleteFor: endpoint => Number(q.deleteFor.run(endpoint).changes),
+    // The sent-push log (the debug screen's "Sent"): entries older than `since` go (all phones),
+    // and each phone keeps its newest `max`.
+    logPush: (endpoint, entry, since, max) => {
+      q.logAdd.run(endpoint, entry.at, JSON.stringify(entry));
+      q.logPruneOld.run(since);
+      q.logPruneFor.run(endpoint, endpoint, max);
+    },
+    logFor: (endpoint, since) => parse(q.logFor.all(endpoint, since)),
     // { text, lastModified, at } or null.
     cacheGet: key => {
       const r = q.cacheGet.get(key);

@@ -9,7 +9,7 @@ import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
-  rideAlertText, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
+  rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
 } from '../core.js';
 
@@ -22,6 +22,7 @@ const RATE_LIMIT = 30; // requests per IP per minute
 const MAX_BODY = 16 * 1024;
 const RETRY_MS = 20_000; // after an MBTA error
 const MAX_TESTS = 100; // pending test notifications, in memory only
+const LOG_MAX = 50; // sent pushes kept per phone (24 h)
 const DAY = 24 * 60 * MIN;
 const NEARBY_CELL = 0.0005; // degrees (~50 m): nearby stop lists are cached per cell
 const MAX_NEARBY_STOPS = 500; // cached cells
@@ -55,6 +56,15 @@ const STATIC = {
   '/icons/icon-512.png': 'icons/icon-512.png',
 };
 const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
+
+// "Pending notifications": a stored reminder or followed ride as the phone sees it (no
+// subscription keys), with its next push.
+function pendingView(e, t) {
+  const base = { id: e.id, kind: e.kind === 'ride' ? 'ride' : 'reminder', tripName: e.tripName, createdAt: e.createdAt, lastCheckAt: e.lastCheckAt ?? null, next: nextPush(e, t) };
+  if (e.kind === 'ride') return { ...base, ride: e.ride, phase: ridePhase(e.ride, tripShape(e.trip).walkAfter, t).kind, alert: e.alert };
+  const first = tripShape(e.trip).transit[0];
+  return { ...base, key: e.key, leaveBy: e.leaveBy, headsUp: e.headsUp, route: first?.label ?? first?.route ?? null };
+}
 
 const nearBoston = (lat, lon) => lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5;
 const TRANSIT_KINDS = /^(highway=(bus_stop|platform)|public_transport=|railway=(station|halt|stop|tram_stop|subway_entrance|platform)|amenity=(bus_station|shelter))/;
@@ -377,6 +387,21 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       return reply(res, 202, { at: t + TEST_PUSH_DELAY_MS });
     }
 
+    // The setup's "Pending notifications" (debug): this phone's reminders and followed rides, each
+    // with its next push, and the pushes sent to it in the last 24 h. POST, so the push endpoint
+    // (a secret) stays out of URLs. Clear deletes them all; the log stays.
+    if (req.method === 'POST' && (path === '/pending' || path === '/pending/clear')) {
+      if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' });
+      const ep = body.subscription.endpoint;
+      if (path === '/pending/clear') {
+        const ids = store.forEndpoint(ep).map(e => e.id);
+        store.deleteFor(ep);
+        for (const id of ids) schedules.delete(id);
+        return reply(res, 200, { deleted: ids.length });
+      }
+      return reply(res, 200, { now: t, entries: store.forEndpoint(ep).map(e => pendingView(e, t)), log: store.logFor(ep, t - DAY) });
+    }
+
     if (req.method === 'POST' && path === '/reminders') {
       const err = checkReminder(body, t);
       if (err) return reply(res, 400, { error: err });
@@ -622,11 +647,26 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     return { predictions, schedules: cached.docs };
   }
 
+  // Sends a push and logs it (sent or failed) for the phone's "Pending notifications"; rethrows.
+  async function sendLogged(sub, ref, tripName, payload, t) {
+    const entry = { at: t, ref, kind: payload.kind, tripName: tripName ?? null, title: payload.title, body: payload.body };
+    // A failed log write never turns a sent push into a failed one.
+    const record = extra => { try { store.logPush(sub.endpoint, { ...entry, ...extra }, t - DAY, LOG_MAX); } catch (e) { log(`push log: ${e.message}`); } };
+    try {
+      await send(sub, payload);
+    } catch (e) {
+      const why = e.statusCode === 410 ? 'gone' : e.statusCode === 404 ? 'not found' : e.message;
+      record({ ok: false, error: `${e.statusCode ?? ''} ${why ?? ''}`.trim().slice(0, 200) });
+      throw e;
+    }
+    record({ ok: true });
+  }
+
   // `step`: an update's { was, earlier } (a later time replaces the notification quietly).
   async function push(rem, kind, row, t, step = {}) {
     const { title, body } = reminderText(kind, rem.tripName, row, t, step.was);
     try {
-      await send(rem.subscription, { kind, title, body, tag: rem.key, renotify: !step.update || step.earlier });
+      await sendLogged(rem.subscription, rem.id, rem.tripName, { kind, title, body, tag: rem.key, renotify: !step.update || step.earlier }, t);
       log(`sent ${kind} for ${rem.id}`);
       return true;
     } catch (e) {
@@ -650,6 +690,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       rem.nextPollAt = t + RETRY_MS;
       return false;
     }
+    rem.lastCheckAt = t;
     const row = rowsFromDocs(rem.trip, docs.predictions, docs.schedules, rem.timingIdx, t, rem.stopSlackMinutes).find(r => r.key === rem.key) ?? null;
     const step = reminderStep(rem, row, t);
     rem.leaveBy = step.leaveBy;
@@ -700,7 +741,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       const { title, body } = rideAlertText(s, { ride, outlook, stopName, walkAfter, nowMs: t });
       const tag = s.kind === 'missed' || s.kind === 'none' ? `ride:${rec.id}:plan` : `ride:${rec.id}:${s.leg}`;
       try {
-        await send(rec.subscription, { kind: s.kind, title, body, tag, renotify: !s.update || s.earlier });
+        await sendLogged(rec.subscription, rec.id, rec.tripName, { kind: s.kind, title, body, tag, renotify: !s.update || s.earlier }, t);
         log(`sent ${s.kind} (leg ${s.leg}) for ${rec.id}`);
       } catch (e) {
         log(`send ${s.kind} for ${rec.id} failed: ${e.statusCode ?? ''} ${e.message}`);
@@ -708,6 +749,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       }
     }
     rec.alert = step.alert;
+    rec.lastCheckAt = t;
     rec.ride = { ...ride, legs: outlook && (outlook.missedDep != null || outlook.earlier) ? outlook.legs : ride.legs };
     rec.nextPollAt = t + RIDE_POLL_MS;
     return false;
@@ -718,7 +760,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     tests = tests.filter(x => x.at > t);
     for (const x of due) {
       try {
-        await send(x.subscription, { kind: 'test', ...testPushText(t), tag: 'test' });
+        await sendLogged(x.subscription, 'test', null, { kind: 'test', ...testPushText(t), tag: 'test' }, t);
         log('sent test');
       } catch (e) {
         log(`send test failed: ${e.statusCode ?? ''} ${e.message}`);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -1923,4 +1923,22 @@ test('remembered live times survive a reload, per trip legs, pruned after 30 min
   assert.deepEqual(loadLive(stored, key, t0 + 31 * 60_000), [new Map(), new Map()]);
   assert.equal(loadLive(stored, liveKey([transit[1]]), t0), null);
   assert.equal(loadLive(null, key, t0), null);
+});
+
+test('nextPush: a reminder\'s heads-up then Leave now; a ride\'s heads-up, then get off, per leg', () => {
+  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUp: true }, at('06:50')), { kind: 'headsUp', at: at('06:59'), text: 'Leave in 5 min' });
+  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUp: false }, at('07:00')), { kind: 'leave', at: at('07:04'), text: 'Leave now' });
+  const trip = { name: 'Home to office', legs: [{ kind: 'walk', minutes: 5 }, { kind: 'transit', route: '132', stop: 's1', alight: 's2' },
+    { kind: 'transfer', minutes: 5 }, { kind: 'transit', route: 'Orange', stop: 'o1', alight: 'o2' }, { kind: 'walk', minutes: 10 }] };
+  const ride = { boardedAt: at('07:08'), legs: [
+    { tripId: 'b1', route: '132', label: '132', dep: at('07:08'), arr: at('07:22') }, { tripId: 'o1', route: 'Orange', label: 'Orange', dep: at('07:32'), arr: at('07:47') }] };
+  const e = alert => ({ kind: 'ride', trip, ride, alert: { sent: alert } });
+  assert.deepEqual(nextPush(e({}), at('07:10')), { kind: 'headsUp', at: null, text: '3 stops to your stop · 132' });
+  // The heads-up sent, or a short ride (3 stops or fewer when first seen): get off ~2 min before the arrival.
+  assert.deepEqual(nextPush(e({ 0: { first: 9, headsUp: true } }), at('07:15')), { kind: 'getOff', at: at('07:20'), approx: true, text: 'Next stop: get off · 132' });
+  assert.equal(nextPush(e({ 0: { first: 2 } }), at('07:15')).kind, 'getOff');
+  // In the transfer: the next leg's alerts.
+  assert.deepEqual(nextPush(e({ 0: { first: 9, headsUp: true, getOff: true } }), at('07:25')), { kind: 'headsUp', at: null, text: '3 stops to your stop · Orange Line' });
+  assert.equal(nextPush(e({ 0: { getOff: true }, 1: { first: 9, headsUp: true, getOff: true } }), at('07:46')), null);
+  assert.equal(nextPush(e({}), at('07:50')), null); // walking: nothing left
 });

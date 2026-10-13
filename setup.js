@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=fc547c7bc8';
+} from './core.js?v=7611abddab';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -69,12 +69,15 @@ const NEARBY_RADIUS = 0.003;
 // `timingFor(i)` returns the timing leg the app currently uses for saved trip i (or null).
 // `toast(text, action, onAction)` / `hideToast()`: the app's Undo toast.
 // `testPush`: { supported, send() } for "Send test notification" (null: no push server).
+// `pushDebug`: { supported, load(), remove(entry), clearAll() } for "Pending notifications" (null: no
+// push server); load() resolves to { now, entries, log } from the server (entries null without a
+// push subscription) and `local`, the app's own copies ({ id, kind, tripName, leaveBy? }).
 // `startImport`: open on the list with the import box (the main screen's "Import trips").
 // `onReset(apiKey)`: "Delete all trips and settings" (after a confirm); the app reloads.
 // `onPlan(trip)`: open on the auto-route planner ("Go somewhere else…"); the picked option is
 // handed back as a one-off trip (labeled, not saved) and Cancel closes setup.
 // `planApi(path, params)`: the T-Minus server's /stops and /plan (buses); null: rail only, in the browser.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, nearby = null, onReset = null, startImport = false, onPlan = null, planApi = null, timeline = null }) {
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, onPlan = null, planApi = null, timeline = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -100,6 +103,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // direction, also: [{ route, checked }] (other routes for the same ride) }.
   // `near`: { name, lat, lon, routeIds } around the previous leg's drop-off, for suggestions.
   let picker = null;
+  // "Pending notifications" (debug): { loading, error, data, busy (the entry id being deleted) }.
+  let pending = null;
   let listMessages = [];
   let busy = false;
 
@@ -320,6 +325,109 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('button', { type: 'button', 'aria-label': `Move ${t.name} down`, disabled: i === n - 1, onclick: () => moveTrip(i, 1) }, '↓'));
   }
 
+  // ---------- Pending notifications (debug) ----------
+
+  // Loaded on open and on ↻ only. A late answer for a closed screen is dropped.
+  function loadPending() {
+    const p = pending;
+    p.loading = true;
+    p.error = null;
+    render();
+    pushDebug.load().then(data => { if (pending === p) p.data = data; }, e => { if (pending === p) p.error = e.message || String(e); })
+      .finally(() => { if (pending !== p) return; p.loading = false; render(); });
+  }
+  function openPending() {
+    pending = {};
+    loadPending();
+  }
+  function deletePending(e) {
+    const p = pending;
+    p.busy = e.id;
+    render();
+    pushDebug.remove(e).then(() => { if (pending === p) { p.busy = null; loadPending(); } }, err => {
+      if (pending !== p) return;
+      p.busy = null;
+      toast(`Couldn't delete: ${err.message || err}`);
+      render();
+    });
+  }
+  function clearPending() {
+    if (!confirm('Delete all pending notifications?')) return;
+    const p = pending;
+    p.busy = 'all';
+    render();
+    pushDebug.clearAll().then(() => { if (pending === p) { p.busy = null; loadPending(); } }, err => {
+      if (pending !== p) return;
+      p.busy = null;
+      toast(`Couldn't clear: ${err.message || err}`);
+      render();
+    });
+  }
+
+  // Layout: a card per server entry (what was sent, what's next, details), the app's own copies the
+  // server doesn't have (amber), the last 24 h of sent pushes, and Clear all.
+  function pendingScreen() {
+    const p = pending;
+    const head = h('div', { class: 'setup-head' },
+      h('button', { type: 'button', onclick: () => { pending = null; render(); } }, 'Back'),
+      h('b', {}, 'Pending notifications'),
+      h('button', { type: 'button', 'aria-label': 'Refresh', disabled: !!p.loading, onclick: loadPending }, '↻'));
+    if (!p.data) {
+      return [head, p.error
+        ? [h('div', { class: 'msg err' }, `Couldn't load: ${p.error}`), h('div', { class: 'btns' }, h('button', { type: 'button', onclick: loadPending }, 'Retry'))]
+        : h('div', { class: 'muted' }, 'Loading…')];
+    }
+    const { now, entries, log = [], local = [] } = p.data;
+    const t = ms => formatTime(ms, now ?? Date.now());
+    const serverIds = new Set((entries ?? []).map(e => e.id));
+    const localIds = new Set(local.map(l => l.id));
+    const onlyLocal = local.filter(l => !serverIds.has(l.id));
+    const kindName = e => (e.kind === 'ride' ? 'Stop alerts' : 'Leave reminder');
+    const line = (when, ...text) => h('div', { class: 'pn-line' }, h('span', { class: 'w' }, when), h('span', {}, ...text));
+    const sentMark = l => (l.ok ? h('span', { class: 'ok' }, '✓ sent ') : h('span', { class: 'bad' }, `✕ failed${l.error ? `: ${l.error}` : ''} `));
+    const del = e => h('div', { class: 'pn-foot' }, h('button', {
+      type: 'button', class: 'danger', 'aria-label': `Delete ${kindName(e).toLowerCase()} for ${e.tripName}`, disabled: !!p.busy, onclick: () => deletePending(e),
+    }, p.busy === e.id ? 'Deleting…' : 'Delete'));
+    const card = e => {
+      const legs = e.ride?.legs ?? [];
+      const title = e.kind === 'ride'
+        ? `${e.tripName} · ${legs.map(l => l.label ?? l.route ?? '?').join(' → ')}`
+        : `${e.tripName}${e.route ? ` · ${e.route}` : ''}`;
+      const next = e.next;
+      const details = e.kind === 'ride'
+        ? legs.map(l => `${l.tripId} ${t(l.dep)}→${t(l.arr)}${l.source === 'live' ? ' live' : ''}`).join(' · ')
+        : `Leave by ${t(e.leaveBy)} · row ${e.key}`;
+      return h('div', { class: 'card pn' },
+        h('div', { class: 'k' }, kindName(e), e.phase ? ` · ${e.phase}` : ''),
+        h('div', { class: 't1' }, title),
+        ...log.filter(l => l.ref === e.id).reverse().map(l => line(t(l.at), sentMark(l), `“${l.title}”`)),
+        next ? line(next.at == null ? 'later' : `${next.approx ? '~' : ''}${t(next.at)}`, `next: “${next.text}”${next.at == null ? ' (when 3 stops are left)' : ''}`)
+          : line('', 'Nothing more to send'),
+        h('div', { class: 'det' }, `${details} · checked ${e.lastCheckAt ? t(e.lastCheckAt) : 'not yet'}`),
+        !localIds.has(e.id) && h('div', { class: 'det' }, 'Not saved on this phone.'),
+        del(e));
+    };
+    const localCard = l => h('div', { class: 'card pn warn' },
+      h('div', { class: 'k' }, kindName(l)),
+      h('div', { class: 't1' }, l.tripName, l.leaveBy != null ? ` · leave by ${t(l.leaveBy)}` : ''),
+      h('div', { class: 'det' }, l.kind === 'ride' ? 'The server isn\'t following this ride (lost or already done).' : 'The server has no such reminder (lost or already done).'),
+      del(l));
+    const logRow = l => h('div', { class: 'e' }, h('span', { class: 'w' }, t(l.at)),
+      h('span', {}, sentMark(l), l.title, l.tripName && !l.title.includes(l.tripName) ? ` · ${l.tripName}` : ''));
+    return [head,
+      entries == null && !local.length && h('div', { class: 'msg' }, 'No notifications set up on this phone.'),
+      entries != null && h('div', { class: 'muted section' }, `On the server · checked ${t(now)}`),
+      entries != null && (entries.length ? entries.map(card) : h('div', { class: 'muted' }, 'Nothing pending.')),
+      onlyLocal.length > 0 && h('div', { class: 'muted section' }, 'Only on this phone'),
+      onlyLocal.map(localCard),
+      entries != null && h('div', { class: 'muted section' }, 'Sent · last 24 h'),
+      entries != null && (log.length ? h('div', { class: 'card pn-log' }, ...log.map(logRow)) : h('div', { class: 'muted' }, 'Nothing sent in the last 24 h.')),
+      (entries?.length || local.length) ? [
+        h('div', { class: 'btns pn-clear' }, h('button', { type: 'button', class: 'danger', disabled: !!p.busy, onclick: clearPending }, p.busy === 'all' ? 'Clearing…' : 'Clear all pending')),
+        h('div', { class: 'push-hint' }, 'Deletes pending reminders and stop alerts on the server and on this phone. The sent log stays.')] : null,
+    ];
+  }
+
   function listScreen() {
     const trips = savedTrips();
     return [
@@ -355,7 +463,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         ioArea.mode === 'import' && h('button', { type: 'button', disabled: busy, onclick: () => importConfig(ioArea.text) }, 'Load')),
       testPush && h('div', { class: 'muted section' }, 'Notifications'),
       testPush && h('div', { class: 'btns' },
-        h('button', { type: 'button', disabled: !testPush.supported, onclick: () => testPush.send() }, 'Send test notification in 10 s')),
+        h('button', { type: 'button', disabled: !testPush.supported, onclick: () => testPush.send() }, 'Send test notification in 10 s'),
+        pushDebug && h('button', { type: 'button', disabled: !pushDebug.supported, onclick: openPending }, 'Pending notifications')),
       testPush && !testPush.supported && h('div', { class: 'push-hint' }, 'Add to Home Screen to get notifications.'),
       onReset && h('div', { class: 'muted section' }, 'Reset'),
       onReset && h('div', { class: 'btns' }, h('button', { type: 'button', class: 'danger', onclick: () => {
@@ -1150,9 +1259,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let shown = null;
   const scrollY = { list: 0, trip: 0 };
   function render() {
-    const screen = picker ? `picker:${picker.step}` : editing ? 'trip' : planner ? 'plan' : 'list';
+    const screen = picker ? `picker:${picker.step}` : editing ? 'trip' : planner ? 'plan' : pending ? 'pending' : 'list';
     if (screen !== shown && (shown === 'list' || shown === 'trip')) scrollY[shown] = window.scrollY;
-    root.replaceChildren(...(picker ? pickerScreen() : editing ? tripScreen() : planner ? plannerScreen() : listScreen()).flat().filter(Boolean));
+    root.replaceChildren(...(picker ? pickerScreen() : editing ? tripScreen() : planner ? plannerScreen() : pending ? pendingScreen() : listScreen()).flat(2).filter(Boolean));
     if (screen !== shown) {
       const restore = screen === 'list' || (screen === 'trip' && shown?.startsWith('picker:'));
       window.scrollTo(0, restore ? scrollY[screen] : 0);
@@ -1164,7 +1273,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   root.hidden = false;
   loadNames();
   render();
-  // Closing drops the planner, so a late answer to a closed search never redraws over the next
+  // Closing drops the planner and the pending list, so a late answer to a closed search never redraws over the next
   // setup view (they share `root`).
-  return { close() { planner = null; root.hidden = true; root.replaceChildren(); } };
+  return { close() { planner = null; pending = null; root.hidden = true; root.replaceChildren(); } };
 }

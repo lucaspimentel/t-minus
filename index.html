@@ -291,6 +291,22 @@
   }
   .setup button.primary { background: var(--accent); color: #1c1f24; border-color: var(--accent); font-weight: 600; }
   .setup button.danger { color: var(--red); }
+  /* Setup's "Pending notifications" (debug). */
+  .setup .card.pn { padding: 10px 12px; }
+  .pn + .pn { margin-top: 8px; }
+  .pn .k { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .pn .t1 { font-weight: 600; margin-top: 2px; }
+  .pn-line { font-size: 14px; margin-top: 4px; display: flex; gap: 8px; }
+  .pn-line .w, .pn-log .w { color: var(--muted); min-width: 58px; flex: none; font-variant-numeric: tabular-nums; }
+  .pn .ok, .pn-log .ok { color: var(--green); }
+  .pn .bad, .pn-log .bad { color: var(--red); }
+  .pn .det { font-size: 13px; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+  .pn-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .setup .card.pn.warn { border-color: var(--alert-border); background: var(--alert-bg); }
+  .pn-log { font-size: 14px; }
+  .pn-log .e { display: flex; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); }
+  .pn-log .e:first-child { border-top: 0; }
+  .pn-clear { margin-top: 12px; }
   .setup button:disabled { opacity: .5; }
   .setup-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -387,7 +403,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-13 · e9734f8e67</footer>
+    <footer class="version">Version 2026-10-13 · d4208d3c7e</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -410,8 +426,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=fc547c7bc8';
-import { openSetup } from './setup.js?v=e76cca3e6d';
+} from './core.js?v=7611abddab';
+import { openSetup } from './setup.js?v=fdb9d675e5';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -989,7 +1005,7 @@ const stopAlertsAvailable = () => !!SERVER_API && pushSupported;
 async function syncRideAlert(s, now) {
   if (!stopAlertsAvailable() || Notification.permission !== 'granted' || rideAlertBusy || now < rideAlertRetryAt) return;
   const tripIds = s.ride.legs.map(l => l.tripId).join(',');
-  if (s.alert?.tripIds === tripIds) return;
+  if (s.alert?.off || s.alert?.tripIds === tripIds) return;
   const idx = tripIdx;
   rideAlertBusy = true;
   try {
@@ -1011,8 +1027,11 @@ async function syncRideAlert(s, now) {
   }
 }
 
-// "Turn on stop alerts" (once per device): the permission prompt, then the ride is posted.
+// "Turn on stop alerts" (once per device): the permission prompt, then the ride is posted; also
+// after its alerts were deleted in "Pending notifications".
 async function turnOnStopAlerts() {
+  const cur = enRouteState();
+  if (cur?.alert?.off) setEnRoute(withoutAlert(cur));
   try {
     await pushSubscription();
     rideAlertRetryAt = 0;
@@ -1053,6 +1072,43 @@ async function testPush() {
     showToast(`Couldn't send the test: ${e.message}`, 'Retry', testPush);
   }
 }
+
+// Setup's "Pending notifications" (debug): the server's entries for this phone next to the app's
+// own copies (set reminders, the rides' stop alerts). Deleting a ride's alerts turns them off for
+// that ride (`alert: { off }`, not posted again) until "Turn on stop alerts".
+function localPushEntries() {
+  const out = Object.entries(reminders).map(([k, rem]) => ({ id: rem.id, kind: 'reminder', tripName: config?.trips[Number(k.split('/')[0])]?.name ?? '?', leaveBy: rem.leaveBy }));
+  for (const s of Object.values(store.get(KEY_EN_ROUTE) ?? {})) if (s?.alert?.id) out.push({ id: s.alert.id, kind: 'ride', tripName: s.name });
+  return out;
+}
+function dropLocalPush(id) {
+  for (const [k, rem] of Object.entries(reminders)) if (rem.id === id) delete reminders[k];
+  saveReminders();
+  const all = store.get(KEY_EN_ROUTE) ?? {};
+  for (const s of Object.values(all)) if (s?.alert?.id === id) s.alert = { off: true };
+  store.set(KEY_EN_ROUTE, all);
+}
+async function currentSubscription() {
+  const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+  return sub ? sub.toJSON() : null;
+}
+const pushDebug = {
+  supported: pushSupported,
+  async load() {
+    const subscription = await currentSubscription();
+    const server = subscription ? await pushApi('POST', '/pending', { subscription }) : { entries: null, log: [] };
+    return { now: Date.now(), ...server, local: localPushEntries() };
+  },
+  async remove(e) {
+    await pushApi('DELETE', `/${e.kind === 'ride' ? 'rides' : 'reminders'}/${e.id}`);
+    dropLocalPush(e.id);
+  },
+  async clearAll() {
+    const subscription = await currentSubscription();
+    if (subscription) await pushApi('POST', '/pending/clear', { subscription });
+    for (const e of localPushEntries()) dropLocalPush(e.id);
+  },
+};
 
 // Starting a trip (Leaving now, At the stop, I got on, boarding; not Track this trip, see
 // tripStarted) cancels its reminders, silently; returns them for Undo.
@@ -1513,7 +1569,7 @@ function renderRideCard(s, now) {
     b.onclick = e => { e.stopPropagation(); onclick(); };
     return b;
   };
-  if (phase.kind !== 'arrived' && stopAlertsAvailable() && Notification.permission === 'default') {
+  if (phase.kind !== 'arrived' && stopAlertsAvailable() && (Notification.permission === 'default' || (Notification.permission === 'granted' && enRouteState()?.alert?.off))) {
     const b = btn('Turn on stop alerts', turnOnStopAlerts);
     b.innerHTML = `${BELL_SVG}Turn on stop alerts`;
     b.classList.add('alerts-btn');
@@ -1651,6 +1707,7 @@ function showSetup({ importOpen = false, plan = false } = {}) {
     toast: showToast,
     hideToast,
     testPush: SERVER_API ? { supported: pushSupported, send: testPush } : null,
+    pushDebug: SERVER_API ? pushDebug : null,
     nearby: SERVER_API ? nearbyFromServer : null,
     planApi: SERVER_API ? planFromServer : null,
     // Auto-route options drawn like an expanded row.

@@ -2,7 +2,9 @@
 
 A small Node service that serves the app (an allowlist of its files from the repo root) and
 its API under `/api/`. It takes reminders (`POST /api/reminders`), polls the MBTA for each ride,
-and pushes the heads-up, "Leave now", or "Ride cancelled". It also follows tracked rides for stop
+and pushes the heads-up, "Leave now", or "Ride cancelled". Setup's "Pending notifications" lists a phone's reminders and
+followed rides with their next push and its last 24 h of sent pushes (`POST /api/pending`,
+`POST /api/pending/clear`, with the push subscription in the body). It also follows tracked rides for stop
 alerts (`POST /api/rides`, `PUT` / `DELETE /api/rides/:id`): a heads-up 3 stops before each
 drop-off, "get off" with the drop-off next, and missed connections (see `DESIGN.md`,
 Notifications and Hosting). It also answers setup's "Show nearby" (`GET /api/nearby?lat&lon`: the routes around a

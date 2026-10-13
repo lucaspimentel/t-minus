@@ -785,3 +785,65 @@ test('/api/mbta: allowlist, same origin, per-IP limit, budget guard, kill switch
     assert.equal(await status('/api/mbta/stops?filter[route]=Red', {}, null, off.call), 503);
   } finally { await s.close(); }
 });
+
+test('pending notifications: this phone\'s reminders and rides with their next push, the sent log (24 h, 50), clear', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('06:50');
+    const { id: remId } = await (await s.call('POST', '/api/reminders', reminder())).json();
+    await s.call('POST', '/api/reminders', reminder({ subscription: subscription(2) })); // another phone
+    assert.equal((await s.call('POST', '/api/pending', { subscription: subscription() }, 'https://evil.example')).status, 403);
+    assert.equal((await s.call('POST', '/api/pending', { subscription: { endpoint: 'http://x' } })).status, 400);
+    const pending = async (n = 1) => (await s.call('POST', '/api/pending', { subscription: subscription(n) })).json();
+    let p = await pending();
+    assert.equal(p.entries.length, 1);
+    assert.deepEqual(p.entries[0], { id: remId, kind: 'reminder', tripName: 'Home to office', createdAt: at('06:50'), lastCheckAt: null,
+      next: { kind: 'headsUp', at: at('06:59'), text: 'Leave in 5 min' }, key: 'o1', leaveBy: at('07:04'), headsUp: true, route: '132' });
+    assert.ok(!JSON.stringify(p).includes('"keys"')); // never the subscription's keys
+    assert.deepEqual(p.log, []);
+    // The heads-up is logged, and the next push becomes Leave now.
+    s.world.clock = at('06:59');
+    await s.app.tick();
+    p = await pending();
+    assert.deepEqual(p.log.map(l => [l.at, l.ref, l.kind, l.tripName, l.title, l.ok]), [[at('06:59'), remId, 'headsUp', 'Home to office', 'Leave in 5 min · Home to office', true]]);
+    assert.equal(p.entries[0].lastCheckAt, at('06:59'));
+    assert.deepEqual(p.entries[0].next, { kind: 'leave', at: at('07:04'), text: 'Leave now' });
+    // A test push, and a failed one (410): logged, newest first.
+    await s.call('POST', '/api/test-push', { subscription: subscription() });
+    s.world.clock += 10_000;
+    await s.app.tick();
+    await s.call('POST', '/api/test-push', { subscription: subscription() });
+    s.world.clock += 10_000;
+    s.world.sendStatus = 410;
+    await s.app.tick();
+    s.world.sendStatus = null;
+    p = await pending();
+    assert.deepEqual(p.log.map(l => [l.ref, l.ok, l.error ?? null]), [['test', false, '410 gone'], ['test', true, null], [remId, true, null]]);
+    // A followed ride: its next push (the heads-up, waiting on the stops left), its phase.
+    s.world.clock = at('07:12');
+    const { id: rideId } = await (await s.call('POST', '/api/rides', followed())).json();
+    p = await pending();
+    const ride = p.entries.find(e => e.id === rideId);
+    assert.equal(ride.kind, 'ride');
+    assert.equal(ride.phase, 'riding');
+    assert.deepEqual(ride.next, { kind: 'headsUp', at: null, text: '3 stops to your stop · Bus 132' });
+    assert.deepEqual(ride.ride.legs.map(l => l.tripId), ['b1', 'o1']);
+    assert.equal((await pending(2)).entries.length, 1); // the other phone's own
+    // Clear: this phone's entries go, the log stays; the other phone's stay.
+    assert.deepEqual(await (await s.call('POST', '/api/pending/clear', { subscription: subscription() })).json(), { deleted: 2 });
+    p = await pending();
+    assert.deepEqual(p.entries, []);
+    assert.equal(p.log.length, 3);
+    assert.equal((await pending(2)).entries.length, 1);
+    // 24 h later the log is gone (pruned on the next push); a phone keeps its newest 50.
+    s.world.clock = at('07:12') + 24 * 60 * 60_000 + 60_000;
+    for (let i = 0; i < 52; i++) {
+      await s.call('POST', '/api/test-push', { subscription: subscription() });
+      s.world.clock += 10_000;
+      await s.app.tick();
+    }
+    p = await pending();
+    assert.equal(p.log.length, 50);
+    assert.ok(p.log.every(l => l.ref === 'test' && l.at > at('07:12') + 24 * 60 * 60_000));
+  } finally { await s.close(); }
+});

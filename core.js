@@ -1925,6 +1925,30 @@ export function rideAlertText(send, { ride, outlook, stopName, walkAfter, nowMs 
   }
 }
 
+// The setup's "Pending notifications": the next push of a server entry (a leave reminder, or a
+// followed ride's stop alerts) as { kind, at, approx?, text }; `at` is null when it waits on the
+// stops left (the ride's heads-up). Null when nothing is left to send.
+export function nextPush(e, nowMs) {
+  if (e.kind !== 'ride') {
+    return e.headsUp
+      ? { kind: 'headsUp', at: e.leaveBy - HEADS_UP_MIN * MIN, text: `Leave in ${HEADS_UP_MIN} min` }
+      : { kind: 'leave', at: e.leaveBy, text: 'Leave now' };
+  }
+  const phase = ridePhase(e.ride, tripShape(e.trip).walkAfter, nowMs);
+  if (!['riding', 'transfer'].includes(phase.kind)) return null;
+  const sent = e.alert?.sent ?? {};
+  for (let i = phase.leg; i < e.ride.legs.length; i++) {
+    const s = sent[i] ?? {};
+    if (s.getOff) continue;
+    const leg = e.ride.legs[i];
+    if (!s.headsUp && (s.first == null || s.first > ALERT_HEADS_UP_STOPS)) {
+      return { kind: 'headsUp', at: null, text: `${ALERT_HEADS_UP_STOPS} stops to your stop · ${lineLabel(leg)}` };
+    }
+    return { kind: 'getOff', at: leg.arr - GET_OFF_MIN * MIN, approx: true, text: `Next stop: get off · ${lineLabel(leg)}` };
+  }
+  return null;
+}
+
 // A ride posted for stop alerts: an error message, or null.
 export function checkRide(trip, ride, nowMs) {
   if (!trip || validateConfig({ trips: [trip] }).length) return 'trip is invalid';

@@ -89,3 +89,22 @@ test('with notifications denied, no button and nothing posted', async ({ page })
   await expect(card(page).getByRole('button', { name: 'Turn on stop alerts' })).toHaveCount(0);
   expect(rideCalls(calls)).toEqual([]);
 });
+
+test('deleting a ride\'s alerts in Pending notifications keeps them off until Turn on stop alerts', async ({ page }) => {
+  const calls = await ride(page, 'granted');
+  await expect.poll(() => rideCalls(calls).map(c => `${c.method} ${c.path}`)).toEqual(['POST /rides']);
+  await page.locator('#open-setup').click();
+  await page.locator('#setup').getByRole('button', { name: 'Pending notifications' }).click();
+  // No subscription on this stub: the ride's alert is the app's own copy only.
+  const localCard = page.locator('#setup .card.pn.warn');
+  await expect(localCard.locator('.det')).toHaveText('The server isn\'t following this ride (lost or already done).');
+  await localCard.getByRole('button', { name: 'Delete stop alerts for Home to office' }).click();
+  await expect(localCard).toHaveCount(0);
+  await page.locator('#setup').getByRole('button', { name: 'Back' }).click();
+  await page.locator('#setup-done').click();
+  await tick(page, 30_000);
+  expect(rideCalls(calls).map(c => `${c.method} ${c.path}`)).toEqual(['POST /rides', 'DELETE /rides/ride1']); // not posted again
+  await card(page).getByRole('button', { name: 'Turn on stop alerts' }).click();
+  await expect.poll(() => rideCalls(calls).map(c => `${c.method} ${c.path}`)).toEqual(['POST /rides', 'DELETE /rides/ride1', 'POST /rides']);
+  await expect(card(page).getByRole('button', { name: 'Turn on stop alerts' })).toHaveCount(0);
+});

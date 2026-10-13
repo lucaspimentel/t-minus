@@ -786,11 +786,32 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   notification in 10 s. Lock the phone to check." The server sends "Test notification" / "Push
   works. Sent 7:41am." from its loop (so up to 5 s late); it keeps pending tests in memory only
   (lost on restart), one per subscription, at most 100.
+- **Pending notifications (debug, 2026-10-13):** a second button in setup's Notifications section
+  (no request until opened; disabled without push) opens a screen (Back, ↻; loaded on open and ↻
+  only):
+  - **On the server · checked 7:24am:** a card per reminder or followed ride for this phone
+    (`POST /pending` with the current subscription; none: "No notifications set up on this
+    phone."). Each card shows:
+    - the kind ("Leave reminder", "Stop alerts · riding"), the trip and its vehicle;
+    - each push already sent, with ✓ or "✕ failed: 410 gone", and the next one with its time
+      (`nextPush`: the heads-up at leave-by − 5 min, then "Leave now"; a ride's heads-up "when
+      3 stops are left", then "get off" ~2 min before the arrival; "Nothing more to send");
+    - details: leave-by and the row key, or the legs' trip ids and times, and the last check;
+    - "Not saved on this phone." when the app has no copy, and Delete.
+  - **Only on this phone:** the app's copies the server doesn't have (saved reminders, the
+    rides' alert ids), amber, with Delete for the local copy.
+  - **Sent · last 24 h:** the phone's push log, newest first, failures included.
+  - **Clear all pending** (after a confirm): `POST /pending/clear` and the local copies; the log
+    stays.
+  - Deleting a ride's alerts turns them off for that ride (`alert: { off: true }`, not posted
+    again); the ride card offers "Turn on stop alerts" to post it again.
 - **Server (`server/app.mjs`):**
   - **Endpoints** (under `/api/`; `GET /health` also at the root, for Railway's health check):
     `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id`,
-    `POST /test-push`, `POST /rides`, `PUT /rides/:id`, `DELETE /rides/:id` (stop alerts), and
-    `GET /nearby` (setup's "Show nearby").
+    `POST /test-push`, `POST /rides`, `PUT /rides/:id`, `DELETE /rides/:id` (stop alerts),
+    `POST /pending` and `POST /pending/clear` (setup's "Pending notifications": this phone's
+    entries without the subscription keys, each with `nextPush`, and its push log; POST so the
+    push endpoint stays out of URLs), and `GET /nearby` (setup's "Show nearby").
   - **What a reminder holds:** the subscription, the trip (checked with `validateConfig`), its
     slack, the timing leg, the row key (the timing-leg vehicle's trip id) and leave-by. Leave-by
     must be ahead and within 12 h.
@@ -852,6 +873,9 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   `endpoint`, `next_poll_at`) and the whole reminder as JSON (`body`), so its shape can change
   without a migration. Writes are per row; a tick's update never inserts, so a reminder deleted
   while the tick waited on the MBTA stays deleted. The old `reminders.json` was not imported.
+  Every push sent (reminders, stop alerts, tests; failures with their status) is logged in
+  `push_log` (endpoint, time, kind, ref, trip name, title, body, ok, error): kept 24 h, the
+  newest 50 per phone. Each check also stores `lastCheckAt` on its entry.
 - **Deployment:** Railway service sourced from `lucaspimentel/t-minus` @ `main`. Deploy
   settings (build `npm ci --prefix server`, start `node server/main.mjs`, health check
   `/health`, watch paths `server/**`, `core.js`, `index.html`, `setup.js`, `sw.js`,
