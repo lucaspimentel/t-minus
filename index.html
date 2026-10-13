@@ -110,12 +110,12 @@
   .row.red { border-left-color: var(--red); }
   .big {
     display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px;
-    font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums;
+    font-size: 28px; font-weight: 700;
   }
   /* The countdown never breaks; if a long leave-by time ("Thu 5:31am") doesn't fit beside it,
      the time drops to the next line, still right-aligned. */
   .big > span { white-space: nowrap; }
-  .big .at { font-size: 20px; font-weight: 600; margin-left: auto; }
+  .big .at { font-size: 20px; font-weight: 600; margin-left: auto; font-variant-numeric: tabular-nums; }
   .green .big { color: var(--green); }
   .amber .big { color: var(--amber); }
   .red .big { color: var(--red); }
@@ -226,7 +226,8 @@
   .timeline::before {
     content: ''; position: absolute; left: 4px; top: 14px; bottom: 12px; border-left: 2px dotted var(--border);
   }
-  .step { position: relative; padding: 3px 0 3px 22px; font-variant-numeric: tabular-nums; }
+  .step { position: relative; padding: 3px 0 3px 22px; }
+  .step .t { font-variant-numeric: tabular-nums; }
   .step.walk { font-size: 13px; color: var(--muted); }
   .tl-leg { position: relative; }
   /* The ride's bar, in three pieces so it runs node to node even when a long name wraps: from
@@ -384,7 +385,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-12 · d79a269634</footer>
+    <footer class="version">Version 2026-10-13 · 9ac0784c2e</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
