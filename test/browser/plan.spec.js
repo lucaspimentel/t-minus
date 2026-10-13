@@ -1,5 +1,5 @@
 // Auto-route (station to station on rail): setup's "+ Add trip (auto-route)" opens the pick in the
-// trip editor; the main screen's "Go somewhere else…" makes a one-off trip (Save, ✕ Remove,
+// trip editor; the main screen's "Go somewhere else…" makes a one-off trip (a banner: Save, ✕,
 // removed once its ride is over). Stations from the recorded rail network.
 import { test, expect } from '@playwright/test';
 import { openApp, tick, tickTo, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
@@ -93,6 +93,11 @@ test('main screen: Go somewhere else… makes a one-off trip, kept across reload
   await goSomewhere(page);
   const bar = page.locator('#oneoff');
   await expect(bar).toBeVisible();
+  // A banner under the trip buttons, above "Go somewhere else…" and the trip's own bar.
+  await expect(bar).toHaveText(/^One-off trip: not saved\s*Save\s*✕$/);
+  const tops = await page.evaluate(() => ['header', '#oneoff', '#go-elsewhere', '#enroute']
+    .map(sel => document.querySelector(sel).getBoundingClientRect().top));
+  expect(tops).toEqual([...tops].sort((x, y) => x - y));
   await expect(page.locator('#toggle select')).toHaveValue('2');
   await expect(page.locator('#toggle select option:checked')).toHaveText('Oak Grove to State (one-off)');
   await expect(page.locator('.row .strip').first()).toHaveText(/^\s*Orange\s*$/);
@@ -107,7 +112,7 @@ test('main screen: Go somewhere else… makes a one-off trip, kept across reload
   await expect(bar).toBeHidden();
   await page.locator('#toggle select').selectOption('2');
   await expect(bar).toBeVisible();
-  // ✕ Remove, then Undo.
+  // ✕ (Remove), then Undo.
   await bar.getByRole('button', { name: 'Remove one-off trip' }).click();
   await expect(bar).toBeHidden();
   await expect(page.locator('#toggle button')).toHaveText(['Home to office', 'Office to home']);

@@ -165,10 +165,11 @@ picked by hand after it was made (`chooseTrip`).
   config. It is shown after the saved trips (`withOneOff`), so saved trips keep their indices,
   and works like any trip: rows, tracking, reminders, stop alerts.
 - The trip dropdown names it "Oak Grove to State (one-off)" (with one saved trip the two side-by-side
-  buttons stay). While it is shown, a bar under "Go somewhere else…" reads "One-off trip" with Save
-  and "✕ Remove".
+  buttons stay). While it is shown, a banner under the trip buttons, above "Go somewhere else…" (a
+  bordered card, 2026-10-13, chosen from three mockups: the old plain line and the "Leaving
+  now" bar below it didn't line up), reads "One-off trip: not saved" with Save and "✕" (Remove).
 - Save: it becomes the last saved trip at once (same name, no time window; same index, so its
-  state carries over), toast "Trip saved". ✕ Remove: its reminders, en-route state and stop
+  state carries over), toast "Trip saved". ✕ (Remove): its reminders, en-route state and stop
   alerts are dropped, toast with Undo (restores them). A new plan replaces it. It is removed by
   itself when its ride is over (Done on the ride card, or the ride ending).
 

@@ -86,6 +86,8 @@
   /* At the bottom, just above the version. */
   .status { font-size: 13px; color: var(--muted); margin: 16px 0 0; min-height: 18px; text-align: center; }
   .go-btn { margin-bottom: 12px; } /* "Go somewhere else…", under the trip buttons */
+  /* A one-off trip: a banner under the trip buttons, above "Go somewhere else…". */
+  .enroute-bar.oneoff-banner { margin: 0 0 12px; padding: 8px 8px 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
   .status.stale { color: var(--red); }
   .status.old { color: var(--amber); }
   .status .link {
@@ -370,9 +372,9 @@
       <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh"><span>&#x21bb;</span></button>
       <button class="icon-btn" id="open-setup" aria-label="Setup" title="Setup">&#x2699;</button>
     </header>
+    <div class="enroute-bar oneoff-banner" id="oneoff" hidden><span class="en-status">One-off trip: not saved</span>
+      <button type="button" id="oneoff-save">Save</button><button type="button" id="oneoff-remove" aria-label="Remove one-off trip">✕</button></div>
     <button class="list-btn go-btn" id="go-elsewhere" type="button" hidden>Go somewhere else…</button>
-    <div class="enroute-bar" id="oneoff" hidden><span class="en-status">One-off trip</span>
-      <button type="button" id="oneoff-save">Save</button><button type="button" id="oneoff-remove" aria-label="Remove one-off trip">✕ Remove</button></div>
     <div class="enroute-bar" id="enroute" hidden></div>
     <p class="status stale" id="loadfail" hidden>The app failed to start, probably a partial update.
       <button id="reload" class="big-btn" type="button">Reload</button></p>
@@ -382,7 +384,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-12 · 63ae8f3284</footer>
+    <footer class="version">Version 2026-10-12 · d79a269634</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
