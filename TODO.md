@@ -25,7 +25,6 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 
 ## Deferred
 
-- "Near me" on the main screen (setup's first-leg picker has "Show nearby"; see `DESIGN.md`).
 - Default times to/from the stops and transfer times estimated from stop coordinates
   (a walking estimate; the user can change it, e.g. when getting a ride).
 - Commuter rail and ferry.

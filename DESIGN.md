@@ -42,7 +42,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Departures shown | Next `departureCount` departures (config, 1-8, default 4) |
 | Config editing | Full-screen setup view (gear button) with route and stop pickers (no direction step); JSON only via Export/Import |
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
-| Deferred | See `TODO.md` (GPS "near me", default times estimated from stop coordinates, commuter rail/ferry) |
+| Deferred | See `TODO.md` (default times estimated from stop coordinates, commuter rail/ferry) |
 
 ## Data sources and fallback
 
