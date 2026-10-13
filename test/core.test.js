@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -457,6 +457,11 @@ test('tracking: boarding, live leg times, phases, Missed it re-plan', () => {
   assert.deepEqual(legs.map(l => [l.dep, l.arr, l.source, l.arrSource]), [
     [at('07:12'), at('07:29'), 'scheduled', 'live'], [at('07:33'), at('07:48'), 'live', 'live']]);
   assert.deepEqual(trackLegs(ride.legs, transit, [], null), ride.legs);
+  // After a reload (no memory), a leg's stored live times win over its schedule's.
+  const liveLegs = ride.legs.map(l => ({ ...l, dep: l.dep + 17 * 60_000, arr: l.arr + 17 * 60_000, source: 'live', arrSource: 'live' }));
+  const sched0 = mergeTrips(null, { data: [{ attributes: { arrival_time: iso('07:12'), departure_time: iso('07:12') }, relationships: { trip: { data: { id: ride.legs[0].tripId } }, stop: { data: { id: transit[0].stop } } } }] });
+  assert.deepEqual(trackLegs(liveLegs, transit, [sched0, sched], null).map(l => [l.dep, l.source]),
+    [[liveLegs[0].dep, 'live'], [liveLegs[1].dep, 'live']]);
 
   // Re-plan after missing leg 1 at 07:32: o2 (07:36) skipping o1; nothing after 08:00.
   assert.deepEqual(replanFrom([buses, trains], 1, at('07:32'), transfers, 'o1').map(v => v.tripId), ['o2']);
@@ -1903,4 +1908,19 @@ test('mbtaCacheKey: sorted parameters, without the API key', () => {
   assert.equal(mbtaCacheKey('/stops', { 'filter[route]': 'Red', 'fields[stop]': 'name', api_key: 'k' }), '/stops?fields%5Bstop%5D=name&filter%5Broute%5D=Red');
   assert.equal(mbtaCacheKey('/stops', { 'fields[stop]': 'name', 'filter[route]': 'Red' }), mbtaCacheKey('/stops', { 'filter[route]': 'Red', 'fields[stop]': 'name' }));
   assert.equal(mbtaCacheKey('/routes', { 'filter[type]': 3 }), '/routes?filter%5Btype%5D=3');
+});
+
+test('remembered live times survive a reload, per trip legs, pruned after 30 min', () => {
+  const t0 = Date.UTC(2026, 9, 13, 13, 40);
+  const transit = [{ route: '132', stop: 's1', alight: 's2' }, { route: 'Orange', stop: 'o1', alight: 'o2' }];
+  const key = liveKey(transit);
+  assert.notEqual(key, liveKey([{ ...transit[0], alight: 's3' }, transit[1]]));
+  const memory = [new Map([['b1', { dep: t0, arr: t0 + 11 * 60_000, route: '132' }]]), new Map()];
+  const old = { [liveKey([transit[1]])]: [[['o9', { dep: t0 - 40 * 60_000, arr: t0 }]]] };
+  const stored = JSON.parse(JSON.stringify(storeLive(old, key, memory, t0)));
+  assert.deepEqual(Object.keys(stored), [key]); // the stale trip's entries are gone
+  assert.deepEqual(loadLive(stored, key, t0 + 60_000), memory);
+  assert.deepEqual(loadLive(stored, key, t0 + 31 * 60_000), [new Map(), new Map()]);
+  assert.equal(loadLive(stored, liveKey([transit[1]]), t0), null);
+  assert.equal(loadLive(null, key, t0), null);
 });

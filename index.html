@@ -384,7 +384,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-13 · 03d0a283d2</footer>
+    <footer class="version">Version 2026-10-13 · cb81e8c5ad</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -403,12 +403,12 @@
 <script type="module">
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
-  departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
+  departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=c8a60c63c7';
-import { openSetup } from './setup.js?v=afd47872dd';
+} from './core.js?v=91cad96598';
+import { openSetup } from './setup.js?v=00a6897940';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -416,6 +416,8 @@ const KEY_OVERRIDE = 't-minus:trip-override';
 const KEY_LAST_TRIP = 't-minus:last-trip';
 // "Leaving now" / "At the stop" per trip index: { [idx]: { name, kind, at, atStop, key, dep } }.
 const KEY_EN_ROUTE = 't-minus:en-route';
+// Remembered live times (rememberLive) kept across reloads, per trip legs (storeLive).
+const KEY_LAST_LIVE = 't-minus:last-live';
 const SCHEDULE_TTL = 15 * 60_000;
 const ALERT_TTL = 5 * 60_000;
 const NEXT_DAY_TTL = 60 * 60_000;
@@ -461,7 +463,7 @@ let tripIdx = config ? chooseTrip(Date.now(), store.get(KEY_OVERRIDE)) : 0;
 // { predictions: [doc], schedules: {docs, date, coversEndOfService, at}, alerts: {doc, at},
 //   nextDay: {docs, date, at} (next service day's schedules, fetched once today's run out),
 //   timing: index of the transit leg leave-by is based on,
-//   lastLive: last live times per leg (rememberLive), for rides that just left,
+//   lastLive: last live times per leg (rememberLive; kept across reloads), for rides that just left,
 //   lastOk / lastError: this trip's last successful fetch time (the data's, from a stale proxy
 //   copy; then mbtaDown) and last error }
 let cache = {};
@@ -561,7 +563,7 @@ async function refresh({ force = false } = {}) {
   clearTimeout(pollTimer);
   const idx = tripIdx;
   const trip = config.trips[idx];
-  const c = (cache[idx] ??= {});
+  const c = (cache[idx] ??= { lastLive: loadLive(store.get(KEY_LAST_LIVE), liveKey(tripShape(trip).transit), Date.now()) });
   const now = Date.now();
   if (!$('refresh').classList.contains('busy')) spinStart = now;
   $('refresh').classList.add('busy');
@@ -570,7 +572,9 @@ async function refresh({ force = false } = {}) {
   try {
     const tasks = [fetchPredictions(trip).then(p => {
       c.predictions = p;
-      c.lastLive = rememberLive(c.lastLive, tripShape(trip).transit.map((l, i) => legVehicles(mergeTrips(p[i], null), l)), Date.now());
+      const { transit } = tripShape(trip);
+      c.lastLive = rememberLive(c.lastLive, transit.map((l, i) => legVehicles(mergeTrips(p[i], null), l)), Date.now());
+      store.set(KEY_LAST_LIVE, storeLive(store.get(KEY_LAST_LIVE), liveKey(transit), c.lastLive, Date.now()));
     })];
     if (force || !c.schedules || now - c.schedules.at > SCHEDULE_TTL) {
       // Look further ahead when more departures are shown (60-min midday headways).

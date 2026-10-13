@@ -127,6 +127,39 @@ test('a bus running late: under the transfer time is tight; leaving before the a
   await expect(card(page).locator('.ride-outlook')).toHaveClass(/warn/);
 });
 
+// The 7:08 bus running 8 min late at every stop: leaves Main St at 7:16, off at 7:30. Once it
+// has left, the fake API drops its predictions; only the schedule's 7:08 / 7:22 remain.
+test('after a reload, a late bus that has left keeps its live times on the missed row', async ({ page }) => {
+  const scenario = commute();
+  scenario.trips.find(t => t.id === '132in-0708').live = { delay: 8 };
+  await openApp(page, { time: '07:15', scenario });
+  await tickTo(page, '07:17');
+  const missed = page.locator('.row.missed .big');
+  await expect(missed).toHaveText(/^Missed · left 1 min ago\s*7:16am$/);
+  // The remembered live times are kept across the reload: the row stays on 7:16.
+  await page.reload();
+  await page.locator('.row').first().waitFor();
+  await expect(missed).toHaveText(/^Missed · left \d min ago\s*7:16am$/);
+});
+
+test('after a reload, a ride\'s late bus keeps the live times it was stored with', async ({ page }) => {
+  const scenario = commute();
+  scenario.trips.find(t => t.id === '132in-0708').live = { delay: 8 };
+  await openApp(page, { time: '07:00', scenario });
+  await atTheStop(page);
+  await tickTo(page, '07:31'); // off at 7:30: the bus has no predictions left
+  await expect(head(page)).toHaveText(/^Transfer · Orange/);
+  const tl = card(page).locator('.timeline');
+  const busStops = tl.locator('.tl-leg').first().locator('.step.stop');
+  await expect(busStops).toHaveText([/Main St @ South St\s*7:16am/, /Washington St opp Oak Grove Sta\s*7:30am/]);
+  // Even without the remembered times (cleared), the ride's own stored live times win over the schedule.
+  await page.evaluate(() => localStorage.removeItem('t-minus:last-live'));
+  await page.reload();
+  await page.locator('.row').first().waitFor();
+  await expect(busStops).toHaveText([/Main St @ South St\s*7:16am/, /Washington St opp Oak Grove Sta\s*7:30am/]);
+  await expect(tl.locator('.tl-leg').first().locator('.badge')).toHaveText('live');
+});
+
 // The commute's Orange runs every 6 min (7:26, 7:32, 7:38, …); the bus is off at 7:22, so the
 // plan is the 7:32 (7:22 + 5-min transfer).
 const choiceNames = page => card(page).locator('.ride-btns').last().getByRole('button').allInnerTexts();

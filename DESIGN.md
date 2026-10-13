@@ -211,8 +211,10 @@ unavailable: fallback, and the status line adds "Location off".
 
 A missed row's collapsed line shows the first leg (the one missed) instead of the timing leg.
 Live predictions disappear once a vehicle leaves its stop, so the last live times seen while
-the app is open are kept per trip (`rememberLive`/`withRemembered`, in memory, dropped 30 min
-after departure); after a fresh open, a missed row falls back to the schedule. An ADDED train
+the app is open are kept per trip (`rememberLive`/`withRemembered`, dropped 30 min after
+departure) and saved across reloads (`t-minus:last-live`, `storeLive`/`loadLive`, 2026-10-13),
+keyed by the trip's transit legs (routes, stop, drop-off) so a reordered or edited trip never
+gets another's; a reload keeps a late bus's missed row on its live time. An ADDED train
 (no schedule) that has left is added back from that memory, live, so its scheduled twin stays
 out.
 
@@ -265,8 +267,9 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
     every poll while riding, and right away when a ride starts; no data (trip id changed,
     request failed) shows no stops and no vehicle.
   - Leg times refresh every tick by trip id from the per-leg predictions already polled
-    (`trackLegs`): live entry, then remembered live times, then schedules, then the stored
-    plan. A departed vehicle has no board entry and keeps its stored departure. No extra
+    (`trackLegs`): live entry, then remembered live times, then the leg's own stored live
+    time (the ride is saved with it; also on the server, which has no memory), then schedules,
+    then the stored plan: a late bus that has left keeps its live times, LIVE, after a reload. A departed vehicle has no board entry and keeps its stored departure. No extra
     requests.
   - Next connection (riding leg i, or in the transfer before leg i+1): needed = leg i's
     arrival + transfer, margin = leg i+1's departure − needed (`transferOutlook`,

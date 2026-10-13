@@ -1378,6 +1378,21 @@ export function rememberLive(memory, liveByLeg, nowMs) {
   });
 }
 
+// Remembered live times kept across reloads (`t-minus:last-live`): per trip, keyed by its
+// transit legs (routes, stop, drop-off) so a reordered or edited trip never gets another's;
+// `[[tripId, entry], …]` per leg. Entries that departed more than 30 min ago are dropped.
+export const liveKey = transit => JSON.stringify(transit.map(l => [...legRoutes(l), l.stop, l.alight]));
+const recentLive = (entries, nowMs) => entries.filter(([, e]) => e.dep > nowMs - 30 * MIN);
+export function storeLive(stored, key, memory, nowMs) {
+  const out = {};
+  for (const [k, legs] of Object.entries({ ...stored, [key]: memory.map(m => [...m]) })) {
+    const kept = legs.map(l => recentLive(l, nowMs));
+    if (kept.some(l => l.length)) out[k] = kept;
+  }
+  return out;
+}
+export const loadLive = (stored, key, nowMs) => stored?.[key]?.map(l => new Map(recentLive(l, nowMs))) ?? null;
+
 // Leg vehicles with remembered live times applied to those no longer predicted. An ADDED trip
 // (no schedule) that has left is added back from memory, live.
 export function withRemembered(vehiclesByLeg, memory, nowMs) {
@@ -1713,7 +1728,9 @@ export function advanceEnRoute(state, rows, nowMs) {
 }
 
 // Refreshes a ride's legs from the merged per-leg trip maps (mergeTrips) by trip id: live
-// times first, then remembered live times (rememberLive), then schedules, else what's stored.
+// times first, then remembered live times (rememberLive, or the leg's own stored live time:
+// the memory is gone after a reload), then schedules, else what's stored. A late bus that has
+// left keeps its live time instead of going back to its schedule's.
 // A departed vehicle has no board entry; an arrived one no drop-off entry.
 export function trackLegs(legs, transit, tripsMaps, memory = null) {
   return legs.map((leg, i) => {
@@ -1727,8 +1744,8 @@ export function trackLegs(legs, transit, tripsMaps, memory = null) {
       if (usable(entry) && of(entry) != null) return [of(entry), entry.source];
       return null;
     };
-    const d = pick(board, mem?.dep, depOf);
-    const a = pick(alight, mem?.arr, arrOf);
+    const d = pick(board, mem?.dep ?? (leg.source === 'live' ? leg.dep : null), depOf);
+    const a = pick(alight, mem?.arr ?? (leg.arrSource === 'live' ? leg.arr : null), arrOf);
     return {
       ...leg,
       ...(d && { dep: d[0], source: d[1] }),
