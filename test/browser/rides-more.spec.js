@@ -49,7 +49,7 @@ test('previous rides list the trains that left in the last 15 min, in place of t
 test('a missed ride that has not left yet stays while previous rides are open', async ({ page }) => {
   // 5:30pm: the 5:35pm train is missed (10-min walk) but leaves in 4-5 min; 5:17pm, 5:23pm and 5:29pm have left.
   await openApp(page, { time: '17:30' });
-  await expect(page.locator('.row.missed .big')).toContainText('Missed · leaves in 4 min');
+  await expect(page.locator('.row.missed .big')).toContainText('Too late · leaves in 4 min');
   await listBtn(page, 'Show previous rides ▾').click();
   await expect(prevRows(page).locator('.big .at')).toHaveText(['5:17pm', '5:23pm', '5:29pm']);
   await expect(page.locator('.row.missed')).toHaveCount(1);

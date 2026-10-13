@@ -2239,7 +2239,7 @@ export function countdownLabel(state, msLeft, label = '') {
     case 'amber': return `Leave in ${formatCountdown(msLeft)}`;
     case 'red': return `Hurry · ${formatCountdown(msLeft)}`;
     // msLeft: until the first vehicle departs (negative once it has).
-    case 'missed': return msLeft > 0 ? `Missed · leaves in ${formatCountdown(msLeft)}` : `Missed · left ${formatCountdown(-msLeft)} ago`;
+    case 'missed': return msLeft > 0 ? `Too late · leaves in ${formatCountdown(msLeft)}` : `Missed · left ${formatCountdown(-msLeft)} ago`;
     default: return 'No connection';
   }
 }
