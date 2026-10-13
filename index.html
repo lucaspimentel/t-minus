@@ -116,6 +116,9 @@
      the time drops to the next line, still right-aligned. */
   .big > span { white-space: nowrap; }
   .big .at { font-size: 20px; font-weight: 600; margin-left: auto; }
+  /* Equal-width digits in the time columns only, so times line up down a list; elsewhere the
+     wide tabular "1" would gap names like "Bus 132". */
+  .step .t, .big .at { font-variant-numeric: tabular-nums; }
   .green .big { color: var(--green); }
   .amber .big { color: var(--amber); }
   .red .big { color: var(--red); }
@@ -384,7 +387,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-13 · cb81e8c5ad</footer>
+    <footer class="version">Version 2026-10-13 · 8ce3fa5119</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
