@@ -1,5 +1,5 @@
 // "Go somewhere else…" with live times: the server's timed options (/api/plan?…&now=1, stubbed),
-// their rows, the 60 s refresh that keeps the order, and the fallbacks. Setup's planner stays
+// their cards (no refresh), and the fallbacks. Setup's planner stays
 // untimed.
 import { test, expect } from '@playwright/test';
 import { openApp, tick, at, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
@@ -19,14 +19,13 @@ const option = (legs, leave, arrive, deps) => ({
   legs, transfers: [], minutes: 20, walkBefore: 0, walkAfter: 0,
   ...(leave && { leave: at(leave), arrive: at(arrive), deps: deps.map(([d, live]) => ({ dep: at(d), arr: at(arrive) - 5 * 60_000, source: live ? 'live' : 'scheduled', ...(live && { headsign: 'Forest Hills' }) })) }),
 });
-// Four timed candidates (the app shows 3); a refresh changes times and drops one.
+// Four timed candidates (the app shows 3).
 const FIRST = { from: 'Oak Grove', to: 'State', timed: true, options: [
   option(VIA_OAK, '07:04', '07:35', [['07:10', true]]),
   option(VIA_MALDEN, '07:06', '07:37', [['07:12', false]]),
   option([leg('Orange', 'place-wlsta', 'place-state', 'Wellington', 'State')], '07:08', '07:40', [['07:14', false]]),
   option([leg('Orange', 'place-astao', 'place-state', 'Assembly', 'State')], '07:09', '07:45', [['07:15', false]]),
 ] };
-const LATER = { ...FIRST, options: [FIRST.options[1], option(VIA_OAK, '07:08', '07:39', [['07:14', true]])] };
 
 async function stubPlan(page, answers) {
   const calls = [];
@@ -43,9 +42,9 @@ async function pickStation(page, field, query, name) {
   await setup(page).locator('.list .item.station', { hasText: name }).first().click();
 }
 
-test('Go somewhere else…: timed options, best 3, refreshed every minute in the same order', async ({ page }) => {
+test('Go somewhere else…: timed options, best 3, not refreshed', async ({ page }) => {
   await openApp(page, { time: '07:00' });
-  const calls = await stubPlan(page, [FIRST, LATER]);
+  const calls = await stubPlan(page, [FIRST]);
   await page.getByRole('button', { name: 'Go somewhere else…' }).click();
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
@@ -64,24 +63,18 @@ test('Go somewhere else…: timed options, best 3, refreshed every minute in the
   await expect(tl.locator('.step.ride')).toHaveText(/^Orange Line · 20 min\s*live\s*toward Forest Hills$/i);
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min · 1 min early at the stop', 'Walk 5 min']);
   await expect(options(page).nth(0).locator('.row-foot button')).toHaveText('See departures');
-  // No refresh while an option is expanded; collapsed, the next one comes.
-  await tick(page, 60_000);
-  expect(calls.length).toBe(1);
+  // No refresh: minutes later, the same answer (one request).
   await options(page).nth(0).locator('.row-toggle').click();
-  // A minute later: new times, the same order; Wellington (gone from the answer) drops.
-  await tick(page, 60_000);
-  expect(calls.length).toBe(2);
-  await expect(options(page).nth(0).locator('.row-toggle')).toHaveAttribute('aria-expanded', 'false');
-  await expect(options(page)).toHaveCount(2);
-  await expect(lines(page, 0).nth(0)).toHaveText('Arrive 7:39am · ~31 min');
-  await expect(lines(page, 0).nth(1)).toHaveText('Leave 7:08am (in 6 min)');
-  await expect(lines(page, 1).nth(0)).toHaveText('Arrive 7:37am · ~31 min');
+  await tick(page, 120_000);
+  expect(calls.length).toBe(1);
+  await expect(options(page)).toHaveCount(3);
+  await expect(lines(page, 0).nth(0)).toHaveText('Arrive 7:35am · ~31 min');
   // "See departures": the one-off trip on the main list.
   await pickOption(page, 1);
   await expect(page.locator('#oneoff')).toBeVisible();
 });
 
-test('a closed search stops refreshing: it never redraws over a later one', async ({ page }) => {
+test('a closed search never redraws over a later one', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   const calls = await stubPlan(page, [FIRST]);
   await page.getByRole('button', { name: 'Go somewhere else…' }).click();

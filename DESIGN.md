@@ -1173,10 +1173,10 @@ is for now, so its options are timed.
   like the rows): "Arrive 2:31pm · ~39 min", "Leave 1:52pm (in 4 min)" ("Leave now" once due),
   the route strip and the first ride's LIVE / SCHEDULED badge. Expanded: the main list's
   timeline with each stop's time, "Orange Line · 18 min LIVE / toward Forest Hills", "7 min to
-  transfer" (the wait between vehicles, as on the rows), then "See departures". Every 60 s while
-  open and no option is expanded (an expanded timeline stays as read), the times refresh in
-  place: the order stays (`optionKey`), a departure that passed rolls to its next one, an option
-  with nothing left drops. "Nothing runs
+  transfer" (the wait between vehicles, as on the rows), then "See departures". The times are as of
+  the answer, not refreshed (2026-10-13: a 60 s refresh was removed after a closed search's timer
+  redrew it over a later one; the list is for picking, and the picked trip's rows stay live).
+  Changing From or To, or reopening, asks again. "Nothing runs
   in the next 2 hours." / "Times unavailable." above the untimed options. Picking works as
   before (the one-off trip's own rows time it).
 

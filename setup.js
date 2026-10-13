@@ -13,7 +13,6 @@ import {
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
 const PLACE_DEBOUNCE_MS = 300;
-const TIMED_REFRESH_MS = 60_000; // "Go somewhere else…": live times while the list is open
 
 // Session caches (kept across openSetup calls; route and stop lists rarely change), backed by
 // copies kept on the phone (`keptCopy`).
@@ -424,8 +423,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     planApi('/plan', planQuery(p)).then(r => ({ key, options: r.options, from: r.from, to: r.to, ...timedFields(r) }), local)
       .then(plan => {
         if (planner !== p || p.plan?.key !== key) return;
-        // Timed: the 3 best shown; refreshes keep them, in this order.
-        if (plan.timed) { plan.all = plan.options; plan.options = plan.options.slice(0, 3); plan.shown = plan.options.map(optionKey); startTimedRefresh(p, key); }
+        // Timed: the 3 best (times as of the answer; no refresh, so the list never changes under you).
+        if (plan.timed) plan.options = plan.options.slice(0, 3);
         p.plan = plan;
         render();
       });
@@ -435,25 +434,6 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // setup's planner doesn't (a saved trip is used at many times of day).
   const planQuery = p => ({ from: p.from.id, to: p.to.id, ...(p.oneOff && { now: 1, wb: p.walkBefore, wa: p.walkAfter, slack: app.stopSlackMinutes }) });
   const timedFields = r => ({ ...(r.timed && { timed: true }), ...(r.none && { none: true }), ...(r.timedError && { timedError: true }) });
-
-  // Every TIMED_REFRESH_MS while the timed list is open: new times for the shown options (a
-  // departure that passed rolls to its next one), in the same order; one with nothing left drops.
-  // Skipped while an option is expanded (its timeline stays as read).
-  let timedTimer = null;
-  function startTimedRefresh(p, key) {
-    clearInterval(timedTimer);
-    timedTimer = setInterval(() => {
-      if (planner !== p || p.plan?.key !== key || !p.plan.timed) { clearInterval(timedTimer); timedTimer = null; return; }
-      if (p.plan.open?.size) return; // paused while an option is expanded
-      planApi('/plan', planQuery(p)).then(r => {
-        if (planner !== p || p.plan?.key !== key || !r.timed) return;
-        const byKey = new Map(r.options.map(o => [optionKey(o), o]));
-        p.plan.options = p.plan.shown.map(k => byKey.get(k)).filter(Boolean);
-        p.plan.shown = p.plan.options.map(optionKey);
-        render();
-      }, () => {});
-    }, TIMED_REFRESH_MS);
-  }
 
   function plannerScreen() {
     const p = planner;
@@ -1184,7 +1164,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   root.hidden = false;
   loadNames();
   render();
-  // Closing stops the timed list's refresh: a closed search's timer would redraw it over the next
+  // Closing drops the planner, so a late answer to a closed search never redraws over the next
   // setup view (they share `root`).
-  return { close() { clearInterval(timedTimer); timedTimer = null; planner = null; root.hidden = true; root.replaceChildren(); } };
+  return { close() { planner = null; root.hidden = true; root.replaceChildren(); } };
 }
