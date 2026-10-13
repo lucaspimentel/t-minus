@@ -81,6 +81,22 @@ test('Go somewhere else…: timed options, best 3, refreshed every minute in the
   await expect(page.locator('#oneoff')).toBeVisible();
 });
 
+test('a closed search stops refreshing: it never redraws over a later one', async ({ page }) => {
+  await openApp(page, { time: '07:00' });
+  const calls = await stubPlan(page, [FIRST]);
+  await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+  await pickStation(page, 'from', 'oak gr', 'Oak Grove');
+  await pickStation(page, 'to', 'state', 'State');
+  await expect(options(page)).toHaveCount(3);
+  await setup(page).getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+  await expect(setup(page).locator('#plan-from')).toHaveText('Choose a stop or station');
+  await tick(page, 60_000);
+  expect(calls.length).toBe(1);
+  await expect(setup(page).locator('#plan-from')).toHaveText('Choose a stop or station');
+  await expect(options(page)).toHaveCount(0);
+});
+
 test('nothing within 2 hours, or times failing: the untimed options under a note', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   const untimed = { from: 'Oak Grove', to: 'State', options: [option(VIA_OAK)] };

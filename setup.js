@@ -1184,5 +1184,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   root.hidden = false;
   loadNames();
   render();
-  return { close() { root.hidden = true; root.replaceChildren(); } };
+  // Closing stops the timed list's refresh: a closed search's timer would redraw it over the next
+  // setup view (they share `root`).
+  return { close() { clearInterval(timedTimer); timedTimer = null; planner = null; root.hidden = true; root.replaceChildren(); } };
 }
