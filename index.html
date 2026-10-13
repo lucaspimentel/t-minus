@@ -115,7 +115,7 @@
   /* The countdown never breaks; if a long leave-by time ("Thu 5:31am") doesn't fit beside it,
      the time drops to the next line, still right-aligned. */
   .big > span { white-space: nowrap; }
-  .big .at { font-size: 20px; font-weight: 600; margin-left: auto; font-variant-numeric: tabular-nums; }
+  .big .at { font-size: 20px; font-weight: 600; margin-left: auto; }
   .green .big { color: var(--green); }
   .amber .big { color: var(--amber); }
   .red .big { color: var(--red); }
@@ -129,7 +129,7 @@
   }
   .missed .big { color: var(--muted); font-size: 20px; }
   .none .big { color: var(--muted); font-size: 20px; }
-  .detail { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .detail { color: var(--muted); font-size: 14px; }
   .dot {
     display: inline-block; width: .7em; height: .7em; border-radius: 50%; margin-right: .35em;
     vertical-align: baseline; box-shadow: 0 0 0 1px rgb(0 0 0 / .25);
@@ -203,7 +203,7 @@
   .enroute-bar.ride-btns { margin: 12px 0 0; }
   /* Auto-route options: cards like the rows (setup). */
   .setup button.row-toggle { padding: 0; border: 0; border-radius: 6px; background: none; font-size: inherit; }
-  .row.option .opt-head { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .row.option .opt-head { display: block; font-size: 20px; }
   #plan-options { margin-top: 6px; grid-template-columns: minmax(0, 1fr); } /* long stop names cut, not widen */
   .toast {
     position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 10;
@@ -227,7 +227,6 @@
     content: ''; position: absolute; left: 4px; top: 14px; bottom: 12px; border-left: 2px dotted var(--border);
   }
   .step { position: relative; padding: 3px 0 3px 22px; }
-  .step .t { font-variant-numeric: tabular-nums; }
   .step.walk { font-size: 13px; color: var(--muted); }
   .tl-leg { position: relative; }
   /* The ride's bar, in three pieces so it runs node to node even when a long name wraps: from
@@ -351,7 +350,7 @@
   .setup .item .conn { color: var(--muted); font-size: 13px; margin-left: 4px; }
   .setup button.item.has-dist { display: flex; align-items: baseline; gap: 8px; }
   .setup .item.has-dist .main { flex: 1; min-width: 0; }
-  .setup .item .dist { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .setup .item .dist { color: var(--muted); font-size: 14px; white-space: nowrap; }
   .setup button.link { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; }
   .leg-routes { display: flex; flex-wrap: wrap; gap: 0 14px; margin: -2px 0 6px; }
   .leg-routes .check { margin: 0; }
@@ -385,7 +384,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-13 · 9ac0784c2e</footer>
+    <footer class="version">Version 2026-10-13 · 03d0a283d2</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
