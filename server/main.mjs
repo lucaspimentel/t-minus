@@ -21,6 +21,7 @@ const app = createApp({
   store: openStore(env.DATA_DIR ?? './data'),
   apiKey: env.MBTA_API_KEY,
   publicKey: env.VAPID_PUBLIC_KEY,
+  publicUrl: env.PUBLIC_URL || undefined,
   staticRoot: new URL('..', import.meta.url).pathname,
   proxy: env.MBTA_PROXY !== 'off',
   log,

@@ -7,7 +7,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { createApp } from '../server/app.mjs';
+import { createApp, declarativePush } from '../server/app.mjs';
 import { openStore } from '../server/store.mjs';
 import { legQuery, tripShape } from '../core.js';
 
@@ -81,10 +81,14 @@ async function setup({ staticRoot = null } = {}) {
     return { ok: true, status: 200, headers: { get: k => (k === 'last-modified' ? world.lastModified ?? null : null) }, json: async () => ({ data, included }) };
   };
   const sent = [];
+  const raw = [];
   world.sendStatus = null;
   const send = async (sub, payload) => {
     if (world.sendStatus) throw Object.assign(new Error('gone'), { statusCode: world.sendStatus });
-    sent.push(payload);
+    raw.push(payload);
+    // The fields each push is built from (`declarativePush` is checked on its own).
+    const { title, body, tag, renotify, data: { kind } } = payload.notification;
+    sent.push({ kind, title, body, tag, ...(renotify !== undefined && { renotify }) });
   };
   const dir = await mkdtemp(join(tmpdir(), 'leave-by-'));
   const store = openStore(dir);
@@ -103,7 +107,7 @@ async function setup({ staticRoot = null } = {}) {
   };
   const { app, call } = await serve();
   const close = () => Promise.all(servers.map(server => new Promise(r => server.close(r)))).then(() => store.close());
-  return { world, sent, store, dir, app, call, serve, close };
+  return { world, sent, raw, store, dir, app, call, serve, close };
 }
 
 const subscription = (n = 1) => ({ endpoint: `https://push.example/${n}`, keys: { p256dh: 'k', auth: 'a' } });
@@ -232,6 +236,14 @@ test('origins, validation, and per-subscription cap', async () => {
   } finally { await s.close(); }
 });
 
+test('declarativePush: the W3C format, the tap URL, and the old fields', () => {
+  assert.deepEqual(declarativePush({ kind: 'getOff', title: 'Next stop: get off', body: 'Arrive 8:06am', tag: 'ride:r1:1', renotify: true }, 'http://localhost:8790/'), {
+    web_push: 8030, mutable: true,
+    notification: { title: 'Next stop: get off', body: 'Arrive 8:06am', tag: 'ride:r1:1', renotify: true, navigate: 'http://localhost:8790/', lang: 'en-US', data: { kind: 'getOff' } },
+    title: 'Next stop: get off', body: 'Arrive 8:06am', tag: 'ride:r1:1', renotify: true,
+  });
+});
+
 test('a test notification is sent 10 s later, once per subscription at a time', async () => {
   const s = await setup();
   try {
@@ -246,6 +258,12 @@ test('a test notification is sent 10 s later, once per subscription at a time', 
     s.world.clock += 1_000;
     await s.app.tick();
     assert.deepEqual(s.sent, [{ kind: 'test', title: 'Test notification', body: 'Push works. Sent 7:41am.', tag: 'test' }]);
+    // Sent as a declarative push (as JSON: no `renotify` here), with a copy for older workers.
+    assert.deepEqual(JSON.parse(JSON.stringify(s.raw)), [{
+      web_push: 8030, mutable: true,
+      notification: { title: 'Test notification', body: 'Push works. Sent 7:41am.', tag: 'test', navigate: 'https://t-minus.lucasp.net/', lang: 'en-US', data: { kind: 'test' } },
+      title: 'Test notification', body: 'Push works. Sent 7:41am.', tag: 'test',
+    }]);
     assert.equal(s.store.all().length, 0); // not stored
     assert.equal((await s.call('POST', '/api/test-push', { subscription: subscription() })).status, 202);
   } finally { await s.close(); }

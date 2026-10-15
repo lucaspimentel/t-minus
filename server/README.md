@@ -41,6 +41,7 @@ fails, 120 requests/min per IP; see `DESIGN.md`, "MBTA data caching").
    | `VAPID_SUBJECT` | `mailto:<your email>` |
    | `MBTA_API_KEY` | the key from 1Password (`op item get ai4cbcfsnlhcflmjczne6wipey --fields label=api-key --reveal`) |
    | `DATA_DIR` | `/data` |
+   | `PUBLIC_URL` | optional: the page a notification opens when iOS shows a push without the service worker (default `https://t-minus.lucasp.net/`) |
    | `MBTA_PROXY` | optional: `off` turns the MBTA proxy off (503; the app calls the MBTA directly) |
 
    `PORT` is set by Railway.

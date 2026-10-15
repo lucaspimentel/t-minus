@@ -50,6 +50,15 @@ const MAX_PLACES = 5;
 const USER_AGENT = 'T-Minus (https://t-minus.lucasp.net)';
 
 // The app's files (an allowlist: nothing else under the repo root is served).
+// Declarative Web Push (W3C Push API; Safari 18.4+ shows it even when the service worker fails).
+// `mutable`: the worker still runs first (it closes a same-tag notification on iOS). The top-level
+// copy is for workers from before this format (they read `event.data` only).
+export const PUBLIC_URL = 'https://t-minus.lucasp.net/';
+export function declarativePush({ kind, title, body, tag, renotify }, navigate) {
+  const n = { title, body, tag, renotify };
+  return { web_push: 8030, mutable: true, notification: { ...n, navigate, lang: 'en-US', data: { kind } }, ...n };
+}
+
 const STATIC = {
   '/': 'index.html', '/index.html': 'index.html', '/core.js': 'core.js', '/setup.js': 'setup.js', '/sw.js': 'sw.js',
   '/manifest.json': 'manifest.json', '/icons/icon.svg': 'icons/icon.svg', '/icons/icon-192.png': 'icons/icon-192.png',
@@ -101,7 +110,7 @@ function nominatimPlaces(list) {
   }));
 }
 
-export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {} }) {
+export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {} }) {
   const schedules = new Map(); // reminder id -> { at, docs }
   const hits = new Map(); // ip -> { minute, count }
   let tests = []; // pending test notifications: { subscription, at }
@@ -653,7 +662,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     // A failed log write never turns a sent push into a failed one.
     const record = extra => { try { store.logPush(sub.endpoint, { ...entry, ...extra }, t - DAY, LOG_MAX); } catch (e) { log(`push log: ${e.message}`); } };
     try {
-      await send(sub, payload);
+      await send(sub, declarativePush(payload, publicUrl));
     } catch (e) {
       const why = e.statusCode === 410 ? 'gone' : e.statusCode === 404 ? 'not found' : e.message;
       record({ ok: false, error: `${e.statusCode ?? ''} ${why ?? ''}`.trim().slice(0, 200) });

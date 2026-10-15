@@ -62,3 +62,29 @@ test('an unreachable server: the saved copy', async ({ page }) => {
   await expect(footer(page)).toHaveText(version);
   await expect(status(page)).toContainText('Saved copy');
 });
+
+// A push delivered to the worker (CDP), as the push server sends it, and from an older server.
+test('a push shows its notification: declarative and plain payloads', async ({ page, context }) => {
+  await context.grantPermissions(['notifications'], { origin: 'http://localhost:8765' });
+  const cdp = await context.newCDPSession(page);
+  const registered = new Promise(resolve => cdp.on('ServiceWorker.workerRegistrationUpdated', ({ registrations }) => {
+    const r = registrations.find(x => x.scopeURL === 'http://localhost:8765/' && !x.isDeleted);
+    if (r) resolve(r.registrationId);
+  }));
+  await cdp.send('ServiceWorker.enable');
+  const registrationId = await registered;
+  const deliver = async payload => cdp.send('ServiceWorker.deliverPushMessage', {
+    origin: 'http://localhost:8765', registrationId, data: JSON.stringify(payload),
+  });
+  const shown = () => page.evaluate(async () => (await (await navigator.serviceWorker.ready).getNotifications())
+    .map(n => ({ title: n.title, body: n.body, tag: n.tag })));
+
+  await deliver({
+    web_push: 8030, mutable: true,
+    notification: { title: 'Leave now · Home to office', body: '132 at 7:13am', tag: 'r1', renotify: true, navigate: 'http://localhost:8765/', lang: 'en-US', data: { kind: 'leave' } },
+  });
+  await expect.poll(shown).toEqual([{ title: 'Leave now · Home to office', body: '132 at 7:13am', tag: 'r1' }]);
+
+  await deliver({ title: 'Test notification', body: 'Push works.', tag: 'test' });
+  await expect.poll(async () => (await shown()).find(n => n.tag === 'test')).toEqual({ title: 'Test notification', body: 'Push works.', tag: 'test' });
+});

@@ -780,6 +780,17 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     (`getNotifications({ tag })`); iOS has no quiet replacement, so later times may still buzz.
     No cap on updates.
   - Tapping a notification focuses or opens the app.
+  - **Declarative Web Push (2026-10-15):** every push (reminders, stop alerts, test) is sent in
+    the W3C declarative format (`declarativePush` in `server/app.mjs`):
+    `{ web_push: 8030, mutable: true, notification: { title, body, tag, renotify, navigate, lang, data: { kind } } }`.
+    Safari 18.4+ (iOS Home Screen apps) can show it without the service worker, so a worker that
+    iOS kills or that fails no longer drops the push (or counts against the subscription).
+    `mutable`: the worker still runs first (Safari passes `event.notification`, no data; other
+    browsers deliver the JSON) and shows it as above, keeping the same-tag close; Safari shows
+    the proposed notification only if the worker fails. `navigate` is `PUBLIC_URL`
+    (default `https://t-minus.lucasp.net/`). The message also carries the plain
+    `{ title, body, tag, renotify }` at the top level for workers installed before the change
+    (removable once they've updated). The badge (`app_badge`) is not used.
 - **Test notification:** setup ends with a "Notifications" section and one button, "Send test
   notification in 10 s" (hidden without `SERVER_API`; disabled with the Home Screen hint
   without push). It subscribes like "Notify me", posts to `POST /test-push`, and toasts "Test

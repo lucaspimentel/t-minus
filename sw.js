@@ -41,16 +41,24 @@ self.addEventListener('message', event => {
   if (event.data === 'nav-status') event.source?.postMessage({ type: 'nav', ...lastNav });
 });
 
-// Leave-time reminders and stop alerts from the push server (server/): { title, body, tag, renotify }.
+// Leave-time reminders and stop alerts from the push server (server/), as a declarative push
+// (`web_push: 8030`, `mutable`): Safari 18.4+ hands the worker the proposed notification
+// (`event.notification`, no data) and shows it itself if the worker fails; other browsers deliver the
+// JSON. Its `notification` (or, from an older server, the message itself) has { title, body, tag, renotify }.
 // An update reuses its notification's tag; `renotify: false` replaces it quietly. Safari (iOS) shows
 // a same-tag notification next to the old one (WebKit bug 258922), so there the old one is closed first.
 const SAFARI = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Android/.test(navigator.userAgent);
+function pushContent(event) {
+  if (event.notification) return event.notification;
+  const msg = event.data?.json() ?? {};
+  return msg.web_push === 8030 && msg.notification ? msg.notification : msg;
+}
 self.addEventListener('push', event => {
-  const data = event.data?.json() ?? {};
+  const data = pushContent(event);
   event.waitUntil((async () => {
     if (SAFARI && data.tag) for (const n of await self.registration.getNotifications({ tag: data.tag })) n.close();
-    await self.registration.showNotification(data.title ?? 'T-Minus', {
-      body: data.body ?? '', tag: data.tag, renotify: !!data.tag && data.renotify !== false,
+    await self.registration.showNotification(data.title || 'T-Minus', {
+      body: data.body ?? '', tag: data.tag || undefined, renotify: !!data.tag && data.renotify !== false,
       icon: 'icons/icon-192.png', badge: 'icons/icon-192.png',
     });
   })());
