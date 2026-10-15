@@ -754,8 +754,8 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   whose leave-by is ahead.
   - Tapping it asks for notification permission, subscribes the service worker
     (`pushManager.subscribe` with the server's VAPID key from `GET /vapid`), and posts the ride.
-  - Set, the button shows the heads-up and leave times ("6:57am · 7:02am ✕", from the current
-    row) and a bell sits before the row's leave time. Tapping the button again cancels it
+  - Set, the button shows the first heads-up and the leave time ("6:52am · 7:02am ✕", from the
+    current row; the 5-min heads-up is implied) and a bell sits before the row's leave time. Tapping the button again cancels it
     (`DELETE`).
   - Reminders are kept in `localStorage` (`t-minus:reminders`, keyed by trip and row) and
     stop showing once leave-by passes.
@@ -830,18 +830,21 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     legs with the same `legQuery` as the page. It rebuilds rows (`rowsFromDocs`) and finds its
     key.
   - **Decisions (`reminderStep`):**
-    - A heads-up goes out 5 min before leave-by (`HEADS_UP_MIN`), unless the reminder was set
-      inside that window.
-    - "Leave now" goes out at leave-by. Both times follow the row as predictions change.
-    - After the heads-up, a leave-by moved 2+ min from the one last sent (`rem.sent`) sends an
-      update with the same tag: "Leave in 7 min · Home to office" / "Bus 132 toward Malden at
-      7:13am · leave by 7:07am (was 7:04am)".
+    - Heads-ups go out 10 and 5 min before leave-by (`HEADS_UP_MINS`; 10 added 2026-10-15),
+      except those whose time had passed when the reminder was set (`headsUps`, the ones still
+      due). Heads-ups passed together (a late poll) send once. Reminders stored before then have
+      `headsUp` (the 5-min one; `remHeadsUps`).
+    - "Leave now" goes out at leave-by. All times follow the row as predictions change.
+    - After the first heads-up, a leave-by moved 2+ min from the one last sent (`rem.sent`) sends
+      an update with the same tag: "Leave in 7 min · Home to office" / "Bus 132 toward Malden at
+      7:13am · leave by 7:07am (was 7:04am)". A heads-up due after such a move carries the same
+      "· leave by … (was …)".
     - A row missing 3 polls in a row (cancelled, or the connection no longer works) sends "Ride
       cancelled" and ends the reminder. MBTA errors don't count; they retry in 20 s.
     - A reminder 5 min past leave-by with no row just expires (`MISSED_MINUTES`; never after
       its row is gone, since leave-by is before the first departure).
   - **Poll timing:** every 60 s while leave-by is more than 20 min away, then every 20 s, and
-    always at the heads-up and leave times (`reminderPollMs`). The loop runs every 5 s.
+    always at each heads-up and the leave time (`reminderPollMs`). The loop runs every 5 s.
   - **Request budget (author's key, 1,000 req/min):** about 3 requests/min per leg per
     reminder, plus schedules every 15 min.
   - **Limits:**

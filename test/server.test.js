@@ -113,27 +113,35 @@ async function setup({ staticRoot = null } = {}) {
 const subscription = (n = 1) => ({ endpoint: `https://push.example/${n}`, keys: { p256dh: 'k', auth: 'a' } });
 const reminder = (extra = {}) => ({ subscription: subscription(), trip, tripName: 'Home to office', stopSlackMinutes: 1, timingIdx: 1, key: 'o1', leaveBy: at('07:04'), ...extra });
 
-test('a reminder sends the heads-up, then "Leave now", then is gone', async () => {
+test('a reminder sends heads-ups at 10 and 5 min, then "Leave now", then is gone', async () => {
   const s = await setup();
   try {
     assert.deepEqual(await (await s.call('GET', '/api/vapid')).json(), { publicKey: 'PUB' });
     s.world.clock = at('06:50');
     const res = await s.call('POST', '/api/reminders', reminder());
     assert.equal(res.status, 201);
-    const { id, headsUp } = await res.json();
+    const { id, headsUps } = await res.json();
     assert.ok(id);
-    assert.equal(headsUp, true);
+    assert.deepEqual(headsUps, [10, 5]);
     await s.app.tick();
     assert.deepEqual(s.sent, []);
-    // Polls again no later than the heads-up time.
-    s.world.clock = at('06:59');
+    // Polls again no later than each heads-up time.
+    assert.equal(s.store.all()[0].nextPollAt, at('06:50') + 20_000);
+    s.world.clock = at('06:54');
     await s.app.tick();
-    assert.deepEqual(s.sent.map(p => p.title), ['Leave in 5 min · Home to office']);
+    assert.deepEqual(s.sent.map(p => p.title), ['Leave in 10 min · Home to office']);
     assert.equal(s.sent[0].body, '132 toward Malden at 7:10am'); // the fixture has no labels; the headsign is included
     assert.equal(s.sent[0].tag, 'o1');
+    assert.equal(s.store.all()[0].nextPollAt, at('06:54') + 20_000);
+    s.world.clock = at('06:58') + 50_000;
+    await s.app.tick();
+    assert.equal(s.store.all()[0].nextPollAt, at('06:59')); // not past the 5-min heads-up
+    s.world.clock = at('06:59');
+    await s.app.tick();
+    assert.deepEqual(s.sent.map(p => [p.title, p.renotify]), [['Leave in 10 min · Home to office', true], ['Leave in 5 min · Home to office', true]]);
     s.world.clock = at('07:04');
     await s.app.tick();
-    assert.deepEqual(s.sent.map(p => p.title), ['Leave in 5 min · Home to office', 'Leave now · Home to office']);
+    assert.deepEqual(s.sent.map(p => p.title), ['Leave in 10 min · Home to office', 'Leave in 5 min · Home to office', 'Leave now · Home to office']);
     assert.equal(s.store.all().length, 0);
   } finally { await s.close(); }
 });
@@ -141,13 +149,14 @@ test('a reminder sends the heads-up, then "Leave now", then is gone', async () =
 test('a reminder follows the ride: a later bus moves leave-by and the next poll', async () => {
   const s = await setup();
   try {
-    s.world.clock = at('06:50');
+    s.world.clock = at('06:57'); // past the 10-min heads-up
     await s.call('POST', '/api/reminders', reminder());
     s.world.bus = '07:12';
     await s.app.tick();
     const [rem] = s.store.all();
     assert.equal(rem.leaveBy, at('07:06'));
-    assert.equal(rem.nextPollAt, at('06:50') + 20_000); // within 20 min: every 20 s
+    assert.deepEqual(rem.headsUps, [5]);
+    assert.equal(rem.nextPollAt, at('06:57') + 20_000); // within 20 min: every 20 s
     s.world.clock = at('07:00') + 50_000;
     await s.app.tick();
     assert.equal(s.store.all()[0].nextPollAt, at('07:01')); // not past the heads-up time
@@ -229,10 +238,12 @@ test('origins, validation, and per-subscription cap', async () => {
     for (let i = 0; i < 5; i++) assert.equal((await s.call('POST', '/api/reminders', reminder())).status, 201);
     assert.equal((await s.call('POST', '/api/reminders', reminder())).status, 429);
     assert.equal((await s.call('POST', '/api/reminders', reminder({ subscription: subscription(2) }))).status, 201);
-    // Set inside the heads-up window: no heads-up.
+    // Set inside a heads-up's window: not that heads-up.
+    s.world.clock = at('06:57');
+    assert.deepEqual((await (await s.call('POST', '/api/reminders', reminder({ subscription: subscription(3) }))).json()).headsUps, [5]);
     s.world.clock = at('07:00');
-    const late = await (await s.call('POST', '/api/reminders', reminder({ subscription: subscription(3) }))).json();
-    assert.equal(late.headsUp, false);
+    const late = await (await s.call('POST', '/api/reminders', reminder({ subscription: subscription(4) }))).json();
+    assert.deepEqual(late.headsUps, []);
   } finally { await s.close(); }
 });
 
@@ -816,10 +827,10 @@ test('pending notifications: this phone\'s reminders and rides with their next p
     let p = await pending();
     assert.equal(p.entries.length, 1);
     assert.deepEqual(p.entries[0], { id: remId, kind: 'reminder', tripName: 'Home to office', createdAt: at('06:50'), lastCheckAt: null,
-      next: { kind: 'headsUp', at: at('06:59'), text: 'Leave in 5 min' }, key: 'o1', leaveBy: at('07:04'), headsUp: true, route: '132' });
+      next: { kind: 'headsUp', at: at('06:54'), text: 'Leave in 10 min' }, key: 'o1', leaveBy: at('07:04'), headsUps: [10, 5], route: '132' });
     assert.ok(!JSON.stringify(p).includes('"keys"')); // never the subscription's keys
     assert.deepEqual(p.log, []);
-    // The heads-up is logged, and the next push becomes Leave now.
+    // The heads-up is logged (one, polled late), and the next push becomes Leave now.
     s.world.clock = at('06:59');
     await s.app.tick();
     p = await pending();

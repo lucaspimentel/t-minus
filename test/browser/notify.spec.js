@@ -29,7 +29,7 @@ async function fakeServer(page) {
     calls.push({ method: req.method(), path, body: req.postDataJSON?.() ?? null });
     const cors = { 'access-control-allow-origin': '*' };
     if (path === '/vapid') return route.fulfill({ json: { publicKey: 'BAAA' }, headers: cors });
-    if (req.method() === 'POST') return route.fulfill({ status: 201, json: { id: 'r1', headsUp: true }, headers: cors });
+    if (req.method() === 'POST') return route.fulfill({ status: 201, json: { id: 'r1', headsUps: [10, 5] }, headers: cors });
     return route.fulfill({ status: 204, headers: cors });
   });
   return calls;
@@ -44,7 +44,7 @@ test('Notify me sets a reminder: the times on the button, a bell on the collapse
   await firstRow(page).click();
   await firstRow(page).getByRole('button', { name: 'Notify me' }).click();
   const on = firstRow(page).locator('.track-btn.on');
-  await expect(on).toHaveText('6:57am · 7:02am ✕');
+  await expect(on).toHaveText('6:52am · 7:02am ✕'); // the first heads-up and leave-by
   const post = calls.find(c => c.method === 'POST');
   expect(post.path).toBe('/reminders');
   expect(post.body).toMatchObject({ key: '132in-0708', timingIdx: 0, tripName: 'Home to office', leaveBy: Date.parse('2026-10-05T07:02:00-04:00'), stopSlackMinutes: 1 });

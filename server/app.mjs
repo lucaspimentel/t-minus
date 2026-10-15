@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
-  headsUpDue, HEADS_UP_MIN, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
+  headsUpsDue, remHeadsUps, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
@@ -72,7 +72,7 @@ function pendingView(e, t) {
   const base = { id: e.id, kind: e.kind === 'ride' ? 'ride' : 'reminder', tripName: e.tripName, createdAt: e.createdAt, lastCheckAt: e.lastCheckAt ?? null, next: nextPush(e, t) };
   if (e.kind === 'ride') return { ...base, ride: e.ride, phase: ridePhase(e.ride, tripShape(e.trip).walkAfter, t).kind, alert: e.alert };
   const first = tripShape(e.trip).transit[0];
-  return { ...base, key: e.key, leaveBy: e.leaveBy, headsUp: e.headsUp, route: first?.label ?? first?.route ?? null };
+  return { ...base, key: e.key, leaveBy: e.leaveBy, headsUps: remHeadsUps(e), route: first?.label ?? first?.route ?? null };
 }
 
 const nearBoston = (lat, lon) => lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5;
@@ -420,11 +420,11 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       const rem = {
         id: randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
         stopSlackMinutes: body.stopSlackMinutes ?? 1, timingIdx: body.timingIdx, key: body.key,
-        leaveBy: body.leaveBy, headsUp: headsUpDue(body.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
+        leaveBy: body.leaveBy, headsUps: headsUpsDue(body.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
       };
       store.add(rem);
       log(`reminder ${rem.id} for ${rem.key}, leave by ${new Date(rem.leaveBy).toISOString()}`);
-      return reply(res, 201, { id: rem.id, headsUp: rem.headsUp });
+      return reply(res, 201, { id: rem.id, headsUps: rem.headsUps });
     }
 
     // Stop alerts: the server follows a tracked ride (re-planning connections) and pushes before
@@ -704,18 +704,19 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     const step = reminderStep(rem, row, t);
     rem.leaveBy = step.leaveBy;
     rem.missing = step.missing;
+    rem.headsUps = step.headsUps;
+    delete rem.headsUp;
     if (step.action === 'leave' || step.action === 'cancelled') {
       await push(rem, step.action, row, t);
       return drop(rem);
     }
     if (step.action === 'expire') return drop(rem);
     if (step.action === 'headsUp' || step.action === 'update') {
-      rem.headsUp = false;
       rem.sent = { leaveBy: step.leaveBy };
       if (!(await push(rem, step.action, row, t, step))) return drop(rem);
     }
     // Poll again in time for the next notification.
-    const due = rem.headsUp ? rem.leaveBy - HEADS_UP_MIN * MIN : rem.leaveBy;
+    const due = rem.headsUps.length ? rem.leaveBy - Math.max(...rem.headsUps) * MIN : rem.leaveBy;
     const next = t + reminderPollMs(rem.leaveBy, t);
     rem.nextPollAt = due > t ? Math.min(next, due) : next;
     return false;

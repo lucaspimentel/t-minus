@@ -1567,34 +1567,42 @@ export const UPDATE_MIN = 2;
 const moved = (a, b) => Math.abs(a - b) >= UPDATE_MIN * MIN;
 const update = (now, was) => ({ update: true, was, earlier: now < was });
 
-// Leave-time reminders ("Notify me"): a heads-up HEADS_UP_MIN before leave-by, then "Leave now".
-// `rem` = { leaveBy, headsUp (still due?), missing (polls in a row without its row), sent ({ leaveBy }
-// the heads-up showed) }; `row` = the re-fetched row with the reminder's key, or null. Times follow
-// the row; after the heads-up, a moved leave-by is an 'update' ({ was, earlier }). Missing for
-// REMINDER_MISSING polls in a row, the ride is reported cancelled; long past, it just expires.
-export const HEADS_UP_MIN = 5;
+// Leave-time reminders ("Notify me"): heads-ups HEADS_UP_MINS before leave-by, then "Leave now".
+// `rem` = { leaveBy, headsUps (minutes before leave-by still due), missing (polls in a row without
+// its row), sent ({ leaveBy } the last heads-up showed) }; `row` = the re-fetched row with the
+// reminder's key, or null. Times follow the row; after a heads-up, a moved leave-by is an 'update'
+// ({ was, earlier }), and a heads-up then carries `was` too. Heads-ups passed together (a late poll)
+// send once. Missing for REMINDER_MISSING polls in a row, the ride is reported cancelled; long
+// past, it just expires.
+export const HEADS_UP_MINS = [10, 5];
 export const REMINDER_MISSING = 3;
+// Reminders saved before HEADS_UP_MINS have `headsUp` (the 5-min one still due?).
+export const remHeadsUps = rem => rem.headsUps ?? (rem.headsUp ? [5] : []);
 export function reminderStep(rem, row, nowMs) {
+  const headsUps = remHeadsUps(rem);
   if (!row) {
-    if (nowMs >= rem.leaveBy + MISSED_MINUTES * MIN) return { action: 'expire', leaveBy: rem.leaveBy, missing: rem.missing + 1 };
+    if (nowMs >= rem.leaveBy + MISSED_MINUTES * MIN) return { action: 'expire', leaveBy: rem.leaveBy, missing: rem.missing + 1, headsUps };
     const missing = rem.missing + 1;
-    return { action: missing >= REMINDER_MISSING ? 'cancelled' : 'wait', leaveBy: rem.leaveBy, missing };
+    return { action: missing >= REMINDER_MISSING ? 'cancelled' : 'wait', leaveBy: rem.leaveBy, missing, headsUps };
   }
   const { leaveBy } = row;
-  if (nowMs < leaveBy && !rem.headsUp && rem.sent && moved(leaveBy, rem.sent.leaveBy)) return { action: 'update', leaveBy, missing: 0, ...update(leaveBy, rem.sent.leaveBy) };
-  const action = nowMs >= leaveBy ? 'leave' : rem.headsUp && nowMs >= leaveBy - HEADS_UP_MIN * MIN ? 'headsUp' : 'wait';
-  return { action, leaveBy, missing: 0 };
+  if (nowMs >= leaveBy) return { action: 'leave', leaveBy, missing: 0, headsUps: [] };
+  const left = headsUps.filter(m => nowMs < leaveBy - m * MIN);
+  const movedFrom = rem.sent && moved(leaveBy, rem.sent.leaveBy) ? rem.sent.leaveBy : null;
+  if (left.length < headsUps.length) return { action: 'headsUp', leaveBy, missing: 0, headsUps: left, ...(movedFrom != null && { was: movedFrom }) };
+  if (movedFrom != null) return { action: 'update', leaveBy, missing: 0, headsUps, ...update(leaveBy, movedFrom) };
+  return { action: 'wait', leaveBy, missing: 0, headsUps };
 }
-// Whether a reminder set at `nowMs` still gets its heads-up (not when set inside the window).
-export const headsUpDue = (leaveBy, nowMs) => nowMs < leaveBy - HEADS_UP_MIN * MIN;
+// The heads-ups a reminder set at `nowMs` still gets (not those already inside their window).
+export const headsUpsDue = (leaveBy, nowMs) => HEADS_UP_MINS.filter(m => nowMs < leaveBy - m * MIN);
 
 // Push text: { title, body }. `row` (when known) names the first vehicle and its time; an
-// 'update' also gives the new leave-by and the one the heads-up showed (`was`).
+// 'update' (or a heads-up after a moved time) also gives the new leave-by and the one last shown (`was`).
 export function reminderText(kind, tripName, row, nowMs, was) {
   const first = row?.legs[0];
   const body = first ? `${lineToward(first)} at ${legTime(first, first.dep, nowMs)}` : '';
   switch (kind) {
-    case 'headsUp': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body };
+    case 'headsUp': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: was == null ? body : `${body} · leave by ${formatTime(row.leaveBy, nowMs)} (was ${formatTime(was, nowMs)})` };
     case 'update': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: `${body} · leave by ${formatTime(row.leaveBy, nowMs)} (was ${formatTime(was, nowMs)})` };
     case 'leave': return { title: `Leave now · ${tripName}`, body };
     default: return { title: `Ride cancelled · ${tripName}`, body: 'Open the app for the next one.' };
@@ -1930,8 +1938,9 @@ export function rideAlertText(send, { ride, outlook, stopName, walkAfter, nowMs 
 // stops left (the ride's heads-up). Null when nothing is left to send.
 export function nextPush(e, nowMs) {
   if (e.kind !== 'ride') {
-    return e.headsUp
-      ? { kind: 'headsUp', at: e.leaveBy - HEADS_UP_MIN * MIN, text: `Leave in ${HEADS_UP_MIN} min` }
+    const m = Math.max(...remHeadsUps(e));
+    return m > 0
+      ? { kind: 'headsUp', at: e.leaveBy - m * MIN, text: `Leave in ${m} min` }
       : { kind: 'leave', at: e.leaveBy, text: 'Leave now' };
   }
   const phase = ridePhase(e.ride, tripShape(e.trip).walkAfter, nowMs);

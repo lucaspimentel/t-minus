@@ -10,7 +10,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
-  legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpDue, HEADS_UP_MIN, UPDATE_MIN, testPushText,
+  legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, withoutArrived, stopConnections,
 } from '../core.js';
 
@@ -1566,22 +1566,38 @@ test('rowsFromDocs: rows from raw predictions and schedules', () => {
   assert.deepEqual(row.legs.map(l => l.source), ['scheduled', 'live']);
 });
 
-test('reminderStep: heads-up, then leave; times follow the row', () => {
-  const rem = { leaveBy: at('07:14'), headsUp: true, missing: 0 };
-  assert.deepEqual(reminderStep(rem, { leaveBy: at('07:14') }, at('07:00')), { action: 'wait', leaveBy: at('07:14'), missing: 0 });
-  assert.equal(reminderStep(rem, { leaveBy: at('07:14') }, at('07:09')).action, 'headsUp');
+test('reminderStep: heads-ups at 10 and 5 min, then leave; times follow the row', () => {
+  const rem = { leaveBy: at('07:14'), headsUps: [10, 5], missing: 0 };
+  assert.deepEqual(reminderStep(rem, { leaveBy: at('07:14') }, at('07:00')), { action: 'wait', leaveBy: at('07:14'), missing: 0, headsUps: [10, 5] });
+  assert.deepEqual(reminderStep(rem, { leaveBy: at('07:14') }, at('07:04')), { action: 'headsUp', leaveBy: at('07:14'), missing: 0, headsUps: [5] });
+  const after10 = { ...rem, headsUps: [5], sent: { leaveBy: at('07:14') } };
+  assert.equal(reminderStep(after10, { leaveBy: at('07:14') }, at('07:08')).action, 'wait');
+  assert.deepEqual(reminderStep(after10, { leaveBy: at('07:14') }, at('07:09')), { action: 'headsUp', leaveBy: at('07:14'), missing: 0, headsUps: [] });
   // Delayed: the heads-up waits for the new time.
-  assert.deepEqual(reminderStep(rem, { leaveBy: at('07:16') }, at('07:10')), { action: 'wait', leaveBy: at('07:16'), missing: 0 });
-  assert.equal(reminderStep({ ...rem, headsUp: false }, { leaveBy: at('07:14') }, at('07:10')).action, 'wait');
-  assert.equal(reminderStep({ ...rem, headsUp: false }, { leaveBy: at('07:14') }, at('07:14')).action, 'leave');
+  assert.deepEqual(reminderStep(rem, { leaveBy: at('07:16') }, at('07:05')), { action: 'wait', leaveBy: at('07:16'), missing: 0, headsUps: [10, 5] });
+  assert.equal(reminderStep({ ...rem, headsUps: [] }, { leaveBy: at('07:14') }, at('07:10')).action, 'wait');
+  assert.deepEqual(reminderStep({ ...rem, headsUps: [] }, { leaveBy: at('07:14') }, at('07:14')), { action: 'leave', leaveBy: at('07:14'), missing: 0, headsUps: [] });
+  // A late poll past both: one heads-up.
+  assert.deepEqual(reminderStep(rem, { leaveBy: at('07:14') }, at('07:10')), { action: 'headsUp', leaveBy: at('07:14'), missing: 0, headsUps: [] });
   // Earlier than expected and already due: straight to "Leave now".
   assert.equal(reminderStep(rem, { leaveBy: at('07:05') }, at('07:06')).action, 'leave');
+  // The 5-min heads-up after a moved time carries the one last shown.
+  assert.deepEqual(reminderStep(after10, { leaveBy: at('07:17') }, at('07:12')), { action: 'headsUp', leaveBy: at('07:17'), missing: 0, headsUps: [], was: at('07:14') });
+});
+
+test('remHeadsUps: reminders saved with headsUp (5 min only)', () => {
+  assert.deepEqual(HEADS_UP_MINS, [10, 5]);
+  assert.deepEqual(remHeadsUps({ headsUp: true }), [5]);
+  assert.deepEqual(remHeadsUps({ headsUp: false }), []);
+  assert.deepEqual(remHeadsUps({ headsUps: [10, 5], headsUp: false }), [10, 5]);
+  assert.equal(reminderStep({ leaveBy: at('07:14'), headsUp: true, missing: 0 }, { leaveBy: at('07:14') }, at('07:05')).action, 'wait');
+  assert.equal(reminderStep({ leaveBy: at('07:14'), headsUp: true, missing: 0 }, { leaveBy: at('07:14') }, at('07:09')).action, 'headsUp');
 });
 
 test('reminderStep: a ride missing three polls in a row is cancelled; long past, it expires', () => {
-  const rem = { leaveBy: at('07:14'), headsUp: true, missing: 0 };
+  const rem = { leaveBy: at('07:14'), headsUps: [10, 5], missing: 0 };
   const a = reminderStep(rem, null, at('07:00'));
-  assert.deepEqual(a, { action: 'wait', leaveBy: at('07:14'), missing: 1 });
+  assert.deepEqual(a, { action: 'wait', leaveBy: at('07:14'), missing: 1, headsUps: [10, 5] });
   assert.equal(reminderStep({ ...rem, missing: 1 }, null, at('07:00')).action, 'wait');
   assert.equal(reminderStep({ ...rem, missing: 2 }, null, at('07:00')).action, 'cancelled');
   assert.equal(reminderStep({ ...rem, missing: 1 }, { leaveBy: at('07:14') }, at('07:00')).missing, 0);
@@ -1590,23 +1606,26 @@ test('reminderStep: a ride missing three polls in a row is cancelled; long past,
 
 test('reminderStep: after the heads-up, a leave-by moved UPDATE_MIN+ min is an update', () => {
   assert.equal(UPDATE_MIN, 2);
-  const rem = { leaveBy: at('07:14'), headsUp: false, missing: 0, sent: { leaveBy: at('07:14') } };
+  const rem = { leaveBy: at('07:14'), headsUps: [], missing: 0, sent: { leaveBy: at('07:14') } };
   assert.deepEqual(reminderStep(rem, { leaveBy: at('07:17') }, at('07:10')),
-    { action: 'update', leaveBy: at('07:17'), missing: 0, update: true, was: at('07:14'), earlier: false });
+    { action: 'update', leaveBy: at('07:17'), missing: 0, headsUps: [], update: true, was: at('07:14'), earlier: false });
+  // After the 10-min heads-up too.
+  assert.equal(reminderStep({ ...rem, headsUps: [5] }, { leaveBy: at('07:17') }, at('07:06')).action, 'update');
   assert.equal(reminderStep(rem, { leaveBy: at('07:12') }, at('07:10')).earlier, true);
   assert.equal(reminderStep(rem, { leaveBy: at('07:15') }, at('07:10')).action, 'wait'); // 1 min: jitter
   assert.equal(reminderStep(rem, { leaveBy: at('07:10') }, at('07:10')).action, 'leave'); // due: "Leave now" instead
   // Before the heads-up (or a reminder saved before updates existed): no update.
-  assert.equal(reminderStep({ ...rem, headsUp: true, sent: undefined }, { leaveBy: at('07:20') }, at('07:05')).action, 'wait');
+  assert.equal(reminderStep({ ...rem, headsUps: [10, 5], sent: undefined }, { leaveBy: at('07:20') }, at('07:05')).action, 'wait');
   assert.equal(reminderStep({ ...rem, sent: undefined }, { leaveBy: at('07:20') }, at('07:10')).action, 'wait');
 });
 
-test('headsUpDue, reminderText, reminderPollMs', () => {
-  assert.equal(HEADS_UP_MIN, 5);
-  assert.equal(headsUpDue(at('07:14'), at('07:08')), true);
-  assert.equal(headsUpDue(at('07:14'), at('07:09')), false);
+test('headsUpsDue, reminderText, reminderPollMs', () => {
+  assert.deepEqual(headsUpsDue(at('07:14'), at('07:03')), [10, 5]);
+  assert.deepEqual(headsUpsDue(at('07:14'), at('07:06')), [5]);
+  assert.deepEqual(headsUpsDue(at('07:14'), at('07:09')), []);
   const row = { leaveBy: at('07:14'), legs: [{ label: 'Bus 132', dep: at('07:20') }] };
   assert.deepEqual(reminderText('headsUp', 'Home to office', row, at('07:09')), { title: 'Leave in 5 min · Home to office', body: 'Bus 132 at 7:20am' });
+  assert.deepEqual(reminderText('headsUp', 'Home to office', row, at('07:09'), at('07:11')), { title: 'Leave in 5 min · Home to office', body: 'Bus 132 at 7:20am · leave by 7:14am (was 7:11am)' });
   assert.deepEqual(reminderText('leave', 'Home to office', row, at('07:14')), { title: 'Leave now · Home to office', body: 'Bus 132 at 7:20am' });
   assert.deepEqual(reminderText('update', 'Home to office', { ...row, leaveBy: at('07:12') }, at('07:10'), at('07:14')),
     { title: 'Leave in 2 min · Home to office', body: 'Bus 132 at 7:20am · leave by 7:12am (was 7:14am)' });
@@ -1926,8 +1945,10 @@ test('remembered live times survive a reload, per trip legs, pruned after 30 min
 });
 
 test('nextPush: a reminder\'s heads-up then Leave now; a ride\'s heads-up, then get off, per leg', () => {
+  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [10, 5] }, at('06:50')), { kind: 'headsUp', at: at('06:54'), text: 'Leave in 10 min' });
+  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [5] }, at('06:55')), { kind: 'headsUp', at: at('06:59'), text: 'Leave in 5 min' });
   assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUp: true }, at('06:50')), { kind: 'headsUp', at: at('06:59'), text: 'Leave in 5 min' });
-  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUp: false }, at('07:00')), { kind: 'leave', at: at('07:04'), text: 'Leave now' });
+  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [] }, at('07:00')), { kind: 'leave', at: at('07:04'), text: 'Leave now' });
   const trip = { name: 'Home to office', legs: [{ kind: 'walk', minutes: 5 }, { kind: 'transit', route: '132', stop: 's1', alight: 's2' },
     { kind: 'transfer', minutes: 5 }, { kind: 'transit', route: 'Orange', stop: 'o1', alight: 'o2' }, { kind: 'walk', minutes: 10 }] };
   const ride = { boardedAt: at('07:08'), legs: [

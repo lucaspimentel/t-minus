@@ -403,7 +403,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-15 · a9744328d5</footer>
+    <footer class="version">Version 2026-10-15 · 5175c26e00</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -425,9 +425,9 @@ import {
   departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
-  filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, HEADS_UP_MIN, headsUpDue,
-} from './core.js?v=7611abddab';
-import { openSetup } from './setup.js?v=fdb9d675e5';
+  filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, remHeadsUps,
+} from './core.js?v=868ccd371c';
+import { openSetup } from './setup.js?v=3ded4e77c0';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -912,7 +912,9 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
     const b = el('button', `track-btn${reminder ? ' on' : ''}`);
     b.type = 'button';
     b.innerHTML = BELL_SVG;
-    const times = reminder && (reminder.headsUp ? [r.leaveBy - HEADS_UP_MIN * 60_000, r.leaveBy] : [r.leaveBy]);
+    // The first heads-up and the leave time.
+    const first = reminder && Math.max(...remHeadsUps(reminder));
+    const times = reminder && (first > 0 ? [r.leaveBy - first * 60_000, r.leaveBy] : [r.leaveBy]);
     b.append(reminder ? `${times.map(t => formatTime(t, now)).join(' · ')} ✕` : 'Notify me');
     b.dataset.focus = `notify:${key}`;
     if (reminder) b.setAttribute('aria-label', 'Cancel the reminder');
@@ -938,7 +940,7 @@ const pushOverride = location.hostname === 'localhost' ? store.get('t-minus:push
 const SERVER_API = pushOverride ?? '/api';
 // iOS has push only in the Home Screen app.
 const pushSupported = 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
-// Set reminders: { ["<trip>/<row key>"]: { id, leaveBy, headsUp, timingIdx, key } }, until their
+// Set reminders: { ["<trip>/<row key>"]: { id, leaveBy, headsUps, timingIdx, key } }, until their
 // leave-by passes.
 const KEY_REMINDERS = 't-minus:reminders';
 let reminders = store.get(KEY_REMINDERS) ?? {};
@@ -1049,11 +1051,11 @@ async function notify(r) {
   reminderBusy = key;
   render();
   try {
-    const { id, headsUp } = await pushApi('POST', '/reminders', {
+    const { id, headsUps } = await pushApi('POST', '/reminders', {
       subscription: await subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
       timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy,
     });
-    reminders[remKey] = { id, leaveBy: r.leaveBy, headsUp, timingIdx: r.timingIdx, key: r.key };
+    reminders[remKey] = { id, leaveBy: r.leaveBy, headsUps, timingIdx: r.timingIdx, key: r.key };
     saveReminders();
   } catch (e) {
     showToast(`Couldn't set the reminder: ${e.message}`, 'Retry', () => notify(r));
@@ -1129,11 +1131,11 @@ async function restoreReminders(idx, removed) {
   try {
     const subscription = await pushSubscription();
     for (const [remKey, rem] of due) {
-      const { id, headsUp } = await pushApi('POST', '/reminders', {
+      const { id, headsUps } = await pushApi('POST', '/reminders', {
         subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
         timingIdx: rem.timingIdx, key: rem.key, leaveBy: rem.leaveBy,
       });
-      reminders[remKey] = { ...rem, id, headsUp };
+      reminders[remKey] = { ...rem, id, headsUps };
       saveReminders();
     }
   } catch (e) {

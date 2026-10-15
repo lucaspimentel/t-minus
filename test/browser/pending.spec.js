@@ -25,7 +25,7 @@ async function fakeServer(page) {
   const calls = [];
   const state = {
     entries: [
-      { id: 'r1', kind: 'reminder', tripName: 'Home to office', createdAt: at('06:40'), lastCheckAt: at('06:49'), next: { kind: 'leave', at: at('07:02'), text: 'Leave now' }, key: '132in-0708', leaveBy: at('07:02'), headsUp: false, route: '132' },
+      { id: 'r1', kind: 'reminder', tripName: 'Home to office', createdAt: at('06:40'), lastCheckAt: at('06:49'), next: { kind: 'leave', at: at('07:02'), text: 'Leave now' }, key: '132in-0708', leaveBy: at('07:02'), headsUps: [], route: '132' },
       { id: 'ride1', kind: 'ride', tripName: 'Office to home', createdAt: at('06:30'), lastCheckAt: at('06:49'), phase: 'riding',
         next: { kind: 'getOff', at: at('06:58'), approx: true, text: 'Next stop: get off · Orange Line' },
         ride: { boardedAt: at('06:45'), legs: [{ tripId: 'OL-0645', label: 'Orange', dep: at('06:45'), arr: at('07:00'), source: 'live' }] } },
