@@ -65,7 +65,6 @@ test('an unreachable server: the saved copy', async ({ page }) => {
 
 // A push delivered to the worker (CDP), as the push server sends it, and from an older server.
 test('a push shows its notification: declarative and plain payloads', async ({ page, context }) => {
-  await context.grantPermissions(['notifications'], { origin: 'http://localhost:8765' });
   const cdp = await context.newCDPSession(page);
   const registered = new Promise(resolve => cdp.on('ServiceWorker.workerRegistrationUpdated', ({ registrations }) => {
     const r = registrations.find(x => x.scopeURL === 'http://localhost:8765/' && !x.isDeleted);
@@ -76,8 +75,13 @@ test('a push shows its notification: declarative and plain payloads', async ({ p
   const deliver = async payload => cdp.send('ServiceWorker.deliverPushMessage', {
     origin: 'http://localhost:8765', registrationId, data: JSON.stringify(payload),
   });
-  const shown = () => page.evaluate(async () => (await (await navigator.serviceWorker.ready).getNotifications())
-    .map(n => ({ title: n.title, body: n.body, tag: n.tag })));
+  // The headless shell (CI) keeps no notifications: the worker's calls are recorded instead.
+  const [worker] = context.serviceWorkers();
+  await worker.evaluate(() => {
+    self.shown = [];
+    self.registration.showNotification = async (title, o) => { self.shown.push({ title, body: o.body, tag: o.tag }); };
+  });
+  const shown = () => worker.evaluate(() => self.shown);
 
   await deliver({
     web_push: 8030, mutable: true,
@@ -86,5 +90,5 @@ test('a push shows its notification: declarative and plain payloads', async ({ p
   await expect.poll(shown).toEqual([{ title: 'Leave now · Home to office', body: '132 at 7:13am', tag: 'r1' }]);
 
   await deliver({ title: 'Test notification', body: 'Push works.', tag: 'test' });
-  await expect.poll(async () => (await shown()).find(n => n.tag === 'test')).toEqual({ title: 'Test notification', body: 'Push works.', tag: 'test' });
+  await expect.poll(async () => (await shown())[1]).toEqual({ title: 'Test notification', body: 'Push works.', tag: 'test' });
 });

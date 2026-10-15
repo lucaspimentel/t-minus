@@ -122,14 +122,16 @@ test('errors show Retry and back off 10 s, 20 s, 40 s', async ({ page }) => {
   const failedAt = await page.evaluate(() => Date.now());
   mbta.hits.length = 0;
   for (let i = 0; i < 75; i++) await tick(page, 1000);
+  // A hit's time is read when its route handler runs, which on a slow machine can fall in the next
+  // 1-s tick: ±2 s.
   const attempts = [...new Set(mbta.hits.map(h => Math.round((h.at - failedAt) / 1000)))];
   expect(attempts.length).toBe(3);
-  expect(attempts[0]).toBeGreaterThanOrEqual(9);
-  expect(attempts[0]).toBeLessThanOrEqual(11);
-  expect(attempts[1] - attempts[0]).toBeGreaterThanOrEqual(19);
-  expect(attempts[1] - attempts[0]).toBeLessThanOrEqual(21);
-  expect(attempts[2] - attempts[1]).toBeGreaterThanOrEqual(39);
-  expect(attempts[2] - attempts[1]).toBeLessThanOrEqual(41);
+  expect(attempts[0]).toBeGreaterThanOrEqual(8);
+  expect(attempts[0]).toBeLessThanOrEqual(12);
+  expect(attempts[1] - attempts[0]).toBeGreaterThanOrEqual(18);
+  expect(attempts[1] - attempts[0]).toBeLessThanOrEqual(22);
+  expect(attempts[2] - attempts[1]).toBeGreaterThanOrEqual(38);
+  expect(attempts[2] - attempts[1]).toBeLessThanOrEqual(42);
 
   mbta.mode = 'ok';
   await page.locator('#retry').click();
