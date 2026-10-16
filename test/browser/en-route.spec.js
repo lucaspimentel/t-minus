@@ -221,7 +221,7 @@ test('a planned train that falls behind gives way to an earlier one, silently', 
   await offAt(page, '7:53am');
 });
 
-test('a long ride lists the next 3 stops, the stop before the drop-off, and expands', async ({ page }) => {
+test('a long ride lists the next 2 stops, the stop before the drop-off, and expands', async ({ page }) => {
   // Bus 132 inbound with its 14 stops between Pond St and Oak Grove.
   const middle = ['15999', '16000', '16001', '5975', '5976', '5978', '5980', '5982', '5983', '5985', '5986', '5987', '5988', '5990'];
   const scenario = commute();
@@ -237,17 +237,17 @@ test('a long ride lists the next 3 stops, the stop before the drop-off, and expa
   await expect(head(page)).toHaveText(riding('Bus 132', 16));
   await expect(leg.locator('.step.mid.here')).toHaveCount(0); // not stopped at a stop
   await expect(leg.locator('.step.mid')).toHaveText([
-    '', /^Pond St @ Stone Zoo/, /^Wyoming Ave @ Fellsway E/, /^Wyoming Ave @ Ravine Rd/, '… 11 more',
+    '', /^Pond St @ Stone Zoo/, /^Wyoming Ave @ Fellsway E/, '… 12 more',
     /^Washington St @ Glen Rock Rd/]);
   await expect(leg.locator('.step.stop').last()).toHaveText(/^Washington St opp Oak Grove Sta/);
-  await leg.getByRole('button', { name: '… 11 more' }).click();
+  await leg.getByRole('button', { name: '… 12 more' }).click();
   await tick(page, 300);
   await expect(stops).toHaveCount(15);
   await tick(page, 60_000); // stays open across polls
   await expect(stops).toHaveCount(15);
   await leg.getByRole('button', { name: 'Show fewer' }).click();
   await tick(page, 300);
-  await expect(stops).toHaveCount(4);
+  await expect(stops).toHaveCount(3);
 });
 
 test('stopped at a stop: an "At <stop>" row carries the vehicle on the bar', async ({ page }) => {

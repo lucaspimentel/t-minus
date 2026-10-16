@@ -259,7 +259,7 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
     the vehicle, as a dot in the route's color, on an "At Downtown Crossing" row while stopped
     at a stop (which isn't listed), else just above the next stop (none while stopped at the
     drop-off); then the stops left with predicted times, small dots on the bar: all of them up
-    to 6 (counting the drop-off), else the next 3, "… N more", and the stop before the drop-off
+    to 5 (counting the drop-off), else the next 2, "… N more" (at least 2), and the stop before the drop-off
     (the cue to get ready; `shownStops`). The drop-off is the leg's own bold row. Tapping "… N
     more" lists every stop ("Show fewer" collapses) for the rest of that leg. From
     `/predictions?filter[trip]=<id>&include=stop,vehicle` (`rideStops`; only remaining stops

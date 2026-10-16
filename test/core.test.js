@@ -830,11 +830,11 @@ test('dataAgeText: the age once older than two poll intervals', () => {
   assert.equal(dataAgeText(t0, 120_000, t0 + 65 * 60_000), '1h 05m ago');
 });
 
-test('shownStops: up to 6 as is; else next 3, the count, the last two; all when expanded', () => {
+test('shownStops: up to 5 as is; else next 2, the count, the last two; all when expanded', () => {
   const stops = n => Array.from({ length: n }, (_, i) => ({ id: `s${i}` }));
-  assert.deepEqual(shownStops(stops(6)), stops(6));
-  assert.deepEqual(shownStops(stops(15)), [{ id: 's0' }, { id: 's1' }, { id: 's2' }, { more: 10 }, { id: 's13' }, { id: 's14' }]);
-  assert.deepEqual(shownStops(stops(7)), [{ id: 's0' }, { id: 's1' }, { id: 's2' }, { more: 2 }, { id: 's5' }, { id: 's6' }]);
+  assert.deepEqual(shownStops(stops(5)), stops(5));
+  assert.deepEqual(shownStops(stops(15)), [{ id: 's0' }, { id: 's1' }, { more: 11 }, { id: 's13' }, { id: 's14' }]);
+  assert.deepEqual(shownStops(stops(6)), [{ id: 's0' }, { id: 's1' }, { more: 2 }, { id: 's4' }, { id: 's5' }]);
   assert.deepEqual(shownStops(stops(15), true), stops(15));
 });
 

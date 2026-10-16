@@ -1983,12 +1983,12 @@ export function getOffText({ vehicle, stops }) {
   return vehicle?.atDropOff ? 'Get off here' : 'Next stop: get off';
 }
 
-// The ride card's stop list: all of them up to 6 (or when expanded), else the next 3,
-// { more: n }, the stop before the drop-off, and the drop-off.
+// The ride card's stop list: all of them up to 5 (or when expanded), else the next 2,
+// { more: n } (at least 2), the stop before the drop-off, and the drop-off.
 export function shownStops(stops, expanded = false) {
   const n = stops.length;
-  if (expanded || n <= 6) return stops;
-  return [...stops.slice(0, 3), { more: n - 5 }, ...stops.slice(n - 2)];
+  if (expanded || n <= 5) return stops;
+  return [...stops.slice(0, 2), { more: n - 4 }, ...stops.slice(n - 2)];
 }
 
 // Copies a vehicle's trip and times onto a planned leg.
