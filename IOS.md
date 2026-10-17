@@ -35,8 +35,9 @@ code is limited to the Capacitor bridge, a Live Activity, and a widget.
 
 - **Repo:** `capacitor.config.json`, `ios/` (from `npx cap add ios`, committed), dev dependencies
   `@capacitor/cli`, `@capacitor/core`, `@capacitor/ios`, `@capacitor/push-notifications`, a
-  keep-awake plugin. The web shell keeps no build step; Railway's watch paths (service settings)
-  exclude `ios/`.
+  keep-awake plugin. The web shell keeps no build step. Railway's watch patterns (service settings)
+  are an allowlist (`server/**`, the shell files, `icons/**`), so `ios/` and
+  `capacitor.config.json` never trigger a deploy.
 - **Web (`index.html`, `setup.js`), behind `isNative` (`window.Capacitor?.isNativePlatform()`):**
   - Push: `PushNotifications.register()` → APNs device token, posted where the Web Push
     subscription is posted today (`{ apns: token }`). No service worker in the app (WKWebView
