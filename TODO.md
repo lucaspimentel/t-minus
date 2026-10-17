@@ -23,6 +23,17 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 - Later, if timed options prove wrong: a full time-dependent search (every departure) instead of
   timing the route-only search's candidates.
 
+## iOS app (see `IOS.md`)
+
+- Prerequisites: Apple Developer Program, App ID, APNs key (Railway variables), signing secrets
+  for GitHub Actions.
+- Phase 1: Capacitor shell (remote URL), native push (APNs transport on the server), keep-awake,
+  manual TestFlight workflow.
+- Phase 2: Live Activity for tracked rides, updated by `checkFollowed`; urgent stop alerts stay
+  as notifications.
+- Phase 3a: leave-time Live Activity (push-to-start at the 10-min heads-up).
+- Phase 3b: widget (next leave-by of the active trip).
+
 ## Deferred
 
 - Default times to/from the stops and transfer times estimated from stop coordinates

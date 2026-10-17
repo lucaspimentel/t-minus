@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 T-Minus (repo `t-minus`): a phone-first PWA that answers "when do I leave?" for a bus + Orange Line commute.
-Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pending work.
+Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pending work;
+`IOS.md` for the planned iOS app (Capacitor shell, APNs, Live Activities).
 
 ## Conventions
 
