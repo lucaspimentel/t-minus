@@ -740,7 +740,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   function tripScreen() {
     const t = editing.form;
-    // Name from the stops ("Main St @ South St → State") until one is typed.
+    // Name from the stops ("Wyoming Ave @ Fellsway E → State") until one is typed.
     const first = t.transit[0], last = t.transit.at(-1);
     const suggestion = first ? `${stopName(first.route, first.direction_id, first.stop)} → ${stopName(last.route, last.direction_id, last.alight)}` : '';
     if (!t.name || t.name === editing.suggested) { t.name = suggestion; editing.suggested = suggestion; }

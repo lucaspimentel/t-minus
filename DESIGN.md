@@ -11,8 +11,8 @@ It is answering one question at any moment:
 
 The motivating commute (also the unit tests' fixture, `test/fixtures/bus-orange.json`):
 
-- **Home → office**: 132 bus inbound at `Main St @ South St` → Oak Grove → Orange Line → State
-- **Office → home**: Orange Line from State → Oak Grove → 132 bus outbound → `Main St @ South St`
+- **Home → office**: 132 bus inbound → Oak Grove → Orange Line → State
+- **Office → home**: Orange Line from State → Oak Grove → 132 bus outbound
 
 The 132 (Redstone Shopping Center ↔ Malden Center) passes Oak Grove mid-route on
 Washington St; Oak Grove is not a terminal or busway stop for it. Weekday headways
@@ -20,7 +20,7 @@ Washington St; Oak Grove is not a terminal or busway stop for it. Weekday headwa
 
 | Service | Headway |
 |---|---|
-| 132 inbound at `Main St @ South St` | 18-34 min AM peak, ~60 min midday, 30-45 min PM, ~60 min evening; first 06:03, last 23:32 |
+| 132 inbound toward Oak Grove | 18-34 min AM peak, ~60 min midday, 30-45 min PM, ~60 min evening; first 06:03, last 23:32 |
 | 132 outbound at Oak Grove | 30-49 min AM, ~60 min midday, 28-42 min PM; first 05:32, last 23:03 |
 | Orange Line (peak) | 3-5 min (avg ~4.6) |
 
@@ -330,7 +330,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   and "Arrive 8:56am" lines (gray nodes; no Leave on en-route rows, which have no leave-by);
   tap again to collapse. Layout
   (`renderTimeline`, shared with the ride card): Leave, each stop once, and Arrive as nodes on
-  the rail with their times in one right-aligned column; each stop a hollow node ("Main St @ South St 7:08am"); each ride as a bar in its route's
+  the rail with their times in one right-aligned column; each stop a hollow node ("Wyoming Ave @ Fellsway E 7:08am"); each ride as a bar in its route's
   color from its first node to its last (drawn in pieces, so it ends at the node even when a
   name wraps), with "Orange Line · 15 min SCHEDULED" between the two stops (`lineLabel`: the
   vehicle's label, `vehicleLabel` for legs on several routes, plus "Line" for subway lines,
@@ -427,7 +427,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
       "timingLeg": 0,
       "legs": [
         { "kind": "walk", "minutes": 5 },
-        { "kind": "transit", "route": "132", "direction_id": 1, "stop": "25996", "alight": "5991",
+        { "kind": "transit", "route": "132", "direction_id": 1, "stop": "15999", "alight": "5991",
           "label": "Bus 132", "color": "FFC72C" },
         { "kind": "transfer", "minutes": 5 },
         { "kind": "transit", "route": "Orange", "direction_id": 0, "stop": "place-ogmnl", "alight": "place-state",
@@ -618,7 +618,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   transfers kept between the same legs, no window. A reversed stop not served in the new
   direction (a bus stop across the street) is replaced by the nearest stop that is, and the
   replacements are listed for review. For the example commute this reproduces the real
-  return trip (`5991 → 9326`, `25996 → 15982`).
+  return trip (`5991 → 9326`, `15999 → 15979`).
 - Existing legs show stop names from the per-route/direction `/stops` docs, which Save then
   reuses for `checkStops` (only the edited trip's stops are checked).
 - Save errors appear on the trip screen; nothing is saved until they're fixed.
@@ -651,8 +651,8 @@ trip screen drops the edited trip's own label.
 | Route 132 | `132` | Redstone Shopping Center ↔ Malden Center Station |
 | 132 direction 0 | Outbound | toward Redstone Shopping Center |
 | 132 direction 1 | Inbound | toward Malden Center Station |
-| `Main St @ South St`, inbound | `25996` | Stop IDs differ per side of street |
-| `Main St @ South St`, outbound | `15982` | |
+| `Wyoming Ave @ Fellsway E`, inbound | `15999` | Stop IDs differ per side of street |
+| `Wyoming Ave @ Fellsway E`, outbound | `15979` | |
 | Oak Grove, 132 inbound | `5991` | "Washington St opp Oak Grove Sta" |
 | Oak Grove, 132 outbound | `9326` | "Washington St @ Oak Grove Station" |
 | Orange direction 0 | South | toward Forest Hills |
@@ -1125,7 +1125,7 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
     same lines changes within one station (Orange → Green: Haymarket or North Station first).
   - No route on two legs, in either direction and riding along included (Harvard to Logan listed
     Red → SL1 riding along to World Trade Center → SL1 again). No station (or stop) passed
-    twice, by station, not platform: Revere Beach to Main St @ South St listed Blue past State to
+    twice, by station, not platform: Revere Beach to a 132 stop north of Oak Grove listed Blue past State to
     Government Center, then a 156 m walk back to State for the Orange Line.
   - Routes riding along on a leg match by station too: the Green branches each have their own
     westbound platform at Park Street, so Wonderland to Park Street listed Green-B, -C and -D as
@@ -1133,14 +1133,14 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   - Ranked by total estimated minutes (phase 3; before, fewest transfers came first, and a 52-min
     one-change trip ranked above a 44-min two-change one): walks to and from a point, rides
     (bus minutes × 1.25: traffic makes buses less reliable, so of two ways equal on paper the one
-    with more subway ranks first; State to Main St @ South St: Orange to Oak Grove then the 132,
+    with more subway ranks first; State to a 132 stop north of Oak Grove: Orange to Oak Grove then the 132,
     over the 132 from Malden Center), transfer times, plus 5 min per transfer. Walks between stops count twice: riding one more
     stop to the one by the station beats getting off a stop early to walk 124 m (seen live at
     Oak Grove).
   - Each change also adds its expected wait to the ranking: half the gap between the route's
     departures at that stop in the midday sample (2 hours), capped at 30 min; 30 min too when the
     sample has none (peak-only and overnight routes, e.g. the 171; was 10). The shown "~N min" leaves waits out (the 132 runs hourly at midday: every
-    option ending with it would read ~30 min longer). Davis to Main St @ South St listed three
+    option ending with it would read ~30 min longer). Davis to a 132 stop north of Oak Grove listed three
     96/89 → 101 → 132 chains (~42–45 min on paper, the 96 and 101 every 20–40 min); with waits:
     89 → Orange → 132 (Malden, Oak Grove), then Red → Orange → 132.
   - One option per route chain (a line's branches as one: Green-B and Green-D are both Green) and
@@ -1149,7 +1149,7 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
     several Medford Sq stops are one option; Orange → 132 via Malden Center and via Oak Grove
     are two. (Before: Orange → 132 via Oak Grove was listed twice, walking 95 m or 198 m.)
   - An option with more transfers than one ranked above it, and no faster (total minutes shown),
-    is left out: State to Main St @ South St listed Orange → 137/131 → 132 (~42 min) under
+    is left out: State to a 132 stop north of Oak Grove listed Orange → 137/131 → 132 (~42 min) under
     Orange → 132 (~37).
   - A leg's stops are named by their station when they have one (rail platforms, busway berths).
   - Each option is a card like a main-list row (2026-10-13, from mockups; before: text
@@ -1169,7 +1169,7 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   board?" / "To: where do you get off?"; both directions, then "Toward … only"; To leaves out each
   direction's first stop, `dropOffGroups`, as From leaves out the last); a stop sets the field,
   tagged with that route. The stop list pairs the two sides of a street into one row (`stopPairs`):
-  "Main St @ South St · both sides"; a stop without a partner reads "· toward Redstone Shopping
+  "Wyoming Ave @ Fellsway E · both sides"; a stop without a partner reads "· toward Redstone Shopping
   Center only". A pair: the same name once "opp"/"opposite" is read as "@", a leading house
   number dropped and the two streets in either order (`normalStopName`), within 150 m; or any
   stop of the other direction within 25 m (the same spot, named for different cross streets:
@@ -1179,7 +1179,7 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   19%; normalized names: 41%); 60 m by distance alone would pair 66% but joins different corners
   ("Massachusetts Ave @ Trowbridge St" with "Mt Auburn St @ Putnam Ave", 49 m), and names alone
   join loop stops 3.5 km apart (route 1, "Massachusetts Ave @ Albany St"). A pair is sent as both
-  ids (`from=15982,25996`; up to 4 per side) and the planner boards (or gets off) on whichever
+  ids (`from=15979,15999`; up to 4 per side) and the planner boards (or gets off) on whichever
   side the route needs; the saved leg names that side. The manual leg picker keeps per-direction
   lists (the side you board decides the direction there).
   "Show nearby stops and stations" (renamed from "Show nearby" in phase 3, in both pickers) works as on a first leg (stations, then routes, with
