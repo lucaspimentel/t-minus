@@ -71,7 +71,8 @@ const NEARBY_RADIUS = 0.003;
 // `testPush`: { supported, send() } for "Send test notification" (null: no push server).
 // `pushDebug`: { supported, load(), remove(entry), clearAll() } for "Pending notifications" (null: no
 // push server); load() resolves to { now, entries, log } from the server (entries null without a
-// push subscription) and `local`, the app's own copies ({ id, kind, tripName, leaveBy? }).
+// push subscription) and `local`, the app's own copies ({ id, kind, tripName, leaveBy? }); in the
+// iOS app also `token` (its APNs device token, or null) and `appLog` ([{ at, source, message }]).
 // `startImport`: open on the list with the import box (the main screen's "Import trips").
 // `onReset(apiKey)`: "Delete all trips and settings" (after a confirm); the app reloads.
 // `onPlan(trip)`: open on the auto-route planner ("Go somewhere else…"); the picked option is
@@ -377,7 +378,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         ? [h('div', { class: 'msg err' }, `Couldn't load: ${p.error}`), h('div', { class: 'btns' }, h('button', { type: 'button', onclick: loadPending }, 'Retry'))]
         : h('div', { class: 'muted' }, 'Loading…')];
     }
-    const { now, entries, log = [], local = [] } = p.data;
+    const { now, entries, log = [], local = [], token, appLog } = p.data;
     const t = ms => formatTime(ms, now ?? Date.now());
     const serverIds = new Set((entries ?? []).map(e => e.id));
     const localIds = new Set(local.map(l => l.id));
@@ -422,6 +423,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       onlyLocal.map(localCard),
       entries != null && h('div', { class: 'muted section' }, 'Sent · last 24 h'),
       entries != null && (log.length ? h('div', { class: 'card pn-log' }, ...log.map(logRow)) : h('div', { class: 'muted' }, 'Nothing sent in the last 24 h.')),
+      // The iOS app: its APNs device token (the end, to match against the server's log) and the
+      // app log (registration and plugin errors).
+      appLog && h('div', { class: 'muted section' }, 'This app · last 24 h'),
+      appLog && h('div', { class: 'muted' }, token ? `Device token …${token.slice(-8)}` : 'No device token yet (allow notifications first).'),
+      appLog && (appLog.length
+        ? h('div', { class: 'card pn-log' }, ...appLog.map(l => h('div', { class: 'e' }, h('span', { class: 'w' }, t(l.at)), h('span', {}, `${l.source}: ${l.message}`))))
+        : h('div', { class: 'muted' }, 'No app errors in the last 24 h.')),
       (entries?.length || local.length) ? [
         h('div', { class: 'btns pn-clear' }, h('button', { type: 'button', class: 'danger', disabled: !!p.busy, onclick: clearPending }, p.busy === 'all' ? 'Clearing…' : 'Clear all pending')),
         h('div', { class: 'push-hint' }, 'Deletes pending reminders and stop alerts on the server and on this phone. The sent log stays.')] : null,

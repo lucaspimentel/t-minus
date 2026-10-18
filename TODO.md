@@ -27,8 +27,9 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 
 - Prerequisites: Apple Developer Program, App ID, APNs key (Railway variables), signing secrets
   for GitHub Actions.
-- Phase 1: Capacitor shell (remote URL), native push (APNs transport on the server), keep-awake,
-  manual TestFlight workflow.
+- Phase 1: Capacitor shell (remote URL), native push, keep-awake, manual TestFlight workflow.
+  Server (APNs, app log) and web (the native code path) done; next the `ios/` project and the
+  workflow, after the Apple account, App ID, APNs key and API key exist.
 - Phase 2: Live Activity for tracked rides, updated by `checkFollowed`; urgent stop alerts stay
   as notifications.
 - Phase 3a: leave-time Live Activity (push-to-start at the 10-min heads-up).

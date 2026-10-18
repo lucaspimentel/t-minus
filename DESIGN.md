@@ -767,6 +767,18 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     for this). Cancel ✕ and Done don't restore them.
   - Without the Push API (iOS outside the Home Screen app), the button is disabled with "Add
     to Home Screen to get notifications."
+  - **In the iOS app (2026-10-18; `IOS.md`):** `native` (`window.Capacitor?.isNativePlatform()`)
+    switches the push code to Capacitor's PushNotifications plugin: `requestPermissions()` and
+    `register()` give the APNs device token (stored as `t-minus:apns-token`, lowercase hex), and
+    the subscription posted everywhere is `{ endpoint: 'apns:<token>' }`. Each subscribe
+    registers again (iOS may change the token); no device token within 10 s is an error. The
+    permission state comes from `checkPermissions()` at start (`notifyPermission()` replaces
+    `Notification.permission`). The screen stays on through the app's plugin
+    (`TMinus.keepAwake({ on })`, called only when the wanted state changes) instead of the Screen
+    Wake Lock. Registration, permission and plugin errors also go to the server's app log
+    (`POST /log` with a random device id, `t-minus:device`); setup's "Pending notifications" adds
+    "This app · last 24 h": the device token's last 8 characters and those lines. No service
+    worker is registered in the app, and the Home Screen hints never show.
   - Errors show a toast with Retry.
 - **Push:**
   - The service worker shows `{ title, body, tag, renotify }`. The body names the first vehicle, its

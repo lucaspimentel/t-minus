@@ -1,7 +1,8 @@
 # IOS.md — T-Minus iOS app (plan)
 
-Status: planned, nothing built. Decisions below come from the 2026-10-17 grill; open questions
-are listed at the end. When a phase ships, move its behavior into `DESIGN.md` and keep only the
+Status: Phase 1 in progress. Server (APNs, app log) and web (the native code path) are done
+(2026-10-18); the iOS project and its CI workflow wait on the Apple account. Decisions below
+come from the 2026-10-17 and 2026-10-18 grills; open questions are listed at the end. When a phase ships, move its behavior into `DESIGN.md` and keep only the
 remaining plan here.
 
 ## Goal
@@ -22,52 +23,65 @@ code is limited to the Capacitor bridge, a Live Activity, and a widget.
 | Builds | GitHub Actions only (`macos` runner): build, sign, upload to TestFlight. Manual trigger (`workflow_dispatch`); the web code ships through the remote URL, so a build is needed only for native changes or before the 90-day expiry |
 | Moving trips | The existing Export / Import in setup (the app has its own `localStorage`) |
 | PWA on the author's iPhone | Removed once the app works (avoids two push subscriptions and duplicate reminders). The PWA stays supported for Android and browsers |
+| App | "T-Minus", bundle ID `net.lucasp.tminus`, iOS 18 minimum |
 | Scope | Phase 1 (shell + native push), 2 (ride Live Activity), 3a (leave-time Live Activity, push-to-start), 3b (widget) |
 
 ## Prerequisites
 
 - Apple Developer Program ($99/yr; enroll in the Apple Developer app on the iPhone or on the
-  website). App ID (bundle ID, e.g. `net.lucasp.tminus`) with Push
+  website). App ID `net.lucasp.tminus` with Push Notifications and Time Sensitive
   Notifications; App Group for the widget (3b).
 - APNs auth key (`.p8`, key ID, team ID): Railway variables only, never in the repo.
 - App record in App Store Connect (browser) for TestFlight.
-- Signing for CI: an App Store Connect API key (`.p8`, key ID, issuer ID; App Manager role) in
-  GitHub Actions secrets. CI uses automatic signing with it (`xcodebuild -allowProvisioningUpdates
+- Signing for CI: an App Store Connect API key (`.p8`, key ID, issuer ID; Admin role, so it can
+  create the distribution certificate) in GitHub Actions secrets (`ASC_KEY_P8`, `ASC_KEY_ID`,
+  `ASC_ISSUER_ID`, plus `APPLE_TEAM_ID`). CI uses automatic signing with it (`xcodebuild -allowProvisioningUpdates
   -authenticationKeyPath … -authenticationKeyID … -authenticationKeyIssuerID …`), which creates
   and renews the certificate and the profiles (app, extension); no `.p12`, profiles, or keychain
   secrets to manage by hand.
 
 ## Phase 1: Shell and native push (parity with the PWA)
 
-- **Repo:** `capacitor.config.json`, `ios/` (from `npx cap add ios`, run once in a CI job and
-  committed; Swift Package Manager, no CocoaPods), dev dependencies
-  `@capacitor/cli`, `@capacitor/core`, `@capacitor/ios`, `@capacitor/push-notifications`, a
-  keep-awake plugin. The web shell keeps no build step. Railway's watch patterns (service settings)
-  are an allowlist (`server/**`, the shell files, `icons/**`), so `ios/` and
-  `capacitor.config.json` never trigger a deploy.
-- **Web (`index.html`, `setup.js`), behind `isNative` (`window.Capacitor?.isNativePlatform()`):**
-  - Push: `PushNotifications.register()` → APNs device token, posted where the Web Push
-    subscription is posted today (`{ apns: token }`). No service worker in the app (WKWebView
-    has no Push API); `sw.js` stays for the PWA.
-  - Screen on: the keep-awake plugin instead of `navigator.wakeLock` (`syncWakeLock`).
-  - Location: `navigator.geolocation` as is (`NSLocationWhenInUseUsageDescription` in `Info.plist`).
-  - Copy: no "Add to Home Screen" hints; "Notify me" and the test notification work without them.
-- **Server:**
-  - Subscriptions keyed by `endpoint` today; native ones use `apns:<token>`, so the tables and the
-    5-per-subscription cap stay as they are.
-  - `send` dispatches on the prefix: Web Push (`web-push`) or APNs (HTTP/2 + ES256 JWT with
-    `node:http2` / `node:crypto`; no new dependency).
-  - A pure payload builder beside `declarativePush`: `{ title, body, tag, renotify }` →
-    `aps.alert`, `apns-collapse-id` = tag (same-tag replaces), no sound when `renotify` is false
-    (later times update quietly, unlike Web Push on iOS).
-  - Dead tokens: APNs 410 `Unregistered` / 400 `BadDeviceToken` drop the reminder like a Web Push 404/410.
-  - Variables: `APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` (bundle ID), `APNS_HOST`
-    (production vs sandbox; TestFlight uses production).
-  - Tests: payload builder and dispatch in `test/server.test.js` with a fake APNs `send`.
-- **CI:** `.github/workflows/ios.yml` (`workflow_dispatch`): `npm ci`, `npx cap sync ios`,
-  `xcodebuild archive` / `-exportArchive` with automatic signing (the API key), upload to
-  TestFlight (`xcrun altool --upload-app` or `fastlane pilot` with the same key). The build
-  number comes from the run number.
+Decisions (2026-10-18): Time Sensitive notifications; a bundled error page when the server is
+unreachable at launch; keep-awake through the app's own plugin (no third-party dependency); native
+diagnostics from the first build; notification permission asked on the first "Notify me" or
+test-notification tap, as in the PWA.
+
+- **Server (done, `a320904`):** an APNs device token is a subscription
+  (`{ endpoint: 'apns:<hex>' }`), stored and capped like a Web Push one. `apnsPush` builds the
+  push (`apns-collapse-id` from the tag, hashed past 64 bytes; Time Sensitive with a sound, passive
+  for quiet updates); `server/apns.mjs` sends it (HTTP/2, ES256 provider token; dead tokens count
+  as 410). `POST /api/log` / `POST /api/log/read`: diagnostics per device. Variables `APNS_KEY`,
+  `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_HOST` (`server/README.md`). Details in
+  `DESIGN.md` (Notifications, APNs).
+- **Web (done):** `native` (`window.Capacitor?.isNativePlatform()`) in `index.html`:
+  - Push: `PushNotifications.requestPermissions()` / `register()` → the device token (stored as
+    `t-minus:apns-token`) as the subscription; permission state from `checkPermissions()`.
+  - Screen on: `TMinus.keepAwake({ on })`, called only when the wanted state changes.
+  - Errors (registration, permission, plugin): `POST /api/log` with a random device id
+    (`t-minus:device`); setup's "Pending notifications" shows the token's end and the app log.
+  - No service worker and no "Add to Home Screen" hints in the app.
+  - Spec: `test/browser/ios-app.spec.js` (a fake Capacitor bridge).
+- **iOS project (next, needs the Apple account):**
+  - Root dev dependencies `@capacitor/cli`, `@capacitor/core`, `@capacitor/ios` 8.5.3,
+    `@capacitor/push-notifications` 8.1.3. `capacitor.config.json`: `server.url`
+    `https://t-minus.lucasp.net`, `server.errorPath` (a bundled "Can't reach T-Minus" page with
+    Retry, in `ios/www/`), PushNotifications `presentationOptions` banner, sound, list (stop
+    alerts show with the app open, as today).
+  - `ios/` from `npx cap add ios --packagemanager SPM` (verified to run on Linux, so it is generated
+    here and committed), then edited: `AppDelegate` forwards the APNs registration to Capacitor;
+    `App.entitlements` (`aps-environment` production, time-sensitive); deployment target 18.0;
+    `NSLocationWhenInUseUsageDescription`; `TMinusPlugin.swift` (`keepAwake` sets
+    `isIdleTimerDisabled`) registered by a `MainViewController` subclass (Phase 2 extends it);
+    a 1024 px icon from `icons/icon.svg`. Railway's watch patterns are an allowlist (`server/**`,
+    the shell files, `icons/**`), so `ios/` and `capacitor.config.json` never trigger a deploy.
+- **CI (next):** `.github/workflows/ios.yml` (`workflow_dispatch`, `macos-15`): `npm ci`,
+  `npx cap sync ios`, `xcodebuild archive` with automatic signing (the API key), the build number
+  from the run number, `-exportArchive` with `destination: upload` (straight to TestFlight).
+- **Done when:** installed from TestFlight with trips imported, the debug screen shows the token;
+  the test notification, "Notify me" (heads-ups, a quiet later-time update, Leave now) and stop
+  alerts arrive through APNs; the screen stays on; airplane mode at launch shows the error page.
+  Then the PWA comes off the iPhone.
 
 ## Phase 2: Live Activity for tracked rides
 
@@ -136,9 +150,7 @@ code is limited to the Capacitor bridge, a Live Activity, and a widget.
 
 - Widget data source: the app writes the trips to the App Group and the widget asks the server
   for the next leave-by (`core.js` already runs there), or the app writes precomputed rows.
-- Bundle ID and the app's display name.
 - Extension target: XcodeGen spec (regenerates the whole project) or an `xcodeproj` script
   (patches Capacitor's project).
-- `POST /api/log` for native diagnostics: worth adding in Phase 1, or only if Phase 2 needs it.
 - `CLAUDE.md` additions once Phase 1 lands (the `cap sync` step, APNs variables, the iOS workflow).
 - Android: the PWA for now; Capacitor's Android target with FCM if ever needed.

@@ -403,7 +403,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-17 · 6f08941e7c</footer>
+    <footer class="version">Version 2026-10-18 · 2951314312</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -427,7 +427,7 @@ import {
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, remHeadsUps,
 } from './core.js?v=4800ff9d45';
-import { openSetup } from './setup.js?v=d62043e1ec';
+import { openSetup } from './setup.js?v=a4fed17c0a';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -938,8 +938,56 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
 // localhost, tests can override it in storage; '' hides "Notify me".
 const pushOverride = location.hostname === 'localhost' ? store.get('t-minus:push-server') : null;
 const SERVER_API = pushOverride ?? '/api';
-// iOS has push only in the Home Screen app.
-const pushSupported = 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
+// The iOS app (IOS.md): this page in a WKWebView with Capacitor's bridge (`window.Capacitor`).
+// There, pushes come from APNs (the PushNotifications plugin; the subscription is
+// `{ endpoint: 'apns:<token>' }`), the screen stays on through the app's own plugin
+// (TMinus.keepAwake), and errors go to the server's app log (per device, setup's "Pending
+// notifications"). Elsewhere `native` is false and none of this runs.
+const native = !!window.Capacitor?.isNativePlatform?.();
+const plugins = native ? window.Capacitor.Plugins : {};
+const KEY_DEVICE = 't-minus:device';
+const KEY_APNS = 't-minus:apns-token';
+function deviceId() {
+  let id = store.get(KEY_DEVICE);
+  if (!id) { id = crypto.randomUUID(); store.set(KEY_DEVICE, id); }
+  return id;
+}
+function nativeLog(source, message) {
+  if (!native || !SERVER_API) return;
+  fetch(`${SERVER_API}/log`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ device: deviceId(), source, message: String(message).slice(0, 500) }),
+  }).catch(() => {});
+}
+// Notification permission as the web API names it: 'granted', 'denied' or 'default'.
+let nativePermission = 'default';
+const permissionOf = state => (state === 'granted' || state === 'denied' ? state : 'default');
+const notifyPermission = () => (native ? nativePermission : Notification.permission);
+if (native) {
+  plugins.PushNotifications.checkPermissions()
+    .then(p => { nativePermission = permissionOf(p.receive); render(); }, e => nativeLog('push', `checkPermissions: ${e.message}`));
+}
+// The device token from iOS (asks for permission the first time). Registering again is cheap
+// and returns the current token, which iOS may change.
+async function apnsToken() {
+  const P = plugins.PushNotifications;
+  nativePermission = permissionOf((await P.requestPermissions()).receive);
+  if (nativePermission !== 'granted') throw new Error('notifications are off for this app in Settings');
+  let handles = [];
+  const token = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('no device token from iOS in 10 s')), 10_000);
+    const settle = (f, v) => { clearTimeout(timer); f(v); };
+    Promise.all([
+      P.addListener('registration', t => settle(resolve, String(t.value).toLowerCase())),
+      P.addListener('registrationError', e => settle(reject, new Error(`registration failed: ${e.error ?? 'unknown'}`))),
+    ]).then(h => { handles = h; return P.register(); }).catch(e => settle(reject, e));
+  }).finally(() => { for (const h of handles) h.remove(); });
+  store.set(KEY_APNS, token);
+  return token;
+}
+
+// iOS has push only in the Home Screen app (or the iOS app).
+const pushSupported = native || ('PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window);
 // Set reminders: { ["<trip>/<row key>"]: { id, leaveBy, headsUps, timingIdx, key } }, until their
 // leave-by passes.
 const KEY_REMINDERS = 't-minus:reminders';
@@ -988,6 +1036,14 @@ const base64UrlBytes = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_
 // This device's push subscription (JSON). Call it straight from a tap: permission is asked
 // before the first await, while the tap still counts as a user gesture (iOS requires one).
 async function pushSubscription() {
+  if (native) {
+    try {
+      return { endpoint: `apns:${await apnsToken()}` };
+    } catch (e) {
+      nativeLog('push', e.message);
+      throw e;
+    }
+  }
   const permission = Notification.requestPermission();
   if (await permission !== 'granted') throw new Error('notifications are off for this app in Settings');
   const reg = await navigator.serviceWorker.ready;
@@ -1005,7 +1061,7 @@ let rideAlertBusy = false;
 let rideAlertRetryAt = 0;
 const stopAlertsAvailable = () => !!SERVER_API && pushSupported;
 async function syncRideAlert(s, now) {
-  if (!stopAlertsAvailable() || Notification.permission !== 'granted' || rideAlertBusy || now < rideAlertRetryAt) return;
+  if (!stopAlertsAvailable() || notifyPermission() !== 'granted' || rideAlertBusy || now < rideAlertRetryAt) return;
   const tripIds = s.ride.legs.map(l => l.tripId).join(',');
   if (s.alert?.off || s.alert?.tripIds === tripIds) return;
   const idx = tripIdx;
@@ -1091,6 +1147,10 @@ function dropLocalPush(id) {
   store.set(KEY_EN_ROUTE, all);
 }
 async function currentSubscription() {
+  if (native) {
+    const token = store.get(KEY_APNS);
+    return token ? { endpoint: `apns:${token}` } : null;
+  }
   const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
   return sub ? sub.toJSON() : null;
 }
@@ -1099,7 +1159,11 @@ const pushDebug = {
   async load() {
     const subscription = await currentSubscription();
     const server = subscription ? await pushApi('POST', '/pending', { subscription }) : { entries: null, log: [] };
-    return { now: Date.now(), ...server, local: localPushEntries() };
+    // The iOS app: its device token and diagnostics (the server's app log for this device).
+    const app = native
+      ? { token: store.get(KEY_APNS), appLog: (await pushApi('POST', '/log/read', { device: deviceId() })).lines }
+      : {};
+    return { now: Date.now(), ...server, ...app, local: localPushEntries() };
   },
   async remove(e) {
     await pushApi('DELETE', `/${e.kind === 'ride' ? 'rides' : 'reminders'}/${e.id}`);
@@ -1571,7 +1635,7 @@ function renderRideCard(s, now) {
     b.onclick = e => { e.stopPropagation(); onclick(); };
     return b;
   };
-  if (phase.kind !== 'arrived' && stopAlertsAvailable() && (Notification.permission === 'default' || (Notification.permission === 'granted' && enRouteState()?.alert?.off))) {
+  if (phase.kind !== 'arrived' && stopAlertsAvailable() && (notifyPermission() === 'default' || (notifyPermission() === 'granted' && enRouteState()?.alert?.off))) {
     const b = btn('Turn on stop alerts', turnOnStopAlerts);
     b.innerHTML = `${BELL_SVG}Turn on stop alerts`;
     b.classList.add('alerts-btn');
@@ -1666,8 +1730,16 @@ function missedIt(phase) {
 let wakeLock = null;
 let wakeWanted = false;
 let wakeRequesting = false;
+let nativeAwake = false; // the iOS app: what TMinus.keepAwake was last told
 function syncWakeLock(want) {
   wakeWanted = want;
+  if (native) {
+    if (want === nativeAwake) return;
+    nativeAwake = want;
+    // An app build without the plugin: logged, the screen just follows iOS's auto-lock.
+    Promise.resolve().then(() => plugins.TMinus.keepAwake({ on: want })).catch(e => nativeLog('keepAwake', e.message));
+    return;
+  }
   if (!navigator.wakeLock) return;
   if (want && (!wakeLock || wakeLock.released) && !wakeRequesting) {
     wakeRequesting = true;
@@ -1941,7 +2013,8 @@ async function checkForUpdate() {
 }
 setInterval(checkForUpdate, 30 * 60_000);
 
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+// Not in the iOS app: no Web Push there, and the app shows its own page when offline.
+if (!native && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
   // The service worker says whether this page came from its cache (server slow or failing) and
   // whether a newer page has been saved since.
