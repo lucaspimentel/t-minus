@@ -23,6 +23,7 @@ const MAX_BODY = 16 * 1024;
 const RETRY_MS = 20_000; // after an MBTA error
 const MAX_TESTS = 100; // pending test notifications, in memory only
 const LOG_MAX = 50; // sent pushes kept per phone (24 h)
+const APP_LOG_MAX = 200; // app log lines kept per device (24 h)
 const DAY = 24 * 60 * MIN;
 const NEARBY_CELL = 0.0005; // degrees (~50 m): nearby stop lists are cached per cell
 const MAX_NEARBY_STOPS = 500; // cached cells
@@ -57,6 +58,20 @@ export const PUBLIC_URL = 'https://t-minus.lucasp.net/';
 export function declarativePush({ kind, title, body, tag, renotify }, navigate) {
   const n = { title, body, tag, renotify };
   return { web_push: 8030, mutable: true, notification: { ...n, navigate, lang: 'en-US', data: { kind } }, ...n };
+}
+
+// The same push for APNs (the iOS app; `endpoint: 'apns:<token>'`): headers and JSON body for
+// server/apns.mjs. The tag replaces a same-tag notification (`apns-collapse-id`, at most 64 bytes:
+// longer tags are hashed). First sends and earlier times are Time Sensitive with a sound; quiet
+// updates (`renotify: false`) are passive.
+export const APNS_PREFIX = 'apns:';
+export function apnsPush({ kind, title, body, tag, renotify }) {
+  const quiet = renotify === false;
+  const collapse = tag == null ? null : Buffer.byteLength(tag) <= 64 ? tag : createHash('sha256').update(tag).digest('base64url');
+  return {
+    headers: { 'apns-push-type': 'alert', 'apns-priority': quiet ? '5' : '10', ...(collapse && { 'apns-collapse-id': collapse }) },
+    body: { aps: { alert: { title, body }, 'interruption-level': quiet ? 'passive' : 'time-sensitive', ...(!quiet && { sound: 'default' }) }, kind },
+  };
 }
 
 const STATIC = {
@@ -261,8 +276,10 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     });
   }
 
-  const validSubscription = sub => typeof sub?.endpoint === 'string' && sub.endpoint.startsWith('https://')
-    && typeof sub.keys?.p256dh === 'string' && typeof sub.keys?.auth === 'string';
+  // Web Push ({ endpoint: 'https://…', keys }) or the iOS app's APNs device token ({ endpoint: 'apns:<hex>' }).
+  const validSubscription = sub => typeof sub?.endpoint === 'string' && (/^apns:[0-9a-f]{64,200}$/.test(sub.endpoint)
+    || (sub.endpoint.startsWith('https://') && typeof sub.keys?.p256dh === 'string' && typeof sub.keys?.auth === 'string'));
+  const validDevice = d => typeof d === 'string' && /^[0-9a-f-]{36}$/.test(d);
 
   // The request body for a new reminder, or an error message.
   function checkReminder(b, t) {
@@ -409,6 +426,20 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
         return reply(res, 200, { deleted: ids.length });
       }
       return reply(res, 200, { now: t, entries: store.forEndpoint(ep).map(e => pendingView(e, t)), log: store.logFor(ep, t - DAY) });
+    }
+
+    // The iOS app's diagnostics (registration and plugin errors), per device (a random id the app
+    // keeps), for setup's "Pending notifications"; 24 h, newest APP_LOG_MAX lines.
+    if (req.method === 'POST' && path === '/log') {
+      if (!validDevice(body?.device)) return reply(res, 400, { error: 'device is invalid' });
+      if (typeof body.source !== 'string' || !body.source || body.source.length > 40) return reply(res, 400, { error: 'source is invalid' });
+      if (typeof body.message !== 'string' || body.message.length > 500) return reply(res, 400, { error: 'message is invalid' });
+      store.logApp(body.device, { at: t, source: body.source, message: body.message }, t - DAY, APP_LOG_MAX);
+      return reply(res, 204, undefined);
+    }
+    if (req.method === 'POST' && path === '/log/read') {
+      if (!validDevice(body?.device)) return reply(res, 400, { error: 'device is invalid' });
+      return reply(res, 200, { lines: store.appLogFor(body.device, t - DAY) });
     }
 
     if (req.method === 'POST' && path === '/reminders') {
@@ -662,7 +693,7 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     // A failed log write never turns a sent push into a failed one.
     const record = extra => { try { store.logPush(sub.endpoint, { ...entry, ...extra }, t - DAY, LOG_MAX); } catch (e) { log(`push log: ${e.message}`); } };
     try {
-      await send(sub, declarativePush(payload, publicUrl));
+      await send(sub, sub.endpoint.startsWith(APNS_PREFIX) ? apnsPush(payload) : declarativePush(payload, publicUrl));
     } catch (e) {
       const why = e.statusCode === 410 ? 'gone' : e.statusCode === 404 ? 'not found' : e.message;
       record({ ok: false, error: `${e.statusCode ?? ''} ${why ?? ''}`.trim().slice(0, 200) });

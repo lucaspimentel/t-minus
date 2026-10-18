@@ -7,7 +7,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { createApp, declarativePush } from '../server/app.mjs';
+import { createApp, declarativePush, apnsPush } from '../server/app.mjs';
 import { openStore } from '../server/store.mjs';
 import { legQuery, tripShape } from '../core.js';
 
@@ -86,7 +86,11 @@ async function setup({ staticRoot = null } = {}) {
   const send = async (sub, payload) => {
     if (world.sendStatus) throw Object.assign(new Error('gone'), { statusCode: world.sendStatus });
     raw.push(payload);
-    // The fields each push is built from (`declarativePush` is checked on its own).
+    // The fields each push is built from (`declarativePush` and `apnsPush` are checked on their own).
+    if (sub.endpoint.startsWith('apns:')) {
+      const { body: { kind, aps }, headers } = payload;
+      return void sent.push({ kind, title: aps.alert.title, body: aps.alert.body, tag: headers['apns-collapse-id'], apns: sub.endpoint, level: aps['interruption-level'] });
+    }
     const { title, body, tag, renotify, data: { kind } } = payload.notification;
     sent.push({ kind, title, body, tag, ...(renotify !== undefined && { renotify }) });
   };
@@ -253,6 +257,84 @@ test('declarativePush: the W3C format, the tap URL, and the old fields', () => {
     notification: { title: 'Next stop: get off', body: 'Arrive 8:06am', tag: 'ride:r1:1', renotify: true, navigate: 'http://localhost:8790/', lang: 'en-US', data: { kind: 'getOff' } },
     title: 'Next stop: get off', body: 'Arrive 8:06am', tag: 'ride:r1:1', renotify: true,
   });
+});
+
+test('apnsPush: Time Sensitive with a sound, passive for quiet updates, long tags hashed to 64 bytes', () => {
+  assert.deepEqual(apnsPush({ kind: 'getOff', title: 'Next stop: get off', body: 'Arrive 8:06am', tag: 'ride:r1:1', renotify: true }), {
+    headers: { 'apns-push-type': 'alert', 'apns-priority': '10', 'apns-collapse-id': 'ride:r1:1' },
+    body: { aps: { alert: { title: 'Next stop: get off', body: 'Arrive 8:06am' }, 'interruption-level': 'time-sensitive', sound: 'default' }, kind: 'getOff' },
+  });
+  // A test push (no renotify): like a first send.
+  assert.equal(apnsPush({ kind: 'test', title: 'T', body: 'B', tag: 'test' }).body.aps['interruption-level'], 'time-sensitive');
+  const quiet = apnsPush({ kind: 'update', title: 'T', body: 'B', tag: 'o1', renotify: false });
+  assert.deepEqual(quiet.body.aps, { alert: { title: 'T', body: 'B' }, 'interruption-level': 'passive' });
+  assert.equal(quiet.headers['apns-priority'], '5');
+  const long = 'x'.repeat(200);
+  const id = apnsPush({ kind: 'leave', title: 'T', body: 'B', tag: long, renotify: true }).headers['apns-collapse-id'];
+  assert.ok(Buffer.byteLength(id) <= 64);
+  assert.equal(id, apnsPush({ kind: 'update', title: 'T', body: 'B', tag: long }).headers['apns-collapse-id']); // stable
+  assert.equal(apnsPush({ kind: 'test', title: 'T', body: 'B', tag: 'x'.repeat(64) }).headers['apns-collapse-id'], 'x'.repeat(64));
+});
+
+test('the iOS app: an APNs token is a subscription; its pushes use apnsPush; a dead token drops the reminder', async () => {
+  const s = await setup();
+  try {
+    const apns = n => ({ endpoint: `apns:${String(n).repeat(64)}` });
+    s.world.clock = at('06:50');
+    for (const bad of [{ endpoint: 'apns:abc' }, { endpoint: `apns:${'A'.repeat(64)}` }, { endpoint: `apns:${'g'.repeat(64)}` }, { endpoint: `apns:${'a'.repeat(201)}` }]) {
+      assert.equal((await s.call('POST', '/api/reminders', reminder({ subscription: bad }))).status, 400, bad.endpoint);
+    }
+    const res = await s.call('POST', '/api/reminders', reminder({ subscription: apns(1) }));
+    assert.equal(res.status, 201);
+    const { id } = await res.json();
+    s.world.clock = at('06:54');
+    await s.app.tick();
+    assert.deepEqual(s.sent, [{ kind: 'headsUp', title: 'Leave in 10 min · Home to office', body: '132 toward Malden at 7:10am', tag: 'o1', apns: apns(1).endpoint, level: 'time-sensitive' }]);
+    // Logged for its "Pending notifications" like a Web Push.
+    const p = await (await s.call('POST', '/api/pending', { subscription: apns(1) })).json();
+    assert.deepEqual(p.entries.map(e => e.id), [id]);
+    assert.equal(p.log.length, 1);
+    // A test push and a ride work the same way.
+    assert.equal((await s.call('POST', '/api/test-push', { subscription: apns(2) })).status, 202);
+    assert.equal((await s.call('POST', '/api/rides', { ...followed(), subscription: apns(2) })).status, 201);
+    // APNs says the token is gone (apns.mjs maps it to 410): the reminder goes.
+    s.world.sendStatus = 410;
+    s.world.clock = at('06:59');
+    await s.app.tick();
+    assert.ok(!s.store.all().some(e => e.id === id));
+  } finally { await s.close(); }
+});
+
+test('/api/log: the iOS app\'s diagnostics per device, 24 h, newest 200; same origin', async () => {
+  const s = await setup();
+  try {
+    const device = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    const other = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+    const post = (b, origin) => s.call('POST', '/api/log', b, origin);
+    assert.equal((await post({ device, source: 'push', message: 'x' }, 'https://evil.example')).status, 403);
+    for (const bad of [{ source: 'push', message: 'x' }, { device: 'nope', source: 'push', message: 'x' }, { device, message: 'x' },
+      { device, source: '', message: 'x' }, { device, source: 's'.repeat(41), message: 'x' }, { device, source: 'push' }, { device, source: 'push', message: 'm'.repeat(501) }]) {
+      assert.equal((await post(bad)).status, 400, JSON.stringify(bad).slice(0, 80));
+    }
+    s.world.clock = at('07:00');
+    assert.equal((await post({ device, source: 'push', message: 'registration failed: no network' })).status, 204);
+    s.world.clock = at('07:01');
+    await post({ device: other, source: 'push', message: 'other phone' });
+    const read = async d => (await (await s.call('POST', '/api/log/read', { device: d })).json()).lines;
+    assert.deepEqual(await read(device), [{ at: at('07:00'), source: 'push', message: 'registration failed: no network' }]);
+    assert.equal((await s.call('POST', '/api/log/read', { device: 'nope' })).status, 400);
+    // 24 h later the old lines are gone (pruned on the next write); a device keeps its newest 200.
+    s.world.clock = at('07:00') + 24 * 60 * 60_000 + 60_000;
+    const quick = await s.serve(); // a second instance on the same store: the per-IP limit is per instance
+    for (let i = 0; i < 205; i++) {
+      if (i % 25 === 0) s.world.clock += 60_000; // 25 a minute stays under the per-IP limit
+      assert.equal((await quick.call('POST', '/api/log', { device, source: 'keepAwake', message: String(i) })).status, 204);
+    }
+    const lines = await read(device);
+    assert.equal(lines.length, 200);
+    assert.equal(lines[0].message, '204'); // newest first
+    assert.deepEqual(await read(other), []);
+  } finally { await s.close(); }
 });
 
 test('a test notification is sent 10 s later, once per subscription at a time', async () => {

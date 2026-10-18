@@ -1,7 +1,8 @@
 // Reminders and followed rides (stop alerts, `kind: 'ride'`) in SQLite (node:sqlite, $DATA_DIR/reminders.db): columns for what the server
 // queries, the whole reminder as JSON in `body`. Writes are per row. Also the MBTA proxy's static
 // copies (`mbta_cache`: routes, stops, route patterns), kept across restarts, and the pushes sent to
-// each phone in the last 24 h (`push_log`, the setup's "Pending notifications").
+// each phone in the last 24 h (`push_log`, the setup's "Pending notifications"), and the iOS app's
+// diagnostics per device (`app_log`, 24 h).
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,6 +34,13 @@ export function openStore(dir) {
       body TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS push_log_endpoint ON push_log (endpoint, at);
+    CREATE TABLE IF NOT EXISTS app_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device TEXT NOT NULL,
+      at INTEGER NOT NULL,
+      body TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS app_log_device ON app_log (device, at);
   `);
   const q = {
     add: db.prepare('INSERT INTO reminders (id, endpoint, next_poll_at, body) VALUES (?, ?, ?, ?)'),
@@ -50,6 +58,10 @@ export function openStore(dir) {
     logPruneOld: db.prepare('DELETE FROM push_log WHERE at < ?'),
     logPruneFor: db.prepare('DELETE FROM push_log WHERE endpoint = ? AND id NOT IN (SELECT id FROM push_log WHERE endpoint = ? ORDER BY id DESC LIMIT ?)'),
     logFor: db.prepare('SELECT body FROM push_log WHERE endpoint = ? AND at >= ? ORDER BY id DESC'),
+    appAdd: db.prepare('INSERT INTO app_log (device, at, body) VALUES (?, ?, ?)'),
+    appPruneOld: db.prepare('DELETE FROM app_log WHERE at < ?'),
+    appPruneFor: db.prepare('DELETE FROM app_log WHERE device = ? AND id NOT IN (SELECT id FROM app_log WHERE device = ? ORDER BY id DESC LIMIT ?)'),
+    appFor: db.prepare('SELECT body FROM app_log WHERE device = ? AND at >= ? ORDER BY id DESC'),
     cacheGet: db.prepare('SELECT body, last_modified, fetched_at FROM mbta_cache WHERE key = ?'),
     cachePut: db.prepare('INSERT OR REPLACE INTO mbta_cache (key, body, last_modified, fetched_at) VALUES (?, ?, ?, ?)'),
     cacheTouch: db.prepare('UPDATE mbta_cache SET fetched_at = ? WHERE key = ?'),
@@ -76,6 +88,13 @@ export function openStore(dir) {
       q.logPruneFor.run(endpoint, endpoint, max);
     },
     logFor: (endpoint, since) => parse(q.logFor.all(endpoint, since)),
+    // The iOS app's diagnostics, the same way per device.
+    logApp: (device, entry, since, max) => {
+      q.appAdd.run(device, entry.at, JSON.stringify(entry));
+      q.appPruneOld.run(since);
+      q.appPruneFor.run(device, device, max);
+    },
+    appLogFor: (device, since) => parse(q.appFor.all(device, since)),
     // { text, lastModified, at } or null.
     cacheGet: key => {
       const r = q.cacheGet.get(key);

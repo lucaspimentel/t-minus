@@ -1,7 +1,8 @@
-// Railway entry point: env, web-push, the SQLite store, the app's files (the repo root), and the 5 s loop.
+// Railway entry point: env, web-push, APNs, the SQLite store, the app's files (the repo root), and the 5 s loop.
 import { createServer } from 'node:http';
 import webpush from 'web-push';
-import { createApp } from './app.mjs';
+import { createApp, APNS_PREFIX } from './app.mjs';
+import { apnsClient, APNS_HOSTS } from './apns.mjs';
 import { openStore } from './store.mjs';
 
 const env = process.env;
@@ -10,10 +11,28 @@ for (const k of ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT']) {
 }
 webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
 
+// APNs (the iOS app), optional: all of APNS_KEY (the .p8 file's contents), APNS_KEY_ID,
+// APNS_TEAM_ID and APNS_TOPIC (the bundle ID); APNS_HOST is production (default) or sandbox.
+let apns = null;
+if (env.APNS_KEY) {
+  for (const k of ['APNS_KEY_ID', 'APNS_TEAM_ID', 'APNS_TOPIC']) {
+    if (!env[k]) throw new Error(`${k} is not set`);
+  }
+  const host = APNS_HOSTS[env.APNS_HOST ?? 'production'];
+  if (!host) throw new Error('APNS_HOST must be production or sandbox');
+  apns = apnsClient({ key: env.APNS_KEY.replace(/\\n/g, '\n'), keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID, topic: env.APNS_TOPIC, host });
+}
+
 const log = msg => console.log(new Date().toISOString(), msg);
 const send = env.DRY_RUN
   ? async (sub, payload) => log(`DRY_RUN push: ${JSON.stringify(payload)}`)
-  : (sub, payload) => webpush.sendNotification(sub, JSON.stringify(payload), { TTL: 600, urgency: 'high' });
+  : async (sub, payload) => {
+    if (sub.endpoint.startsWith(APNS_PREFIX)) {
+      if (!apns) throw new Error('APNs is not configured');
+      return apns(sub.endpoint.slice(APNS_PREFIX.length), payload);
+    }
+    return webpush.sendNotification(sub, JSON.stringify(payload), { TTL: 600, urgency: 'high' });
+  };
 
 const app = createApp({
   fetch,

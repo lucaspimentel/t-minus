@@ -15,6 +15,10 @@ point `@lat,lon`; `GET /api/places?q`: addresses and places from Photon, else No
 an allowlist, the server's key, a shared cache, stale copies with `x-data-age` when the MBTA
 fails, 120 requests/min per IP; see `DESIGN.md`, "MBTA data caching").
 
+The iOS app (`IOS.md`) subscribes with an APNs device token (`{ endpoint: 'apns:<token>' }`)
+instead of a Web Push subscription; its pushes go to Apple over HTTP/2 (`server/apns.mjs`), and
+its diagnostics to `POST /api/log` (`POST /api/log/read` lists a device's last 24 h).
+
 ## Railway setup
 
 1. **Project:** in Railway, create a project with a service sourced from
@@ -43,6 +47,11 @@ fails, 120 requests/min per IP; see `DESIGN.md`, "MBTA data caching").
    | `DATA_DIR` | `/data` |
    | `PUBLIC_URL` | the app's URL: the page a notification opens when iOS shows a push without the service worker (default `https://t-minus.lucasp.net/`; set it when hosting elsewhere) |
    | `MBTA_PROXY` | optional: `off` turns the MBTA proxy off (503; the app calls the MBTA directly) |
+   | `APNS_KEY` | optional, for the iOS app (`IOS.md`): the APNs auth key's `.p8` contents (multi-line, or `\n` for newlines). Without it, pushes to the app fail and are logged |
+   | `APNS_KEY_ID` | with `APNS_KEY`: the key's ID |
+   | `APNS_TEAM_ID` | with `APNS_KEY`: the Apple Developer team ID |
+   | `APNS_TOPIC` | with `APNS_KEY`: the app's bundle ID (`net.lucasp.tminus`) |
+   | `APNS_HOST` | optional: `production` (default; TestFlight builds) or `sandbox` (Xcode debug builds) |
 
    `PORT` is set by Railway.
 5. **Always on:** in Settings, leave Serverless (app sleeping) **off**, so the 5-second loop
@@ -68,4 +77,4 @@ Then open `http://localhost:8790/` (the app, with its API on the same port).
 - `DRY_RUN=1` logs pushes instead of sending them.
 - Node 22.13+ (`node:sqlite`). Node 22 logs a one-line SQLite `ExperimentalWarning` at startup.
 - In the Claude Code cloud sandbox, add `NODE_USE_ENV_PROXY=1` so `fetch` uses the proxy.
-- Tests: `node --test test/server.test.js` (part of `npm test`).
+- Tests: `node --test test/server.test.js test/apns.test.js` (part of `npm test`).

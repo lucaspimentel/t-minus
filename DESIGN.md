@@ -791,6 +791,16 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     (default `https://t-minus.lucasp.net/`). The message also carries the plain
     `{ title, body, tag, renotify }` at the top level for workers installed before the change
     (removable once they've updated). The badge (`app_badge`) is not used.
+  - **APNs (the iOS app, 2026-10-18; see `IOS.md`):** a subscription `{ endpoint: 'apns:<hex
+    device token>' }` is stored and capped like a Web Push one; its pushes are built by
+    `apnsPush` (same fields): `aps.alert` `{ title, body }`, `apns-collapse-id` = the tag
+    (tags over 64 bytes hashed, SHA-256 base64url), and `interruption-level: time-sensitive` with
+    the default sound (priority 10), or `passive` without sound (priority 5) for quiet updates
+    (`renotify: false`). `server/apns.mjs` sends them over one HTTP/2 session with an ES256
+    provider token (reused 50 min, renewed on `ExpiredProviderToken`) and a 10-min expiration;
+    410 `Unregistered` and 400 `BadDeviceToken` / `DeviceTokenNotForTopic` count as a 410 (the
+    entry is dropped). Configured by `APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`,
+    `APNS_HOST` (`server/README.md`).
 - **Test notification:** setup ends with a "Notifications" section and one button, "Send test
   notification in 10 s" (hidden without `SERVER_API`; disabled with the Home Screen hint
   without push). It subscribes like "Notify me", posts to `POST /test-push`, and toasts "Test
@@ -822,7 +832,8 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     `POST /test-push`, `POST /rides`, `PUT /rides/:id`, `DELETE /rides/:id` (stop alerts),
     `POST /pending` and `POST /pending/clear` (setup's "Pending notifications": this phone's
     entries without the subscription keys, each with `nextPush`, and its push log; POST so the
-    push endpoint stays out of URLs), and `GET /nearby` (setup's "Show nearby").
+    push endpoint stays out of URLs), `POST /log` and `POST /log/read` (the iOS app's
+    diagnostics per device: 24 h, newest 200), and `GET /nearby` (setup's "Show nearby").
   - **What a reminder holds:** the subscription, the trip (checked with `validateConfig`), its
     slack, the timing leg, the row key (the timing-leg vehicle's trip id) and leave-by. Leave-by
     must be ahead and within 12 h.
