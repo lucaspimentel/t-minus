@@ -23,7 +23,7 @@ code is limited to the Capacitor bridge, a Live Activity, and a widget.
 | Builds | GitHub Actions only (`macos` runner): build, sign, upload to TestFlight. Manual trigger (`workflow_dispatch`); the web code ships through the remote URL, so a build is needed only for native changes or before the 90-day expiry |
 | Moving trips | The existing Export / Import in setup (the app has its own `localStorage`) |
 | PWA on the author's iPhone | Removed once the app works (avoids two push subscriptions and duplicate reminders). The PWA stays supported for Android and browsers |
-| App | "T-Minus", bundle ID `net.lucasp.tminus`, iOS 18 minimum |
+| App | "T-Minus" on the Home Screen (`CFBundleDisplayName`); "T-Minus Boston Commute" in App Store Connect and TestFlight ("T-Minus" was taken; "MBTA" left out, since the MassDOT license bars using its trademarks); bundle ID `net.lucasp.tminus`, SKU `tminus`; iOS 18 minimum |
 | Scope | Phase 1 (shell + native push), 2 (ride Live Activity), 3a (leave-time Live Activity, push-to-start), 3b (widget) |
 
 ## Prerequisites
