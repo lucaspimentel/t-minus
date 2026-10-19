@@ -145,8 +145,8 @@ test-notification tap, as in the PWA.
     APNs response.
 - **Round trip:** a native change is a CI build, TestFlight processing, and an install
   (~15-30 min). Web and server changes still ship by pushing to `main`.
-- **Cost:** macOS minutes count 10x against GitHub's free minutes on a private repo; manual
-  builds keep that small.
+- **Cost:** none: the repo is public, and standard GitHub-hosted runners (`macos-15` included) are
+  free there. Workflow logs are public too (secrets are masked; the team ID and bundle ID show).
 
 ## Testing
 
