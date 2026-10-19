@@ -11,7 +11,18 @@
   },
   "plugins": {
     "PushNotifications": {
-      "presentationOptions": ["banner", "sound", "list"]
+      "presentationOptions": [
+        "banner",
+        "sound",
+        "list"
+      ]
+    }
+  },
+  "experimental": {
+    "ios": {
+      "spm": {
+        "swiftToolsVersion": "6.0"
+      }
     }
   }
 }
