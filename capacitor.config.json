@@ -1,0 +1,17 @@
+{
+  "appId": "net.lucasp.tminus",
+  "appName": "T-Minus",
+  "webDir": "ios/www",
+  "server": {
+    "url": "https://t-minus.lucasp.net",
+    "errorPath": "index.html"
+  },
+  "ios": {
+    "backgroundColor": "#121417"
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["banner", "sound", "list"]
+    }
+  }
+}

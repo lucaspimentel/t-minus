@@ -55,7 +55,13 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   Railway variables or a process env, never into a file. The Railway deploy config (build/start
   commands, healthcheck, watch paths) lives in the service's Railway settings, not the repo.
   `SERVER_API` in `index.html` is `/api` (same origin; empty hides "Notify me").
-- Icons: `icons/icon.svg` is the source; re-render the PNGs (192, 512) from it with Playwright.
+- Icons: `icons/icon.svg` is the source; re-render the PNGs (192, 512) from it with Playwright
+  (and the iOS app icon, `ios/App/App/Assets.xcassets/AppIcon.appiconset/`, 1024 px, no alpha).
+- iOS app (`ios/`, Capacitor; plan and state in `IOS.md`): it loads the live site, so web and server
+  changes need no build. Native changes: edit `ios/` or `capacitor.config.json`, run
+  `npx cap sync ios` (generated files are gitignored), and add new files to the Xcode project with
+  the `xcodeproj` gem (no Mac here). Builds: the `ios` workflow (manual) uploads to TestFlight.
+  APNs variables are in `server/README.md`.
 
 ## Local testing with an MBTA API key
 

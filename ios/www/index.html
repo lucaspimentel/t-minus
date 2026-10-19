@@ -1,0 +1,26 @@
+<!doctype html>
+<!-- The iOS app's error page (capacitor.config.json server.errorPath): shown when
+     https://t-minus.lucasp.net does not load. Bundled with the app; no network needed. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>T-Minus</title>
+<style>
+  :root { --bg: #f5f5f3; --text: #1c1f24; --muted: #6b7078; --accent: #ed8b00; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #121417; --text: #eceef1; --muted: #9aa0a8; } }
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; padding: 24px; box-sizing: border-box; background: var(--bg); color: var(--text); text-align: center;
+    font: 17px -apple-system, system-ui, sans-serif; }
+  h1 { font-size: 22px; margin: 0; }
+  p { margin: 0; color: var(--muted); max-width: 320px; }
+  button { margin-top: 12px; font: inherit; font-weight: 600; color: #1c1f24; background: var(--accent);
+    border: 0; border-radius: 12px; padding: 12px 32px; }
+</style>
+</head>
+<body>
+<h1>Can't reach T-Minus</h1>
+<p>Check your connection, then try again.</p>
+<button type="button" onclick="location.href = 'https://t-minus.lucasp.net/'">Retry</button>
+</body>
+</html>
