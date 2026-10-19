@@ -1,7 +1,8 @@
 # IOS.md — T-Minus iOS app (plan)
 
-Status: Phase 1 in progress. Server (APNs, app log) and web (the native code path) are done
-(2026-10-18); the iOS project and its CI workflow wait on the Apple account. Decisions below
+Status: Phase 1 in progress. Apple prerequisites, server (APNs, app log), web (the native code
+path), the `ios/` project and the TestFlight workflow are done (2026-10-19); next the first build
+and the "Done when" checks. Decisions below
 come from the 2026-10-17 and 2026-10-18 grills; open questions are listed at the end. When a phase ships, move its behavior into `DESIGN.md` and keep only the
 remaining plan here.
 
@@ -62,22 +63,31 @@ test-notification tap, as in the PWA.
     (`t-minus:device`); setup's "Pending notifications" shows the token's end and the app log.
   - No service worker and no "Add to Home Screen" hints in the app.
   - Spec: `test/browser/ios-app.spec.js` (a fake Capacitor bridge).
-- **iOS project (next, needs the Apple account):**
+- **iOS project (done):**
   - Root dev dependencies `@capacitor/cli`, `@capacitor/core`, `@capacitor/ios` 8.5.3,
     `@capacitor/push-notifications` 8.1.3. `capacitor.config.json`: `server.url`
-    `https://t-minus.lucasp.net`, `server.errorPath` (a bundled "Can't reach T-Minus" page with
-    Retry, in `ios/www/`), PushNotifications `presentationOptions` banner, sound, list (stop
-    alerts show with the app open, as today).
+    `https://t-minus.lucasp.net`, `webDir` `ios/www` (only the bundled "Can't reach T-Minus" page
+    with Retry, `server.errorPath` `index.html`), PushNotifications `presentationOptions` banner,
+    sound, list (stop alerts show with the app open, as today).
   - `ios/` from `npx cap add ios --packagemanager SPM` (verified to run on Linux, so it is generated
     here and committed), then edited: `AppDelegate` forwards the APNs registration to Capacitor;
     `App.entitlements` (`aps-environment` production, time-sensitive); deployment target 18.0;
     `NSLocationWhenInUseUsageDescription`; `TMinusPlugin.swift` (`keepAwake` sets
     `isIdleTimerDisabled`) registered by a `MainViewController` subclass (Phase 2 extends it);
-    a 1024 px icon from `icons/icon.svg`. Railway's watch patterns are an allowlist (`server/**`,
+    a 1024 px icon from `icons/icon.svg` (no alpha channel); iPhone only; launch screen in the
+    app's background colors (light / dark); `ITSAppUsesNonExemptEncryption` false (no export
+    compliance question per build). Project file edits (new files, build settings) were made with
+    the `xcodeproj` gem; `npx cap sync ios` keeps them. Railway's watch patterns are an allowlist (`server/**`,
     the shell files, `icons/**`), so `ios/` and `capacitor.config.json` never trigger a deploy.
-- **CI (next):** `.github/workflows/ios.yml` (`workflow_dispatch`, `macos-15`): `npm ci`,
-  `npx cap sync ios`, `xcodebuild archive` with automatic signing (the API key), the build number
-  from the run number, `-exportArchive` with `destination: upload` (straight to TestFlight).
+- **CI (done, not yet run):** `.github/workflows/ios.yml` (`workflow_dispatch`, `macos-15`,
+  latest stable Xcode): `npm ci`, `npx cap sync ios`, `xcodebuild archive` signed ad hoc (it
+  carries the entitlements; automatic signing at archive time would need a development profile,
+  which needs a registered device), then `-exportArchive` with automatic signing and the API key
+  (creates the distribution certificate and the App Store profile in Apple's cloud), a check that
+  the signed app has `aps-environment`, and a second export with `destination: upload` (straight
+  to TestFlight). Build number: the run number. On failure the Xcode distribution logs are an
+  artifact. After the first upload: add yourself to an internal testing group in App Store
+  Connect (once), then install from TestFlight.
 - **Done when:** installed from TestFlight with trips imported, the debug screen shows the token;
   the test notification, "Notify me" (heads-ups, a quiet later-time update, Leave now) and stop
   alerts arrive through APNs; the screen stays on; airplane mode at launch shows the error page.
@@ -152,5 +162,4 @@ test-notification tap, as in the PWA.
   for the next leave-by (`core.js` already runs there), or the app writes precomputed rows.
 - Extension target: XcodeGen spec (regenerates the whole project) or an `xcodeproj` script
   (patches Capacitor's project).
-- `CLAUDE.md` additions once Phase 1 lands (the `cap sync` step, APNs variables, the iOS workflow).
 - Android: the PWA for now; Capacitor's Android target with FCM if ever needed.

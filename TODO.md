@@ -25,11 +25,9 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 
 ## iOS app (see `IOS.md`)
 
-- Prerequisites: Apple Developer Program, App ID, APNs key (Railway variables), signing secrets
-  for GitHub Actions.
 - Phase 1: Capacitor shell (remote URL), native push, keep-awake, manual TestFlight workflow.
-  Server (APNs, app log) and web (the native code path) done; next the `ios/` project and the
-  workflow, after the Apple account, App ID, APNs key and API key exist.
+  Prerequisites, server, web, the `ios/` project and the workflow are done; next the first
+  TestFlight build (expect a few signing rounds) and the "Done when" checks on the iPhone.
 - Phase 2: Live Activity for tracked rides, updated by `checkFollowed`; urgent stop alerts stay
   as notifications.
 - Phase 3a: leave-time Live Activity (push-to-start at the 10-min heads-up).
