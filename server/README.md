@@ -51,7 +51,7 @@ its diagnostics to `POST /api/log` (`POST /api/log/read` lists a device's last 2
    | `APNS_KEY_ID` | with `APNS_KEY`: the key's ID |
    | `APNS_TEAM_ID` | with `APNS_KEY`: the Apple Developer team ID |
    | `APNS_TOPIC` | with `APNS_KEY`: the app's bundle ID (`net.lucasp.tminus`) |
-   | `APNS_HOST` | optional: `production` (default; TestFlight builds) or `sandbox` (Xcode debug builds) |
+   | `APNS_HOST` | optional: `production` (default, also when empty; TestFlight builds) or `sandbox` (Xcode debug builds). A bad APNs setting logs `APNs off: …` at startup and leaves APNs off; the rest of the server runs |
 
    `PORT` is set by Railway.
 5. **Always on:** in Settings, leave Serverless (app sleeping) **off**, so the 5-second loop

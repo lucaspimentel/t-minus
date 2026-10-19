@@ -12,15 +12,22 @@ for (const k of ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT']) {
 webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
 
 // APNs (the iOS app), optional: all of APNS_KEY (the .p8 file's contents), APNS_KEY_ID,
-// APNS_TEAM_ID and APNS_TOPIC (the bundle ID); APNS_HOST is production (default) or sandbox.
+// APNS_TEAM_ID and APNS_TOPIC (the bundle ID); APNS_HOST is production (default, also when empty)
+// or sandbox. A bad setting logs and leaves APNs off instead of stopping the server.
 let apns = null;
 if (env.APNS_KEY) {
-  for (const k of ['APNS_KEY_ID', 'APNS_TEAM_ID', 'APNS_TOPIC']) {
-    if (!env[k]) throw new Error(`${k} is not set`);
+  try {
+    for (const k of ['APNS_KEY_ID', 'APNS_TEAM_ID', 'APNS_TOPIC']) {
+      if (!env[k]) throw new Error(`${k} is not set`);
+    }
+    const hostName = (env.APNS_HOST || 'production').trim().toLowerCase();
+    const host = APNS_HOSTS[hostName];
+    if (!host) throw new Error(`APNS_HOST must be production or sandbox, not ${JSON.stringify(env.APNS_HOST)}`);
+    apns = apnsClient({ key: env.APNS_KEY.replace(/\\n/g, '\n'), keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID, topic: env.APNS_TOPIC, host });
+    console.log(`APNs on (${hostName})`);
+  } catch (e) {
+    console.error(`APNs off: ${e.message}`);
   }
-  const host = APNS_HOSTS[env.APNS_HOST ?? 'production'];
-  if (!host) throw new Error('APNS_HOST must be production or sandbox');
-  apns = apnsClient({ key: env.APNS_KEY.replace(/\\n/g, '\n'), keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID, topic: env.APNS_TOPIC, host });
 }
 
 const log = msg => console.log(new Date().toISOString(), msg);
