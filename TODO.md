@@ -26,8 +26,8 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 ## iOS app (see `IOS.md`)
 
 - Phase 1: Capacitor shell (remote URL), native push, keep-awake, manual TestFlight workflow.
-  Prerequisites, server, web, the `ios/` project and the workflow are done; next the first
-  TestFlight build (expect a few signing rounds) and the "Done when" checks on the iPhone.
+  Prerequisites, server, web, the `ios/` project and the workflow are done; the first
+  TestFlight build is uploaded (build 2); next the "Done when" checks on the iPhone.
 - Phase 2: Live Activity for tracked rides, updated by `checkFollowed`; urgent stop alerts stay
   as notifications.
 - Phase 3a: leave-time Live Activity (push-to-start at the 10-min heads-up).

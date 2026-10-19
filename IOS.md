@@ -79,7 +79,7 @@ test-notification tap, as in the PWA.
     compliance question per build). Project file edits (new files, build settings) were made with
     the `xcodeproj` gem; `npx cap sync ios` keeps them. Railway's watch patterns are an allowlist (`server/**`,
     the shell files, `icons/**`), so `ios/` and `capacitor.config.json` never trigger a deploy.
-- **CI (done, not yet run):** `.github/workflows/ios.yml` (`workflow_dispatch`, `macos-15`,
+- **CI (done; first upload 2026-10-19, build 2):** `.github/workflows/ios.yml` (`workflow_dispatch`, `macos-15`,
   latest stable Xcode): `npm ci`, `npx cap sync ios`, `xcodebuild archive` signed ad hoc (it
   carries the entitlements; automatic signing at archive time would need a development profile,
   which needs a registered device), then `-exportArchive` with automatic signing and the API key
