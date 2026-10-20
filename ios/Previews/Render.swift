@@ -9,7 +9,7 @@ import SwiftUI
 private let now = Date().timeIntervalSince1970
 private let orange = "ED8B00", bus = "FFC72C"
 private func legs(_ a: (String, Double, Double)...) -> [RideState.Leg] { a.map { RideState.Leg(color: $0.0, dep: now + $0.1 * 60, arr: now + $0.2 * 60) } }
-private let trip = legs((orange, -8, 6), (bus, 14, 26))
+private let trip = legs((orange, -8, 6), (bus, 14, 44)) // 14 and 30 min: proportional segments
 
 private let samples: [(String, RideState)] = [
     ("Riding", RideState(phase: "riding", warn: false, color: orange, label: "OL", title: "Orange · 4 stops", until: now + 360, stops: 4,

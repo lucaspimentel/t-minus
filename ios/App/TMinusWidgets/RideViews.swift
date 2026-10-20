@@ -48,35 +48,55 @@ struct Headline: View {
     }
 }
 
-// One segment per leg: full once done, advancing on its own while ridden.
+// One segment per leg, as wide as its share of the riding time (at least 8% so a short leg shows):
+// full once done, advancing on its own while ridden.
 struct LegsBar: View {
     let legs: [RideState.Leg]
     let track: Color
+    private let gap: CGFloat = 4
+
+    private func widths(_ total: CGFloat) -> [CGFloat] {
+        let durations = legs.map { max($0.arr - $0.dep, 1) }
+        let sum = durations.reduce(0, +)
+        let shares = durations.map { max($0 / sum, 0.08) }
+        let norm = shares.reduce(0, +)
+        let room = max(total - gap * CGFloat(legs.count - 1), 0)
+        return shares.map { room * CGFloat($0 / norm) }
+    }
+
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(Array(legs.enumerated()), id: \.offset) { _, leg in
-                let dep = Date(timeIntervalSince1970: leg.dep), arr = Date(timeIntervalSince1970: max(leg.arr, leg.dep + 1))
-                let tint = leg.color.isEmpty ? Color.gray : Color(hex: leg.color)
-                ZStack {
-                    Capsule().fill(track)
-                    if Date() >= arr {
-                        Capsule().fill(tint)
-                    } else if Date() >= dep {
-                        #if os(iOS)
-                        ProgressView(timerInterval: dep...arr, countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
-                            .progressViewStyle(.linear).tint(tint)
-                        #else
-                        // The previews (macOS can't draw the timer progress in a still image).
-                        GeometryReader { g in
-                            Capsule().fill(tint).frame(width: g.size.width * Date().timeIntervalSince(dep) / arr.timeIntervalSince(dep))
-                        }
-                        #endif
-                    }
+        GeometryReader { g in
+            let w = widths(g.size.width)
+            HStack(spacing: gap) {
+                ForEach(Array(legs.enumerated()), id: \.offset) { i, leg in
+                    segment(leg).frame(width: w[i])
                 }
-                .frame(height: 5)
-                .clipShape(Capsule())
             }
         }
+        .frame(height: 5)
+    }
+
+    private func segment(_ leg: RideState.Leg) -> some View {
+        let dep = Date(timeIntervalSince1970: leg.dep), arr = Date(timeIntervalSince1970: max(leg.arr, leg.dep + 1))
+        let tint = leg.color.isEmpty ? Color.gray : Color(hex: leg.color)
+        return ZStack(alignment: .leading) {
+            Capsule().fill(track)
+            if Date() >= arr {
+                Capsule().fill(tint)
+            } else if Date() >= dep {
+                #if os(iOS)
+                ProgressView(timerInterval: dep...arr, countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
+                    .progressViewStyle(.linear).tint(tint)
+                #else
+                // The previews (macOS can't draw the timer progress in a still image).
+                GeometryReader { g in
+                    Capsule().fill(tint).frame(width: g.size.width * Date().timeIntervalSince(dep) / arr.timeIntervalSince(dep))
+                }
+                #endif
+            }
+        }
+        .frame(height: 5)
+        .clipShape(Capsule())
     }
 }
 
