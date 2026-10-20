@@ -27,10 +27,11 @@ struct RouteDot: View {
     }
 }
 
-// The countdown, ticking down by the minute on the phone without updates: "12 minutes", "1 hour,
-// 5 minutes" (iOS 18's date offset format; rounds down like the app's "12 min").
+// The countdown, ticking down on the phone without updates: "12 minutes" (rounded down like the
+// app's "12 min"; "72 minutes" past an hour), "34 seconds" in the last minute (iOS 18's date offset
+// format). Past its time it reads "−1 minute" until the next update (the server polls every 20 s).
 func countdownText(_ until: Date) -> Text {
-    Text(until, format: .offset(to: Date(), allowedFields: [.hour, .minute], maxFieldCount: 2))
+    Text(until, format: .offset(to: Date(), allowedFields: [.minute, .second], maxFieldCount: 1))
 }
 
 // "Orange · 4 stops · 12 minutes": the title, then the countdown.
