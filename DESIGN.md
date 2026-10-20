@@ -820,7 +820,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     more on a new one. Any push (APNs or Web Push) that hasn't finished in 30 s fails, so a stuck
     send can't stop the server's loop (that night it held all reminders for an hour, until a
     restart).
-  - **Live Activity in the app (Phase 2; native side: `IOS.md`):** each tracked ride starts one
+  - **Live Activity in the app (Phase 2; see "iOS app"):** each tracked ride starts one
     (`TMinus.liveActivityStart({ tripName, state })` → `{ id }`; stored as `t-minus:activity`);
     while the app is open, `liveActivityUpdate` when `liveActivityState` changes (never twice the
     same); Done, Cancel, a replaced or finished ride end it at once (`liveActivityEnd`). Its push
@@ -1109,10 +1109,10 @@ the setup data is small on the wire. In order, if more people use the app keyles
 - Polling pauses while the page is hidden (browsers throttle background timers
   anyway); the `visibilitychange` refetch covers returning to the app.
 
-## iOS app (Phase 1, 2026-10-19)
+## iOS app (Phase 1, 2026-10-19; Phase 2, Live Activities, 2026-10-20)
 
 A native shell around the web app, for what a Home Screen PWA can't do (Live Activities,
-widgets; APNs instead of Web Push). Plan for the later phases: `IOS.md`.
+widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live Activity, widget): `IOS.md`.
 
 - **Shape:** Capacitor 8 (WKWebView + plugins), project in `ios/`. The WebView loads the live site
   (`server.url` `https://t-minus.lucasp.net` in `capacitor.config.json`), so pushes to `main`
@@ -1151,6 +1151,46 @@ widgets; APNs instead of Web Push). Plan for the later phases: `IOS.md`.
   upload (build 2: 2026-10-19), so run the workflow before then if nothing native changed.
 - **Deploys:** Railway's watch paths are an allowlist (`server/**`, the shell files, `icons/**`),
   so `ios/` and `capacitor.config.json` never trigger a deploy.
+
+### Live Activity for tracked rides (Phase 2, 2026-10-20)
+
+- **What:** every tracked ride ("I got on", detected boarding, Track this trip) shows on the Lock
+  Screen and in the Dynamic Island while it lasts, stop alerts or not (iOS Settings → T-Minus →
+  Live Activities is the only off switch). Notifications are unchanged, "3 stops to …" included.
+- **Card** (`ios/App/TMinusWidgets/RideViews.swift`, in the app's light / dark colors with the
+  route's color as the dot): the trip name; a headline like the ride card's ("Orange · 4 stops",
+  "Next stop: get off", "Transfer · Bus 132", "Missed the 8:02am · next 8:14am" in amber, "No
+  connection after …", "Walking", "Arrived ~8:25am") with a countdown; the drop-off line with the
+  time first ("Get off 8:24am at …", so a long stop name is cut, not the time); the next
+  connection or "Arrive ~…"; a progress bar with one segment per leg, sized by its riding time (at
+  least 8%), filling on its own while ridden.
+- **Countdown:** whole minutes, counted down by iOS without updates ("12 minutes", rounded down;
+  iOS 18's date offset format; iOS has no "12 mins"), then "<1 minute" from the last 80 s (`soon`
+  in the content: iOS can't say "<1 minute" itself, and the times aren't accurate to the second;
+  80 s leaves the server's 20-s poll time to deliver it before "0 minutes"; also shown past the
+  time instead of "−1 minute").
+- **Dynamic Island:** compact: the route's dot and label (`islandLabel`: "OL", "GL B", "132",
+  "SL1"; 🚶 on the final walk), then the stops left, or the countdown when stops don't apply (no
+  stop data, a transfer, the final walk); expanded: the card's content; minimal: the route's dot.
+- **Content:** `liveActivityState` (`core.js`) builds it for both the app (local updates) and the
+  server (pushes), so both show the same; `RideState` (`ios/App/Shared`) decodes it (Unix seconds:
+  ActivityKit would read a pushed Date as seconds since 2001; fields added later are optional).
+- **Lifecycle:** the app starts it (`TMinus.liveActivityStart`; one at a time), updates it while
+  open when the content changes, and ends it at once on Done, Cancel or a replaced ride. Its push
+  token goes to the server with the ride, which pushes updates while the app is closed and an end
+  with "Arrived ~<eta>" dismissed 5 min after the ETA (details: Notifications, "Live Activity
+  pushes"). iOS ends any Live Activity after 8 h; rides end at 3 h.
+- **Native pieces:** the widget extension `TMinusWidgets` (`net.lucasp.tminus.widgets`, embedded
+  in the app; added with the `xcodeproj` gem; Xcode's automatic signing registered its App ID);
+  `RideAttributes` (ActivityKit, the trip name) in both targets; `TMinusPlugin`'s
+  `liveActivityStart` / `Update` / `End` and the `activityToken` event; `Info.plist`:
+  `NSSupportsLiveActivities` and frequent updates.
+- **Previews without a Mac:** every `ios` workflow run compiles the views for macOS
+  (`ios/Previews/Render.swift`, `swiftc`) and renders sample states (light, dark, the island) to
+  the `live-activity-previews` artifact; `upload` off renders only these. macOS can't draw the
+  timer progress in a still image, so the previews fill the ridden segment statically.
+- **Builds:** first on TestFlight as build 6; build 14 has the minute countdown and the
+  proportional segments. The export check also requires the embedded extension.
 
 ## Remaining unknowns
 

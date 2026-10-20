@@ -63,7 +63,9 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - iOS app (`ios/`, Capacitor; behavior in `DESIGN.md` "iOS app", next phases in `IOS.md`): it loads the live site, so web and server
   changes need no build. Native changes: edit `ios/` or `capacitor.config.json`, run
   `npx cap sync ios` (generated files are gitignored), and add new files to the Xcode project with
-  the `xcodeproj` gem (no Mac here). Builds: the `ios` workflow (manual) uploads to TestFlight.
+  the `xcodeproj` gem (no Mac here). Builds: the `ios` workflow (manual) uploads to TestFlight;
+  every run renders the Live Activity views to PNGs (`live-activity-previews` artifact; `upload`
+  off: previews only), the way to check native UI.
   APNs variables are in `server/README.md`.
 
 ## Local testing with an MBTA API key
