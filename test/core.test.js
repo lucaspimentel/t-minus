@@ -1909,7 +1909,7 @@ test('liveActivityState: riding, get off, transfer, missed and no connection, wa
   const riding = liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(4), outlook, 5, at('17:50'));
   assert.deepEqual(riding, {
     phase: 'riding', warn: false, color: 'ED8B00', label: 'OL', title: 'Orange · 4 stops', until: sec('17:56'), stops: 4,
-    sub: 'Get off at Oak Grove · 5:56pm', next: 'Then Bus 132 toward Redstone 6:06pm · 5 min to spare',
+    sub: 'Get off 5:56pm at Oak Grove', next: 'Then Bus 132 toward Redstone 6:06pm · 5 min to spare',
     legs: [{ color: 'ED8B00', dep: sec('17:41'), arr: sec('17:56') }, { color: 'FFC72C', dep: sec('18:06'), arr: sec('18:18') }],
   });
   const getOff = liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(1), outlook, 5, at('17:55'));

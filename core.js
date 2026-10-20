@@ -2244,7 +2244,8 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
       out.title = (n && getOffText(stops)) || `${vehicleLabel(leg)}${n ? ` · ${n} stop${n === 1 ? '' : 's'}` : ''}`;
       out.until = sec(leg.arr);
       out.stops = n || -1;
-      out.sub = drop?.dropOff ? `Get off at ${drop.name} · ${legTime(leg, leg.arr, nowMs)}` : `Arrive ${legTime(leg, leg.arr, nowMs)}`;
+      // The time first: a long stop name is cut at the end on the card, not the time.
+      out.sub = drop?.dropOff ? `Get off ${legTime(leg, leg.arr, nowMs)} at ${drop.name}` : `Arrive ${legTime(leg, leg.arr, nowMs)}`;
       nextLine();
       break;
     }
