@@ -7,7 +7,6 @@ export const MISSED_MINUTES = 5;
 export const MAX_DEPARTURE_COUNT = 8;
 export const DEFAULT_STOP_SLACK_MINUTES = 1;
 export const DEFAULT_WAKE_MINUTES = 10;
-export const RIDE_WAKE_MINUTES = 2;
 // A leg becomes the timing leg only when its headway is this much longer than the current one's,
 // so the choice doesn't flip back and forth between refreshes.
 export const TIMING_HYSTERESIS = 1.5;
@@ -36,6 +35,9 @@ export function validateConfig(cfg) {
   }
   if (cfg.wakeMinutes !== undefined && !(Number.isFinite(cfg.wakeMinutes) && cfg.wakeMinutes >= 0)) {
     errors.push('wakeMinutes must be a number >= 0.');
+  }
+  if (cfg.wakeRiding !== undefined && typeof cfg.wakeRiding !== 'boolean') {
+    errors.push('wakeRiding must be true or false.');
   }
   if (cfg.departureCount !== undefined &&
       !(Number.isInteger(cfg.departureCount) && cfg.departureCount >= 1 && cfg.departureCount <= MAX_DEPARTURE_COUNT)) {
@@ -105,6 +107,11 @@ export function stopSlackMinutes(cfg) {
 
 export function wakeMinutes(cfg) {
   return cfg.wakeMinutes ?? DEFAULT_WAKE_MINUTES;
+}
+
+// Keep the screen on while a ride is tracked (keepAwakeRiding); on unless turned off.
+export function wakeRiding(cfg) {
+  return cfg.wakeRiding ?? true;
 }
 
 // Transit legs plus the minutes around them: walking before the first transit leg, after the
@@ -1624,15 +1631,12 @@ export function keepAwake(rows, nowMs, minutes) {
   return minutes > 0 && rows.some(r => !r.missed && r.leaveBy != null && nowMs >= r.leaveBy - minutes * MIN && nowMs < r.lastChance);
 }
 
-// While tracking a ride: keep the screen on for the last 2 min before the drop-off of the leg
-// being ridden, and before the next leg's departure during a transfer (`minutes` 0 = never).
-export function keepAwakeRiding(ride, walkAfter, nowMs, minutes) {
-  if (!(minutes > 0)) return false;
-  const phase = ridePhase(ride, walkAfter, nowMs);
-  const leg = ride.legs[phase.leg];
-  if (phase.kind === 'riding') return nowMs >= leg.arr - RIDE_WAKE_MINUTES * MIN;
-  if (phase.kind === 'transfer') return nowMs >= leg.dep - RIDE_WAKE_MINUTES * MIN;
-  return false;
+// While tracking a ride: keep the screen on while on a vehicle and during transfers, not on the
+// final walk (`on` false = never; see wakeRiding).
+export function keepAwakeRiding(ride, walkAfter, nowMs, on) {
+  if (!on) return false;
+  const { kind } = ridePhase(ride, walkAfter, nowMs);
+  return kind === 'riding' || kind === 'transfer';
 }
 
 // Steps of an expanded row: walk to the first stop (not en route; with the stop slack), legs,

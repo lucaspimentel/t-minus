@@ -5,7 +5,7 @@ import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
   tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
-  nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
+  nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
@@ -94,17 +94,22 @@ test('keepAwake: from N min before leave-by until the last chance', () => {
   assert.equal(awake('08:02', []), false);
 });
 
-test('keepAwakeRiding: 2 min before a drop-off or the next departure', () => {
+test('keepAwakeRiding: while riding and transferring, not on the final walk', () => {
   const ride = { boardedAt: at('07:40'), legs: [{ dep: at('07:40'), arr: at('07:54') }, { dep: at('08:02'), arr: at('08:20') }] };
-  const awake = (t, minutes = 10) => keepAwakeRiding(ride, 5, at(t), minutes);
-  assert.equal(awake('07:45'), false);
-  assert.equal(awake('07:52'), true);
-  assert.equal(awake('07:56'), false); // transfer, 6 min before the next departure
-  assert.equal(awake('08:00'), true);
-  assert.equal(awake('08:10'), false);
-  assert.equal(awake('08:19'), true);
+  const awake = (t, on = true) => keepAwakeRiding(ride, 5, at(t), on);
+  assert.equal(awake('07:41'), true);
+  assert.equal(awake('07:56'), true); // transfer
+  assert.equal(awake('08:10'), true);
   assert.equal(awake('08:22'), false); // walking
-  assert.equal(awake('08:19', 0), false);
+  assert.equal(awake('08:30'), false); // arrived
+  assert.equal(awake('07:41', false), false);
+});
+
+test('wakeRiding: on unless turned off; validated as a boolean', () => {
+  assert.equal(wakeRiding({ trips: [] }), true);
+  assert.equal(wakeRiding({ trips: [], wakeRiding: false }), false);
+  assert.deepEqual(validateConfig({ trips: [], wakeRiding: false }), []);
+  assert.deepEqual(validateConfig({ trips: [], wakeRiding: 'no' }), ['wakeRiding must be true or false.']);
 });
 
 test('tripShape splits walk, transfer, and transit legs', () => {

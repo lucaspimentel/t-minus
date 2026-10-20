@@ -3,7 +3,7 @@
 // Timeline used below (home to office): bus 132 7:08 → 7:22 (via Pond St 7:12), 5-min
 // transfer, Orange 7:32 → 7:47 (every 6 min), 10-min walk → arrive 7:57.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding } from './helpers.js';
+import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding, CONFIG } from './helpers.js';
 import { series } from './fake-mbta.js';
 
 test.beforeEach(({ page }) => {
@@ -404,16 +404,20 @@ test('a leg with several routes is labeled by what they share, each vehicle by i
   await offAt(page, '6:47am');
 });
 
-test('the screen stays on only near a drop-off or a transfer departure', async ({ page }) => {
+test('the screen stays on while riding and transferring, not on the final walk', async ({ page }) => {
   await openApp(page, { time: '07:00', init: WAKE_STUB });
   await atTheStop(page);
   const held = () => page.evaluate(() => window.wakeHeld);
   const expectAt = async (time, on) => { await tickTo(page, time); expect(await held(), time).toBe(on); };
-  await expectAt('07:12', false);   // riding, 10 min before the drop-off
-  await expectAt('07:20:30', true); // 2 min before 7:22
-  await expectAt('07:24', false);   // transfer, 8 min before the 7:32
-  await expectAt('07:30:30', true);
-  await expectAt('07:34', false);
-  await expectAt('07:45:30', true);
+  await expectAt('07:12', true);    // riding, 10 min before the drop-off
+  await expectAt('07:24', true);    // transfer, 8 min before the 7:32
+  await expectAt('07:40', true);
   await expectAt('07:50', false);   // walking
+});
+
+test('with Keep screen on while riding off, a tracked ride does not hold the screen on', async ({ page }) => {
+  await openApp(page, { time: '07:00', init: WAKE_STUB, config: { ...CONFIG, wakeRiding: false } });
+  await atTheStop(page);
+  await tickTo(page, '07:12');
+  expect(await page.evaluate(() => window.wakeHeld)).toBe(false);
 });

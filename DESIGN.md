@@ -309,9 +309,11 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
 
 Screen stays on (Screen Wake Lock, `keepAwake`) while the app is open and any upcoming row is
 within `wakeMinutes` (default 10, 0 = off) of its leave-by, until its last chance. While a
-ride is tracked (`keepAwakeRiding`): the last 2 min before the drop-off of the leg being
-ridden, and the last 2 min before the next leg's departure during a transfer (fixed; off when
-`wakeMinutes` is 0). The OS
+ride is tracked (`keepAwakeRiding`, 2026-10-20): the whole time on a vehicle and during
+transfers, not on the final walk; setup's "Keep screen on while riding" (`wakeRiding`, default
+on) turns it off, independently of `wakeMinutes`. (Before: only the last 2 min before a drop-off
+or a transfer departure, which rarely helped, since the screen had usually auto-locked by then
+and a locked screen pauses the page.) The app must be on screen when the ride starts. The OS
 releases the lock while the page is hidden; it is re-requested on the next render (and on a
 tap, for browsers that want a gesture). Nothing happens where the API is missing or refused.
 
@@ -439,7 +441,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 }
 ```
 
-- `departureCount`, `stopSlackMinutes`, `wakeMinutes`, `apiKey`: optional, app-wide.
+- `departureCount`, `stopSlackMinutes`, `wakeMinutes`, `wakeRiding` (boolean), `apiKey`: optional, app-wide.
 - `trips[].window`: optional `HH:MM` range; `to` may be `24:00`.
 - `trips[].near`: optional `true` (show when near the first stop); exclusive with `window`.
   Neither: shown only when chosen (or as the last used trip).

@@ -403,7 +403,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-18 · 2951314312</footer>
+    <footer class="version">Version 2026-10-19 · 4f6930b3ba</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -422,12 +422,12 @@
 <script type="module">
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
-  departureCount, stopSlackMinutes, wakeMinutes, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
+  departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, remHeadsUps,
-} from './core.js?v=4800ff9d45';
-import { openSetup } from './setup.js?v=a4fed17c0a';
+} from './core.js?v=55711bfd60';
+import { openSetup } from './setup.js?v=501aebb2ce';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1367,7 +1367,7 @@ function render() {
 
   const en = syncEnRoute(now);
   syncWakeLock(en?.ride
-    ? keepAwakeRiding(en.ride, tripShape(config.trips[tripIdx]).walkAfter, now, wakeMinutes(config))
+    ? keepAwakeRiding(en.ride, tripShape(config.trips[tripIdx]).walkAfter, now, wakeRiding(config))
     : keepAwake(currentRows(now), now, wakeMinutes(config)));
   // A new leg being ridden: fetch its stops now rather than at the next poll.
   const riding = en?.ride && ridingLeg(now);
@@ -1723,8 +1723,8 @@ function missedIt(phase) {
   schedulePoll();
 }
 
-// Screen Wake Lock: keeps the screen on near leave-by (keepAwake), and while riding near a
-// drop-off or the next leg's departure (keepAwakeRiding). The OS drops the lock while
+// Screen Wake Lock: keeps the screen on near leave-by (keepAwake), and while riding or
+// transferring on a tracked ride (keepAwakeRiding). The OS drops the lock while
 // the page is hidden; the next render re-requests it. Errors (unsupported, Low Power Mode) are
 // ignored.
 let wakeLock = null;

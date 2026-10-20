@@ -5,10 +5,10 @@
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=4800ff9d45';
+} from './core.js?v=55711bfd60';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -84,6 +84,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     departureCount: cfg ? departureCount(cfg) : 4,
     stopSlackMinutes: cfg ? stopSlackMinutes(cfg) : 1,
     wakeMinutes: cfg ? wakeMinutes(cfg) : 10,
+    wakeRiding: cfg ? wakeRiding(cfg) : true,
     apiKey: cfg?.apiKey ?? '',
   });
   const app = appFields(saved); // list-screen fields, saved by Done
@@ -265,7 +266,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const errors = validateConfig(cfg);
     if (errors.length) { listMessages = errs(errors); return render(); }
     const before = appFields(saved);
-    if (cfg.departureCount !== before.departureCount || cfg.stopSlackMinutes !== before.stopSlackMinutes || cfg.wakeMinutes !== before.wakeMinutes || cfg.apiKey !== before.apiKey) {
+    if (cfg.departureCount !== before.departureCount || cfg.stopSlackMinutes !== before.stopSlackMinutes || cfg.wakeMinutes !== before.wakeMinutes || cfg.wakeRiding !== before.wakeRiding || cfg.apiKey !== before.apiKey) {
       persist(cfg);
     }
     onClose();
@@ -457,6 +458,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         numberField('Departures shown (1-8)', app.departureCount, v => { app.departureCount = v; }, { min: '1', max: '8' }),
         numberField('Minutes early at the stop', app.stopSlackMinutes, v => { app.stopSlackMinutes = v; }),
         numberField('Keep screen on before leave-by (min, 0 = off)', app.wakeMinutes, v => { app.wakeMinutes = v; }),
+        h('label', { class: 'check' },
+          h('input', { type: 'checkbox', checked: app.wakeRiding, onchange: e => { app.wakeRiding = e.target.checked; } }),
+          'Keep screen on while riding'),
         h('label', { class: 'field' }, 'MBTA API key (optional)',
           // Masked so the key isn't exposed on screen (or in screenshots).
           h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Used only when the T-Minus server is unreachable', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),

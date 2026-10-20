@@ -473,6 +473,17 @@ test('Import over existing trips can be undone, settings included', async ({ pag
   expect(await storedNames(page)).toEqual(['Home to office', 'Office to home']);
 });
 
+test('Keep screen on while riding: on by default, Done saves it off, reopening shows it off', async ({ page }) => {
+  await openSetup(page);
+  const box = setup(page).getByLabel('Keep screen on while riding');
+  await expect(box).toBeChecked();
+  await box.uncheck();
+  await button(page, 'Done').click();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).wakeRiding)).toBe(false);
+  await page.locator('#open-setup').click();
+  await expect(setup(page).getByLabel('Keep screen on while riding')).not.toBeChecked();
+});
+
 test('Export shows the saved config; Done leaves setup and hides a pending toast', async ({ page }) => {
   await openSetup(page);
   await button(page, 'Export').click();
