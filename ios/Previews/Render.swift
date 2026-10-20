@@ -32,10 +32,6 @@ private struct Sheet: View {
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // TEMP: the countdown after its time (the card isn't redrawn then).
-            (Text("past 90 s: ") + countdownText(Date().addingTimeInterval(-90))).font(.title3.weight(.bold)).foregroundStyle(.white)
-            (Text("in 30 s: ") + countdownText(Date().addingTimeInterval(30))).font(.title3.weight(.bold)).foregroundStyle(.white)
-            (Text("in 72 min: ") + countdownText(Date().addingTimeInterval(72 * 60 + 20))).font(.title3.weight(.bold)).foregroundStyle(.white)
             ForEach(samples, id: \.0) { name, state in
                 Text(name).font(.caption).foregroundStyle(.white)
                 RideCardView(tripName: "Home to office", state: state)
