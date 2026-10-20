@@ -28,8 +28,8 @@ jobs:
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: maxim-lobanov/setup-xcode@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: latest-stable
 
@@ -38,13 +38,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/previews"
           swiftc -parse-as-library ios/App/Shared/RideState.swift ios/App/TMinusWidgets/RideViews.swift ios/Previews/Render.swift -o "$RUNNER_TEMP/render"
           "$RUNNER_TEMP/render" "$RUNNER_TEMP/previews"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: live-activity-previews
           path: ${{ runner.temp }}/previews/
           retention-days: 30
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: inputs.upload
         with:
           node-version: 22
@@ -103,7 +103,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/logs"
           find "$TMPDIR" -maxdepth 2 -name '*.xcdistributionlogs' -exec cp -R {} "$RUNNER_TEMP/logs/" \; 2>/dev/null || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
           name: ios-logs
