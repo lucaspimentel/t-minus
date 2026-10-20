@@ -835,8 +835,8 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     `activity`, `alerts`) and `alerts: false` (followed only for the activity: no notifications).
     Each poll builds the card with `liveActivityState` (`core.js`, shared with the app: phase,
     title, countdown end `until`, stops left, route color and island label, drop-off line, next
-    connection line, `warn` for a missed or no connection, per-leg progress; times in Unix
-    seconds) and sends it (`apnsActivityPush`: `apns-push-type: liveactivity`, topic
+    connection line, `warn` for a missed or no connection, per-leg progress, `soon` for the
+    countdown's last 80 s, shown as "<1 minute"; times in Unix seconds) and sends it (`apnsActivityPush`: `apns-push-type: liveactivity`, topic
     `<APNS_TOPIC>.push-type.liveactivity`, `event: update`, `stale-date` 2 min after the countdown's end) only when it
     changed. Priority 10 (iOS budgets these) only when it turns to "Next stop: get off" / "Get off
     here" or to a warning; else 5. When the ride is over: `event: end` with "Arrived ~<eta>" and a

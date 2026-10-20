@@ -2220,6 +2220,10 @@ export function islandLabel(leg) {
 // rideStops() for the leg being ridden, or null. Times are Unix seconds (ActivityKit would read a
 // pushed Date as seconds since 2001). `until` is the countdown's end (0: none), `stops` the stops
 // left (-1: unknown), `warn` the amber style (a missed or no connection), `legs` the progress bar.
+// `soon`: the countdown is in its last LIVE_SOON_MS: the card shows "<1 minute" (iOS counts down
+// whole minutes by itself but can't say "<1 minute"; the times aren't accurate to the second
+// anyway). Set early enough for the server's next poll to deliver it before "0 minutes".
+export const LIVE_SOON_MS = 80_000;
 export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs) {
   const legs = outlook?.legs ?? ride.legs;
   const sec = ms => Math.round(ms / 1000);
@@ -2270,6 +2274,7 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
     default:
       Object.assign(out, { title: `Arrived ~${t(eta)}` });
   }
+  out.soon = out.until > 0 && out.until * 1000 - nowMs <= LIVE_SOON_MS;
   return out;
 }
 

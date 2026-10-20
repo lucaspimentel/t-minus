@@ -20,6 +20,7 @@ struct RideState: Codable, Hashable {
     var sub: String
     var next: String
     var legs: [Leg]
+    var soon: Bool? = nil // the countdown's last 80 s: "<1 minute" (absent from older servers)
 
     var untilDate: Date? { until > 0 ? Date(timeIntervalSince1970: until) : nil }
     // Dimmed by iOS 2 min after the countdown ends without a newer update (as the server's pushes).

@@ -1910,8 +1910,12 @@ test('liveActivityState: riding, get off, transfer, missed and no connection, wa
   assert.deepEqual(riding, {
     phase: 'riding', warn: false, color: 'ED8B00', label: 'OL', title: 'Orange · 4 stops', until: sec('17:56'), stops: 4,
     sub: 'Get off 5:56pm at Oak Grove', next: 'Then Bus 132 toward Redstone 6:06pm · 5 min to spare',
-    legs: [{ color: 'ED8B00', dep: sec('17:41'), arr: sec('17:56') }, { color: 'FFC72C', dep: sec('18:06'), arr: sec('18:18') }],
+    legs: [{ color: 'ED8B00', dep: sec('17:41'), arr: sec('17:56') }, { color: 'FFC72C', dep: sec('18:06'), arr: sec('18:18') }], soon: false,
   });
+  // The last 80 s: "<1 minute" on the card.
+  assert.equal(liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(1), outlook, 5, at('17:56') - 81_000).soon, false);
+  assert.equal(liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(1), outlook, 5, at('17:56') - 80_000).soon, true);
+  assert.equal(liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(1), outlook, 5, at('17:57')).soon, true); // late: still
   const getOff = liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(1), outlook, 5, at('17:55'));
   assert.equal(getOff.title, 'Next stop: get off');
   const noStops = liveActivityState(ride, { kind: 'riding', leg: 1 }, null, null, 5, at('18:10'));
@@ -1934,7 +1938,7 @@ test('liveActivityState: riding, get off, transfer, missed and no connection, wa
   const walking = liveActivityState(ride, { kind: 'walking', leg: 2 }, null, null, 5, at('18:20'));
   assert.deepEqual([walking.label, walking.title, walking.until, walking.sub], ['🚶', 'Walking', sec('18:23'), 'Arrive ~6:23pm']);
   const arrived = liveActivityState(ride, { kind: 'arrived', leg: 2 }, null, null, 5, at('18:24'));
-  assert.deepEqual([arrived.title, arrived.until, arrived.color], ['Arrived ~6:23pm', 0, '']);
+  assert.deepEqual([arrived.title, arrived.until, arrived.color, arrived.soon], ['Arrived ~6:23pm', 0, '', false]);
 });
 
 test('checkRide: the trip, one leg per transit leg, times, and a ride ending soon', () => {

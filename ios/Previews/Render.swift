@@ -15,7 +15,7 @@ private let samples: [(String, RideState)] = [
     ("Riding", RideState(phase: "riding", warn: false, color: orange, label: "OL", title: "Orange · 4 stops", until: now + 360, stops: 4,
                          sub: "Get off 7:54am at Sullivan Square", next: "Then Bus 132 toward Malden 8:02am · 3 min to spare", legs: trip)),
     ("Get off", RideState(phase: "riding", warn: false, color: orange, label: "OL", title: "Next stop: get off", until: now + 60, stops: 1,
-                          sub: "Get off 7:54am at Sullivan Square", next: "Then Bus 132 toward Malden 8:02am · 3 min to spare", legs: trip)),
+                          sub: "Get off 7:54am at Sullivan Square", next: "Then Bus 132 toward Malden 8:02am · 3 min to spare", legs: trip, soon: true)),
     ("Transfer", RideState(phase: "transfer", warn: false, color: bus, label: "132", title: "Transfer · Bus 132", until: now + 300, stops: -1,
                            sub: "Bus 132 toward Malden · 8:02am", next: "Arrive ~8:25am", legs: legs((orange, -20, -6), (bus, 5, 17)))),
     ("Missed connection", RideState(phase: "transfer", warn: true, color: bus, label: "132", title: "Missed the 8:02am · next 8:14am", until: now + 420, stops: -1,

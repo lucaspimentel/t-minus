@@ -27,19 +27,21 @@ struct RouteDot: View {
     }
 }
 
-// The countdown, ticking down on the phone without updates: "12 minutes" (rounded down like the
-// app's "12 min"; "72 minutes" past an hour), "34 seconds" in the last minute (iOS 18's date offset
-// format). Past its time it reads "−1 minute" until the next update (the server polls every 20 s).
-func countdownText(_ until: Date) -> Text {
-    Text(until, format: .offset(to: Date(), allowedFields: [.minute, .second], maxFieldCount: 1))
+// The countdown: whole minutes, ticking down on the phone without updates ("12 minutes", rounded
+// down like the app's "12 min"; iOS 18's date offset format), then "<1 minute" once the app or the
+// server marks the last 80 s (`soon`; the times aren't accurate to the second).
+func countdownText(_ state: RideState) -> Text? {
+    if state.soon == true { return Text("<1 minute") }
+    guard let until = state.untilDate, until > Date() else { return nil }
+    return Text(until, format: .offset(to: Date(), allowedFields: [.minute], maxFieldCount: 1))
 }
 
 // "Orange · 4 stops · 12 minutes": the title, then the countdown.
 struct Headline: View {
     let state: RideState
     var body: some View {
-        if let until = state.untilDate, until > Date() {
-            Text(state.title + " · ") + countdownText(until)
+        if let countdown = countdownText(state) {
+            Text(state.title + " · ") + countdown
         } else {
             Text(state.title)
         }
@@ -121,8 +123,8 @@ struct IslandTrailing: View {
     var body: some View {
         if state.phase == "riding" && state.stops > 0 {
             Text("\(state.stops) stop\(state.stops == 1 ? "" : "s")").font(.subheadline.weight(.semibold))
-        } else if let until = state.untilDate, until > Date() {
-            Text(timerInterval: Date()...until, countsDown: true).font(.subheadline.weight(.semibold)).monospacedDigit().frame(maxWidth: 48)
+        } else if let countdown = countdownText(state) {
+            countdown.font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: 90)
         } else {
             EmptyView()
         }
