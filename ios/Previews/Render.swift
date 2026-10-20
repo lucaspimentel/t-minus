@@ -32,6 +32,16 @@ private struct Sheet: View {
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            let until = Date().addingTimeInterval(12 * 60 + 34)
+            Group {
+                Text("A offset: ") + Text(until, format: .offset(to: Date(), allowedFields: [.minute], maxFieldCount: 1))
+                Text("B reference: ") + Text(until, format: .reference(to: Date(), allowedFields: [.minute]))
+                Text("C relative: ") + Text(until, style: .relative)
+                Text("D timer: ") + Text(timerInterval: Date()...until, countsDown: true)
+                Text("E offset h/m: ") + Text(Date().addingTimeInterval(72 * 60), format: .offset(to: Date(), allowedFields: [.hour, .minute], maxFieldCount: 2))
+                Text("F reference h/m: ") + Text(Date().addingTimeInterval(72 * 60), format: .reference(to: Date(), allowedFields: [.hour, .minute]))
+            }
+            .font(.title3.weight(.bold)).foregroundStyle(.white)
             ForEach(samples, id: \.0) { name, state in
                 Text(name).font(.caption).foregroundStyle(.white)
                 RideCardView(tripName: "Home to office", state: state)
