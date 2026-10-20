@@ -2,7 +2,7 @@
 
 T-Minus (repo `t-minus`): a phone-first PWA that answers "when do I leave?" for a bus + Orange Line commute.
 Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pending work;
-`IOS.md` for the planned iOS app (Capacitor shell, APNs, Live Activities).
+`IOS.md` for the iOS app's next phases (Live Activities, widget).
 
 ## Conventions
 
@@ -60,7 +60,7 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   `SERVER_API` in `index.html` is `/api` (same origin; empty hides "Notify me").
 - Icons: `icons/icon.svg` is the source; re-render the PNGs (192, 512) from it with Playwright
   (and the iOS app icon, `ios/App/App/Assets.xcassets/AppIcon.appiconset/`, 1024 px, no alpha).
-- iOS app (`ios/`, Capacitor; plan and state in `IOS.md`): it loads the live site, so web and server
+- iOS app (`ios/`, Capacitor; behavior in `DESIGN.md` "iOS app", next phases in `IOS.md`): it loads the live site, so web and server
   changes need no build. Native changes: edit `ios/` or `capacitor.config.json`, run
   `npx cap sync ios` (generated files are gitignored), and add new files to the Xcode project with
   the `xcodeproj` gem (no Mac here). Builds: the `ios` workflow (manual) uploads to TestFlight.
