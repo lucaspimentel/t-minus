@@ -7,7 +7,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { createApp, declarativePush, apnsPush } from '../server/app.mjs';
+import { createApp, declarativePush, apnsPush, apnsActivityPush } from '../server/app.mjs';
 import { openStore } from '../server/store.mjs';
 import { legQuery, tripShape } from '../core.js';
 
@@ -82,8 +82,15 @@ async function setup({ staticRoot = null } = {}) {
   };
   const sent = [];
   const raw = [];
+  const activity = []; // Live Activity pushes: { token, event, state, priority, dismissAt }
   world.sendStatus = null;
+  world.activityStatus = null;
   const send = async (sub, payload) => {
+    if (payload.headers?.['apns-push-type'] === 'liveactivity') {
+      if (world.activityStatus) throw Object.assign(new Error('gone'), { statusCode: world.activityStatus });
+      const { aps } = payload.body;
+      return void activity.push({ token: sub.endpoint.slice(5), event: aps.event, state: aps['content-state'], priority: payload.headers['apns-priority'], dismissAt: aps['dismissal-date'] ?? null });
+    }
     if (world.sendStatus) throw Object.assign(new Error('gone'), { statusCode: world.sendStatus });
     raw.push(payload);
     // The fields each push is built from (`declarativePush` and `apnsPush` are checked on their own).
@@ -111,7 +118,7 @@ async function setup({ staticRoot = null } = {}) {
   };
   const { app, call } = await serve();
   const close = () => Promise.all(servers.map(server => new Promise(r => server.close(r)))).then(() => store.close());
-  return { world, sent, raw, store, dir, app, call, serve, close };
+  return { world, sent, raw, activity, store, dir, app, call, serve, close };
 }
 
 const subscription = (n = 1) => ({ endpoint: `https://push.example/${n}`, keys: { p256dh: 'k', auth: 'a' } });
@@ -544,6 +551,89 @@ test('a followed ride: heads-up, get off, a missed connection, get off again, th
     await s.app.tick();
     assert.equal(s.store.get(id), null);
     assert.equal(s.sent.length, 6);
+  } finally { await s.close(); }
+});
+
+test('apnsActivityPush: liveactivity type, priority, timestamp, stale date on updates, dismissal on end', () => {
+  const nowMs = at('07:20');
+  const sec = ms => ms / 1000;
+  assert.deepEqual(apnsActivityPush({ event: 'update', state: { title: 'x' }, nowMs }), {
+    headers: { 'apns-push-type': 'liveactivity', 'apns-priority': '5' },
+    body: { aps: { timestamp: sec(nowMs), event: 'update', 'content-state': { title: 'x' }, 'stale-date': sec(nowMs) + 120 } },
+  });
+  const end = apnsActivityPush({ event: 'end', state: { title: 'Arrived' }, nowMs, urgent: true, dismissAt: at('07:30') });
+  assert.equal(end.headers['apns-priority'], '10');
+  assert.deepEqual(end.body.aps, { timestamp: sec(nowMs), event: 'end', 'content-state': { title: 'Arrived' }, 'dismissal-date': sec(at('07:30')) });
+});
+
+test('a followed ride with a Live Activity: updates on change only, urgent for get off, ends with Arrived; alerts off sends no notifications', async () => {
+  const s = await setup();
+  try {
+    const token = 'ab'.repeat(40);
+    s.world.clock = at('07:12');
+    for (const bad of [{ activity: { token: 'xyz' } }, { activity: 'ab' }, { alerts: 'no' }]) {
+      assert.equal((await s.call('POST', '/api/rides', followed(bad))).status, 400, JSON.stringify(bad));
+    }
+    const { id } = await (await s.call('POST', '/api/rides', followed({ activity: { token }, alerts: false }))).json();
+    s.world.rideStops.b1 = busStops(5, '07:15');
+    await s.app.tick();
+    assert.equal(s.activity.length, 1);
+    assert.deepEqual([s.activity[0].token, s.activity[0].event, s.activity[0].priority, s.activity[0].state.title, s.activity[0].state.stops],
+      [token, 'update', '5', 'Bus 132 · 5 stops', 5]);
+    s.world.clock = at('07:12') + 20_000;
+    await s.app.tick();
+    assert.equal(s.activity.length, 1); // unchanged: nothing sent
+    s.world.clock = at('07:18');
+    s.world.rideStops.b1 = busStops(3, '07:20');
+    await s.app.tick();
+    assert.deepEqual([s.activity.length, s.activity[1].state.title, s.activity[1].priority], [2, 'Bus 132 · 3 stops', '5']);
+    s.world.clock = at('07:22');
+    s.world.rideStops.b1 = busStops(1);
+    await s.app.tick();
+    assert.deepEqual([s.activity[2].state.title, s.activity[2].priority], ['Next stop: get off', '10']);
+    assert.deepEqual(s.sent, []); // alerts off: no heads-up, no get off
+    // Pending notifications shows the activity (not its token).
+    const p = await (await s.call('POST', '/api/pending', { subscription: subscription() })).json();
+    assert.deepEqual([p.entries[0].alerts, p.entries[0].activity], [false, { sent: 3, title: 'Next stop: get off', error: null }]);
+    // The last leg ends: "Arrived" and dismissed 5 min after the ETA (7:50 + the 10-min walk), then the ride goes.
+    s.world.clock = at('07:51');
+    await s.app.tick();
+    const end = s.activity.at(-1);
+    assert.deepEqual([end.event, end.state.title, end.dismissAt], ['end', 'Arrived ~8:00am', at('08:05') / 1000]);
+    assert.equal(s.store.get(id), null);
+  } finally { await s.close(); }
+});
+
+test('a Live Activity: its token can come by PUT; a dead token drops it (and the ride, with alerts off); other errors retry', async () => {
+  const s = await setup();
+  try {
+    const token = 'cd'.repeat(40);
+    s.world.clock = at('07:12');
+    s.world.rideStops.b1 = busStops(5, '07:15');
+    const { id } = await (await s.call('POST', '/api/rides', followed())).json();
+    await s.app.tick();
+    assert.equal(s.activity.length, 0);
+    assert.equal((await s.call('PUT', `/api/rides/${id}`, { activity: { token: 'nope' } })).status, 400);
+    assert.equal((await s.call('PUT', `/api/rides/${id}`, { activity: { token }, alerts: false })).status, 204);
+    assert.equal(s.store.get(id).alerts, false);
+    s.world.activityStatus = 500;
+    await s.app.tick();
+    assert.equal(s.activity.length, 0);
+    assert.match(s.store.get(id).activity.error, /^500/);
+    s.world.activityStatus = null;
+    s.world.clock = at('07:12') + 20_000;
+    await s.app.tick();
+    assert.equal(s.activity.length, 1); // retried: the state was never sent
+    s.world.activityStatus = 410;
+    s.world.clock = at('07:18');
+    s.world.rideStops.b1 = busStops(3, '07:20');
+    await s.app.tick();
+    assert.equal(s.store.get(id), null); // alerts off and the activity gone: nothing to follow for
+    // With alerts on, the ride stays without its activity.
+    const { id: id2 } = await (await s.call('POST', '/api/rides', followed({ activity: { token } }))).json();
+    await s.app.tick();
+    assert.equal(s.store.get(id2).activity, null);
+    assert.equal(s.store.get(id2).alerts, true);
   } finally { await s.close(); }
 });
 

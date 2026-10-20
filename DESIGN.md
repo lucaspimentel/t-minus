@@ -815,6 +815,20 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     410 `Unregistered` and 400 `BadDeviceToken` / `DeviceTokenNotForTopic` count as a 410 (the
     entry is dropped). Configured by `APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`,
     `APNS_HOST` (`server/README.md`).
+  - **Live Activity pushes (Phase 2, server side; the app side is still to come; `IOS.md`):** a
+    followed ride may carry `activity: { token }` (the activity's own APNs push token, hex; by
+    `POST /rides` or later by `PUT /rides/:id`, whose fields are now each optional: `ride`,
+    `activity`, `alerts`) and `alerts: false` (followed only for the activity: no notifications).
+    Each poll builds the card with `liveActivityState` (`core.js`, shared with the app: phase,
+    title, countdown end `until`, stops left, route color and island label, drop-off line, next
+    connection line, `warn` for a missed or no connection, per-leg progress; times in Unix
+    seconds) and sends it (`apnsActivityPush`: `apns-push-type: liveactivity`, topic
+    `<APNS_TOPIC>.push-type.liveactivity`, `event: update`, `stale-date` 2 min) only when it
+    changed. Priority 10 (iOS budgets these) only when it turns to "Next stop: get off" / "Get off
+    here" or to a warning; else 5. When the ride is over: `event: end` with "Arrived ~<eta>" and a
+    `dismissal-date` 5 min after the ETA. A failed send is retried next poll and shown in the
+    push log; a dead token (410) drops the activity, and the ride too when its alerts are off.
+    "Pending notifications" shows the activity's sends, title and last error (not the token).
 - **Test notification:** setup ends with a "Notifications" section and one button, "Send test
   notification in 10 s" (hidden without `SERVER_API`; disabled with the Home Screen hint
   without push). It subscribes like "Notify me", posts to `POST /test-push`, and toasts "Test
@@ -843,7 +857,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 - **Server (`server/app.mjs`):**
   - **Endpoints** (under `/api/`; `GET /health` also at the root, for Railway's health check):
     `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id`,
-    `POST /test-push`, `POST /rides`, `PUT /rides/:id`, `DELETE /rides/:id` (stop alerts),
+    `POST /test-push`, `POST /rides`, `PUT /rides/:id`, `DELETE /rides/:id` (stop alerts and Live Activities),
     `POST /pending` and `POST /pending/clear` (setup's "Pending notifications": this phone's
     entries without the subscription keys, each with `nextPush`, and its push log; POST so the
     push endpoint stays out of URLs), `POST /log` and `POST /log/read` (the iOS app's

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpsDue, remHeadsUps, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
-  checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep,
+  checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep, liveActivityState,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
 } from '../core.js';
@@ -74,6 +74,25 @@ export function apnsPush({ kind, title, body, tag, renotify }) {
   };
 }
 
+// A Live Activity push (the iOS app's Lock Screen card for a followed ride): `event` 'update' or
+// 'end', `state` from liveActivityState. server/apns.mjs sends it to the activity's own push token
+// with the `<bundle id>.push-type.liveactivity` topic. The card goes stale (dimmed) after
+// ACTIVITY_STALE_MS without an update; an end is dismissed at `dismissAt`.
+export const ACTIVITY_STALE_MS = 2 * 60_000;
+export function apnsActivityPush({ event, state, nowMs, urgent = false, dismissAt = null }) {
+  const sec = ms => Math.floor(ms / 1000);
+  return {
+    headers: { 'apns-push-type': 'liveactivity', 'apns-priority': urgent ? '10' : '5' },
+    body: {
+      aps: {
+        timestamp: sec(nowMs), event, 'content-state': state,
+        ...(event === 'update' && { 'stale-date': sec(nowMs + ACTIVITY_STALE_MS) }),
+        ...(dismissAt != null && { 'dismissal-date': sec(dismissAt) }),
+      },
+    },
+  };
+}
+
 const STATIC = {
   '/': 'index.html', '/index.html': 'index.html', '/core.js': 'core.js', '/setup.js': 'setup.js', '/sw.js': 'sw.js',
   '/manifest.json': 'manifest.json', '/icons/icon.svg': 'icons/icon.svg', '/icons/icon-192.png': 'icons/icon-192.png',
@@ -85,7 +104,10 @@ const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=
 // subscription keys), with its next push.
 function pendingView(e, t) {
   const base = { id: e.id, kind: e.kind === 'ride' ? 'ride' : 'reminder', tripName: e.tripName, createdAt: e.createdAt, lastCheckAt: e.lastCheckAt ?? null, next: nextPush(e, t) };
-  if (e.kind === 'ride') return { ...base, ride: e.ride, phase: ridePhase(e.ride, tripShape(e.trip).walkAfter, t).kind, alert: e.alert };
+  if (e.kind === 'ride') {
+    const activity = e.activity ? { sent: e.activity.sent ?? 0, title: e.activity.last?.title ?? null, error: e.activity.error ?? null } : null;
+    return { ...base, ride: e.ride, phase: ridePhase(e.ride, tripShape(e.trip).walkAfter, t).kind, alert: e.alert, alerts: e.alerts !== false, activity };
+  }
   const first = tripShape(e.trip).transit[0];
   return { ...base, key: e.key, leaveBy: e.leaveBy, headsUps: remHeadsUps(e), route: first?.label ?? first?.route ?? null };
 }
@@ -280,6 +302,8 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
   const validSubscription = sub => typeof sub?.endpoint === 'string' && (/^apns:[0-9a-f]{64,200}$/.test(sub.endpoint)
     || (sub.endpoint.startsWith('https://') && typeof sub.keys?.p256dh === 'string' && typeof sub.keys?.auth === 'string'));
   const validDevice = d => typeof d === 'string' && /^[0-9a-f-]{36}$/.test(d);
+  // A ride's Live Activity: `{ token }`, the activity's APNs push token (hex).
+  const activityError = a => (a == null || (typeof a?.token === 'string' && /^[0-9a-f]{32,400}$/.test(a.token)) ? null : 'activity is invalid');
 
   // The request body for a new reminder, or an error message.
   function checkReminder(b, t) {
@@ -465,12 +489,17 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       const err = checkRide(body.trip, body.ride, t);
       if (err) return reply(res, 400, { error: err });
       if (body.tripName != null && (typeof body.tripName !== 'string' || body.tripName.length > 100)) return reply(res, 400, { error: 'tripName is invalid' });
+      const aErr = activityError(body.activity);
+      if (aErr) return reply(res, 400, { error: aErr });
+      if (body.alerts != null && typeof body.alerts !== 'boolean') return reply(res, 400, { error: 'alerts is invalid' });
       if (store.countFor(body.subscription.endpoint) >= MAX_PER_SUBSCRIPTION) {
         return reply(res, 429, { error: `At most ${MAX_PER_SUBSCRIPTION} reminders at a time` });
       }
+      // `alerts: false`: followed only for its Live Activity (stop alerts off), no notifications.
       const ride = {
         kind: 'ride', id: randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
         ride: { legs: body.ride.legs, boardedAt: body.ride.boardedAt }, alert: { sent: {}, missedDep: null, none: false },
+        alerts: body.alerts !== false, activity: body.activity ? { token: body.activity.token, last: null, sent: 0 } : null,
         nextPollAt: t, createdAt: t,
       };
       store.add(ride);
@@ -483,9 +512,18 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       try { b = JSON.parse(await readBody(req)); } catch (e) { return reply(res, e.status ?? 400, { error: e.status ? 'Body too large' : 'Invalid JSON' }); }
       const ride = store.get(r[1]);
       if (ride?.kind !== 'ride') return reply(res, 404, { error: 'Not found' });
-      const err = checkRide(ride.trip, b?.ride, t);
-      if (err) return reply(res, 400, { error: err });
-      ride.ride = { legs: b.ride.legs, boardedAt: b.ride.boardedAt };
+      // Each field is optional: `ride` (new legs), `activity` (its push token, which may come
+      // after the POST), `alerts` (stop alerts turned on or off).
+      if (b?.ride != null) {
+        const err = checkRide(ride.trip, b.ride, t);
+        if (err) return reply(res, 400, { error: err });
+        ride.ride = { legs: b.ride.legs, boardedAt: b.ride.boardedAt };
+      }
+      const aErr = activityError(b?.activity);
+      if (aErr) return reply(res, 400, { error: aErr });
+      if (b?.alerts != null && typeof b.alerts !== 'boolean') return reply(res, 400, { error: 'alerts is invalid' });
+      if (b?.activity && b.activity.token !== ride.activity?.token) ride.activity = { token: b.activity.token, last: null, sent: 0 };
+      if (b?.alerts != null) ride.alerts = b.alerts;
       ride.nextPollAt = t;
       store.update(ride);
       return reply(res, 204, undefined);
@@ -753,6 +791,30 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
     return false;
   }
 
+  // A ride's Live Activity push (to the activity's own token, through the same send). False when
+  // it failed; a dead token (410) drops the activity. Failures go to the phone's push log.
+  async function sendActivity(rec, payload, t) {
+    try {
+      await send({ endpoint: `${APNS_PREFIX}${rec.activity.token}` }, payload);
+      if (rec.activity.error) rec.activity = { ...rec.activity, error: null };
+      return true;
+    } catch (e) {
+      const error = `${e.statusCode ?? ''} ${e.reason ?? e.message ?? ''}`.trim().slice(0, 200);
+      log(`activity ${payload.body.aps.event} for ${rec.id} failed: ${error}`);
+      try { store.logPush(rec.subscription.endpoint, { at: t, ref: rec.id, kind: 'activity', tripName: rec.tripName ?? null, title: `Live Activity ${payload.body.aps.event}`, body: payload.body.aps['content-state'].title, ok: false, error }, t - DAY, LOG_MAX); } catch {}
+      rec.activity = e.statusCode === 410 ? null : { ...rec.activity, error };
+      return false;
+    }
+  }
+
+  // The ride is over: the card shows "Arrived ~<eta>" and is dismissed 5 min after the ETA.
+  async function activityEnd(rec, ride, walkAfter, t) {
+    if (!rec.activity) return;
+    const phase = ridePhase(ride, walkAfter, t);
+    const state = liveActivityState(ride, { ...phase, kind: 'arrived' }, null, null, walkAfter, t);
+    await sendActivity(rec, apnsActivityPush({ event: 'end', state, nowMs: t, dismissAt: Math.max(t, phase.eta) + 5 * MIN }), t);
+  }
+
   // A followed ride: refresh its legs, re-plan a missed connection, read the ridden vehicle's
   // stops, and send what rideAlertStep decides. Returns true when it was dropped.
   async function checkFollowed(rec) {
@@ -776,8 +838,11 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       }
     }
     const step = rideAlertStep(rec.alert, ride, phase, stops, outlook, t);
-    if (step.done) return drop(rec);
-    for (const s of step.sends) {
+    if (step.done) {
+      await activityEnd(rec, ride, walkAfter, t);
+      return drop(rec);
+    }
+    for (const s of rec.alerts === false ? [] : step.sends) {
       const stopName = stops?.stops[stops.stops.length - 1]?.name;
       const { title, body } = rideAlertText(s, { ride, outlook, stopName, walkAfter, nowMs: t });
       const tag = s.kind === 'missed' || s.kind === 'none' ? `ride:${rec.id}:plan` : `ride:${rec.id}:${s.leg}`;
@@ -787,6 +852,17 @@ export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKe
       } catch (e) {
         log(`send ${s.kind} for ${rec.id} failed: ${e.statusCode ?? ''} ${e.message}`);
         if (e.statusCode === 404 || e.statusCode === 410) return drop(rec);
+      }
+    }
+    if (rec.activity) {
+      const state = liveActivityState(ride, phase, stops, outlook, walkAfter, t);
+      const last = rec.activity.last;
+      if (JSON.stringify(state) !== JSON.stringify(last)) {
+        // Urgent (priority 10, a budget iOS limits): "get off" and a missed or no connection.
+        const urgent = (/^(Next stop|Get off)/.test(state.title) && !/^(Next stop|Get off)/.test(last?.title ?? '')) || (state.warn && !last?.warn);
+        const ok = await sendActivity(rec, apnsActivityPush({ event: 'update', state, nowMs: t, urgent }), t);
+        if (ok) rec.activity = { ...rec.activity, last: state, sent: (rec.activity.sent ?? 0) + 1 };
+        else if (!rec.activity && rec.alerts === false) return drop(rec); // the activity is gone: nothing left to follow for
       }
     }
     rec.alert = step.alert;

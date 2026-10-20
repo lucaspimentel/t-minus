@@ -1,7 +1,8 @@
 // APNs, for the iOS app's pushes: one HTTP/2 session to Apple (reopened when it closes) and a
 // provider token (an ES256 JWT signed with the .p8 key) reused for 50 min. Built-in modules only.
 // A dead device token (410 Unregistered, 400 BadDeviceToken / DeviceTokenNotForTopic) throws with
-// statusCode 410, like a Web Push subscription that is gone.
+// statusCode 410, like a Web Push subscription that is gone. Live Activity pushes
+// (`apns-push-type: liveactivity`) go to the `<topic>.push-type.liveactivity` topic.
 import { connect } from 'node:http2';
 import { createPrivateKey, sign } from 'node:crypto';
 
@@ -44,7 +45,7 @@ export function apnsClient({ key, keyId, teamId, topic, host = APNS_HOSTS.produc
       try {
         req = open().request({
           ':method': 'POST', ':path': `/3/device/${deviceToken}`, authorization: `bearer ${providerToken(t)}`,
-          'apns-topic': topic, 'apns-expiration': String(Math.floor(t / 1000) + ttlSeconds), 'content-type': 'application/json', ...headers,
+          'apns-topic': headers['apns-push-type'] === 'liveactivity' ? `${topic}.push-type.liveactivity` : topic, 'apns-expiration': String(Math.floor(t / 1000) + ttlSeconds), 'content-type': 'application/json', ...headers,
         });
       } catch (e) { session = null; return reject(e); }
       let status = 0;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -1892,6 +1892,43 @@ test('rideAlertText: heads-up, get off (transfer / last leg), missed, no connect
   assert.deepEqual(rideAlertText({ kind: 'missed', leg: 1, missedDep: at('18:20'), update: true, was: at('18:50') }, ctx({ outlook: { ...outlook, legs: replanned } })),
     { title: 'Missed the 6:20pm Bus 132', body: 'Next: Bus 132 6:54pm (was 6:50pm) · arrive 7:11pm' });
   assert.equal(rideAlertText({ kind: 'none', leg: 1 }, ctx({ outlook: { ...outlook, none: true } })).title, 'No connection after 6:01pm');
+});
+
+test('islandLabel: subway initials, bus and Silver Line numbers', () => {
+  assert.deepEqual(['Orange', 'Red', 'Green B', 'Bus 132', 'Silver SL1', 'Mattapan'].map(label => islandLabel({ label })),
+    ['OL', 'RL', 'GL B', '132', 'SL1', 'M']);
+  assert.equal(islandLabel({ label: 'Green', routeLabels: { 'Green-D': 'Green D' }, vehicleRoute: 'Green-D' }), 'GL D');
+});
+
+test('liveActivityState: riding, get off, transfer, missed and no connection, walking, arrived', () => {
+  const leg = (tripId, dep, arr, label, color, headsign) => ({ route: label, label, color, tripId, dep: at(dep), arr: at(arr), source: 'live', headsign });
+  const ride = { boardedAt: at('17:41'), legs: [leg('o1', '17:41', '17:56', 'Orange', 'ED8B00'), leg('b1', '18:06', '18:18', 'Bus 132', 'FFC72C', 'Redstone')] };
+  const sec = hhmm => at(hhmm) / 1000;
+  const stops = n => ({ vehicle: null, stops: Array.from({ length: n }, (_, i) => ({ id: `s${i}`, name: i === n - 1 ? 'Oak Grove' : `S${i}`, time: 0, dropOff: i === n - 1 })) });
+  const outlook = { leg: 1, needed: at('18:01'), margin: 5 * MIN, legs: ride.legs, missedDep: null, none: false };
+  const riding = liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(4), outlook, 5, at('17:50'));
+  assert.deepEqual(riding, {
+    phase: 'riding', warn: false, color: 'ED8B00', label: 'OL', title: 'Orange · 4 stops', until: sec('17:56'), stops: 4,
+    sub: 'Get off at Oak Grove · 5:56pm', next: 'Then Bus 132 toward Redstone 6:06pm · 5 min to spare',
+    legs: [{ color: 'ED8B00', dep: sec('17:41'), arr: sec('17:56') }, { color: 'FFC72C', dep: sec('18:06'), arr: sec('18:18') }],
+  });
+  const getOff = liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(1), outlook, 5, at('17:55'));
+  assert.equal(getOff.title, 'Next stop: get off');
+  const noStops = liveActivityState(ride, { kind: 'riding', leg: 1 }, null, null, 5, at('18:10'));
+  assert.deepEqual([noStops.title, noStops.stops, noStops.sub, noStops.next], ['Bus 132', -1, 'Arrive 6:18pm', 'Arrive ~6:23pm']);
+  const transfer = liveActivityState(ride, { kind: 'transfer', leg: 1 }, null, outlook, 5, at('17:58'));
+  assert.deepEqual([transfer.title, transfer.label, transfer.until, transfer.sub, transfer.warn], ['Transfer · Bus 132', '132', sec('18:06'), 'Bus 132 toward Redstone · 6:06pm', false]);
+  const replanned = [ride.legs[0], leg('b2', '18:14', '18:26', 'Bus 132', 'FFC72C')];
+  const missed = liveActivityState(ride, { kind: 'transfer', leg: 1 }, null, { ...outlook, legs: replanned, missedDep: at('18:06') }, 5, at('18:07'));
+  assert.deepEqual([missed.title, missed.warn, missed.until, missed.next], ['Missed the 6:06pm · next 6:14pm', true, sec('18:14'), 'Arrive ~6:31pm']);
+  const missedAhead = liveActivityState(ride, { kind: 'riding', leg: 0 }, null, { ...outlook, legs: replanned, missedDep: at('18:06') }, 5, at('17:50'));
+  assert.deepEqual([missedAhead.warn, missedAhead.next], [true, 'Then Bus 132 6:14pm (missed 6:06pm)']);
+  const none = liveActivityState(ride, { kind: 'transfer', leg: 1 }, null, { ...outlook, none: true }, 5, at('18:07'));
+  assert.deepEqual([none.title, none.warn, none.next], ['No connection after 6:01pm', true, 'Open the app for another way.']);
+  const walking = liveActivityState(ride, { kind: 'walking', leg: 2 }, null, null, 5, at('18:20'));
+  assert.deepEqual([walking.label, walking.title, walking.until, walking.sub], ['🚶', 'Walking', sec('18:23'), 'Arrive ~6:23pm']);
+  const arrived = liveActivityState(ride, { kind: 'arrived', leg: 2 }, null, null, 5, at('18:24'));
+  assert.deepEqual([arrived.title, arrived.until, arrived.color], ['Arrived ~6:23pm', 0, '']);
 });
 
 test('checkRide: the trip, one leg per transit leg, times, and a ride ending soon', () => {

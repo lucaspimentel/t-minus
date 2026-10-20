@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createServer, connect } from 'node:http2';
 import { generateKeyPairSync, verify } from 'node:crypto';
 import { apnsClient } from '../server/apns.mjs';
-import { apnsPush } from '../server/app.mjs';
+import { apnsPush, apnsActivityPush } from '../server/app.mjs';
 
 const TOKEN = 'ab'.repeat(32);
 
@@ -61,6 +61,19 @@ test('APNs: path, topic, expiration, the push\'s headers and body, a valid ES256
     assert.deepEqual(decode(h), { alg: 'ES256', kid: 'KEY123' });
     assert.deepEqual(decode(p), { iss: 'TEAM45', iat: clock.t / 1000 });
     assert.ok(verify('sha256', Buffer.from(`${h}.${p}`), { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(sig, 'base64url')));
+  } finally { await apple.close(); }
+});
+
+test('APNs: a Live Activity push goes to the <bundle id>.push-type.liveactivity topic', async () => {
+  const apple = await fakeApple();
+  const clock = { t: Date.parse('2026-10-18T12:00:00Z') };
+  const { send } = client(apple, clock);
+  try {
+    await send(TOKEN, apnsActivityPush({ event: 'update', state: { title: 'Orange · 4 stops' }, nowMs: clock.t }));
+    const [{ headers, body }] = apple.world.requests;
+    assert.equal(headers['apns-topic'], 'net.lucasp.tminus.push-type.liveactivity');
+    assert.equal(headers['apns-push-type'], 'liveactivity');
+    assert.equal(body.aps.event, 'update');
   } finally { await apple.close(); }
 });
 

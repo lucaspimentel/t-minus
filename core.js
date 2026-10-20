@@ -2201,6 +2201,75 @@ export function pollIntervalMs(rows, nowMs, riding = false) {
   return soon ? 60_000 : 120_000;
 }
 
+// ---------- Live Activity (the iOS app's Lock Screen card for a tracked ride) ----------
+
+// The Dynamic Island's route label: "OL" / "RL" / "BL", "GL B", "132", "SL1", "M".
+export function islandLabel(leg) {
+  const l = vehicleLabel(leg) ?? '';
+  const sub = l.match(/^(Red|Orange|Blue|Green)\b(?: (\w+))?/);
+  if (sub) return `${sub[1][0]}L${sub[2] ? ` ${sub[2]}` : ''}`;
+  if (/^(Bus|Silver) /.test(l)) return l.replace(/^(Bus|Silver) /, '');
+  if (l === 'Mattapan') return 'M';
+  return l.slice(0, 4);
+}
+
+// The card's content: ActivityKit's ContentState (ios/App/TMinusWidgets/RideAttributes.swift).
+// The app builds it for local updates and the server for pushes, so both show the same thing.
+// `ride`: the ride as followed; `outlook` (transferOutlook) carries re-planned legs; `stops`:
+// rideStops() for the leg being ridden, or null. Times are Unix seconds (ActivityKit would read a
+// pushed Date as seconds since 2001). `until` is the countdown's end (0: none), `stops` the stops
+// left (-1: unknown), `warn` the amber style (a missed or no connection), `legs` the progress bar.
+export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs) {
+  const legs = outlook?.legs ?? ride.legs;
+  const sec = ms => Math.round(ms / 1000);
+  const t = ms => formatTime(ms, nowMs);
+  const eta = legs[legs.length - 1].arr + walkAfter * MIN;
+  const out = {
+    phase: phase.kind, warn: false, color: '', label: '', title: '', until: 0, stops: -1, sub: '', next: '',
+    legs: legs.map(l => ({ color: l.color ?? '', dep: sec(l.dep), arr: sec(l.arr) })),
+  };
+  const withLeg = leg => Object.assign(out, { color: leg.color ?? '', label: islandLabel(leg) });
+  const nextLine = () => {
+    const o = outlookText(outlook, ride, nowMs);
+    if (o) { out.next = o.text; out.warn = !!(outlook.none || outlook.missedDep != null); } else out.next = `Arrive ~${t(eta)}`;
+  };
+  switch (phase.kind) {
+    case 'riding': {
+      const leg = legs[phase.leg];
+      withLeg(leg);
+      const n = stops?.stops.length ?? 0;
+      const drop = stops?.stops[n - 1];
+      out.title = (n && getOffText(stops)) || `${vehicleLabel(leg)}${n ? ` · ${n} stop${n === 1 ? '' : 's'}` : ''}`;
+      out.until = sec(leg.arr);
+      out.stops = n || -1;
+      out.sub = drop?.dropOff ? `Get off at ${drop.name} · ${legTime(leg, leg.arr, nowMs)}` : `Arrive ${legTime(leg, leg.arr, nowMs)}`;
+      nextLine();
+      break;
+    }
+    case 'transfer': {
+      const leg = legs[phase.leg];
+      withLeg(leg);
+      if (outlook?.none) {
+        Object.assign(out, { warn: true, title: `No connection after ${t(outlook.needed)}`, next: 'Open the app for another way.' });
+        break;
+      }
+      const missed = outlook?.missedDep ?? (ride.missed?.leg === phase.leg ? ride.missed.dep : null);
+      out.title = missed != null ? `Missed the ${t(missed)} · next ${legTime(leg, leg.dep, nowMs)}` : `Transfer · ${vehicleLabel(leg)}`;
+      out.warn = missed != null;
+      out.until = sec(leg.dep);
+      out.sub = [lineLabel(leg), toward(leg)].filter(Boolean).join(' ') + ` · ${legTime(leg, leg.dep, nowMs)}`;
+      out.next = `Arrive ~${t(eta)}`;
+      break;
+    }
+    case 'walking':
+      Object.assign(out, { label: '🚶', title: 'Walking', until: sec(eta), sub: `Arrive ~${t(eta)}` });
+      break;
+    default:
+      Object.assign(out, { title: `Arrived ~${t(eta)}` });
+  }
+  return out;
+}
+
 // ---------- alerts ----------
 
 // Expands configured stop ids with child stops found in trip data (child → parent map).
