@@ -7,8 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		061C8ED28F425B3BB04049FD /* RideAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19FF04653AEF48A6ED811D9 /* RideAttributes.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		3406005EE3AC2CC3355C762C /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E08BE0C5A510FA6554458F25 /* MainViewController.swift */; };
+		45CBD6ECEFE0570B45947DF1 /* RideState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A22F0960B9741C28CC9DA3 /* RideState.swift */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
@@ -16,13 +18,44 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		6D05587455ECECAFD4293ED3 /* RideActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92704E90C72C76C65F64A0CB /* RideActivityWidget.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
+		A58DD02BE7A2AB2A629E186D /* RideState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A22F0960B9741C28CC9DA3 /* RideState.swift */; };
+		BF357FE97FBADC690D1B4510 /* RideViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA9BCA404177730EC091E482 /* RideViews.swift */; };
 		F5DA4DC356370BC10584FFDB /* TMinusPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62AFAE337766795634C533E9 /* TMinusPlugin.swift */; };
+		FCA667B3875831DBDF48D1C9 /* TMinusWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E1F2449C2B25D3D8F5285323 /* TMinusWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FE979A6286EB240B17AD5C8C /* RideAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19FF04653AEF48A6ED811D9 /* RideAttributes.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		701CAA6E69F67E649F25D5D5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B9DEF3D769BF6DEF1E704C4C;
+			remoteInfo = TMinusWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		869CFD9064052BFD57605368 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				FCA667B3875831DBDF48D1C9 /* TMinusWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		1A7DEE8B39F35BD1246C78F2 /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
+		3CEDD9BBA8F039FA3B3F5772 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		42A22F0960B9741C28CC9DA3 /* RideState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RideState.swift; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -32,9 +65,13 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		62AFAE337766795634C533E9 /* TMinusPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TMinusPlugin.swift; sourceTree = "<group>"; };
+		92704E90C72C76C65F64A0CB /* RideActivityWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RideActivityWidget.swift; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		BA9BCA404177730EC091E482 /* RideViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RideViews.swift; sourceTree = "<group>"; };
+		C19FF04653AEF48A6ED811D9 /* RideAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RideAttributes.swift; sourceTree = "<group>"; };
 		E08BE0C5A510FA6554458F25 /* MainViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
+		E1F2449C2B25D3D8F5285323 /* TMinusWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TMinusWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -46,15 +83,43 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E88929796020CE1C58C3F021 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		06C74D57912E026084E9B517 /* TMinusWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				BA9BCA404177730EC091E482 /* RideViews.swift */,
+				92704E90C72C76C65F64A0CB /* RideActivityWidget.swift */,
+				3CEDD9BBA8F039FA3B3F5772 /* Info.plist */,
+			);
+			name = TMinusWidgets;
+			path = TMinusWidgets;
+			sourceTree = "<group>";
+		};
+		16EB726A860C57E9A18FFBC2 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				A43162627302DE02605359AB /* Frameworks */,
+				9A1B5BC1F62BBDAB639FE910 /* Shared */,
+				06C74D57912E026084E9B517 /* TMinusWidgets */,
 			);
 			sourceTree = "<group>";
 		};
@@ -62,6 +127,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				E1F2449C2B25D3D8F5285323 /* TMinusWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -85,6 +151,24 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		9A1B5BC1F62BBDAB639FE910 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				42A22F0960B9741C28CC9DA3 /* RideState.swift */,
+				C19FF04653AEF48A6ED811D9 /* RideAttributes.swift */,
+			);
+			name = Shared;
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		A43162627302DE02605359AB /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				16EB726A860C57E9A18FFBC2 /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -95,10 +179,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				869CFD9064052BFD57605368 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				6CEAC4D564BE331E00D35463 /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -107,6 +193,23 @@
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B9DEF3D769BF6DEF1E704C4C /* TMinusWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7F601F53E46DBEBBEB1A00E0 /* Build configuration list for PBXNativeTarget "TMinusWidgets" */;
+			buildPhases = (
+				ADF029732A2A12F1ED56D91B /* Sources */,
+				E88929796020CE1C58C3F021 /* Frameworks */,
+				AF94D14E6B932045CB568B10 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TMinusWidgets;
+			productName = TMinusWidgets;
+			productReference = E1F2449C2B25D3D8F5285323 /* TMinusWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -141,6 +244,7 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				B9DEF3D769BF6DEF1E704C4C /* TMinusWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -159,6 +263,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AF94D14E6B932045CB568B10 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -170,10 +281,32 @@
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				3406005EE3AC2CC3355C762C /* MainViewController.swift in Sources */,
 				F5DA4DC356370BC10584FFDB /* TMinusPlugin.swift in Sources */,
+				A58DD02BE7A2AB2A629E186D /* RideState.swift in Sources */,
+				061C8ED28F425B3BB04049FD /* RideAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ADF029732A2A12F1ED56D91B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				45CBD6ECEFE0570B45947DF1 /* RideState.swift in Sources */,
+				FE979A6286EB240B17AD5C8C /* RideAttributes.swift in Sources */,
+				BF357FE97FBADC690D1B4510 /* RideViews.swift in Sources */,
+				6D05587455ECECAFD4293ED3 /* RideActivityWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		6CEAC4D564BE331E00D35463 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = TMinusWidgets;
+			target = B9DEF3D769BF6DEF1E704C4C /* TMinusWidgets */;
+			targetProxy = 701CAA6E69F67E649F25D5D5 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -195,6 +328,32 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		1F06DF07AA14A508E04357D7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TMinusWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = net.lucasp.tminus.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		504EC3141FED79650016851F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
@@ -350,6 +509,31 @@
 			};
 			name = Release;
 		};
+		535FFACC531A9EC11463AEB2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TMinusWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = net.lucasp.tminus.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -367,6 +551,15 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7F601F53E46DBEBBEB1A00E0 /* Build configuration list for PBXNativeTarget "TMinusWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1F06DF07AA14A508E04357D7 /* Release */,
+				535FFACC531A9EC11463AEB2 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

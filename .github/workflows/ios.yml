@@ -1,8 +1,10 @@
 name: ios
 
 # Builds the iOS app (ios/, Capacitor) and uploads it to TestFlight. Manual: Actions → ios → Run
-# workflow. Web and server changes reach the app through its remote URL, so a build is needed only
-# for native changes or before a TestFlight build expires (90 days). See IOS.md.
+# workflow. Every run renders the Live Activity previews (ios/Previews) as the
+# live-activity-previews artifact; `upload` off stops there. Web and server changes reach the app
+# through its remote URL, so a build is needed only for native changes or before a TestFlight
+# build expires (90 days). See IOS.md.
 #
 # Signing without a Mac: the archive is signed ad hoc (it carries App.entitlements, no profile);
 # the export re-signs it for App Store Connect with automatic signing and the App Store Connect API
@@ -11,6 +13,11 @@ name: ios
 
 on:
   workflow_dispatch:
+    inputs:
+      upload:
+        description: Build and upload to TestFlight (off renders the previews only)
+        type: boolean
+        default: true
 
 jobs:
   testflight:
@@ -25,14 +32,30 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
+
+      - name: Live Activity previews
+        run: |
+          mkdir -p "$RUNNER_TEMP/previews"
+          swiftc -parse-as-library ios/App/Shared/RideState.swift ios/App/TMinusWidgets/RideViews.swift ios/Previews/Render.swift -o "$RUNNER_TEMP/render"
+          "$RUNNER_TEMP/render" "$RUNNER_TEMP/previews"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: live-activity-previews
+          path: ${{ runner.temp }}/previews/
+          retention-days: 30
+
       - uses: actions/setup-node@v4
+        if: inputs.upload
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+        if: inputs.upload
       - run: npx cap sync ios
+        if: inputs.upload
 
       - name: API key
+        if: inputs.upload
         env:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: |
@@ -40,6 +63,7 @@ jobs:
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/keys/AuthKey.p8"
 
       - name: Archive
+        if: inputs.upload
         run: |
           xcodebuild archive -project ios/App/App.xcodeproj -scheme App -configuration Release \
             -destination generic/platform=iOS -archivePath "$RUNNER_TEMP/App.xcarchive" \
@@ -48,6 +72,7 @@ jobs:
           codesign -d --entitlements - --xml "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
 
       - name: Export and check the entitlements
+        if: inputs.upload
         run: |
           export_ipa() { # $1: export | upload
             cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
@@ -70,6 +95,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/export/App.ipa" -d "$RUNNER_TEMP/ipa"
           codesign -d --entitlements - --xml "$RUNNER_TEMP/ipa/Payload/App.app" | tee "$RUNNER_TEMP/entitlements.plist"
           grep -q 'aps-environment' "$RUNNER_TEMP/entitlements.plist" || { echo "::error::The signed app has no aps-environment entitlement"; exit 1; }
+          test -d "$RUNNER_TEMP/ipa/Payload/App.app/PlugIns/TMinusWidgets.appex" || { echo "::error::The Live Activity extension is not embedded"; exit 1; }
           export_ipa upload
 
       - name: Collect logs
