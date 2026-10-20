@@ -53,8 +53,15 @@ struct LegsBar: View {
                     if Date() >= arr {
                         Capsule().fill(tint)
                     } else if Date() >= dep {
+                        #if os(iOS)
                         ProgressView(timerInterval: dep...arr, countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
                             .progressViewStyle(.linear).tint(tint)
+                        #else
+                        // The previews (macOS can't draw the timer progress in a still image).
+                        GeometryReader { g in
+                            Capsule().fill(tint).frame(width: g.size.width * Date().timeIntervalSince(dep) / arr.timeIntervalSince(dep))
+                        }
+                        #endif
                     }
                 }
                 .frame(height: 5)
