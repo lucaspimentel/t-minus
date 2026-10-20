@@ -309,7 +309,7 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
 
 Screen stays on (Screen Wake Lock, `keepAwake`) while the app is open and any upcoming row is
 within `wakeMinutes` (default 10, 0 = off) of its leave-by, until its last chance. While a
-ride is tracked (`keepAwakeRiding`, 2026-10-20): the whole time on a vehicle and during
+ride is tracked (`keepAwakeRiding`, 2026-10-19): the whole time on a vehicle and during
 transfers, not on the final walk; setup's "Keep screen on while riding" (`wakeRiding`, default
 on) turns it off, independently of `wakeMinutes`. (Before: only the last 2 min before a drop-off
 or a transfer departure, which rarely helped, since the screen had usually auto-locked by then
