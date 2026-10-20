@@ -815,7 +815,16 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     410 `Unregistered` and 400 `BadDeviceToken` / `DeviceTokenNotForTopic` count as a 410 (the
     entry is dropped). Configured by `APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`,
     `APNS_HOST` (`server/README.md`).
-  - **Live Activity pushes (Phase 2, server side; the app side is still to come; `IOS.md`):** a
+  - **Live Activity in the app (Phase 2; native side: `IOS.md`):** each tracked ride starts one
+    (`TMinus.liveActivityStart({ tripName, state })` → `{ id }`; stored as `t-minus:activity`);
+    while the app is open, `liveActivityUpdate` when `liveActivityState` changes (never twice the
+    same); Done, Cancel, a replaced or finished ride end it at once (`liveActivityEnd`). Its push
+    token (the `activityToken` event) goes to the server with the ride (`syncRideAlert`, which now
+    posts also when only the activity needs following: `alerts: false`, the device token
+    registered without a permission prompt). iOS refusing (Live Activities off) or a plugin error
+    goes to the app log, once per ride. A ride on another trip keeps its activity until that ride
+    is gone.
+  - **Live Activity pushes (Phase 2, server side):** a
     followed ride may carry `activity: { token }` (the activity's own APNs push token, hex; by
     `POST /rides` or later by `PUT /rides/:id`, whose fields are now each optional: `ride`,
     `activity`, `alerts`) and `alerts: false` (followed only for the activity: no notifications).
@@ -823,7 +832,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     title, countdown end `until`, stops left, route color and island label, drop-off line, next
     connection line, `warn` for a missed or no connection, per-leg progress; times in Unix
     seconds) and sends it (`apnsActivityPush`: `apns-push-type: liveactivity`, topic
-    `<APNS_TOPIC>.push-type.liveactivity`, `event: update`, `stale-date` 2 min) only when it
+    `<APNS_TOPIC>.push-type.liveactivity`, `event: update`, `stale-date` 2 min after the countdown's end) only when it
     changed. Priority 10 (iOS budgets these) only when it turns to "Next stop: get off" / "Get off
     here" or to a warning; else 5. When the ride is over: `event: end` with "Arrived ~<eta>" and a
     `dismissal-date` 5 min after the ETA. A failed send is retried next poll and shown in the

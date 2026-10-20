@@ -13,7 +13,9 @@ test.beforeEach(({ page }) => {
 });
 
 // `permission`: the starting state ('prompt', 'granted', 'denied'); `fail`: 'deny' (the prompt
-// is refused) or 'register' (iOS reports a registration error). Calls land in window.nativeCalls.
+// is refused), 'register' (iOS reports a registration error) or 'activity' (iOS refuses the Live
+// Activity). Calls land in window.nativeCalls; Live Activity calls in window.activityCalls (the
+// activity's push token follows a start by 50 ms).
 function capacitorStub({ server, permission = 'prompt', fail = null, token }) {
   localStorage.setItem('t-minus:push-server', JSON.stringify(server));
   window.nativeCalls = [];
@@ -36,7 +38,22 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token }) {
       setTimeout(() => (fail === 'register' ? emit('registrationError', { error: 'no valid aps-environment' }) : emit('registration', { value: token })), 50);
     },
   };
-  const TMinus = { keepAwake: async ({ on }) => { window.nativeCalls.push(`keepAwake:${on}`); } };
+  window.activityCalls = [];
+  const TMinus = {
+    keepAwake: async ({ on }) => { window.nativeCalls.push(`keepAwake:${on}`); },
+    addListener: async (ev, f) => {
+      (listeners[`TMinus.${ev}`] ??= []).push(f);
+      return { remove: async () => {} };
+    },
+    liveActivityStart: async ({ tripName, state }) => {
+      window.activityCalls.push({ call: 'start', tripName, state });
+      if (fail === 'activity') throw new Error('Live Activities are off for this app');
+      setTimeout(() => emit('TMinus.activityToken', { id: 'act1', token: 'CD'.repeat(40) }), 50);
+      return { id: 'act1' };
+    },
+    liveActivityUpdate: async ({ id, state }) => { window.activityCalls.push({ call: 'update', id, state }); },
+    liveActivityEnd: async ({ id }) => { window.activityCalls.push({ call: 'end', id }); },
+  };
   window.Capacitor = { isNativePlatform: () => true, Plugins: { PushNotifications, TMinus } };
 }
 
@@ -48,6 +65,8 @@ async function fakeServer(page, { appLog = [] } = {}) {
     calls.push({ method: req.method(), path, body: req.postDataJSON?.() ?? null });
     const cors = { 'access-control-allow-origin': '*' };
     if (path === '/reminders') return route.fulfill({ status: 201, json: { id: 'r1', headsUps: [10, 5] }, headers: cors });
+    if (path === '/rides') return route.fulfill({ status: 201, json: { id: 'ride1' }, headers: cors });
+    if (path.startsWith('/rides/')) return route.fulfill({ status: 204, headers: cors });
     if (path === '/log') return route.fulfill({ status: 204, headers: cors });
     if (path === '/log/read') return route.fulfill({ json: { lines: appLog }, headers: cors });
     if (path === '/pending') return route.fulfill({ json: { now: at('06:50'), entries: [], log: [] }, headers: cors });
@@ -127,4 +146,60 @@ test('Pending notifications shows the device token and the app log', async ({ pa
   await expect(page.locator('#setup .pn-log').last()).toContainText('keepAwake: TMinus plugin is not implemented on ios');
   expect(calls.find(c => c.path === '/pending').body.subscription).toEqual({ endpoint: `apns:${TOKEN.toLowerCase()}` });
   expect(calls.find(c => c.path === '/log/read').body.device).toMatch(/^[0-9a-f-]{36}$/);
+});
+
+// Live Activities: the tracked ride on the Lock Screen. Home to office from 7:00: "At the stop",
+// the 7:08 bus 132 boards, the Orange Line connection.
+const activityCalls = page => page.evaluate(() => window.activityCalls);
+const ridePosts = calls => calls.filter(c => c.path === '/rides' || c.path.startsWith('/rides/'));
+async function boardTheBus(page) {
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await tickTo(page, '07:12');
+}
+
+test('a tracked ride starts a Live Activity, updates it when its content changes, sends its token with the ride, and Done ends it', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN });
+  await openApp(page, { time: '07:00' });
+  await boardTheBus(page);
+  await expect.poll(async () => (await activityCalls(page))[0]?.call).toBe('start');
+  const [start] = await activityCalls(page);
+  expect(start.tripName).toBe('Home to office');
+  expect(start.state).toMatchObject({ phase: 'riding', label: '132', color: 'FFC72C' });
+  expect(start.state.title).toMatch(/^Bus 132/);
+  // The token reaches the server with the ride (alerts on: notifications are allowed).
+  await expect.poll(() => ridePosts(calls).some(c => c.body?.activity?.token === 'cd'.repeat(40))).toBe(true);
+  expect(ridePosts(calls).filter(c => c.method !== 'DELETE').every(c => c.body.alerts === true)).toBe(true);
+  // Updated only when the content changes (the stops left, the transfer), never twice the same.
+  await tickTo(page, '07:27');
+  await expect.poll(async () => (await activityCalls(page)).filter(c => c.call === 'update').at(-1)?.state.phase).toBe('transfer');
+  expect((await activityCalls(page)).filter(c => c.call === 'update').at(-1).state.title).toMatch(/^Transfer · Orange/);
+  const states = [start, ...(await activityCalls(page)).filter(c => c.call === 'update')].map(c => JSON.stringify(c.state));
+  expect(states.every((x, i) => i === 0 || x !== states[i - 1])).toBe(true);
+  // Done (from the card once arrived) ends it at once.
+  await tickTo(page, '07:58');
+  await page.locator('.row.ride').getByRole('button', { name: 'Done' }).click();
+  await expect.poll(async () => (await activityCalls(page)).at(-1)).toEqual({ call: 'end', id: 'act1' });
+});
+
+test('without notification permission, the ride is followed for its Live Activity only: no prompt, alerts off', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'prompt', token: TOKEN });
+  await openApp(page, { time: '07:00' });
+  await boardTheBus(page);
+  await expect.poll(() => ridePosts(calls).length).toBeGreaterThan(0);
+  const post = ridePosts(calls).find(c => c.method === 'POST');
+  expect(post.body).toMatchObject({ subscription: { endpoint: `apns:${TOKEN.toLowerCase()}` }, alerts: false, activity: { token: 'cd'.repeat(40) } });
+  expect(await nativeCalls(page)).not.toContain('requestPermissions');
+});
+
+test('iOS refusing the Live Activity is logged once; the ride carries on', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, fail: 'activity' });
+  await openApp(page, { time: '07:00' });
+  await boardTheBus(page);
+  await tick(page, 5000);
+  expect((await activityCalls(page)).map(c => c.call)).toEqual(['start']);
+  await expect.poll(() => calls.filter(c => c.path === '/log').map(c => c.body.message)).toEqual(['start: Live Activities are off for this app']);
+  await expect(page.locator('.row.ride')).toHaveCount(1);
 });

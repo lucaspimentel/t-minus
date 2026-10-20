@@ -403,7 +403,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-19 · 018b933469</footer>
+    <footer class="version">Version 2026-10-19 · 7ddbefb785</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -424,10 +424,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
-  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
+  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, remHeadsUps,
-} from './core.js?v=070de281b4';
-import { openSetup } from './setup.js?v=e59d0d023a';
+} from './core.js?v=d341734347';
+import { openSetup } from './setup.js?v=4d6902f59c';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -968,11 +968,14 @@ if (native) {
     .then(p => { nativePermission = permissionOf(p.receive); render(); }, e => nativeLog('push', `checkPermissions: ${e.message}`));
 }
 // The device token from iOS (asks for permission the first time). Registering again is cheap
-// and returns the current token, which iOS may change.
-async function apnsToken() {
+// and returns the current token, which iOS may change. `quiet`: no prompt and no permission
+// needed (a ride followed only for its Live Activity; iOS gives a token without permission).
+async function apnsToken({ quiet = false } = {}) {
   const P = plugins.PushNotifications;
-  nativePermission = permissionOf((await P.requestPermissions()).receive);
-  if (nativePermission !== 'granted') throw new Error('notifications are off for this app in Settings');
+  if (!quiet) {
+    nativePermission = permissionOf((await P.requestPermissions()).receive);
+    if (nativePermission !== 'granted') throw new Error('notifications are off for this app in Settings');
+  }
   let handles = [];
   const token = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('no device token from iOS in 10 s')), 10_000);
@@ -1061,27 +1064,108 @@ let rideAlertBusy = false;
 let rideAlertRetryAt = 0;
 const stopAlertsAvailable = () => !!SERVER_API && pushSupported;
 async function syncRideAlert(s, now) {
-  if (!stopAlertsAvailable() || notifyPermission() !== 'granted' || rideAlertBusy || now < rideAlertRetryAt) return;
-  const tripIds = s.ride.legs.map(l => l.tripId).join(',');
-  if (s.alert?.off || s.alert?.tripIds === tripIds) return;
+  if (!stopAlertsAvailable() || rideAlertBusy || now < rideAlertRetryAt) return;
+  // Followed for stop alerts (notifications allowed, not turned off for this ride) and/or, in the
+  // iOS app, for its Live Activity (alerts: false when only for that).
+  const alerts = notifyPermission() === 'granted' && !s.alert?.off;
+  const token = native && activity?.key === activityKey(s) ? activity.token ?? null : null;
+  if (!alerts && !token) return;
+  const sync = `${s.ride.legs.map(l => l.tripId).join(',')}|${alerts}|${token}`;
+  if (s.alert?.sync === sync) return;
   const idx = tripIdx;
   rideAlertBusy = true;
   try {
     const ride = { legs: s.ride.legs, boardedAt: s.ride.boardedAt };
+    const extra = { alerts, ...(token && { activity: { token } }) };
     let id = s.alert?.id;
-    if (id && await pushApi('PUT', `/rides/${id}`, { ride }).then(() => true, e => { if (/Not found/.test(e.message)) return false; throw e; }) === false) id = null;
+    if (id && await pushApi('PUT', `/rides/${id}`, { ride, ...extra }).then(() => true, e => { if (/Not found/.test(e.message)) return false; throw e; }) === false) id = null;
     if (!id) {
       const trip = config.trips[idx];
-      ({ id } = await pushApi('POST', '/rides', { subscription: await pushSubscription(), trip, tripName: trip.name, ride }));
+      const subscription = native && !alerts ? { endpoint: `apns:${await apnsToken({ quiet: true })}` } : await pushSubscription();
+      ({ id } = await pushApi('POST', '/rides', { subscription, trip, tripName: trip.name, ride, ...extra }));
     }
     // Still the same ride: remember the alert (else the server's copy is dropped).
     const cur = enRouteState();
-    if (idx === tripIdx && cur?.ride && cur.ride.boardedAt === s.ride.boardedAt) setEnRoute({ ...cur, alert: { id, tripIds } });
+    if (idx === tripIdx && cur?.ride && cur.ride.boardedAt === s.ride.boardedAt) setEnRoute({ ...cur, alert: { id, sync, ...(s.alert?.off && { off: true }) } });
     else pushApi('DELETE', `/rides/${id}`).catch(() => {});
-  } catch {
+  } catch (e) {
+    if (native) nativeLog('rides', e.message);
     rideAlertRetryAt = Date.now() + 60_000;
   } finally {
     rideAlertBusy = false;
+  }
+}
+
+// ---------- Live Activity (the iOS app) ----------
+
+// The tracked ride on the Lock Screen and in the Dynamic Island (TMinus.liveActivity*, IOS.md).
+// Started with the ride; updated here while the app is open when its content changes
+// (liveActivityState, the same as the server's pushes); ended with the ride (Done, Cancel, a
+// replaced or finished ride: at once). Its push token goes to the server with the ride
+// (syncRideAlert), which updates it while the app is closed and shows "Arrived" at the end.
+// iOS refusing (Live Activities off in Settings) or a plugin error: the app log, once per ride.
+const KEY_ACTIVITY = 't-minus:activity';
+let activity = native ? store.get(KEY_ACTIVITY) ?? null : null; // { id, key, token, last }
+let activityBusy = false;
+let activityFailed = null; // the ride key iOS refused
+const activityKey = s => (s?.ride ? `${tripIdx}/${s.ride.boardedAt}` : null);
+function saveActivity(a) {
+  activity = a;
+  store.set(KEY_ACTIVITY, a);
+}
+if (native) {
+  Promise.resolve().then(() => plugins.TMinus.addListener('activityToken', ({ id, token }) => {
+    if (activity?.id !== id || activity.token === token) return;
+    saveActivity({ ...activity, token: String(token).toLowerCase() });
+    render();
+  })).catch(e => nativeLog('liveActivity', `token listener: ${e.message}`));
+}
+// The card's data for a ride: its phase, the ridden vehicle's stops (or null) and the outlook.
+function rideCardData(s, now) {
+  const trip = config.trips[tripIdx];
+  const { walkAfter, transit, transfers } = tripShape(trip);
+  const ride = s.ride;
+  const phase = ridePhase(ride, walkAfter, now);
+  const rs = cache[tripIdx]?.rideStops;
+  const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
+  const stops = (leg && rs?.tripId === leg.tripId && rideStops(rs.doc, transit[phase.leg].alight, now)) || null;
+  return { phase, stops, outlook: transferOutlook(ride, phase, rideVehicles(), transfers, now), walkAfter };
+}
+// `s`: the shown trip's en-route state (or null). Another trip's ride keeps its activity until
+// that ride is gone.
+async function syncLiveActivity(s, now) {
+  if (!native || activityBusy) return;
+  const key = activityKey(s);
+  const T = plugins.TMinus;
+  const run = async (what, f) => {
+    activityBusy = true;
+    try { await f(); } catch (e) { nativeLog('liveActivity', `${what}: ${e.message}`); return false; } finally { activityBusy = false; }
+    return true;
+  };
+  if (activity && activity.key !== key) {
+    const [idx, boardedAt] = activity.key.split('/');
+    const other = (store.get(KEY_EN_ROUTE) ?? {})[idx];
+    if (Number(idx) === tripIdx || other?.ride?.boardedAt !== Number(boardedAt)) {
+      const { id } = activity;
+      saveActivity(null);
+      await run('end', () => T.liveActivityEnd({ id }));
+    }
+    return;
+  }
+  if (!key || activityFailed === key) return;
+  const { phase, stops, outlook, walkAfter } = rideCardData(s, now);
+  const state = liveActivityState(s.ride, phase, stops, outlook, walkAfter, now);
+  const json = JSON.stringify(state);
+  if (!activity) {
+    const ok = await run('start', async () => {
+      const { id } = await T.liveActivityStart({ tripName: config.trips[tripIdx].name, state });
+      saveActivity({ id, key, token: null, last: json });
+    });
+    if (!ok) activityFailed = key;
+  } else if (activity.last !== json) {
+    const { id } = activity;
+    saveActivity({ ...activity, last: json });
+    await run('update', () => T.liveActivityUpdate({ id, state }));
   }
 }
 
@@ -1375,6 +1459,7 @@ function render() {
     rideFetchFor = riding.leg.tripId;
     setTimeout(() => refresh());
   }
+  syncLiveActivity(en, now);
   if (en?.ride) {
     syncRideAlert(en, now);
     renderEnRoute(now, false, true);
@@ -1609,17 +1694,14 @@ function rideStopRows(stops, tripId, now) {
 
 function renderRideCard(s, now) {
   const trip = config.trips[tripIdx];
-  const { walkAfter } = tripShape(trip);
   const ride = s.ride;
-  const phase = ridePhase(ride, walkAfter, now);
-  const li = el('li', `row ride ${phase.kind === 'arrived' ? 'arrived' : ''}`);
   // Riding: the stops left to the drop-off (in the timeline, below), also counted in the headline.
-  const rs = cache[tripIdx]?.rideStops;
+  const { phase, stops, outlook: o, walkAfter } = rideCardData(s, now);
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
-  const stops = (leg && rs?.tripId === leg.tripId && rideStops(rs.doc, tripShape(trip).transit[phase.leg].alight, now)) || null;
+  const li = el('li', `row ride ${phase.kind === 'arrived' ? 'arrived' : ''}`);
   li.append(el('div', 'ride-head', rideHeadline(phase, ride, now, stops)));
   // The next connection: spare time, tight, re-planned after a miss, or none.
-  const outlook = outlookText(transferOutlook(ride, phase, rideVehicles(), tripShape(trip).transfers, now), ride, now);
+  const outlook = outlookText(o, ride, now);
   if (outlook) li.append(el('div', `ride-outlook${outlook.warn ? ' warn' : ''}`, outlook.text));
   // Timeline with the current step: the leg being ridden, the transfer before a leg, or the
   // final walk.

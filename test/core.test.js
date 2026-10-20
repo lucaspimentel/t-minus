@@ -1923,6 +1923,12 @@ test('liveActivityState: riding, get off, transfer, missed and no connection, wa
   assert.deepEqual([missed.title, missed.warn, missed.until, missed.next], ['Missed the 6:06pm · next 6:14pm', true, sec('18:14'), 'Arrive ~6:31pm']);
   const missedAhead = liveActivityState(ride, { kind: 'riding', leg: 0 }, null, { ...outlook, legs: replanned, missedDep: at('18:06') }, 5, at('17:50'));
   assert.deepEqual([missedAhead.warn, missedAhead.next], [true, 'Then Bus 132 6:14pm (missed 6:06pm)']);
+  // The app re-plans itself (ride.missed): the same card.
+  const appRide = { ...ride, legs: replanned, missed: { leg: 1, dep: at('18:06') } };
+  const appAhead = liveActivityState(appRide, { kind: 'riding', leg: 0 }, null, { ...outlook, legs: replanned }, 5, at('17:50'));
+  assert.deepEqual([appAhead.warn, appAhead.next], [true, 'Then Bus 132 6:14pm (missed 6:06pm)']);
+  const appMissed = liveActivityState(appRide, { kind: 'transfer', leg: 1 }, null, { ...outlook, legs: replanned }, 5, at('18:07'));
+  assert.deepEqual([appMissed.title, appMissed.warn], ['Missed the 6:06pm · next 6:14pm', true]);
   const none = liveActivityState(ride, { kind: 'transfer', leg: 1 }, null, { ...outlook, none: true }, 5, at('18:07'));
   assert.deepEqual([none.title, none.warn, none.next], ['No connection after 6:01pm', true, 'Open the app for another way.']);
   const walking = liveActivityState(ride, { kind: 'walking', leg: 2 }, null, null, 5, at('18:20'));

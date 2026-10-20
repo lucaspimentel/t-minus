@@ -554,13 +554,15 @@ test('a followed ride: heads-up, get off, a missed connection, get off again, th
   } finally { await s.close(); }
 });
 
-test('apnsActivityPush: liveactivity type, priority, timestamp, stale date on updates, dismissal on end', () => {
+test('apnsActivityPush: liveactivity type, priority, timestamp, stale 2 min after the countdown, dismissal on end', () => {
   const nowMs = at('07:20');
   const sec = ms => ms / 1000;
-  assert.deepEqual(apnsActivityPush({ event: 'update', state: { title: 'x' }, nowMs }), {
+  const state = { title: 'x', until: sec(at('07:25')) };
+  assert.deepEqual(apnsActivityPush({ event: 'update', state, nowMs }), {
     headers: { 'apns-push-type': 'liveactivity', 'apns-priority': '5' },
-    body: { aps: { timestamp: sec(nowMs), event: 'update', 'content-state': { title: 'x' }, 'stale-date': sec(nowMs) + 120 } },
+    body: { aps: { timestamp: sec(nowMs), event: 'update', 'content-state': state, 'stale-date': sec(at('07:27')) } },
   });
+  assert.equal(apnsActivityPush({ event: 'update', state: { title: 'x', until: 0 }, nowMs }).body.aps['stale-date'], undefined);
   const end = apnsActivityPush({ event: 'end', state: { title: 'Arrived' }, nowMs, urgent: true, dismissAt: at('07:30') });
   assert.equal(end.headers['apns-priority'], '10');
   assert.deepEqual(end.body.aps, { timestamp: sec(nowMs), event: 'end', 'content-state': { title: 'Arrived' }, 'dismissal-date': sec(at('07:30')) });

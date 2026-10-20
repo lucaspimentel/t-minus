@@ -2215,7 +2215,8 @@ export function islandLabel(leg) {
 
 // The card's content: ActivityKit's ContentState (ios/App/TMinusWidgets/RideAttributes.swift).
 // The app builds it for local updates and the server for pushes, so both show the same thing.
-// `ride`: the ride as followed; `outlook` (transferOutlook) carries re-planned legs; `stops`:
+// `ride`: the ride as followed (the app's carries `missed` after its own re-plan); `outlook`
+// (transferOutlook) carries the server's re-planned legs; `stops`:
 // rideStops() for the leg being ridden, or null. Times are Unix seconds (ActivityKit would read a
 // pushed Date as seconds since 2001). `until` is the countdown's end (0: none), `stops` the stops
 // left (-1: unknown), `warn` the amber style (a missed or no connection), `legs` the progress bar.
@@ -2231,7 +2232,8 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
   const withLeg = leg => Object.assign(out, { color: leg.color ?? '', label: islandLabel(leg) });
   const nextLine = () => {
     const o = outlookText(outlook, ride, nowMs);
-    if (o) { out.next = o.text; out.warn = !!(outlook.none || outlook.missedDep != null); } else out.next = `Arrive ~${t(eta)}`;
+    const missed = outlook?.missedDep != null || (outlook && ride.missed?.leg === outlook.leg);
+    if (o) { out.next = o.text; out.warn = !!(outlook.none || missed); } else out.next = `Arrive ~${t(eta)}`;
   };
   switch (phase.kind) {
     case 'riding': {

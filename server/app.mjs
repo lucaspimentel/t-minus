@@ -76,17 +76,19 @@ export function apnsPush({ kind, title, body, tag, renotify }) {
 
 // A Live Activity push (the iOS app's Lock Screen card for a followed ride): `event` 'update' or
 // 'end', `state` from liveActivityState. server/apns.mjs sends it to the activity's own push token
-// with the `<bundle id>.push-type.liveactivity` topic. The card goes stale (dimmed) after
-// ACTIVITY_STALE_MS without an update; an end is dismissed at `dismissAt`.
+// with the `<bundle id>.push-type.liveactivity` topic. Updates are sent only on change, so the
+// card goes stale (dimmed) only ACTIVITY_STALE_MS after its countdown ends without a newer one
+// (no countdown: no stale date); an end is dismissed at `dismissAt`.
 export const ACTIVITY_STALE_MS = 2 * 60_000;
 export function apnsActivityPush({ event, state, nowMs, urgent = false, dismissAt = null }) {
   const sec = ms => Math.floor(ms / 1000);
+  const staleAt = event === 'update' && state.until ? Math.max(nowMs, state.until * 1000) + ACTIVITY_STALE_MS : null;
   return {
     headers: { 'apns-push-type': 'liveactivity', 'apns-priority': urgent ? '10' : '5' },
     body: {
       aps: {
         timestamp: sec(nowMs), event, 'content-state': state,
-        ...(event === 'update' && { 'stale-date': sec(nowMs + ACTIVITY_STALE_MS) }),
+        ...(staleAt != null && { 'stale-date': sec(staleAt) }),
         ...(dismissAt != null && { 'dismissal-date': sec(dismissAt) }),
       },
     },
