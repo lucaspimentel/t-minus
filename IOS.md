@@ -25,6 +25,15 @@ names and bundle ID) are in `DESIGN.md` ("iOS app").
 
 ## Phase 2: Live Activity for tracked rides
 
+Status: implemented 2026-10-20 (`909a3fc`, `afbdb26`, `39638ed`; behavior so far in `DESIGN.md`,
+Notifications); TestFlight build 6. Decisions from the 2026-10-20 grill: the card mirrors the ride
+card; the app updates it while open, the server by push otherwise; every tracked ride gets one,
+stop alerts or not; "3 stops to …" stays a notification; island compact: route and stops (or the
+countdown); "Arrived", then dismissed 5 min after the ETA; a missed connection re-planned in
+place (amber); iOS Settings is the only off switch; app colors with the route accent; per-leg
+progress. Previews: the `ios` workflow's `live-activity-previews` artifact (`upload` off: previews
+only). Below: the original plan.
+
 - **When:** every tracked ride (boarding detected, "I got on", Track this trip) starts one,
   alongside `POST /rides`; Done, Cancel, a replaced ride or the ride ending ends it with the
   `DELETE`. iOS settings can turn Live Activities off for the app.

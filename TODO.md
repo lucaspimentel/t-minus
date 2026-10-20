@@ -26,7 +26,8 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 ## iOS app (see `IOS.md`)
 
 - Phase 2: Live Activity for tracked rides, updated by `checkFollowed`; urgent stop alerts stay
-  as notifications.
+  as notifications. Implemented (server, web, the `TMinusWidgets` extension) and uploaded as
+  TestFlight build 6 (2026-10-20); next: check it on rides, then move it into `DESIGN.md`.
 - Phase 3a: leave-time Live Activity (push-to-start at the 10-min heads-up).
 - Phase 3b: widget (next leave-by of the active trip).
 
