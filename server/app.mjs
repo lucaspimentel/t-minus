@@ -22,6 +22,7 @@ const RATE_LIMIT = 30; // requests per IP per minute
 const MAX_BODY = 16 * 1024;
 const RETRY_MS = 20_000; // after an MBTA error
 const MAX_TESTS = 100; // pending test notifications, in memory only
+const SEND_TIMEOUT_MS = 30_000;
 const LOG_MAX = 50; // sent pushes kept per phone (24 h)
 const APP_LOG_MAX = 200; // app log lines kept per device (24 h)
 const DAY = 24 * 60 * MIN;
@@ -149,7 +150,14 @@ function nominatimPlaces(list) {
   }));
 }
 
-export function createApp({ fetch, send, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {} }) {
+export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {}, sendTimeoutMs = SEND_TIMEOUT_MS }) {
+  // A push that never finishes fails after sendTimeoutMs instead of stopping the loop (2026-10-19:
+  // a hung APNs push held the loop for an hour: no reminders went out until a restart).
+  const send = (sub, payload) => {
+    let timer;
+    const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('push timed out')), sendTimeoutMs); });
+    return Promise.race([sendRaw(sub, payload), late]).finally(() => clearTimeout(timer));
+  };
   const schedules = new Map(); // reminder id -> { at, docs }
   const hits = new Map(); // ip -> { minute, count }
   let tests = []; // pending test notifications: { subscription, at }

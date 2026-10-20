@@ -814,7 +814,12 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     provider token (reused 50 min, renewed on `ExpiredProviderToken`) and a 10-min expiration;
     410 `Unregistered` and 400 `BadDeviceToken` / `DeviceTokenNotForTopic` count as a 410 (the
     entry is dropped). Configured by `APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`,
-    `APNS_HOST` (`server/README.md`).
+    `APNS_HOST` (`server/README.md`). Connections (2026-10-20): one idle for 4 min is replaced
+    before use (a push 10 min after the last one hung on a connection dropped on the way); a push
+    that times out (10 s) or whose stream closes unanswered drops the connection and is tried once
+    more on a new one. Any push (APNs or Web Push) that hasn't finished in 30 s fails, so a stuck
+    send can't stop the server's loop (that night it held all reminders for an hour, until a
+    restart).
   - **Live Activity in the app (Phase 2; native side: `IOS.md`):** each tracked ride starts one
     (`TMinus.liveActivityStart({ tripName, state })` → `{ id }`; stored as `t-minus:activity`);
     while the app is open, `liveActivityUpdate` when `liveActivityState` changes (never twice the

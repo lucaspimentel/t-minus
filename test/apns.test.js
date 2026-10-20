@@ -3,12 +3,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, connect } from 'node:http2';
 import { generateKeyPairSync, verify } from 'node:crypto';
-import { apnsClient } from '../server/apns.mjs';
+import { apnsClient, IDLE_MS } from '../server/apns.mjs';
 import { apnsPush, apnsActivityPush } from '../server/app.mjs';
 
 const TOKEN = 'ab'.repeat(32);
 
-// Apple: answers each request with world.reply(headers, body) → [status, reason?], records them.
+// Apple: answers each request with world.reply(headers, body) → [status, reason?] ('hang': no
+// answer; 'reset': the stream closes), records them.
 async function fakeApple() {
   const world = { requests: [], sessions: [], reply: () => [200] };
   const server = createServer();
@@ -19,7 +20,10 @@ async function fakeApple() {
     stream.on('end', () => {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       world.requests.push({ headers, body });
-      const [status, reason] = world.reply(headers, body);
+      const answer = world.reply(headers, body);
+      if (answer === 'hang') return; // never answers (a connection dropped on the way)
+      if (answer === 'reset') return stream.close(); // the stream closes without an answer
+      const [status, reason] = answer;
       stream.respond({ ':status': status, ...(reason && { 'content-type': 'application/json' }) });
       stream.end(reason ? JSON.stringify({ reason }) : undefined);
     });
@@ -34,7 +38,7 @@ function client(apple, clock) {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const send = apnsClient({
     key: privateKey.export({ type: 'pkcs8', format: 'pem' }), keyId: 'KEY123', teamId: 'TEAM45', topic: 'net.lucasp.tminus',
-    now: () => clock.t, connectTo: () => connect(apple.url),
+    now: () => clock.t, connectTo: () => connect(apple.url), timeoutMs: 200,
   });
   return { send, publicKey };
 }
@@ -91,7 +95,6 @@ test('APNs: one session and token reused; the token renewed after 50 min or when
     clock.t += 2 * 60_000;
     await send(TOKEN, push);
     assert.equal(iat(2), clock.t / 1000);
-    assert.equal(apple.world.sessions.length, 1);
     // ExpiredProviderToken (e.g. a clock skew): fails, and the next send signs a new token.
     apple.world.reply = () => [403, 'ExpiredProviderToken'];
     clock.t += 60_000;
@@ -124,5 +127,36 @@ test('APNs: a dead token is a 410; other errors keep their status; a closed sess
     await new Promise(r => setTimeout(r, 50));
     await send(TOKEN, push);
     assert.equal(apple.world.sessions.length, 2);
+  } finally { await apple.close(); }
+});
+
+test('APNs: a busy session is reused; an idle one is replaced; a hung or reset push is tried once more on a new session', async () => {
+  const apple = await fakeApple();
+  const clock = { t: Date.parse('2026-10-18T12:00:00Z') };
+  const { send } = client(apple, clock);
+  const push = apnsPush({ kind: 'test', title: 'T', body: 'B', tag: 'test' });
+  try {
+    await send(TOKEN, push);
+    clock.t += IDLE_MS - 1000;
+    await send(TOKEN, push);
+    assert.equal(apple.world.sessions.length, 1);
+    clock.t += IDLE_MS + 1000; // idle: maybe dropped on the way without either end knowing
+    await send(TOKEN, push);
+    assert.equal(apple.world.sessions.length, 2);
+    // No answer: the 200-ms timeout, then a new session that answers.
+    let n = 0;
+    apple.world.reply = () => (n++ === 0 ? 'hang' : [200]);
+    await send(TOKEN, push);
+    assert.equal(apple.world.sessions.length, 3);
+    // The stream closes without an answer: the same.
+    n = 0;
+    apple.world.reply = () => (n++ === 0 ? 'reset' : [200]);
+    await send(TOKEN, push);
+    assert.equal(apple.world.sessions.length, 4);
+    // Never answering at all: it fails (no hang), after one retry.
+    apple.world.reply = () => 'hang';
+    const before = apple.world.requests.length;
+    await assert.rejects(send(TOKEN, push), /APNs timeout/);
+    assert.equal(apple.world.requests.length - before, 2);
   } finally { await apple.close(); }
 });

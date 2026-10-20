@@ -86,6 +86,7 @@ async function setup({ staticRoot = null } = {}) {
   world.sendStatus = null;
   world.activityStatus = null;
   const send = async (sub, payload) => {
+    if (world.hang) return new Promise(() => {}); // never settles
     if (payload.headers?.['apns-push-type'] === 'liveactivity') {
       if (world.activityStatus) throw Object.assign(new Error('gone'), { statusCode: world.activityStatus });
       const { aps } = payload.body;
@@ -106,7 +107,7 @@ async function setup({ staticRoot = null } = {}) {
   const servers = [];
   // Another app on the same store and MBTA (a restart, or other options), and a way to call it.
   const serve = async (opts = {}) => {
-    const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', staticRoot, ...opts });
+    const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', staticRoot, sendTimeoutMs: 100, ...opts });
     const server = createServer(app.handler);
     servers.push(server);
     await new Promise(r => server.listen(0, r));
@@ -341,6 +342,24 @@ test('/api/log: the iOS app\'s diagnostics per device, 24 h, newest 200; same or
     assert.equal(lines.length, 200);
     assert.equal(lines[0].message, '204'); // newest first
     assert.deepEqual(await read(other), []);
+  } finally { await s.close(); }
+});
+
+test('a push that never finishes fails after the send timeout; the loop goes on', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('06:50');
+    await s.call('POST', '/api/reminders', reminder());
+    await s.call('POST', '/api/reminders', reminder({ subscription: subscription(2) }));
+    s.world.clock = at('06:54');
+    s.world.hang = true;
+    await s.app.tick(); // returns: both sends time out
+    const p = await (await s.call('POST', '/api/pending', { subscription: subscription() })).json();
+    assert.deepEqual(p.log.map(e => [e.ok, e.error]), [[false, 'push timed out']]);
+    s.world.hang = false;
+    s.world.clock = at('06:59');
+    await s.app.tick();
+    assert.equal(s.sent.length, 2); // the loop isn't stuck: both 5-min heads-ups go out
   } finally { await s.close(); }
 });
 
