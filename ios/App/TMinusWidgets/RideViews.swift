@@ -27,12 +27,18 @@ struct RouteDot: View {
     }
 }
 
-// "Orange · 4 stops · 5:42": the title, then the countdown ticking on the phone.
+// The countdown, ticking down by the minute on the phone without updates: "12 minutes", "1 hour,
+// 5 minutes" (iOS 18's date offset format; rounds down like the app's "12 min").
+func countdownText(_ until: Date) -> Text {
+    Text(until, format: .offset(to: Date(), allowedFields: [.hour, .minute], maxFieldCount: 2))
+}
+
+// "Orange · 4 stops · 12 minutes": the title, then the countdown.
 struct Headline: View {
     let state: RideState
     var body: some View {
         if let until = state.untilDate, until > Date() {
-            Text(state.title + " · ") + Text(timerInterval: Date()...until, countsDown: true)
+            Text(state.title + " · ") + countdownText(until)
         } else {
             Text(state.title)
         }
