@@ -17,8 +17,11 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - `setup.js`: the setup view (DOM + setup-time requests); pure helpers belong in `core.js`.
 - `index.html`: UI, fetch, timers. Keep the request budget in `DESIGN.md` (keyless limit is 20 req/min).
 - Update `DESIGN.md` when behavior changes; move finished items out of `TODO.md`.
-- After pushing to `main`, tell the user the footer version (`Version <date> · <hash>` in
-  `index.html`) so they can check that the installed app has updated.
+- After pushing to `main`: check that CI passed and that Railway deployed the commit, then tell
+  the user the footer version (`Version <date> · <hash>` in `index.html`) so they can check that
+  the installed app has updated. Railway skips a commit whose CI failed, and a push that touches
+  none of its watch paths (tests, docs) doesn't deploy, so the live footer stays on the previous
+  version. Deploy a skipped commit that's still wanted by hand (Railway tools or dashboard).
 
 ## Working with the author
 
@@ -76,11 +79,16 @@ This section applies only to Claude Code in the cloud (the sandbox hosted by Ant
 claude.ai/code, or a session started from the app). Locally, run `npx playwright install chromium`
 once and ignore it; CI installs its own browser.
 
-- `@playwright/test` (1.63.0) is newer than the sandbox's preinstalled Playwright (1.56.1, whose
+- `@playwright/test` (1.64.0) is newer than the sandbox's preinstalled Playwright (1.56.1, whose
   Chromium is in `/opt/pw-browsers`), so its own browser build is missing there. Don't run
   `playwright install`; point the config at the preinstalled Chromium instead:
-  `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:browser` (verified with 1.63.0 and
+  `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:browser` (verified with 1.64.0 and
   Chromium 141: the full suite passes).
+- CI runs the headless shell, not full Chromium, so a spec can fail only in CI (the headless
+  shell keeps no notifications, for example). Reproduce it here with
+  `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`.
+- Only `gh api` is available and job log downloads are blocked; read a CI failure from its
+  check-run annotations: `gh api repos/lucaspimentel/t-minus/check-runs/<id>/annotations`.
 - The rest of this section is for ad-hoc checks against the live API (the browser tests use a
   fake API and need none of it).
 - Playwright is global (`/opt/node22/lib/node_modules/playwright`); launch with `{ channel: 'chromium' }`.
