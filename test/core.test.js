@@ -911,7 +911,8 @@ test('countdownLabel text per state', () => {
   assert.equal(countdownLabel('amber', 150_000), 'Leave in 2 min');
   assert.equal(countdownLabel('amber', 59_000), 'Leave in <1 min');
   assert.equal(countdownLabel('red', 45_000), 'Hurry · <1 min');
-  assert.equal(countdownLabel('missed', 150_000), 'Too late · leaves in 2 min');
+  assert.equal(countdownLabel('missed', 150_000), 'Departs in 2 min');
+  assert.equal(countdownLabel('missed', 30_000), 'Departs in <1 min');
   assert.equal(countdownLabel('missed', -30_000), 'Missed · left <1 min ago');
   assert.equal(countdownLabel('missed', -3 * MIN - 10_000), 'Missed · left 3 min ago');
   assert.equal(countdownLabel('none', 0), 'No connection');

@@ -191,7 +191,7 @@ unavailable: fallback, and the status line adds "Location off".
   connection is left out. For a frequent first
   leg (Orange every ~5 min before the 132), the train actually taken is often not the row's.
   While open, the missed row is hidden once its first vehicle has left (it's listed here then);
-  a missed ride still to leave ("Too late · leaves in 6 min") stays. Once its first vehicle has
+  a missed ride still to leave ("Departs in 6 min") stays. Once its first vehicle has
   left, the expanded missed row also has "I got on" in its footer (the same ride as here).
 - "I got on" starts tracking that ride as boarded at its departure (`{ kind: 'track', ride:
   { legs, boardedAt } }`; the card may open past the first leg), with "Tracking started · Undo".
@@ -206,7 +206,7 @@ unavailable: fallback, and the status line adds "Location off".
 | Green | `now < leave_by - 3 min` | "Leave in 12 min", leave-by time on the right |
 | Amber | `leave_by - 3 min <= now < leave_by` | "Leave in 2 min" (the color carries the urgency) |
 | Red | `leave_by <= now < last_chance` | "Hurry · <1 min" (to `last_chance`), last-chance time on the right |
-| Missed | `last_chance <= now < first_leg.departure + 5 min` | Gray "Too late · leaves in 2 min" (can no longer be reached, still to leave), then "Missed · left 3 min ago"; first-leg departure on the right |
+| Missed | `last_chance <= now < first_leg.departure + 5 min` | Amber "Departs in 2 min" (can no longer be reached at your pace, still to leave; `.departs`, 2026-10-21, like the leave card; screen readers hear the same), then gray "Missed · left 3 min ago"; first-leg departure on the right |
 | Hidden | `now >= first_leg.departure + 5 min` | Row removed |
 
 A missed row's collapsed line shows the first leg (the one missed) instead of the timing leg.
