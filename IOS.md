@@ -1,8 +1,8 @@
 # IOS.md — T-Minus iOS app (plan)
 
-Status: Phase 1 (shell and native push, 2026-10-19) and Phase 2 (Live Activity for tracked
-rides, 2026-10-20) are done; their behavior and decisions are in `DESIGN.md` ("iOS app"). Next:
-Phase 3a. Decisions below come from the 2026-10-17 and 2026-10-18 grills; open questions are
+Status: Phase 1 (shell and native push, 2026-10-19), Phase 2 (Live Activity for tracked
+rides, 2026-10-20) and Phase 3a (leave cards, 2026-10-20) are done; their behavior and decisions
+are in `DESIGN.md` ("iOS app"). Next: Phase 3b. Decisions below come from the 2026-10-17 and 2026-10-18 grills; open questions are
 listed at the end. When a phase ships, move its behavior into `DESIGN.md` and keep only the
 remaining plan here.
 
@@ -24,14 +24,6 @@ names and bundle ID) are in `DESIGN.md` ("iOS app").
 - A new target gets its own App ID / profile; the CI's automatic signing with the API key creates
   them (it did for `net.lucasp.tminus.widgets`).
 
-## Phase 3a: Leave-time Live Activity (push-to-start)
-
-- The app registers a push-to-start token (iOS 17.2+) once and sends it with its reminders.
-- At the 10-min heads-up the server starts an activity (`event: start`): "Leave in 8:12"
-  ticking, the first vehicle and its time; updated when predictions move the leave-by; ended at
-  the last chance, or replaced by the ride's activity when the ride is tracked.
-- The 10-min / 5-min / "Leave now" notifications stay.
-
 ## Phase 3b: Widget
 
 - Home Screen / Lock Screen widget: the active trip's name, "Leave 7:42am", the first vehicle.
@@ -42,7 +34,7 @@ names and bundle ID) are in `DESIGN.md` ("iOS app").
 
 - **Project changes:** new targets, capabilities, App Group, and `Info.plist` keys are edited as
   files, not in Xcode: the `xcodeproj` Ruby gem, run here, for new files, build settings and the
-  `TMinusWidgets` extension (Phase 2); the result is committed. 3a and 3b add to that extension.
+  `TMinusWidgets` extension (Phase 2); the result is committed. 3b adds to that extension.
 - **Seeing native UI:** no SwiftUI previews; the `ios` workflow renders the views to PNGs
   (`ios/Previews`, the `live-activity-previews` artifact; see `DESIGN.md`). The widget (3b) adds
   its sizes there.

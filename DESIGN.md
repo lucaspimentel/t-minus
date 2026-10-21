@@ -843,6 +843,23 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     `dismissal-date` 5 min after the ETA. A failed send is retried next poll and shown in the
     push log; a dead token (410) drops the activity, and the ride too when its alerts are off.
     "Pending notifications" shows the activity's sends, title and last error (not the token).
+  - **Leave cards (Phase 3a, server side; see "iOS app"):** a reminder may carry `startToken` (the
+    app's push-to-start token, hex; `POST /reminders`, or `PUT /reminders/:id`, which also takes
+    `activity: { token }`, the card's own token, sent by the app's native code; no Origin, 404 for
+    a ride). When the 10-min heads-up passes (`leaveCardStarts`; at once for a reminder set within
+    10 min), the server sends `event: start` to the start token (`attributes-type: RideAttributes`,
+    `attributes: { tripName, reminderId }`, `input-push-token: 1`, priority 10) with the heads-up's
+    text as its `alert`, instead of the notification. Once the card's token arrives, the 5-min
+    heads-up, a moved leave-by and "Leave now" go to the card as updates with an `alert` (priority
+    10), not as notifications; small changes ("<1 minute") as quiet updates. Past the leave-by the
+    reminder stays: "Departs in" from the last chance (priority 10), then `end` at the departure,
+    dismissed a minute later. "Ride cancelled": an update with its alert, then an end dismissed 2
+    min later. Fallbacks: no start token, a failed start (not retried), no card token yet, or a
+    failed card send: the notification as before; a dead token (410) is dropped. Bell off
+    (`DELETE /reminders/:id`) and "Clear all" end the card at once; `DELETE …?reason=started` (the
+    trip started) keeps it for the app's walk card. The push log lists starts, alerts and ends
+    ("Live Activity: …"); "Pending notifications" shows the card (sends, title, error, whether its
+    token arrived) and, past the leave-by, "Live Activity ends" at the departure.
 - **Test notification:** setup ends with a "Notifications" section and one button, "Send test
   notification in 10 s" (hidden without `SERVER_API`; disabled with the Home Screen hint
   without push). It subscribes like "Notify me", posts to `POST /test-push`, and toasts "Test
@@ -1109,7 +1126,7 @@ the setup data is small on the wire. In order, if more people use the app keyles
 - Polling pauses while the page is hidden (browsers throttle background timers
   anyway); the `visibilitychange` refetch covers returning to the app.
 
-## iOS app (Phase 1, 2026-10-19; Phase 2, Live Activities, 2026-10-20)
+## iOS app (Phase 1, 2026-10-19; Phase 2, Live Activities, 2026-10-20; Phase 3a, leave cards, 2026-10-20)
 
 A native shell around the web app, for what a Home Screen PWA can't do (Live Activities,
 widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live Activity, widget): `IOS.md`.
@@ -1191,6 +1208,44 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   timer progress in a still image, so the previews fill the ridden segment statically.
 - **Builds:** first on TestFlight as build 6; build 14 has the minute countdown and the
   proportional segments. The export check also requires the embedded extension.
+
+### Leave cards (Phase 3a, 2026-10-20)
+
+- **What:** a reminder set in the app ("Notify me") becomes a Live Activity at its 10-min
+  heads-up, started by the server's push (push-to-start, iOS 17.2+) even with the app closed, in
+  the ride card's layout. One card per reminder. iOS Settings → T-Minus → Live Activities off:
+  notifications as before. The 10-min / 5-min / "Leave now" and moved-time notifications go to the
+  card (as its alerts) while it has its update token; otherwise they are sent as before.
+- **Content** (`leaveActivityState`, `core.js`; mockup accepted 2026-10-20): "Leave in 9 minutes"
+  (counting down to the leave-by, "<1 minute" at the end), the first vehicle ("Bus 132 toward
+  Malden at 7:48am", as the notification's body), "Leave by 7:39am · arrive ~8:25am"; a moved
+  leave-by in amber with "Leave by 7:36am (was 7:39am)"; "Leave now" (amber) with "Last chance
+  7:42am"; "Departs in 2 minutes" (amber, to the departure) with "Too late at your walking pace";
+  at the departure it ends ("Missed · left 7:48am"), dismissed a minute later. "Ride cancelled"
+  / "Open the app for the next one.", dismissed after 2 min. The legs bar shows the trip, empty.
+- **Dynamic Island:** compact: the route's dot and label, then "Leave 9 minutes", "Leave now" or
+  "Departs 2 minutes" (amber), or the walking figure and the countdown (scaled to fit: iOS has no
+  live "9m"); expanded: the card.
+- **Walk card:** "Leaving now" / "At the stop" delete the trip's reminders with `?reason=started`
+  and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Bus 132 in 6
+  minutes", "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once there; "2 min late" in
+  amber), "Arrive ~8:25am" (`walkActivityState`), updated by the app while open, no alerts.
+  Boarding ends it just before the ride card starts; Cancel or the vehicle leaving end it. Known
+  limit: with the app closed it isn't updated (stale 2 min after its countdown; ended at the next
+  open).
+- **Bell off** ends the card (the app and the server); cards whose reminder is gone are ended
+  when the app opens (their token may never have reached the server).
+- **Native pieces:** `RideAttributes.reminderId` (set on server-started cards; app-started ride
+  cards have none, and starting a ride card ends only ride cards); `RideState.island` (the
+  island's word) and `join` (" " in "Leave in 9 minutes"); `LiveActivityObserver` (App target,
+  started at launch, also in the background launch after a start push): keeps the push-to-start
+  token (`TMinus.liveActivityStartToken`, the `startToken` event) and sends each leave card's token
+  to `PUT /api/reminders/<reminderId>` (`server.url` from the bundled Capacitor config, 3 tries).
+  Builds without these methods: the app posts reminders without a start token, nothing logged.
+- **Previews:** the `ios` workflow also renders `leave-card-<theme>.png` (every state and the
+  island).
+- **Build:** TestFlight build 15. Only the phone tests push-to-start and the background token
+  send.
 
 ## Remaining unknowns
 
