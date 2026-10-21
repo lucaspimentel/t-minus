@@ -9,6 +9,7 @@ import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpsDue, remHeadsUps, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep, liveActivityState,
+  leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, REMINDER_MISSING,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
 } from '../core.js';
@@ -75,20 +76,25 @@ export function apnsPush({ kind, title, body, tag, renotify }) {
   };
 }
 
-// A Live Activity push (the iOS app's Lock Screen card for a followed ride): `event` 'update' or
-// 'end', `state` from liveActivityState. server/apns.mjs sends it to the activity's own push token
-// with the `<bundle id>.push-type.liveactivity` topic. Updates are sent only on change, so the
-// card goes stale (dimmed) only ACTIVITY_STALE_MS after its countdown ends without a newer one
-// (no countdown: no stale date); an end is dismissed at `dismissAt`.
+// A Live Activity push (the iOS app's Lock Screen card for a followed ride, or a reminder's leave
+// card): `event` 'start', 'update' or 'end', `state` from liveActivityState / leaveActivityState.
+// server/apns.mjs sends it with the `<bundle id>.push-type.liveactivity` topic: a start to the
+// app's push-to-start token (`attributes`: RideAttributes' fields, decoded by ActivityKit; it
+// requires an alert; `input-push-token` asks iOS for the new card's update token), the rest to
+// the card's own token. Updates are sent only on change, so the card goes stale (dimmed) only
+// ACTIVITY_STALE_MS after its countdown ends without a newer one (no countdown: no stale date);
+// an end is dismissed at `dismissAt`. `alert` ({ title, body }): the card lights up and buzzes.
 export const ACTIVITY_STALE_MS = 2 * 60_000;
-export function apnsActivityPush({ event, state, nowMs, urgent = false, dismissAt = null }) {
+export function apnsActivityPush({ event, state, nowMs, urgent = false, dismissAt = null, attributes = null, alert = null }) {
   const sec = ms => Math.floor(ms / 1000);
-  const staleAt = event === 'update' && state.until ? Math.max(nowMs, state.until * 1000) + ACTIVITY_STALE_MS : null;
+  const staleAt = event !== 'end' && state.until ? Math.max(nowMs, state.until * 1000) + ACTIVITY_STALE_MS : null;
   return {
-    headers: { 'apns-push-type': 'liveactivity', 'apns-priority': urgent ? '10' : '5' },
+    headers: { 'apns-push-type': 'liveactivity', 'apns-priority': urgent || event === 'start' ? '10' : '5' },
     body: {
       aps: {
         timestamp: sec(nowMs), event, 'content-state': state,
+        ...(event === 'start' && { 'attributes-type': 'RideAttributes', attributes, 'input-push-token': 1 }),
+        ...(alert && { alert: { title: alert.title, body: alert.body, sound: 'default' } }),
         ...(staleAt != null && { 'stale-date': sec(staleAt) }),
         ...(dismissAt != null && { 'dismissal-date': sec(dismissAt) }),
       },
@@ -112,7 +118,9 @@ function pendingView(e, t) {
     return { ...base, ride: e.ride, phase: ridePhase(e.ride, tripShape(e.trip).walkAfter, t).kind, alert: e.alert, alerts: e.alerts !== false, activity };
   }
   const first = tripShape(e.trip).transit[0];
-  return { ...base, key: e.key, leaveBy: e.leaveBy, headsUps: remHeadsUps(e), route: first?.label ?? first?.route ?? null };
+  const c = e.card && !e.card.tried ? e.card : null;
+  const activity = c ? { sent: c.sent ?? 0, title: c.last?.title ?? null, error: c.error ?? null, token: !!c.token } : null;
+  return { ...base, key: e.key, leaveBy: e.leaveBy, headsUps: remHeadsUps(e), route: first?.label ?? first?.route ?? null, ...(activity && { activity }) };
 }
 
 const nearBoston = (lat, lon) => lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5;
@@ -312,8 +320,10 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   const validSubscription = sub => typeof sub?.endpoint === 'string' && (/^apns:[0-9a-f]{64,200}$/.test(sub.endpoint)
     || (sub.endpoint.startsWith('https://') && typeof sub.keys?.p256dh === 'string' && typeof sub.keys?.auth === 'string'));
   const validDevice = d => typeof d === 'string' && /^[0-9a-f-]{36}$/.test(d);
-  // A ride's Live Activity: `{ token }`, the activity's APNs push token (hex).
-  const activityError = a => (a == null || (typeof a?.token === 'string' && /^[0-9a-f]{32,400}$/.test(a.token)) ? null : 'activity is invalid');
+  // A Live Activity's APNs push token (hex): a card's own (`activity: { token }`), or the app's
+  // push-to-start token (`startToken`, a reminder's leave card).
+  const validToken = x => typeof x === 'string' && /^[0-9a-f]{32,400}$/.test(x);
+  const activityError = a => (a == null || validToken(a?.token) ? null : 'activity is invalid');
 
   // The request body for a new reminder, or an error message.
   function checkReminder(b, t) {
@@ -325,6 +335,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (!Number.isFinite(b.leaveBy) || b.leaveBy <= t || b.leaveBy - t > MAX_AHEAD) return 'leaveBy must be in the next 12 hours';
     if (b.stopSlackMinutes != null && !(Number.isFinite(b.stopSlackMinutes) && b.stopSlackMinutes >= 0 && b.stopSlackMinutes <= 60)) return 'stopSlackMinutes is invalid';
     if (b.tripName != null && (typeof b.tripName !== 'string' || b.tripName.length > 100)) return 'tripName is invalid';
+    if (b.startToken != null && !validToken(b.startToken)) return 'startToken is invalid';
     return null;
   }
 
@@ -454,7 +465,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' });
       const ep = body.subscription.endpoint;
       if (path === '/pending/clear') {
-        const ids = store.forEndpoint(ep).map(e => e.id);
+        const entries = store.forEndpoint(ep);
+        const ids = entries.map(e => e.id);
+        for (const e of entries) endCardNow(e, t);
         store.deleteFor(ep);
         for (const id of ids) schedules.delete(id);
         return reply(res, 200, { deleted: ids.length });
@@ -486,6 +499,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
         id: randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
         stopSlackMinutes: body.stopSlackMinutes ?? 1, timingIdx: body.timingIdx, key: body.key,
         leaveBy: body.leaveBy, headsUps: headsUpsDue(body.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
+        ...(body.startToken && { startToken: body.startToken }),
       };
       store.add(rem);
       log(`reminder ${rem.id} for ${rem.key}, leave by ${new Date(rem.leaveBy).toISOString()}`);
@@ -546,7 +560,32 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
 
     const m = path.match(/^\/reminders\/([\w-]{1,64})$/);
+    // The iOS app's tokens, each optional: `startToken` (iOS changed its push-to-start token) and
+    // `activity: { token }` (the leave card's own token, from the app's native code after a
+    // server start; it also proves the card exists).
+    if (req.method === 'PUT' && m) {
+      let b;
+      try { b = JSON.parse(await readBody(req)); } catch (e) { return reply(res, e.status ?? 400, { error: e.status ? 'Body too large' : 'Invalid JSON' }); }
+      const rem = store.get(m[1]);
+      if (!rem || rem.kind === 'ride') return reply(res, 404, { error: 'Not found' });
+      if (b?.startToken != null && !validToken(b.startToken)) return reply(res, 400, { error: 'startToken is invalid' });
+      if (b?.activity != null && !validToken(b.activity?.token)) return reply(res, 400, { error: 'activity is invalid' });
+      if (b?.startToken) rem.startToken = b.startToken;
+      if (b?.activity) {
+        const live = rem.card && !rem.card.tried ? rem.card : null;
+        rem.card = live
+          ? { ...live, token: b.activity.token, error: null }
+          : { token: b.activity.token, started: t, last: null, was: null, left: false, firstDep: null, sent: 0, error: null };
+        log(`leave card token for ${rem.id}`);
+      }
+      store.update(rem);
+      return reply(res, 204, undefined);
+    }
+    // `?reason=started`: the trip started ("Leaving now", "At the stop", boarding); the app keeps
+    // the leave card (the walk card). Otherwise (bell off) the card ends at once.
     if (req.method === 'DELETE' && m) {
+      const rem = store.get(m[1]);
+      if (rem && rem.kind !== 'ride' && url.searchParams.get('reason') !== 'started') endCardNow(rem, t);
       const found = store.delete(m[1]);
       schedules.delete(m[1]);
       return reply(res, found ? 204 : 404, undefined);
@@ -780,11 +819,23 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
     rem.lastCheckAt = t;
     const row = rowsFromDocs(rem.trip, docs.predictions, docs.schedules, rem.timingIdx, t, rem.stopSlackMinutes).find(r => r.key === rem.key) ?? null;
+    // Past the leave-by, a leave card counts down to the departure.
+    if (rem.card?.left && rem.card.token) return checkLeftCard(rem, row, t);
     const step = reminderStep(rem, row, t);
     rem.leaveBy = step.leaveBy;
     rem.missing = step.missing;
     rem.headsUps = step.headsUps;
     delete rem.headsUp;
+    // A leave card with its update token: the step goes to the card (with an alert) instead of
+    // a notification; a failed send falls back to the notification.
+    if (rem.card?.token) {
+      const done = await cardStep(rem, step, row, t);
+      if (done === 'dropped') return true;
+      if (done === 'kept') return schedule(rem, t);
+    } else if (row && leaveCardStarts(rem, step, t) && await startCard(rem, step, row, t)) {
+      rem.sent = { leaveBy: step.leaveBy };
+      return schedule(rem, t);
+    }
     if (step.action === 'leave' || step.action === 'cancelled') {
       await push(rem, step.action, row, t);
       return drop(rem);
@@ -794,11 +845,146 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       rem.sent = { leaveBy: step.leaveBy };
       if (!(await push(rem, step.action, row, t, step))) return drop(rem);
     }
-    // Poll again in time for the next notification.
+    return schedule(rem, t);
+  }
+
+  // Poll again in time for the next notification.
+  function schedule(rem, t) {
     const due = rem.headsUps.length ? rem.leaveBy - Math.max(...rem.headsUps) * MIN : rem.leaveBy;
     const next = t + reminderPollMs(rem.leaveBy, t);
     rem.nextPollAt = due > t ? Math.min(next, due) : next;
     return false;
+  }
+
+  // ---------- leave cards (a reminder's Live Activity, iOS Phase 3a) ----------
+
+  // Sends a Live Activity push to `token`; the error text, or null when sent. Starts, alerts
+  // and ends go to the phone's push log (sent or failed), quiet updates only when they fail.
+  async function sendCard(rem, token, payload, t) {
+    const aps = payload.body.aps;
+    const entry = { at: t, ref: rem.id, kind: 'activity', tripName: rem.tripName ?? null, title: `Live Activity: ${aps.alert?.title ?? aps['content-state'].title}`, body: aps.alert?.body ?? aps['content-state'].sub };
+    const record = extra => { try { store.logPush(rem.subscription.endpoint, { ...entry, ...extra }, t - DAY, LOG_MAX); } catch (e) { log(`push log: ${e.message}`); } };
+    try {
+      await send({ endpoint: `${APNS_PREFIX}${token}` }, payload);
+    } catch (e) {
+      const error = `${e.statusCode ?? ''} ${e.reason ?? e.message ?? ''}`.trim().slice(0, 200);
+      log(`leave card ${aps.event} for ${rem.id} failed: ${error}`);
+      record({ ok: false, error });
+      return { error, gone: e.statusCode === 410 };
+    }
+    if (aps.event !== 'update' || aps.alert) record({ ok: true });
+    log(`leave card ${aps.event} for ${rem.id}`);
+    return null;
+  }
+
+  // At the 10-min heads-up (or at once when set later): the start push, with the heads-up as
+  // its alert. True when sent (no notification then); a failure is not retried (`tried`).
+  async function startCard(rem, step, row, t) {
+    const state = leaveActivityState(row, t, { was: step.was });
+    const alert = reminderText('headsUp', rem.tripName, row, t, step.was);
+    const failed = await sendCard(rem, rem.startToken, apnsActivityPush({
+      event: 'start', state, nowMs: t, attributes: { tripName: rem.tripName, reminderId: rem.id }, alert,
+    }), t);
+    if (failed) {
+      if (failed.gone) delete rem.startToken;
+      else rem.card = { tried: true, token: null, error: failed.error };
+      return false;
+    }
+    rem.card = { token: null, started: t, last: state, was: step.was ?? null, left: false, firstDep: row.firstDep, sent: 1, error: null };
+    return true;
+  }
+
+  // An update (or end) to the card; false when it failed (a dead token is dropped: notifications
+  // take over).
+  async function cardPush(rem, push, t) {
+    const failed = await sendCard(rem, rem.card.token, apnsActivityPush({ nowMs: t, ...push }), t);
+    if (failed) {
+      rem.card = { ...rem.card, error: failed.error, ...(failed.gone && { token: null }) };
+      return false;
+    }
+    rem.card = { ...rem.card, error: null, sent: (rem.card.sent ?? 0) + 1, ...(push.event === 'update' && { last: push.state }) };
+    return true;
+  }
+
+  // A reminder step for a leave card: 'dropped', 'kept' (no notification), or 'fallback' (the
+  // card send failed: the step's notification goes out as without a card).
+  async function cardStep(rem, step, row, t) {
+    const card = rem.card;
+    const text = kind => reminderText(kind, rem.tripName, row, t, step.was);
+    switch (step.action) {
+      case 'headsUp':
+      case 'update': {
+        rem.sent = { leaveBy: step.leaveBy };
+        const was = step.was ?? null;
+        const ok = await cardPush(rem, { event: 'update', state: leaveActivityState(row, t, { was }), urgent: true, alert: text(step.action) }, t);
+        if (!ok) return 'fallback';
+        rem.card.was = was;
+        return 'kept';
+      }
+      case 'leave': {
+        if (leavePhase(row, t) === 'gone') {
+          await cardPush(rem, { event: 'end', state: leaveActivityState(row, t), dismissAt: t }, t);
+          return 'fallback';
+        }
+        const ok = await cardPush(rem, { event: 'update', state: leaveActivityState(row, t), urgent: true, alert: text('leave') }, t);
+        if (!ok && !rem.card.token) return 'fallback';
+        rem.card = { ...rem.card, left: true, firstDep: row.firstDep };
+        if (!ok) await push(rem, 'leave', row, t);
+        rem.nextPollAt = t + 20_000;
+        return 'kept';
+      }
+      case 'cancelled': {
+        const state = leaveCancelledState(card.last);
+        await cardPush(rem, { event: 'update', state, urgent: true, alert: text('cancelled') }, t);
+        if (rem.card.token) await cardPush(rem, { event: 'end', state, dismissAt: t + 2 * MIN }, t);
+        else await push(rem, 'cancelled', row, t);
+        return drop(rem) && 'dropped';
+      }
+      case 'expire':
+        await cardPush(rem, { event: 'end', state: card.last ?? leaveCancelledState(null), dismissAt: t }, t);
+        return drop(rem) && 'dropped';
+      default: { // wait: quiet updates ("<1 minute", small moves)
+        if (!row) return 'kept';
+        const state = leaveActivityState(row, t, { was: card.was });
+        if (JSON.stringify(state) !== JSON.stringify(card.last)) await cardPush(rem, { event: 'update', state }, t);
+        return 'kept';
+      }
+    }
+  }
+
+  // Past the leave-by: "Leave now", then "Departs in", ended when the vehicle leaves (dismissed a
+  // minute later). Lost from the predictions: ended quietly.
+  async function checkLeftCard(rem, row, t) {
+    const card = rem.card;
+    if (!row) {
+      rem.missing = (rem.missing ?? 0) + 1;
+      if (rem.missing >= REMINDER_MISSING || t >= (card.firstDep ?? rem.leaveBy) + 5 * MIN) {
+        await cardPush(rem, { event: 'end', state: card.last ?? leaveCancelledState(null), dismissAt: t }, t);
+        return drop(rem);
+      }
+      rem.nextPollAt = t + 20_000;
+      return false;
+    }
+    rem.missing = 0;
+    rem.card.firstDep = row.firstDep;
+    const state = leaveActivityState(row, t);
+    if (leavePhase(row, t) === 'gone') {
+      await cardPush(rem, { event: 'end', state, dismissAt: Math.max(t, row.firstDep + MIN) }, t);
+      return drop(rem);
+    }
+    if (JSON.stringify(state) !== JSON.stringify(card.last)) {
+      const urgent = state.phase === 'departs' && card.last?.phase !== 'departs';
+      if (!(await cardPush(rem, { event: 'update', state, urgent }, t)) && !rem.card.token) return drop(rem);
+    }
+    rem.nextPollAt = t + 20_000;
+    return false;
+  }
+
+  // Bell off, "Clear all pending": the leave card ends at once (not awaited; a failure is logged).
+  function endCardNow(rem, t) {
+    if (rem.kind === 'ride' || !rem.card?.token) return;
+    const state = rem.card.last ?? leaveCancelledState(null);
+    sendCard(rem, rem.card.token, apnsActivityPush({ event: 'end', state, nowMs: t, dismissAt: t }), t).catch(e => log(`leave card end: ${e.message}`));
   }
 
   // A ride's Live Activity push (to the activity's own token, through the same send). False when
