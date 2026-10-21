@@ -1,6 +1,7 @@
 import Foundation
 
-// The Live Activity's content: liveActivityState in core.js (built by the app for local updates
+// The Live Activity's content: liveActivityState (a ride) or leaveActivityState / walkActivityState
+// (a leave card) in core.js (built by the app for local updates
 // and by the server for pushes). Times are Unix seconds. Plain Codable (no ActivityKit) so the
 // views also compile on macOS for the CI previews (ios/Previews).
 struct RideState: Codable, Hashable {
@@ -10,7 +11,7 @@ struct RideState: Codable, Hashable {
         var arr: Double
     }
 
-    var phase: String   // riding, transfer, walking, arrived
+    var phase: String   // riding, transfer, walking, arrived; leave, now, departs, gone, cancelled, walk
     var warn: Bool      // a missed or no connection (amber)
     var color: String   // the route's hex color, "" for none
     var label: String   // the Dynamic Island's route label ("OL", "132", "🚶")
@@ -21,6 +22,8 @@ struct RideState: Codable, Hashable {
     var next: String
     var legs: [Leg]
     var soon: Bool? = nil // the countdown's last 80 s: "<1 minute" (absent from older servers)
+    var island: String? = nil // a leave or walk card: the Dynamic Island's word ("Leave", "Leave now", "Departs", "" walking)
+    var join: String? = nil   // between the title and the countdown: " · " (default), " " ("Leave in 9 minutes")
 
     var untilDate: Date? { until > 0 ? Date(timeIntervalSince1970: until) : nil }
     // Dimmed by iOS 2 min after the countdown ends without a newer update (as the server's pushes).

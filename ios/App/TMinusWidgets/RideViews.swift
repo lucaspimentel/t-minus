@@ -36,12 +36,12 @@ func countdownText(_ state: RideState) -> Text? {
     return Text(until, format: .offset(to: Date(), allowedFields: [.minute], maxFieldCount: 1))
 }
 
-// "Orange · 4 stops · 12 minutes": the title, then the countdown.
+// "Orange · 4 stops · 12 minutes" (or "Leave in 9 minutes": `join`): the title, then the countdown.
 struct Headline: View {
     let state: RideState
     var body: some View {
         if let countdown = countdownText(state) {
-            Text(state.title + " · ") + countdown
+            Text(state.title + (state.join ?? " · ")) + countdown
         } else {
             Text(state.title)
         }
@@ -138,10 +138,19 @@ struct IslandLeading: View {
     }
 }
 
+// A leave card: "Leave 9 minutes", "Leave now", "Departs 2 minutes" (amber), or the walking
+// figure and the countdown (scaled to fit: iOS has no live "9m" format).
 struct IslandTrailing: View {
     let state: RideState
     var body: some View {
-        if state.phase == "riding" && state.stops > 0 {
+        if let word = state.island {
+            HStack(spacing: 4) {
+                if state.phase == "walk" { Image(systemName: "figure.walk") } else { Text(word) }
+                if state.phase != "now", let countdown = countdownText(state) { countdown }
+            }
+            .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6).frame(maxWidth: 110)
+            .foregroundStyle(state.warn ? Color(hex: "F0A830") : .white)
+        } else if state.phase == "riding" && state.stops > 0 {
             Text("\(state.stops) stop\(state.stops == 1 ? "" : "s")").font(.subheadline.weight(.semibold))
         } else if let countdown = countdownText(state) {
             countdown.font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: 90)

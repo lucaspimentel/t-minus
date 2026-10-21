@@ -20,6 +20,7 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		6D05587455ECECAFD4293ED3 /* RideActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92704E90C72C76C65F64A0CB /* RideActivityWidget.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
+		9E27E2126ABBF2FC73F80AF2 /* LiveActivityObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9091E44CDF0BDB348AFFCCF5 /* LiveActivityObserver.swift */; };
 		A58DD02BE7A2AB2A629E186D /* RideState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A22F0960B9741C28CC9DA3 /* RideState.swift */; };
 		BF357FE97FBADC690D1B4510 /* RideViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA9BCA404177730EC091E482 /* RideViews.swift */; };
 		F5DA4DC356370BC10584FFDB /* TMinusPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62AFAE337766795634C533E9 /* TMinusPlugin.swift */; };
@@ -65,6 +66,7 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		62AFAE337766795634C533E9 /* TMinusPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TMinusPlugin.swift; sourceTree = "<group>"; };
+		9091E44CDF0BDB348AFFCCF5 /* LiveActivityObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityObserver.swift; sourceTree = "<group>"; };
 		92704E90C72C76C65F64A0CB /* RideActivityWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RideActivityWidget.swift; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
@@ -147,6 +149,7 @@
 				E08BE0C5A510FA6554458F25 /* MainViewController.swift */,
 				62AFAE337766795634C533E9 /* TMinusPlugin.swift */,
 				1A7DEE8B39F35BD1246C78F2 /* App.entitlements */,
+				9091E44CDF0BDB348AFFCCF5 /* LiveActivityObserver.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -283,6 +286,7 @@
 				F5DA4DC356370BC10584FFDB /* TMinusPlugin.swift in Sources */,
 				A58DD02BE7A2AB2A629E186D /* RideState.swift in Sources */,
 				061C8ED28F425B3BB04049FD /* RideAttributes.swift in Sources */,
+				9E27E2126ABBF2FC73F80AF2 /* LiveActivityObserver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -12,7 +12,19 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "liveActivityStart", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "liveActivityUpdate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "liveActivityEnd", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "liveActivityStartToken", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "liveActivityList", returnType: CAPPluginReturnPromise),
     ]
+
+    private var startTokenObserver: NSObjectProtocol?
+
+    override public func load() {
+        // iOS changed the push-to-start token (LiveActivityObserver): the `startToken` event { token }.
+        startTokenObserver = NotificationCenter.default.addObserver(forName: LiveActivityObserver.startTokenChanged, object: nil, queue: .main) { [weak self] note in
+            guard let token = note.object as? String else { return }
+            self?.notifyListeners("startToken", data: ["token": token], retainUntilConsumed: true)
+        }
+    }
 
     // keepAwake({ on }): keeps the screen on while a ride is tracked (the PWA's Wake Lock).
     @objc func keepAwake(_ call: CAPPluginCall) {
@@ -35,14 +47,15 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         Activity<RideAttributes>.activities.first { $0.id == id }
     }
 
-    // liveActivityStart({ tripName, state }) → { id }: one activity at a time (others end). Its
+    // liveActivityStart({ tripName, state }) → { id }: one ride card at a time (other ride cards
+    // end; leave cards stay until the web app ends them). Its
     // push token (hex) comes as the `activityToken` event { id, token }, again when iOS changes it.
     @objc func liveActivityStart(_ call: CAPPluginCall) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return call.reject("Live Activities are off for this app") }
         guard let state = rideState(call) else { return call.reject("state is invalid") }
         let attributes = RideAttributes(tripName: call.getString("tripName") ?? "")
         Task {
-            for old in Activity<RideAttributes>.activities { await old.end(nil, dismissalPolicy: .immediate) }
+            for old in Activity<RideAttributes>.activities where old.attributes.reminderId == nil { await old.end(nil, dismissalPolicy: .immediate) }
             do {
                 let act = try Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: state.staleDate), pushType: .token)
                 call.resolve(["id": act.id])
@@ -66,6 +79,21 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
             await act.update(ActivityContent(state: state, staleDate: state.staleDate))
             call.resolve()
         }
+    }
+
+    // liveActivityStartToken() → { token }: the push-to-start token (hex) sent with reminders, or
+    // null until iOS gives one.
+    @objc func liveActivityStartToken(_ call: CAPPluginCall) {
+        call.resolve(["token": UserDefaults.standard.string(forKey: LiveActivityObserver.startTokenKey) ?? NSNull()])
+    }
+
+    // liveActivityList() → { activities: [{ id, reminderId, tripName }] }: the cards on screen
+    // (reminderId: a leave card the server started; null for a ride card).
+    @objc func liveActivityList(_ call: CAPPluginCall) {
+        let list: [[String: Any]] = Activity<RideAttributes>.activities.map {
+            ["id": $0.id, "reminderId": $0.attributes.reminderId ?? NSNull(), "tripName": $0.attributes.tripName]
+        }
+        call.resolve(["activities": list])
     }
 
     // liveActivityEnd({ id }): removed at once (Done, Cancel, a replaced ride). A missing one is fine.
