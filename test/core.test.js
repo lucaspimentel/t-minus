@@ -12,6 +12,7 @@ import {
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, withoutArrived, stopConnections,
+  leavePhase, leaveActivityState, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, firstVehicleLine,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -2001,6 +2002,8 @@ test('nextPush: a reminder\'s heads-up then Leave now; a ride\'s heads-up, then 
   assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [5] }, at('06:55')), { kind: 'headsUp', at: at('06:59'), text: 'Leave in 5 min' });
   assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUp: true }, at('06:50')), { kind: 'headsUp', at: at('06:59'), text: 'Leave in 5 min' });
   assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [] }, at('07:00')), { kind: 'leave', at: at('07:04'), text: 'Leave now' });
+  // A leave card past its leave-by: it ends when the vehicle leaves.
+  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [], card: { left: true, firstDep: at('07:10') } }, at('07:05')), { kind: 'end', at: at('07:10'), text: 'Live Activity ends' });
   const trip = { name: 'Home to office', legs: [{ kind: 'walk', minutes: 5 }, { kind: 'transit', route: '132', stop: 's1', alight: 's2' },
     { kind: 'transfer', minutes: 5 }, { kind: 'transit', route: 'Orange', stop: 'o1', alight: 'o2' }, { kind: 'walk', minutes: 10 }] };
   const ride = { boardedAt: at('07:08'), legs: [
@@ -2014,4 +2017,69 @@ test('nextPush: a reminder\'s heads-up then Leave now; a ride\'s heads-up, then 
   assert.deepEqual(nextPush(e({ 0: { first: 9, headsUp: true, getOff: true } }), at('07:25')), { kind: 'headsUp', at: null, text: '3 stops to your stop · Orange Line' });
   assert.equal(nextPush(e({ 0: { getOff: true }, 1: { first: 9, headsUp: true, getOff: true } }), at('07:46')), null);
   assert.equal(nextPush(e({}), at('07:50')), null); // walking: nothing left
+});
+
+// The leave card (Phase 3a): the mockup's times (leave by 7:39, last chance 7:42, bus at 7:48, arrive 8:25).
+const leaveRow = () => ({
+  key: 'b1', leaveBy: at('07:39'), lastChance: at('07:42'), firstDep: at('07:48'), eta: at('08:25'), timingIdx: 1,
+  legs: [{ route: '132', label: 'Bus 132', color: 'FFC72C', headsign: 'Malden', tripId: 'b1', dep: at('07:48'), arr: at('08:02') },
+    { route: 'Orange', label: 'Orange', color: 'ED8B00', tripId: 'o1', dep: at('08:06'), arr: at('08:15') }],
+});
+// ActivityKit decodes pushed content into RideState (ios/App/Shared/RideState.swift): a missing
+// required field drops the push silently on the phone.
+const RIDE_STATE_KEYS = ['phase', 'warn', 'color', 'label', 'title', 'until', 'stops', 'sub', 'next', 'legs'];
+const hasRideStateKeys = st => RIDE_STATE_KEYS.every(k => st[k] !== undefined && st[k] !== null);
+
+test('leaveActivityState: leave in, moved, leave now, departs, gone', () => {
+  const row = leaveRow();
+  const sec = hhmm => at(hhmm) / 1000;
+  assert.deepEqual(['07:30', '07:39', '07:42', '07:48'].map(h => leavePhase(row, at(h))), ['before', 'now', 'departs', 'gone']);
+  const before = leaveActivityState(row, at('07:30'));
+  assert.deepEqual(before, {
+    phase: 'leave', warn: false, color: 'FFC72C', label: '132', title: 'Leave in', until: sec('07:39'), stops: -1,
+    sub: 'Bus 132 toward Malden at 7:48am', next: 'Leave by 7:39am · arrive ~8:25am',
+    legs: [{ color: 'FFC72C', dep: sec('07:48'), arr: sec('08:02') }, { color: 'ED8B00', dep: sec('08:06'), arr: sec('08:15') }],
+    island: 'Leave', join: ' ', soon: false,
+  });
+  assert.equal(before.sub, firstVehicleLine(row, at('07:30')));
+  const moved = leaveActivityState({ ...row, leaveBy: at('07:36') }, at('07:30'), { was: at('07:39') });
+  assert.deepEqual([moved.warn, moved.next], [true, 'Leave by 7:36am (was 7:39am)']);
+  assert.equal(leaveActivityState(row, at('07:39') - 81_000).soon, false);
+  assert.equal(leaveActivityState(row, at('07:39') - 80_000).soon, true);
+  const now = leaveActivityState(row, at('07:40'));
+  assert.deepEqual([now.phase, now.title, now.until, now.warn, now.island, now.next, now.soon], ['now', 'Leave now', 0, true, 'Leave now', 'Last chance 7:42am', false]);
+  const departs = leaveActivityState(row, at('07:46'));
+  assert.deepEqual([departs.phase, departs.title, departs.until, departs.warn, departs.island, departs.next], ['departs', 'Departs in', sec('07:48'), true, 'Departs', 'Too late at your walking pace']);
+  const gone = leaveActivityState(row, at('07:48'));
+  assert.deepEqual([gone.phase, gone.title, gone.until, gone.island], ['gone', 'Missed · left 7:48am', 0, '']);
+  const cancelled = leaveCancelledState(before);
+  assert.deepEqual([cancelled.phase, cancelled.title, cancelled.sub, cancelled.next, cancelled.until, cancelled.color], ['cancelled', 'Ride cancelled', '', 'Open the app for the next one.', 0, 'FFC72C']);
+  for (const st of [before, moved, now, departs, gone, cancelled, leaveCancelledState(null)]) assert.ok(hasRideStateKeys(st), st.phase);
+});
+
+test('walkActivityState: on the way, at the stop, late', () => {
+  const row = { ...leaveRow(), leaveBy: null, enRoute: true };
+  const leaving = walkActivityState(row, { kind: 'leaving', at: at('07:38'), atStop: at('07:45') }, at('07:40'));
+  assert.deepEqual([leaving.phase, leaving.title, leaving.join, leaving.until, leaving.island, leaving.sub, leaving.next, leaving.warn],
+    ['walk', 'Bus 132 in', ' ', at('07:48') / 1000, '', 'At the stop ~7:45am · 3 min to spare', 'Arrive ~8:25am', false]);
+  assert.ok(hasRideStateKeys(leaving));
+  assert.equal(walkActivityState(row, { kind: 'leaving', at: at('07:38'), atStop: at('07:45') }, at('07:46')).sub, 'At the stop since 7:45am · 3 min to spare');
+  assert.equal(walkActivityState(row, { kind: 'stop', at: at('07:44'), atStop: at('07:44') }, at('07:44')).sub, 'At the stop since 7:44am · 4 min to spare');
+  const late = walkActivityState(row, { kind: 'leaving', at: at('07:43'), atStop: at('07:50') }, at('07:44'));
+  assert.deepEqual([late.sub, late.warn], ['At the stop ~7:50am · 2 min late', true]);
+});
+
+test('leaveCardStarts: at the 10-min heads-up, or at once when set later', () => {
+  const rem = { startToken: 'ab'.repeat(32), leaveBy: at('07:39'), headsUps: [10, 5] };
+  const step = (action, headsUps, leaveBy = at('07:39')) => ({ action, leaveBy, headsUps });
+  assert.equal(LEAVE_CARD_MIN, 10);
+  assert.equal(leaveCardStarts(rem, step('wait', [10, 5]), at('07:20')), false);
+  assert.equal(leaveCardStarts(rem, step('headsUp', [5]), at('07:30')), true);
+  assert.equal(leaveCardStarts(rem, step('headsUp', []), at('07:35')), true); // a late poll: both passed
+  assert.equal(leaveCardStarts({ ...rem, headsUps: [5] }, step('wait', [5]), at('07:31')), true); // set within 10 min
+  assert.equal(leaveCardStarts({ ...rem, headsUps: [] }, step('wait', []), at('07:36')), true);
+  assert.equal(leaveCardStarts({ ...rem, startToken: undefined }, step('headsUp', [5]), at('07:30')), false);
+  assert.equal(leaveCardStarts({ ...rem, card: { token: null } }, step('headsUp', [5]), at('07:30')), false);
+  assert.equal(leaveCardStarts({ ...rem, headsUps: [] }, step('leave', []), at('07:39')), false);
+  assert.equal(leaveCardStarts(rem, step('update', [5]), at('07:31')), false);
 });

@@ -1606,14 +1606,19 @@ export const headsUpsDue = (leaveBy, nowMs) => HEADS_UP_MINS.filter(m => nowMs <
 // Push text: { title, body }. `row` (when known) names the first vehicle and its time; an
 // 'update' (or a heads-up after a moved time) also gives the new leave-by and the one last shown (`was`).
 export function reminderText(kind, tripName, row, nowMs, was) {
-  const first = row?.legs[0];
-  const body = first ? `${lineToward(first)} at ${legTime(first, first.dep, nowMs)}` : '';
+  const body = firstVehicleLine(row, nowMs);
   switch (kind) {
     case 'headsUp': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: was == null ? body : `${body} · leave by ${formatTime(row.leaveBy, nowMs)} (was ${formatTime(was, nowMs)})` };
     case 'update': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: `${body} · leave by ${formatTime(row.leaveBy, nowMs)} (was ${formatTime(was, nowMs)})` };
     case 'leave': return { title: `Leave now · ${tripName}`, body };
     default: return { title: `Ride cancelled · ${tripName}`, body: 'Open the app for the next one.' };
   }
+}
+
+// "Bus 132 toward Malden at 7:48am": a row's first vehicle (reminders and the leave card).
+export function firstVehicleLine(row, nowMs) {
+  const first = row?.legs[0];
+  return first ? `${lineToward(first)} at ${legTime(first, first.dep, nowMs)}` : '';
 }
 
 // The setup's test notification: sent this long after the tap, to lock the phone meanwhile.
@@ -1943,6 +1948,7 @@ export function rideAlertText(send, { ride, outlook, stopName, walkAfter, nowMs 
 export function nextPush(e, nowMs) {
   if (e.kind !== 'ride') {
     const m = Math.max(...remHeadsUps(e));
+    if (e.card?.left) return { kind: 'end', at: e.card.firstDep, text: 'Live Activity ends' };
     return m > 0
       ? { kind: 'headsUp', at: e.leaveBy - m * MIN, text: `Leave in ${m} min` }
       : { kind: 'leave', at: e.leaveBy, text: 'Leave now' };
@@ -2276,6 +2282,77 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
   }
   out.soon = out.until > 0 && out.until * 1000 - nowMs <= LIVE_SOON_MS;
   return out;
+}
+
+// The leave card (Phase 3a): a reminder's Live Activity, started by the server's push at the
+// 10-min heads-up (or at once when set later), in the ride card's layout. Its phases: 'before'
+// the leave-by, 'now' until the last chance, 'departs' until the first vehicle leaves, then
+// 'gone' (the card ends). `island` (the Dynamic Island's short text) marks a leave or walk card;
+// `join` puts the countdown right after the title ("Leave in 9 minutes").
+export const LEAVE_CARD_MIN = HEADS_UP_MINS[0];
+export function leavePhase(row, nowMs) {
+  if (nowMs < row.leaveBy) return 'before';
+  if (nowMs < row.lastChance) return 'now';
+  if (nowMs < row.firstDep) return 'departs';
+  return 'gone';
+}
+function leaveCardBase(row, nowMs) {
+  const first = row.legs[0];
+  return {
+    phase: '', warn: false, color: first.color ?? '', label: islandLabel(first), title: '', until: 0, stops: -1,
+    sub: firstVehicleLine(row, nowMs), next: '', legs: row.legs.map(l => ({ color: l.color ?? '', dep: Math.round(l.dep / 1000), arr: Math.round(l.arr / 1000) })),
+    island: '', join: ' ',
+  };
+}
+const withSoon = (out, nowMs) => Object.assign(out, { soon: out.until > 0 && out.until * 1000 - nowMs <= LIVE_SOON_MS });
+// `was`: the leave-by last notified before it moved (amber until the next change).
+export function leaveActivityState(row, nowMs, { was = null } = {}) {
+  const t = ms => formatTime(ms, nowMs);
+  const sec = ms => Math.round(ms / 1000);
+  const out = leaveCardBase(row, nowMs);
+  switch (leavePhase(row, nowMs)) {
+    case 'before':
+      Object.assign(out, {
+        phase: 'leave', title: 'Leave in', until: sec(row.leaveBy), warn: was != null, island: 'Leave',
+        next: was == null ? `Leave by ${t(row.leaveBy)} · arrive ~${t(row.eta)}` : `Leave by ${t(row.leaveBy)} (was ${t(was)})`,
+      });
+      break;
+    case 'now':
+      Object.assign(out, { phase: 'now', title: 'Leave now', warn: true, island: 'Leave now', next: `Last chance ${t(row.lastChance)}` });
+      break;
+    case 'departs':
+      Object.assign(out, { phase: 'departs', title: 'Departs in', until: sec(row.firstDep), warn: true, island: 'Departs', next: 'Too late at your walking pace' });
+      break;
+    default: {
+      const first = row.legs[0];
+      Object.assign(out, { phase: 'gone', title: `Missed · left ${legTime(first, first.dep, nowMs)}`, warn: true, join: ' · ' });
+    }
+  }
+  return withSoon(out, nowMs);
+}
+// "Ride cancelled" on the leave card (its last content, or neutral defaults).
+export function leaveCancelledState(last) {
+  const base = last ?? { color: '', label: '', stops: -1, legs: [] };
+  return { ...base, phase: 'cancelled', title: 'Ride cancelled', sub: '', next: 'Open the app for the next one.', until: 0, warn: false, soon: false, island: '', join: ' · ' };
+}
+// The walk card: the leave card after "Leaving now" / "At the stop" (`enRoute`), updated by the
+// app until boarding. `row`: the en-route row headed for.
+export function walkActivityState(row, enRoute, nowMs) {
+  const t = ms => formatTime(ms, nowMs);
+  const first = row.legs[0];
+  const out = leaveCardBase(row, nowMs);
+  const spare = Math.floor((row.firstDep - enRoute.atStop) / MIN);
+  const margin = spare < 0 ? `${-spare} min late` : `${spare} min to spare`;
+  const sub = enRoute.kind === 'leaving' && nowMs < enRoute.atStop ? `At the stop ~${t(enRoute.atStop)} · ${margin}` : `At the stop since ${t(enRoute.atStop)} · ${margin}`;
+  Object.assign(out, { phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, sub, next: `Arrive ~${t(row.eta)}` });
+  return withSoon(out, nowMs);
+}
+// Whether this reminder check starts the leave card: the app sent a push-to-start token, no card
+// yet, the leave-by ahead, and the 10-min heads-up passing now (or never due: set within 10 min).
+export function leaveCardStarts(rem, step, nowMs) {
+  if (!rem.startToken || rem.card || !(step.leaveBy > nowMs) || !['headsUp', 'wait'].includes(step.action)) return false;
+  const had = remHeadsUps(rem).includes(LEAVE_CARD_MIN);
+  return had ? !step.headsUps.includes(LEAVE_CARD_MIN) : true;
 }
 
 // ---------- alerts ----------
