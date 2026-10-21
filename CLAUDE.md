@@ -81,11 +81,10 @@ This section applies only to Claude Code in the cloud (the sandbox hosted by Ant
 claude.ai/code, or a session started from the app). Locally, run `npx playwright install chromium`
 once and ignore it; CI installs its own browser.
 
-- `@playwright/test` (1.64.0) is newer than the sandbox's preinstalled Playwright (1.56.1, whose
-  Chromium is in `/opt/pw-browsers`), so its own browser build is missing there. Don't run
+- `@playwright/test` (`package.json`) is usually newer than the sandbox's preinstalled Playwright
+  (whose Chromium is in `/opt/pw-browsers`), so its own browser build is missing there. Don't run
   `playwright install`; point the config at the preinstalled Chromium instead:
-  `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:browser` (verified with 1.64.0 and
-  Chromium 141: the full suite passes).
+  `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:browser`.
 - CI runs the headless shell, not full Chromium, so a spec can fail only in CI (the headless
   shell keeps no notifications, for example). Reproduce it here with
   `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`.
