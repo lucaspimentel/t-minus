@@ -16,7 +16,9 @@ test.beforeEach(({ page }) => {
 // is refused), 'register' (iOS reports a registration error) or 'activity' (iOS refuses the Live
 // Activity). Calls land in window.nativeCalls; Live Activity calls in window.activityCalls (the
 // activity's push token follows a start by 50 ms).
-function capacitorStub({ server, permission = 'prompt', fail = null, token }) {
+// `leave` (Phase 3a): the plugin has the leave-card methods (liveActivityStartToken, and
+// liveActivityList from window.fakeActivities); window.emitStartToken(token) fires its event.
+function capacitorStub({ server, permission = 'prompt', fail = null, token, leave = false }) {
   localStorage.setItem('t-minus:push-server', JSON.stringify(server));
   window.nativeCalls = [];
   const listeners = {};
@@ -53,7 +55,12 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token }) {
     },
     liveActivityUpdate: async ({ id, state }) => { window.activityCalls.push({ call: 'update', id, state }); },
     liveActivityEnd: async ({ id }) => { window.activityCalls.push({ call: 'end', id }); },
+    ...(leave && {
+      liveActivityStartToken: async () => ({ token: 'EF'.repeat(40) }),
+      liveActivityList: async () => ({ activities: window.fakeActivities ?? [] }),
+    }),
   };
+  window.emitStartToken = t => emit('TMinus.startToken', { token: t });
   window.Capacitor = { isNativePlatform: () => true, Plugins: { PushNotifications, TMinus } };
 }
 
@@ -62,11 +69,11 @@ async function fakeServer(page, { appLog = [] } = {}) {
   await page.context().route(`${PUSH}/**`, async route => {
     const req = route.request();
     const path = new URL(req.url()).pathname;
-    calls.push({ method: req.method(), path, body: req.postDataJSON?.() ?? null });
+    calls.push({ method: req.method(), path, search: new URL(req.url()).search, body: req.postDataJSON?.() ?? null });
     const cors = { 'access-control-allow-origin': '*' };
     if (path === '/reminders') return route.fulfill({ status: 201, json: { id: 'r1', headsUps: [10, 5] }, headers: cors });
     if (path === '/rides') return route.fulfill({ status: 201, json: { id: 'ride1' }, headers: cors });
-    if (path.startsWith('/rides/')) return route.fulfill({ status: 204, headers: cors });
+    if (path.startsWith('/rides/') || path.startsWith('/reminders/')) return route.fulfill({ status: 204, headers: cors });
     if (path === '/log') return route.fulfill({ status: 204, headers: cors });
     if (path === '/log/read') return route.fulfill({ json: { lines: appLog }, headers: cors });
     if (path === '/pending') return route.fulfill({ json: { now: at('06:50'), entries: [], log: [] }, headers: cors });
@@ -202,4 +209,84 @@ test('iOS refusing the Live Activity is logged once; the ride carries on', async
   expect((await activityCalls(page)).map(c => c.call)).toEqual(['start']);
   await expect.poll(() => calls.filter(c => c.path === '/log').map(c => c.body.message)).toEqual(['start: Live Activities are off for this app']);
   await expect(page.locator('.row.ride')).toHaveCount(1);
+});
+
+// Leave cards (Phase 3a): the server starts them; the app sends its push-to-start token and takes
+// a card over when the trip starts.
+const leaveCalls = async page => (await activityCalls(page)).filter(c => c.id === 'leave1');
+
+test('Notify me sends the push-to-start token; a new token goes to the pending reminders; older builds post without it', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  expect(calls.find(c => c.path === '/reminders').body.startToken).toBe('ef'.repeat(40));
+  await page.evaluate(() => window.emitStartToken('AA'.repeat(40)));
+  await expect.poll(() => calls.find(c => c.method === 'PUT' && c.path === '/reminders/r1')?.body).toEqual({ startToken: 'aa'.repeat(40) });
+});
+
+test('a build without the leave-card methods: the reminder posts without a start token, nothing logged', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  const post = calls.find(c => c.path === '/reminders');
+  expect(post.body.subscription).toBeTruthy();
+  expect(post.body.startToken).toBeUndefined();
+  expect(calls.filter(c => c.path === '/log')).toEqual([]);
+});
+
+test('At the stop keeps the server\'s card as the walk card; boarding ends it before the ride card starts', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await page.evaluate(() => { window.fakeActivities = [{ id: 'leave1', reminderId: 'r1', tripName: 'Home to office' }]; });
+  await tickTo(page, '07:00');
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await expect.poll(() => calls.find(c => c.method === 'DELETE' && c.path === '/reminders/r1')?.search).toBe('?reason=started');
+  await expect.poll(async () => (await leaveCalls(page))[0]?.call).toBe('update');
+  const [walk] = await leaveCalls(page);
+  expect(walk.state).toMatchObject({ phase: 'walk', title: 'Bus 132 in', island: '', join: ' ' });
+  expect(walk.state.sub).toMatch(/^At the stop since 7:00am · [78] min to spare/);
+  expect((await leaveCalls(page)).some(c => c.call === 'end')).toBe(false);
+  await tickTo(page, '07:12'); // boarded
+  await expect.poll(async () => (await activityCalls(page)).some(c => c.call === 'start')).toBe(true);
+  const order = (await activityCalls(page)).map(c => (c.id === 'leave1' ? `leave:${c.call}` : c.call)).filter(c => c === 'leave:end' || c === 'start');
+  expect(order).toEqual(['leave:end', 'start']);
+});
+
+test('Leaving now then Cancel ends the walk card', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await page.evaluate(() => { window.fakeActivities = [{ id: 'leave1', reminderId: 'r1', tripName: 'Home to office' }]; });
+  await tickTo(page, '07:00');
+  await page.locator('#enroute').getByRole('button', { name: 'Leaving now' }).click();
+  await expect.poll(async () => (await leaveCalls(page))[0]?.state?.sub).toMatch(/^At the stop ~7:05am · [23] min to spare/);
+  await page.locator('#enroute').getByRole('button', { name: 'Cancel' }).click();
+  await expect.poll(async () => (await leaveCalls(page)).at(-1)?.call).toBe('end');
+});
+
+test('bell off: a plain DELETE (the server ends the card), and the app ends it too', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await page.evaluate(() => { window.fakeActivities = [{ id: 'leave1', reminderId: 'r1', tripName: 'Home to office' }]; });
+  await firstRow(page).locator('.track-btn.on').click();
+  await expect.poll(() => calls.filter(c => c.method === 'DELETE' && c.path === '/reminders/r1').at(-1)?.search).toBe('');
+  await expect.poll(async () => (await leaveCalls(page)).at(-1)?.call).toBe('end');
+});
+
+test('no card from the server: Leaving now makes no Live Activity calls', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await tickTo(page, '07:00');
+  await page.locator('#enroute').getByRole('button', { name: 'Leaving now' }).click();
+  await tick(page, 2000);
+  expect(await activityCalls(page)).toEqual([]);
 });

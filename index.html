@@ -403,7 +403,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-20 · fc493095db</footer>
+    <footer class="version">Version 2026-10-20 · ba76e6e533</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -424,10 +424,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
-  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
+  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, remHeadsUps,
-} from './core.js?v=257881bdda';
-import { openSetup } from './setup.js?v=295eae31d7';
+} from './core.js?v=7db016d846';
+import { openSetup } from './setup.js?v=f44338ed0d';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1169,6 +1169,108 @@ async function syncLiveActivity(s, now) {
   }
 }
 
+// ---------- leave cards (the iOS app, Phase 3a) ----------
+
+// A reminder's Live Activity is started by the server's push at the 10-min heads-up (with the
+// app's push-to-start token, sent with each reminder; the card's own token goes to the server
+// from native code, as the page may not be loaded then). The app only takes it over when the trip
+// starts: "Leaving now" / "At the stop" keep it as the walk card (walkActivityState, updated here
+// while the app is open, no alerts) until boarding (the ride card replaces it), Cancel, or the
+// vehicle leaving. Bell off ends it (here and on the server). Cards whose reminder is gone are
+// ended when the app opens.
+const KEY_START_TOKEN = 't-minus:start-token';
+const KEY_LEAVE_CARD = 't-minus:leave-card';
+let leaveCard = native ? store.get(KEY_LEAVE_CARD) ?? null : null; // { id, idx, reminderId, key, last }
+let leaveCardBusy = false;
+let startTokenFailed = false;
+// A build from before Phase 3a lacks the plugin's new methods: nothing to log.
+const unimplemented = e => e?.code === 'UNIMPLEMENTED' || /not implemented|is not a function/i.test(e?.message ?? '');
+function saveLeaveCard(c) {
+  leaveCard = c;
+  store.set(KEY_LEAVE_CARD, c);
+}
+// The push-to-start token (null outside the app, on builds without it, or iOS refusing).
+async function liveStartToken() {
+  if (!native) return null;
+  try {
+    const { token } = await plugins.TMinus.liveActivityStartToken();
+    if (token) store.set(KEY_START_TOKEN, String(token).toLowerCase());
+    return token ? String(token).toLowerCase() : store.get(KEY_START_TOKEN) ?? null;
+  } catch (e) {
+    if (!startTokenFailed && !unimplemented(e)) nativeLog('liveActivity', `start token: ${e.message}`);
+    startTokenFailed = true;
+    return null;
+  }
+}
+async function leaveActivities() {
+  try { return (await plugins.TMinus.liveActivityList()).activities ?? []; } catch (e) {
+    if (!unimplemented(e)) nativeLog('liveActivity', `list: ${e.message}`);
+    return [];
+  }
+}
+function endActivity(id, what) {
+  plugins.TMinus.liveActivityEnd({ id }).catch(e => nativeLog('liveActivity', `${what}: ${e.message}`));
+}
+async function endLeaveCards(reminderIds) {
+  if (!native) return;
+  for (const a of await leaveActivities()) if (reminderIds.has(a.reminderId)) endActivity(a.id, 'end leave card');
+}
+// A start cancelled `removed` ({ remKey: rem }): keep the earliest one's card as the walk card
+// ("Leaving now" / "At the stop"), end the rest (and all of them on boarding).
+async function adoptLeaveCards(idx, removed) {
+  if (!native) return;
+  const rems = Object.values(removed).sort((a, b) => a.leaveBy - b.leaveBy);
+  const ids = new Set(rems.map(r => r.id));
+  const cards = (await leaveActivities()).filter(a => ids.has(a.reminderId));
+  if (!cards.length) return;
+  const s = (store.get(KEY_EN_ROUTE) ?? {})[idx];
+  const keep = s && !s.ride && s.kind !== 'track' ? rems.map(r => cards.find(a => a.reminderId === r.id)).find(Boolean) : null;
+  if (keep) {
+    if (leaveCard && leaveCard.id !== keep.id) endActivity(leaveCard.id, 'end leave card');
+    saveLeaveCard({ id: keep.id, idx, reminderId: keep.reminderId, key: rems.find(r => r.id === keep.reminderId).key, last: null });
+  }
+  for (const a of cards) if (a !== keep) endActivity(a.id, 'end leave card');
+  render();
+}
+// The walk card: updated while its trip is en route before boarding; ended otherwise.
+function syncLeaveCard(now) {
+  if (!native || !leaveCard || leaveCardBusy) return;
+  const s = (store.get(KEY_EN_ROUTE) ?? {})[leaveCard.idx];
+  const shown = leaveCard.idx === tripIdx && config?.trips[tripIdx]?.name === s?.name;
+  const row = shown && !s.ride ? currentRows(now, s).find(r => r.key === leaveCard.key) : null;
+  if (!s || s.ride || s.kind === 'track' || (shown && (!row || now >= row.firstDep))) {
+    const { id } = leaveCard;
+    saveLeaveCard(null);
+    endActivity(id, 'end leave card');
+    return;
+  }
+  if (!row) return;
+  const state = walkActivityState(row, s, now);
+  const json = JSON.stringify(state);
+  if (json === leaveCard.last) return;
+  saveLeaveCard({ ...leaveCard, last: json });
+  leaveCardBusy = true;
+  plugins.TMinus.liveActivityUpdate({ id: leaveCard.id, state })
+    .catch(e => nativeLog('liveActivity', `walk card: ${e.message}`))
+    .finally(() => { leaveCardBusy = false; });
+}
+if (native) {
+  // iOS changed the push-to-start token: the pending reminders get the new one.
+  Promise.resolve().then(() => plugins.TMinus.addListener('startToken', ({ token }) => {
+    token = String(token).toLowerCase();
+    if (store.get(KEY_START_TOKEN) === token) return;
+    store.set(KEY_START_TOKEN, token);
+    for (const rem of Object.values(reminders)) {
+      if (rem.leaveBy > Date.now()) pushApi('PUT', `/reminders/${rem.id}`, { startToken: token }).catch(e => nativeLog('liveActivity', `start token: ${e.message}`));
+    }
+  })).catch(e => nativeLog('liveActivity', `start token listener: ${e.message}`));
+  // Cards left from reminders that are gone (their token never reached the server).
+  Promise.resolve().then(async () => {
+    const keep = new Set([...Object.values(reminders).map(r => r.id), leaveCard?.reminderId]);
+    for (const a of await leaveActivities()) if (a.reminderId && !keep.has(a.reminderId)) endActivity(a.id, 'end leave card');
+  });
+}
+
 // "Turn on stop alerts" (once per device): the permission prompt, then the ride is posted; also
 // after its alerts were deleted in "Pending notifications".
 async function turnOnStopAlerts() {
@@ -1191,9 +1293,10 @@ async function notify(r) {
   reminderBusy = key;
   render();
   try {
+    const startToken = await liveStartToken();
     const { id, headsUps } = await pushApi('POST', '/reminders', {
       subscription: await subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
-      timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy,
+      timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy, ...(startToken && { startToken }),
     });
     reminders[remKey] = { id, leaveBy: r.leaveBy, headsUps, timingIdx: r.timingIdx, key: r.key };
     saveReminders();
@@ -1267,7 +1370,9 @@ function cancelTripReminders(idx) {
   if (!Object.keys(removed).length) return removed;
   for (const k of Object.keys(removed)) delete reminders[k];
   saveReminders();
-  for (const rem of Object.values(removed)) pushApi('DELETE', `/reminders/${rem.id}`).catch(() => {});
+  // `reason=started`: the server keeps a leave card (the app turns it into the walk card).
+  for (const rem of Object.values(removed)) pushApi('DELETE', `/reminders/${rem.id}?reason=started`).catch(() => {});
+  adoptLeaveCards(idx, removed);
   return removed;
 }
 
@@ -1278,10 +1383,11 @@ async function restoreReminders(idx, removed) {
   if (!trip || !due.length) return;
   try {
     const subscription = await pushSubscription();
+    const startToken = await liveStartToken();
     for (const [remKey, rem] of due) {
       const { id, headsUps } = await pushApi('POST', '/reminders', {
         subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
-        timingIdx: rem.timingIdx, key: rem.key, leaveBy: rem.leaveBy,
+        timingIdx: rem.timingIdx, key: rem.key, leaveBy: rem.leaveBy, ...(startToken && { startToken }),
       });
       reminders[remKey] = { ...rem, id, headsUps };
       saveReminders();
@@ -1296,6 +1402,7 @@ async function unnotify(remKey) {
   const rem = reminders[remKey];
   delete reminders[remKey];
   saveReminders();
+  endLeaveCards(new Set([rem.id])); // the server ends it too (when it has the card's token)
   render();
   try {
     await pushApi('DELETE', `/reminders/${rem.id}`);
@@ -1459,6 +1566,7 @@ function render() {
     rideFetchFor = riding.leg.tripId;
     setTimeout(() => refresh());
   }
+  syncLeaveCard(now);
   syncLiveActivity(en, now);
   if (en?.ride) {
     syncRideAlert(en, now);
