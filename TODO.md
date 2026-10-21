@@ -28,6 +28,11 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 - Phase 3a: leave-time Live Activity (push-to-start at the 10-min heads-up).
 - Phase 3b: widget (next leave-by of the active trip).
 
+## Missed rows
+
+- Between the last chance and the departure, show "Departs in 2 min" in the app's missed rows (as
+  the leave-time Live Activity will, Phase 3a).
+
 ## Deferred
 
 - Default times to/from the stops and transfer times estimated from stop coordinates
