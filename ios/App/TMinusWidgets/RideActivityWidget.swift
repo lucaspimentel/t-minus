@@ -19,6 +19,11 @@ struct RideActivityWidget: Widget {
             } minimal: {
                 if context.state.color.isEmpty { Text(context.state.label) } else { RouteDot(hex: context.state.color, size: 10) }
             }
+            // Expanded: wider margins than the default, so the island's rounded corners don't clip
+            // the route label (top left) or the last line and the legs bar (bottom corners).
+            .contentMargins(.horizontal, 24, for: .expanded)
+            .contentMargins(.top, 14, for: .expanded)
+            .contentMargins(.bottom, 18, for: .expanded)
         }
     }
 }
