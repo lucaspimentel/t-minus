@@ -1206,7 +1206,8 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   in the content: iOS can't say "<1 minute" itself, and the times aren't accurate to the second;
   80 s leaves the server's 20-s poll time to deliver it before "0 minutes"; also shown past the
   time instead of "−1 minute").
-- **Dynamic Island:** compact: the route's dot and label (`islandLabel`: "OL", "GL B", "132",
+- **Dynamic Island:** expanded content margins 24 pt at the sides, 14 top, 18 bottom (the
+  defaults let the rounded corners clip the route label and the last line). Compact: the route's dot and label (`islandLabel`: "OL", "GL B", "132",
   "SL1"; 🚶 on the final walk), then the stops left, or the countdown when stops don't apply (no
   stop data, a transfer, the final walk); expanded: the card's content; minimal: the route's dot.
 - **Content:** `liveActivityState` (`core.js`) builds it for both the app (local updates) and the
