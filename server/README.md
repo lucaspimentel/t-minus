@@ -26,7 +26,8 @@ its diagnostics to `POST /api/log` (`POST /api/log/read` lists a device's last 2
    `../core.js`). The deploy config lives in the service's Railway settings, not the repo:
    build command `npm ci --prefix server`, start command `node server/main.mjs`, health check
    `/health`, watch paths `server/**`, `core.js`, `index.html`, `setup.js`, `sw.js`,
-   `manifest.json` and `icons/**` (the server and the app's files).
+   `manifest.json` and `icons/**` (the server and the app's files). To redeploy without a code
+   change, edit `server/deploy-trigger` and push.
 2. **Volume:** right-click the service → Attach volume, mounted at `/data`. Reminders are kept
    there in `reminders.db` (SQLite), with the proxy's static MBTA copies. An old `reminders.json`
    from before the move can be deleted.

@@ -21,7 +21,8 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   the user the footer version (`Version <date> · <hash>` in `index.html`) so they can check that
   the installed app has updated. Railway skips a commit whose CI failed, and a push that touches
   none of its watch paths (tests, docs) doesn't deploy, so the live footer stays on the previous
-  version. Deploy a skipped commit that's still wanted by hand (Railway tools or dashboard).
+  version. Deploy a skipped commit that's still wanted by hand (Railway tools or dashboard), or bump
+  `server/deploy-trigger` and push.
 
 ## Working with the author
 
