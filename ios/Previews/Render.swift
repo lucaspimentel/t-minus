@@ -46,6 +46,7 @@ private let leaveSamples: [(String, RideState)] = [
                                    sub: "Bus 132 toward Malden at 7:48am", next: "", legs: ahead, island: "", join: " · ")),
     ("Ride cancelled", RideState(phase: "cancelled", warn: false, color: bus, label: "132", title: "Ride cancelled", until: 0, stops: -1,
                                  sub: "", next: "Open the app for the next one.", legs: ahead, island: "", join: " · ")),
+    ("Did you get on? (at the departure)", leave("ask", "Did you get on?", until: 0, island: "Got on?", sub: "Bus 132 toward Malden left at 7:48am", next: "Tap to answer")),
     ("Walk card", leave("walk", "Bus 132 in", until: now + 360, island: "", sub: "At the stop ~7:45am · 3 min to spare", next: "Arrive ~8:25am")),
     ("Walk card, late", leave("walk", "Bus 132 in", until: now + 120, warn: true, island: "", sub: "At the stop ~7:50am · 2 min late", next: "Arrive ~8:25am")),
 ]

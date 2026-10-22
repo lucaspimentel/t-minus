@@ -126,7 +126,7 @@ async function setup({ staticRoot = null } = {}) {
 const subscription = (n = 1) => ({ endpoint: `https://push.example/${n}`, keys: { p256dh: 'k', auth: 'a' } });
 const reminder = (extra = {}) => ({ subscription: subscription(), trip, tripName: 'Home to office', stopSlackMinutes: 1, timingIdx: 1, key: 'o1', leaveBy: at('07:04'), ...extra });
 
-test('a reminder sends heads-ups at 10 and 5 min, then "Leave now", then is gone', async () => {
+test('a reminder sends heads-ups at 10 and 5 min, then "Leave now", asks at the departure, then is gone', async () => {
   const s = await setup();
   try {
     assert.deepEqual(await (await s.call('GET', '/api/vapid')).json(), { publicKey: 'PUB' });
@@ -155,6 +155,18 @@ test('a reminder sends heads-ups at 10 and 5 min, then "Leave now", then is gone
     s.world.clock = at('07:04');
     await s.app.tick();
     assert.deepEqual(s.sent.map(p => p.title), ['Leave in 10 min · Home to office', 'Leave in 5 min · Home to office', 'Leave now · Home to office']);
+    // Kept for the boarding question at the departure (7:10), same tag; open 30 min.
+    assert.equal(s.store.all()[0].nextPollAt, at('07:04') + 20_000);
+    s.world.clock = at('07:09') + 50_000;
+    await s.app.tick();
+    assert.equal(s.sent.length, 3);
+    s.world.clock = at('07:10') + 10_000;
+    await s.app.tick();
+    assert.deepEqual(s.sent[3], { kind: 'board', title: 'Did you get on the 7:10am 132?', body: 'Home to office · tap to answer', tag: 'o1', renotify: true });
+    assert.equal(s.store.all()[0].nextPollAt, at('07:40'));
+    s.world.clock = at('07:40');
+    await s.app.tick();
+    assert.equal(s.sent.length, 4);
     assert.equal(s.store.all().length, 0);
   } finally { await s.close(); }
 });
@@ -1089,7 +1101,7 @@ test('apnsActivityPush: a start carries the attributes, the alert, and asks for 
   });
 });
 
-test('leave card: started at the 10-min heads-up instead of the notification, then alerts on the card, ends at departure', async () => {
+test('leave card: started at the 10-min heads-up instead of the notification, then alerts on the card, asks at departure', async () => {
   const s = await setup();
   try {
     s.world.clock = at('06:44') + 30_000; // the bus's schedules are refetched at 7:00 (15 min old)
@@ -1127,15 +1139,26 @@ test('leave card: started at the 10-min heads-up instead of the notification, th
     assert.deepEqual([s.activity.at(-1).state.title, s.activity.at(-1).alert, s.activity.at(-1).state.next], ['Leave now', 'Leave now · Home to office', 'Last chance 7:08am']);
     assert.ok(s.store.get(id), 'kept past the leave-by');
     view = (await (await s.call('POST', '/api/pending', { subscription: apnsSub })).json()).entries[0];
-    assert.deepEqual(view.next, { kind: 'end', at: at('07:13'), text: 'Live Activity ends' });
+    assert.deepEqual(view.next, { kind: 'board', at: at('07:13'), text: 'Did you get on?' });
     s.world.clock = at('07:09');
     await s.app.tick();
     assert.deepEqual([s.activity.at(-1).state.title, s.activity.at(-1).priority], ['Departs in', '10']);
+    // At the departure: the question as a push (Yes / Missed it), the card shows it quietly.
     s.world.clock = at('07:13');
     await s.app.tick();
-    assert.deepEqual([s.activity.at(-1).event, s.activity.at(-1).dismissAt], ['end', at('07:14') / 1000]);
+    const q = s.activity.at(-1);
+    assert.deepEqual([q.event, q.state.phase, q.state.title, q.state.sub, q.alert, q.priority], ['update', 'ask', 'Did you get on?', '132 toward Malden left at 7:13am', undefined, '5']);
+    assert.deepEqual(s.sent, [{ kind: 'board', title: 'Did you get on the 7:13am 132?', body: 'Home to office · tap to answer', tag: 'o1', apns: apnsSub.endpoint, level: 'time-sensitive' }]);
+    const board = s.raw.at(-1).body;
+    assert.deepEqual([board.aps.category, board.reminderId], ['board', id]);
+    view = (await (await s.call('POST', '/api/pending', { subscription: apnsSub })).json()).entries[0];
+    assert.deepEqual(view.next, { kind: 'end', at: at('07:43'), text: 'Question closes' });
+    // Unanswered after 30 min: the card ends, the reminder is gone.
+    s.world.clock = at('07:43');
+    await s.app.tick();
+    assert.deepEqual([s.activity.at(-1).event, s.activity.at(-1).state.phase, s.activity.at(-1).dismissAt], ['end', 'ask', at('07:43') / 1000]);
     assert.equal(s.store.get(id), null);
-    assert.deepEqual(s.sent, []);
+    assert.equal(s.sent.length, 1);
     // The phone's push log lists the card's alerts.
     const log = (await (await s.call('POST', '/api/pending', { subscription: apnsSub })).json()).log;
     assert.ok(log.some(l => l.title === 'Live Activity: Leave in 10 min · Home to office' && l.ok));
@@ -1157,7 +1180,8 @@ test('leave card: set within 10 min starts at once; no start token or a card wit
     await s.app.tick();
     assert.deepEqual(s.sent.map(p => p.title), ['Leave in 5 min · Home to office', 'Leave now · Home to office']);
     assert.equal(s.activity.length, 1);
-    assert.equal(s.store.all().length, 0);
+    assert.equal(s.store.all().length, 1); // kept for the boarding question
+    await s.call('DELETE', `/api/reminders/${s.store.all()[0].id}`);
     // Without a start token: as before.
     s.world.clock = at('06:50');
     await s.call('POST', '/api/reminders', reminder({ subscription: apnsSub }));
@@ -1212,6 +1236,35 @@ test('leave card: a dead card token at the 5-min heads-up: the notification, the
     await s.app.tick();
     assert.equal(s.sent.at(-1).title, 'Leave now · Home to office');
     assert.equal(s.activity.length, 1); // the start only
+  } finally { await s.close(); }
+});
+
+test('bell, then "Leaving now": quiet until the departure, asked there only if the at-stop time missed it', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('06:50');
+    const { id: ok } = await (await s.call('POST', '/api/reminders', leaveReminder())).json();
+    const { id: late } = await (await s.call('POST', '/api/reminders', leaveReminder())).json();
+    await s.call('PUT', `/api/reminders/${late}`, { activity: { token: CARD } });
+    assert.equal((await s.call('PUT', `/api/reminders/${ok}`, { started: {} })).status, 400);
+    assert.equal((await s.call('PUT', `/api/reminders/${ok}`, { started: { atStop: at('07:08') } })).status, 204);
+    assert.equal((await s.call('PUT', `/api/reminders/${late}`, { started: { atStop: at('07:12') } })).status, 204);
+    for (const t of ['06:50', '06:54', '06:59', '07:04', '07:09']) {
+      s.world.clock = at(t);
+      await s.app.tick();
+    }
+    assert.deepEqual([s.sent, s.activity], [[], []]); // no heads-ups, no card start, no Leave now
+    const view = (await (await s.call('POST', '/api/pending', { subscription: apnsSub })).json()).entries;
+    assert.deepEqual(view.map(e => e.next.kind), ['board', 'board']);
+    s.world.clock = at('07:10') + 10_000;
+    await s.app.tick();
+    assert.equal(s.store.get(ok), null); // reached: the app boards
+    assert.deepEqual(s.sent.map(p => [p.kind, p.title]), [['board', 'Did you get on the 7:10am 132?']]);
+    assert.deepEqual(s.activity.map(a => [a.token, a.event, a.state.phase]), [[CARD, 'update', 'ask']]);
+    // Answered in the app: deleted, the card ends.
+    assert.equal((await s.call('DELETE', `/api/reminders/${late}`)).status, 204);
+    await new Promise(r => setTimeout(r, 20));
+    assert.deepEqual(s.activity.at(-1).event, 'end');
   } finally { await s.close(); }
 });
 

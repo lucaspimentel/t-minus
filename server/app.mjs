@@ -9,7 +9,7 @@ import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpsDue, remHeadsUps, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep, liveActivityState,
-  leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, REMINDER_MISSING,
+  leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, REMINDER_MISSING, askActivityState, ASK_MINUTES,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
 } from '../core.js';
@@ -67,12 +67,14 @@ export function declarativePush({ kind, title, body, tag, renotify }, navigate) 
 // longer tags are hashed). First sends and earlier times are Time Sensitive with a sound; quiet
 // updates (`renotify: false`) are passive.
 export const APNS_PREFIX = 'apns:';
-export function apnsPush({ kind, title, body, tag, renotify }) {
+// The boarding question (`kind: 'board'`) has the app's Yes / Missed it actions (the iOS app
+// registers the `board` category); `data` goes along for the app (the reminder's id).
+export function apnsPush({ kind, title, body, tag, renotify, data = null }) {
   const quiet = renotify === false;
   const collapse = tag == null ? null : Buffer.byteLength(tag) <= 64 ? tag : createHash('sha256').update(tag).digest('base64url');
   return {
     headers: { 'apns-push-type': 'alert', 'apns-priority': quiet ? '5' : '10', ...(collapse && { 'apns-collapse-id': collapse }) },
-    body: { aps: { alert: { title, body }, 'interruption-level': quiet ? 'passive' : 'time-sensitive', ...(!quiet && { sound: 'default' }) }, kind },
+    body: { aps: { alert: { title, body }, 'interruption-level': quiet ? 'passive' : 'time-sensitive', ...(!quiet && { sound: 'default' }), ...(kind === 'board' && { category: 'board' }) }, kind, ...data },
   };
 }
 
@@ -570,7 +572,15 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       if (!rem || rem.kind === 'ride') return reply(res, 404, { error: 'Not found' });
       if (b?.startToken != null && !validToken(b.startToken)) return reply(res, 400, { error: 'startToken is invalid' });
       if (b?.activity != null && !validToken(b.activity?.token)) return reply(res, 400, { error: 'activity is invalid' });
+      if (b?.started != null && !Number.isFinite(b.started?.atStop)) return reply(res, 400, { error: 'started is invalid' });
       if (b?.startToken) rem.startToken = b.startToken;
+      // `started: { atStop }`: "Leaving now" / "At the stop" with the bell on. No more leave
+      // alerts (the app keeps the card as the walk card); the departure asks only when the at-stop
+      // time misses it (else the app boards).
+      if (b?.started) {
+        rem.started = { atStop: b.started.atStop };
+        rem.nextPollAt = t;
+      }
       if (b?.activity) {
         const live = rem.card && !rem.card.tried ? rem.card : null;
         rem.card = live
@@ -581,7 +591,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       store.update(rem);
       return reply(res, 204, undefined);
     }
-    // `?reason=started`: the trip started ("Leaving now", "At the stop", boarding); the app keeps
+    // `?reason=started`: the trip started without the bell ("Leaving now", "At the stop", boarding); the app keeps
     // the leave card (the walk card). Otherwise (bell off) the card ends at once.
     if (req.method === 'DELETE' && m) {
       const rem = store.get(m[1]);
@@ -819,8 +829,14 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
     rem.lastCheckAt = t;
     const row = rowsFromDocs(rem.trip, docs.predictions, docs.schedules, rem.timingIdx, t, rem.stopSlackMinutes).find(r => r.key === rem.key) ?? null;
-    // Past the leave-by, a leave card counts down to the departure.
+    // The ride as last seen (its departure, and its legs for the question once it's gone).
+    if (row) rem.seen = { firstDep: row.firstDep, legs: row.legs };
+    if (rem.asked) return checkAsked(rem, t);
+    if (rem.started) return checkStarted(rem, row, t);
+    // Past the leave-by, a leave card counts down to the departure; without one, the departure
+    // still asks.
     if (rem.card?.left && rem.card.token) return checkLeftCard(rem, row, t);
+    if (rem.left) return checkLeft(rem, row, t);
     const step = reminderStep(rem, row, t);
     rem.leaveBy = step.leaveBy;
     rem.missing = step.missing;
@@ -836,7 +852,13 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       rem.sent = { leaveBy: step.leaveBy };
       return schedule(rem, t);
     }
-    if (step.action === 'leave' || step.action === 'cancelled') {
+    if (step.action === 'leave') {
+      if (!(await push(rem, 'leave', row, t))) return drop(rem);
+      rem.left = true;
+      rem.nextPollAt = t + 20_000;
+      return false;
+    }
+    if (step.action === 'cancelled') {
       await push(rem, step.action, row, t);
       return drop(rem);
     }
@@ -957,6 +979,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   async function checkLeftCard(rem, row, t) {
     const card = rem.card;
     if (!row) {
+      if (rem.seen && t >= rem.seen.firstDep) return ask(rem, t);
       rem.missing = (rem.missing ?? 0) + 1;
       if (rem.missing >= REMINDER_MISSING || t >= (card.firstDep ?? rem.leaveBy) + 5 * MIN) {
         await cardPush(rem, { event: 'end', state: card.last ?? leaveCancelledState(null), dismissAt: t }, t);
@@ -967,17 +990,59 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
     rem.missing = 0;
     rem.card.firstDep = row.firstDep;
+    if (leavePhase(row, t) === 'gone') return ask(rem, t);
     const state = leaveActivityState(row, t);
-    if (leavePhase(row, t) === 'gone') {
-      await cardPush(rem, { event: 'end', state, dismissAt: Math.max(t, row.firstDep + MIN) }, t);
-      return drop(rem);
-    }
     if (JSON.stringify(state) !== JSON.stringify(card.last)) {
       const urgent = state.phase === 'departs' && card.last?.phase !== 'departs';
       if (!(await cardPush(rem, { event: 'update', state, urgent }, t)) && !rem.card.token) return drop(rem);
     }
     rem.nextPollAt = t + 20_000;
     return false;
+  }
+
+  // Past the leave-by without a card: waits for the departure (lost from the data before it:
+  // dropped, as without the bell).
+  async function checkLeft(rem, row, t) {
+    if (rem.seen && t >= rem.seen.firstDep) return ask(rem, t);
+    if (!row && ++rem.missing >= REMINDER_MISSING) return drop(rem);
+    if (row) rem.missing = 0;
+    rem.nextPollAt = t + 20_000;
+    return false;
+  }
+
+  // After "Leaving now" / "At the stop" (`started`): quiet until the departure, then asks only if
+  // the at-stop time missed it (else the app boards; the reminder is done).
+  async function checkStarted(rem, row, t) {
+    if (rem.seen && t >= rem.seen.firstDep) return rem.started.atStop > rem.seen.firstDep ? ask(rem, t) : drop(rem);
+    if (!row && ++rem.missing >= REMINDER_MISSING) return drop(rem);
+    if (row) rem.missing = 0;
+    rem.nextPollAt = t + (rem.seen ? reminderPollMs(rem.seen.firstDep, t) : 20_000);
+    return false;
+  }
+
+  // The departure of a belled ride: "Did you get on the 7:48am Bus 132?" (a push with the app's
+  // Yes / Missed it actions; the card shows it quietly), open ASK_MINUTES. Answering in the app
+  // deletes the reminder (and ends the card).
+  async function ask(rem, t) {
+    const seen = rem.seen;
+    rem.asked = t;
+    rem.nextPollAt = seen.firstDep + ASK_MINUTES * MIN;
+    const { title, body } = reminderText('board', rem.tripName, seen, t);
+    try {
+      await sendLogged(rem.subscription, rem.id, rem.tripName, { kind: 'board', title, body, tag: rem.key, renotify: true, data: { reminderId: rem.id } }, t);
+      log(`sent board for ${rem.id}`);
+    } catch (e) {
+      log(`send board for ${rem.id} failed: ${e.statusCode ?? ''} ${e.message}`);
+    }
+    if (rem.card?.token) await cardPush(rem, { event: 'update', state: askActivityState(seen, t) }, t);
+    return false;
+  }
+
+  // Unanswered: the card ends and the reminder is dropped.
+  async function checkAsked(rem, t) {
+    if (t < rem.nextPollAt) return false;
+    if (rem.card?.token) await cardPush(rem, { event: 'end', state: rem.card.last ?? askActivityState(rem.seen, t), dismissAt: t }, t);
+    return drop(rem);
   }
 
   // Bell off, "Clear all pending": the leave card ends at once (not awaited; a failure is logged).

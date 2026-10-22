@@ -43,7 +43,7 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   await expect(tl.locator('.step.stop').nth(1)).toHaveClass(/\bfull\b/);
   await tl.locator('.step.stop').nth(1).click();
   await expect(tl.locator('.step.stop').nth(1)).not.toHaveClass(/\bfull\b/);
-  await expect(first.locator('.row-foot')).toContainText('Track this trip');
+  await expect(first.locator('.row-foot')).toContainText('Track');
   await expect(first.locator('.row-foot .chev')).toHaveText('▴');
   await first.click();
   await expect(first.locator('.timeline')).toHaveCount(0);

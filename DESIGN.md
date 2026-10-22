@@ -234,16 +234,28 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
   Next-day rows are not shown (the list may be shorter than `departureCount`).
 - The highlighted ride is the target, re-taken every tick while it's reachable
   (`advanceEnRoute`). Before boarding the mode ends 30 min after the first tap, or on Cancel.
-- "Track this trip" (expanded rows, except next-day rows and rides already gone) pins that
-  departure as the target (`pinTarget`): it's never re-taken, boards when its first vehicle
-  departs even if the at-stop estimate says it's unreachable, and has no 30-min cap. From the
-  normal list it starts `kind: 'track'`: rows keep their leave-by countdowns, the pinned row
-  has a green outline and a "Tracking ✕" button, and the bar reads "Tracking Bus 132
-  7:40am" [Leaving now] [At the stop] [Cancel] (both keep the pin). While en route, the pinned
-  row is highlighted instead of the first reachable one. "Tracking ✕" drops only the pin
-  (`unpinTarget`): plain tracking ends; "Leaving now" / "At the stop" stays and the highlight
-  goes back to the first reachable ride. Either way: "Tracking cancelled · Undo" toast.
-  Tracking keeps the trip's reminders ("Notify me"); leaving or boarding cancels them.
+- **The bell (2026-10-22; tracking folded into it):** one button in expanded rows (except
+  next-day rows and rides already gone), "🔔 Track", filled green "🔔 Tracking" when on
+  (`aria-pressed`; tap again: off, no confirm). On, it pins that departure as the target
+  (`pinTarget`, `bell: true`) and sets its reminders (see Notifications) where they work
+  (`canNotify`: the server, push, permission not refused; else "Notifications are off: tracking
+  in the app only." under the button, plus "Add to Home Screen to get them." without push). One
+  bell at a time across all trips: a new one turns the other off (its pin, reminder and card).
+  The pin is never re-taken and has no 30-min cap. From the normal list it starts
+  `kind: 'track'`: rows keep their leave-by countdowns, the pinned row has a green outline (and,
+  collapsed, a small bell when a reminder is set), and the bar reads "Tracking Bus 132 7:40am"
+  [Leaving now] [At the stop] [Cancel] (both keep the pin; Cancel turns the bell off, with
+  "Tracking cancelled · Undo"). While en route, the pinned row is highlighted instead of the
+  first reachable one. Bell off drops only the pin (`unpinTarget`): plain tracking ends;
+  "Leaving now" / "At the stop" stays and the highlight goes back to the first reachable ride.
+- **Boarding question:** a pinned departure boards on its own only after "Leaving now" / "At the
+  stop" with an at-stop time on or before it. Otherwise, at its departure (live, else scheduled)
+  the state gets `asking: { dep }` and the bar reads "Did you get on the 7:40am Bus 132?" [Yes]
+  [Missed it] (the departed row keeps its outline). Yes boards it from the departure
+  (`answerBoarding`; stop alerts already passed are skipped); "Missed it" drops the pin (plain
+  tracking ends). Unanswered, it closes `ASK_MINUTES` (30) after the departure
+  (`enRouteActive`). The push at the departure asks the same (see Notifications). Saved pins
+  from before the bell are dropped at load (`migrateEnRoute`).
 - Boarding is assumed when the target's first vehicle departs (live or scheduled time) while
   it was reachable: its legs (trip id + times) become the ride, and a trip card replaces the
   list and the bar:
@@ -751,24 +763,21 @@ iOS wakes a Home Screen app only with Web Push from a server (no scheduled local
 notifications; page timers stop in the background), so reminders come from a small Node
 service on Railway (`server/`), which also serves the app (see Hosting).
 
-- **App:** "Notify me" sits next to "Track this trip" in an expanded row, shown only once
-  `SERVER_API` is set in `index.html` (`/api`, same origin), for today's rows
-  whose leave-by is ahead.
-  - Tapping it asks for notification permission, subscribes the service worker
+- **App:** reminders come with the bell (see En route), shown only once `SERVER_API` is set in
+  `index.html` (`/api`, same origin), for today's rows whose leave-by is ahead (a bell set later
+  pins only).
+  - Turning the bell on asks for notification permission, subscribes the service worker
     (`pushManager.subscribe` with the server's VAPID key from `GET /vapid`), and posts the ride.
-  - Set, the button shows the first heads-up and the leave time ("6:52am · 7:02am ✕", from the
-    current row; the 5-min heads-up is implied) and a bell sits before the row's leave time. Tapping the button again cancels it
-    (`DELETE`).
-  - Reminders are kept in `localStorage` (`t-minus:reminders`, keyed by trip and row) and
-    stop showing once leave-by passes.
-  - Starting the trip ("Leaving now", "At the stop", "I got on", or a tracked ride boarding by
-    itself; `tripStarted`) cancels all its reminders silently (`DELETE` each), also after
-    "Track this trip". Tracking alone is a plan and keeps them (a "Leave now" push still helps);
-    later changes to a started trip don't cancel again. The Undo of
-    "I got on" posts them again (those still ahead; the local entry keeps `timingIdx` and `key`
-    for this). Cancel ✕ and Done don't restore them.
-  - Without the Push API (iOS outside the Home Screen app), the button is disabled with "Add
-    to Home Screen to get notifications."
+  - Reminders are kept in `localStorage` (`t-minus:reminders`, keyed by trip and row, `bell:
+    true`, with the departure `dep`) until the boarding question closes. Entries from before the
+    bell ("Notify me", no `bell`) are deleted at load.
+  - The bell going off (off, Cancel, an answer, the question closing, boarding) deletes the
+    trip's reminders (`DELETE`, the card ends). "Leaving now" / "At the stop" with the bell on
+    sends `PUT /reminders/:id { started: { atStop } }` instead: no more leave alerts, the card
+    becomes the walk card, and the server asks at the departure only if the at-stop time misses
+    it. Starting a trip without the bell (boarding, "I got on") cancels its reminders with
+    `?reason=started`; Undo of "I got on" or Cancel posts them again (those still ahead).
+  - Without the Push API (iOS outside the Home Screen app), the bell pins only, with the hint.
   - **In the iOS app (2026-10-18; see "iOS app"):** `native` (`window.Capacitor?.isNativePlatform()`)
     switches the push code to Capacitor's PushNotifications plugin: `requestPermissions()` and
     `register()` give the APNs device token (stored as `t-minus:apns-token`, lowercase hex), and
@@ -852,17 +861,28 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     text as its `alert`, instead of the notification. Once the card's token arrives, the 5-min
     heads-up, a moved leave-by and "Leave now" go to the card as updates with an `alert` (priority
     10), not as notifications; small changes ("<1 minute") as quiet updates. Past the leave-by the
-    reminder stays: "Departs in" from the last chance (priority 10), then `end` at the departure,
-    dismissed a minute later. "Ride cancelled": an update with its alert, then an end dismissed 2
+    reminder stays: "Departs in" from the last chance (priority 10), then at the departure the
+    boarding question (below) as a quiet update (`askActivityState`), ended unanswered. "Ride cancelled": an update with its alert, then an end dismissed 2
     min later. Fallbacks: no start token, a failed start (not retried), no card token yet, or a
     failed card send: the notification as before; a dead token (410) is dropped. Bell off
     (`DELETE /reminders/:id`) and "Clear all" end the card at once; `DELETE …?reason=started` (the
     trip started) keeps it for the app's walk card. The push log lists starts, alerts and ends
     ("Live Activity: …"); "Pending notifications" shows the card (sends, title, error, whether its
-    token arrived) and, past the leave-by, "Live Activity ends" at the departure.
+    token arrived) and, past the leave-by, "Did you get on?" at the departure, then "Question
+    closes".
+  - **Boarding question (2026-10-22):** a reminder is kept past "Leave now" (with or without a
+    card) until the departure (`rem.seen`: the row as last seen), then sends `kind: 'board'`
+    "Did you get on the 7:48am Bus 132?" / "Home to office · tap to answer" (same tag; APNs:
+    `aps.category: 'board'` and `reminderId`), open `ASK_MINUTES` (30): then the card ends and the
+    reminder is dropped. Answering in the app deletes it (`DELETE`, the card ends). With
+    `started` (`PUT`): no leave alerts or card updates; at the departure, asked only if
+    `atStop > firstDep`, else dropped quietly. The iOS app registers the `board` category with
+    two foreground actions, `yes` ("Yes") and `missed` ("Missed it"); the PushNotifications
+    plugin's `pushNotificationActionPerformed` applies the answer (switching to the bell's
+    trip). Web push has no actions: tapping opens the app, where the bar asks.
 - **Test notification:** setup ends with a "Notifications" section and one button, "Send test
   notification in 10 s" (hidden without `SERVER_API`; disabled with the Home Screen hint
-  without push). It subscribes like "Notify me", posts to `POST /test-push`, and toasts "Test
+  without push). It subscribes like the bell, posts to `POST /test-push`, and toasts "Test
   notification in 10 s. Lock the phone to check." The server sends "Test notification" / "Push
   works. Sent 7:41am." from its loop (so up to 5 s late); it keeps pending tests in memory only
   (lost on restart), one per subscription, at most 100.
@@ -924,7 +944,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     - A 16 KB body.
     - A 404/410 from the push service drops the reminder.
 - **Stop alerts (a tracked ride, followed by the server):**
-  - **App:** every tracked ride (boarding detected, "I got on", Track this trip) is posted
+  - **App:** every tracked ride (boarding detected, "I got on", a "Did you get on?" Yes) is posted
     (`POST /rides` with the trip, its legs and `boardedAt`) once notifications are allowed;
     the en-route state keeps `alert: { id, tripIds }`. New trip ids ("Different train?",
     "Missed it", the app's own re-plan) send `PUT /rides/:id` (404: posted again); Cancel,
@@ -1171,7 +1191,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 
 ### Live Activity for tracked rides (Phase 2, 2026-10-20)
 
-- **What:** every tracked ride ("I got on", detected boarding, Track this trip) shows on the Lock
+- **What:** every tracked ride ("I got on", detected boarding, a "Did you get on?" Yes) shows on the Lock
   Screen and in the Dynamic Island while it lasts, stop alerts or not (iOS Settings → T-Minus →
   Live Activities is the only off switch). Notifications are unchanged, "3 stops to …" included.
 - **Card** (`ios/App/TMinusWidgets/RideViews.swift`, in the app's light / dark colors with the
@@ -1211,7 +1231,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 
 ### Leave cards (Phase 3a, 2026-10-20)
 
-- **What:** a reminder set in the app ("Notify me") becomes a Live Activity at its 10-min
+- **What:** a reminder set in the app (the bell) becomes a Live Activity at its 10-min
   heads-up, started by the server's push (push-to-start, iOS 17.2+) even with the app closed, in
   the ride card's layout. One card per reminder. iOS Settings → T-Minus → Live Activities off:
   notifications as before. The 10-min / 5-min / "Leave now" and moved-time notifications go to the
@@ -1221,16 +1241,17 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   Malden at 7:48am", as the notification's body), "Leave by 7:39am · arrive ~8:25am"; a moved
   leave-by in amber with "Leave by 7:36am (was 7:39am)"; "Leave now" (amber) with "Last chance
   7:42am"; "Departs in 2 minutes" (amber, to the departure) with "Too late at your walking pace";
-  at the departure it ends ("Missed · left 7:48am"), dismissed a minute later. "Ride cancelled"
+  at the departure "Did you get on?" / "Bus 132 toward Malden left at 7:48am" / "Tap to answer"
+  (island "Got on?"; tap opens the app), ended when answered or after 30 min. "Ride cancelled"
   / "Open the app for the next one.", dismissed after 2 min. The legs bar shows the trip, empty.
 - **Dynamic Island:** compact: the route's dot and label, then "Leave 9 minutes", "Leave now" or
   "Departs 2 minutes" (amber), or the walking figure and the countdown (scaled to fit: iOS has no
   live "9m"); expanded: the card.
-- **Walk card:** "Leaving now" / "At the stop" delete the trip's reminders with `?reason=started`
-  and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Bus 132 in 6
+- **Walk card:** "Leaving now" / "At the stop" with the bell mark its reminder `started` (without
+  the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Bus 132 in 6
   minutes", "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once there; "2 min late" in
   amber), "Arrive ~8:25am" (`walkActivityState`), updated by the app while open, no alerts.
-  Boarding ends it just before the ride card starts; Cancel or the vehicle leaving end it. Known
+  A missed departure turns it into the boarding question (app and server). Boarding ends it just before the ride card starts; Cancel or the vehicle leaving end it. Known
   limit: with the app closed it isn't updated (stale 2 min after its countdown; ended at the next
   open).
 - **Bell off** ends the card (the app and the server); cards whose reminder is gone are ended

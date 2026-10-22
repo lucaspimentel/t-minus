@@ -1,4 +1,4 @@
-// En route and trip tracking: Leaving now / At the stop, Track this trip, the ride card
+// En route and trip tracking: Leaving now / At the stop, the bell (pin, boarding question), the ride card
 // through its phases, Missed it, Different train?, transfer re-plan, Cancel + Undo, wake lock.
 // Timeline used below (home to office): bus 132 7:08 → 7:22 (via Pond St 7:12), 5-min
 // transfer, Orange 7:32 → 7:47 (every 6 min), 10-min walk → arrive 7:57.
@@ -325,53 +325,115 @@ test('Cancel ends tracking at once, with Undo in a toast; tapping the toast dism
   await expect(bar(page)).not.toContainText('At the stop since');
 });
 
-test('Track this trip pins a later departure and boards it when it leaves', async ({ page }) => {
+// The bell ("🔔 Track"): pins the ride; it asks at the departure instead of boarding on its own.
+const bell = (row, name = 'Track') => row.getByRole('button', { name, exact: true });
+
+test('the bell pins a later departure; at its departure it asks, and Yes tracks the ride', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   const second = page.locator('.row').nth(1);
   await second.click();
-  await second.getByRole('button', { name: 'Track this trip' }).click();
+  await bell(second).click();
   await tick(page, 1000);
   await expect(page.locator('.row.tracked .big')).toContainText('7:30am'); // leave-by kept in the list
-  await expect(page.locator('.row.tracked').getByRole('button', { name: 'Stop tracking' })).toHaveText('Tracking ✕');
+  await expect(bell(page.locator('.row.tracked'), 'Tracking')).toHaveAttribute('aria-pressed', 'true');
   await expect(bar(page)).toContainText('Tracking Bus 132 7:36am');
   await tickTo(page, '07:09');
   await expect(card(page)).toHaveCount(0); // the 7:08 left without boarding
   await tickTo(page, '07:36:30');
+  await expect(card(page)).toHaveCount(0); // not boarded on its own
+  await expect(bar(page)).toContainText('Did you get on the 7:36am Bus 132?');
+  await expect(page.locator('.row.tracked')).toHaveCount(1); // the departed row stays outlined
+  await bar(page).getByRole('button', { name: 'Yes' }).click();
+  await tick(page, 1000);
   await expect(head(page)).toHaveText(riding('Bus 132'));
   await offAt(page, '7:50am');
 });
 
-test('Tracking ✕ ends plain tracking, with Undo', async ({ page }) => {
+test('"Missed it" drops the pin; unanswered, the question closes after 30 min', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   const second = page.locator('.row').nth(1);
   await second.click();
-  await second.getByRole('button', { name: 'Track this trip' }).click();
+  await bell(second).click();
+  await tickTo(page, '07:36:30');
+  await bar(page).getByRole('button', { name: 'Missed it' }).click();
   await tick(page, 1000);
-  await page.locator('.row.tracked').getByRole('button', { name: 'Stop tracking' }).click();
+  await expect(bar(page)).not.toContainText('Did you get on');
+  await expect(page.locator('.row.tracked')).toHaveCount(0);
+  await expect(card(page)).toHaveCount(0);
+  // Again on the next one, unanswered.
+  const next = page.locator('.row:not(.missed)').first();
+  await next.click();
+  await bell(next).click();
+  await tick(page, 1000);
+  await expect(bar(page)).toContainText('Tracking Bus 132 8:04am');
+  await tickTo(page, '08:04:30');
+  await expect(bar(page)).toContainText('Did you get on the 8:04am Bus 132?');
+  await tickTo(page, '08:34:30');
+  await expect(bar(page)).not.toContainText('Did you get on');
+  await expect(page.locator('.row.tracked')).toHaveCount(0);
+  await expect(card(page)).toHaveCount(0);
+});
+
+test('the bell off ends plain tracking; Cancel in the bar has Undo; one bell at a time', async ({ page }) => {
+  await openApp(page, { time: '07:00' });
+  const second = page.locator('.row').nth(1);
+  await second.click();
+  await bell(second).click();
+  await tick(page, 1000);
+  await bell(page.locator('.row.tracked'), 'Tracking').click();
   await tick(page, 300);
   await expect(page.locator('.row.tracked')).toHaveCount(0);
   await expect(bar(page)).not.toContainText('Tracking');
+  await bell(page.locator('.row').nth(1)).click();
+  await tick(page, 300);
+  await bar(page).getByRole('button', { name: 'Cancel' }).click();
+  await tick(page, 300);
+  await expect(page.locator('.row.tracked')).toHaveCount(0);
   await expect(toast(page)).toContainText('Tracking cancelled');
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await tick(page, 1000);
   await expect(bar(page)).toContainText('Tracking Bus 132 7:36am');
-  await expect(page.locator('.row.tracked .big')).toContainText('7:30am');
+  // Another departure's bell moves the pin.
+  const third = page.locator('.row').nth(2);
+  await third.click();
+  await bell(third).click();
+  await tick(page, 1000);
+  await expect(page.locator('.row.tracked')).toHaveCount(1);
+  await expect(bar(page)).toContainText('Tracking Bus 132 8:04am');
 });
 
-test('Tracking ✕ while at the stop keeps the at-stop state and drops the pin', async ({ page }) => {
+test('at the stop with the bell: boards on its own when reached; the bell off keeps the at-stop state', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await atTheStop(page);
   const second = page.locator('.row').nth(1);
   await second.click();
-  await second.getByRole('button', { name: 'Track this trip' }).click();
+  await bell(second).click();
   await tick(page, 1000);
   await expect(page.locator('.row.catch .big')).toContainText('7:36am');
-  await page.locator('.row.tracked').getByRole('button', { name: 'Stop tracking' }).click();
+  await bell(page.locator('.row.tracked'), 'Tracking').click();
   await tick(page, 1000);
   await expect(bar(page)).toContainText('At the stop since 7:00am');
   await expect(page.locator('.row.tracked')).toHaveCount(0);
   await expect(page.locator('.row.catch .big')).toContainText('7:08am');
-  await expect(toast(page)).toContainText('Tracking cancelled');
+  await page.locator('.row').nth(1).click();
+  await bell(page.locator('.row').nth(1)).click();
+  await tickTo(page, '07:36:30');
+  await expect(head(page)).toHaveText(riding('Bus 132'));
+});
+
+test('"Leaving now" with the bell on a ride it misses: asked at its departure', async ({ page }) => {
+  await openApp(page, { time: '07:00' });
+  const first = page.locator('.row').first();
+  await first.click();
+  await bell(first).click();
+  await tickTo(page, '07:05');
+  await bar(page).getByRole('button', { name: 'Leaving now' }).click(); // at the stop ~7:10, the 7:08 leaves first
+  await tickTo(page, '07:08:30');
+  await expect(card(page)).toHaveCount(0);
+  await expect(bar(page)).toContainText('Did you get on the 7:08am Bus 132?');
+  await bar(page).getByRole('button', { name: 'Yes' }).click();
+  await tick(page, 1000);
+  await expect(head(page)).toHaveText(riding('Bus 132'));
 });
 
 test('a leg with several routes is labeled by what they share, each vehicle by its own', async ({ page }) => {

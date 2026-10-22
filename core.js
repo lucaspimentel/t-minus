@@ -1574,7 +1574,7 @@ export const UPDATE_MIN = 2;
 const moved = (a, b) => Math.abs(a - b) >= UPDATE_MIN * MIN;
 const update = (now, was) => ({ update: true, was, earlier: now < was });
 
-// Leave-time reminders ("Notify me"): heads-ups HEADS_UP_MINS before leave-by, then "Leave now".
+// Leave-time reminders (the bell): heads-ups HEADS_UP_MINS before leave-by, then "Leave now".
 // `rem` = { leaveBy, headsUps (minutes before leave-by still due), missing (polls in a row without
 // its row), sent ({ leaveBy } the last heads-up showed) }; `row` = the re-fetched row with the
 // reminder's key, or null. Times follow the row; after a heads-up, a moved leave-by is an 'update'
@@ -1611,9 +1611,13 @@ export function reminderText(kind, tripName, row, nowMs, was) {
     case 'headsUp': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: was == null ? body : `${body} · leave by ${formatTime(row.leaveBy, nowMs)} (was ${formatTime(was, nowMs)})` };
     case 'update': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: `${body} · leave by ${formatTime(row.leaveBy, nowMs)} (was ${formatTime(was, nowMs)})` };
     case 'leave': return { title: `Leave now · ${tripName}`, body };
+    case 'board': return { title: boardingQuestion(row.legs[0], nowMs), body: `${tripName} · tap to answer` };
     default: return { title: `Ride cancelled · ${tripName}`, body: 'Open the app for the next one.' };
   }
 }
+
+// "Did you get on the 7:48am Bus 132?" (the bar, the push at departure).
+export const boardingQuestion = (first, nowMs) => `Did you get on the ${legTime(first, first.dep, nowMs)} ${vehicleLabel(first)}?`;
 
 // "Bus 132 toward Malden at 7:48am": a row's first vehicle (reminders and the leave card).
 export function firstVehicleLine(row, nowMs) {
@@ -1695,53 +1699,81 @@ export function rowState(nowMs, row) {
 
 // "Leaving now" (at the stop after the walk) or "At the stop" (now). `at` is the first tap,
 // kept when "At the stop" follows "Leaving now"; it caps the mode at 30 min.
-// A target pinned with "Track this trip" (`pinned`, `target`) is kept.
+// A target pinned with the bell (`pinned`, `target`) is kept.
 export function startEnRoute(kind, nowMs, walkBefore, prev = null) {
   return {
     kind, at: prev?.at ?? nowMs, atStop: kind === 'leaving' ? nowMs + walkBefore * MIN : nowMs,
-    ...(prev?.pinned && { pinned: true, target: prev.target }),
+    ...(prev?.pinned && { pinned: true, ...(prev.bell && { bell: true }), target: prev.target }),
   };
 }
 
 // Whether the rider has actually set off: "Leaving now" / "At the stop" or a ride. Plain tracking
-// ("Track this trip", kind 'track' without a ride) is only a plan. Starting cancels reminders.
+// (the bell, kind 'track' without a ride) is only a plan. Starting cancels reminders.
 export function tripStarted(state) {
   return !!state && (!!state.ride || state.kind !== 'track');
 }
 
-// "Track this trip": pins `row` as the target, keeping an en-route state (else kind 'track':
-// no at-stop time yet, the list stays normal).
+// The bell ("🔔 Track"): pins `row` as the target (`bell`), keeping an en-route state (else kind
+// 'track': no at-stop time yet, the list stays normal).
 export function pinTarget(prev, row, nowMs) {
-  const base = prev && !prev.ride && prev.kind !== 'track' ? prev : { kind: 'track', at: nowMs };
-  return { ...base, pinned: true, target: { key: row.key, legs: row.legs } };
+  const base = prev && !prev.ride && prev.kind !== 'track' ? unpinTarget(prev) : { kind: 'track', at: nowMs };
+  return { ...base, pinned: true, bell: true, target: { key: row.key, legs: row.legs } };
 }
 
-// "Tracking ✕": drops the pin. Plain tracking ends; "Leaving now" / "At the stop" stays, and
-// advanceEnRoute retargets the first reachable row.
+// Bell off, "Missed it": drops the pin. Plain tracking ends; "Leaving now" / "At the stop" stays,
+// and advanceEnRoute retargets the first reachable row.
 export function unpinTarget(state) {
   if (!state || state.kind === 'track') return null;
-  const { pinned: _, target: __, ...rest } = state;
+  const { pinned: _, bell: __, target: ___, asking: ____, ...rest } = state;
   return rest;
 }
 
+// The boarding question ("Did you get on?") stays open this long after the departure.
+export const ASK_MINUTES = 30;
+
 // Before boarding: the target is the first reachable en-route row, re-taken every tick. Once
-// the target's first vehicle departs while it was reachable, boarding is assumed and its legs
-// become the ride ({ legs, boardedAt }).
+// the target's first vehicle departs while it was reachable after "Leaving now" / "At the stop",
+// boarding is assumed and its legs become the ride ({ legs, boardedAt }). A pinned target (the
+// bell) that departs otherwise asks instead (`asking: { dep }`, answered with answerBoarding).
 export function advanceEnRoute(state, rows, nowMs) {
-  if (state.ride) return state;
+  if (state.ride || state.asking) return state;
   const t = state.target;
   if (t) {
     const row = rows.find(r => r.key === t.key);
     const dep = row?.firstDep ?? t.legs[0].dep;
-    // A pinned target boards when it departs (chosen, so no reachability check).
-    if (nowMs >= dep && (state.pinned || state.atStop <= dep)) {
-      const { target: _, ...rest } = state;
-      return { ...rest, ride: { legs: row?.legs ?? t.legs, boardedAt: dep } };
+    const legs = row?.legs ?? t.legs;
+    if (nowMs >= dep) {
+      if (state.kind !== 'track' && state.atStop <= dep) {
+        const { target: _, pinned: __, bell: ___, ...rest } = state;
+        return { ...rest, ride: { legs, boardedAt: dep } };
+      }
+      if (state.pinned) return { ...state, target: { key: t.key, legs }, asking: { dep } };
     }
     if (state.pinned) return row ? { ...state, target: { key: t.key, legs: row.legs } } : state;
   }
   const r = rows.find(x => x.enRoute && !x.missed);
   return r ? { ...state, target: { key: r.key, legs: r.legs } } : { ...state, target: null };
+}
+
+// The answer to "Did you get on?": Yes boards the asked ride from its departure; "Missed it"
+// drops the pin (see unpinTarget).
+export function answerBoarding(state, yes) {
+  if (!state?.asking) return state;
+  if (!yes) return unpinTarget(state);
+  const { target, pinned: _, bell: __, asking, ...rest } = state;
+  return { ...rest, ride: { legs: target.legs, boardedAt: asking.dep } };
+}
+
+// Saved en-route states from before the bell: a pin without `bell` ("Track this trip") is dropped.
+export function migrateEnRoute(all) {
+  const out = {};
+  for (const [k, s] of Object.entries(all ?? {})) {
+    if (s && !s.ride && s.pinned && !s.bell) {
+      const rest = unpinTarget(s);
+      if (rest) out[k] = { ...rest, name: s.name };
+    } else if (s) out[k] = s;
+  }
+  return out;
 }
 
 // Refreshes a ride's legs from the merged per-leg trip maps (mergeTrips) by trip id: live
@@ -1948,7 +1980,10 @@ export function rideAlertText(send, { ride, outlook, stopName, walkAfter, nowMs 
 export function nextPush(e, nowMs) {
   if (e.kind !== 'ride') {
     const m = Math.max(...remHeadsUps(e));
-    if (e.card?.left) return { kind: 'end', at: e.card.firstDep, text: 'Live Activity ends' };
+    // Past the leave-by (or started): the boarding question at the departure, open ASK_MINUTES.
+    const dep = e.seen?.firstDep ?? e.card?.firstDep;
+    if (e.asked) return { kind: 'end', at: dep + ASK_MINUTES * MIN, text: 'Question closes' };
+    if (e.left || e.card?.left || e.started) return { kind: 'board', at: dep ?? null, text: e.started ? 'Did you get on? (if late)' : 'Did you get on?' };
     return m > 0
       ? { kind: 'headsUp', at: e.leaveBy - m * MIN, text: `Leave in ${m} min` }
       : { kind: 'leave', at: e.leaveBy, text: 'Leave now' };
@@ -2136,10 +2171,12 @@ export function rideHeadline(phase, ride, nowMs, stops = null) {
 export function enRouteActive(state, walkAfter, nowMs) {
   if (!state) return false;
   if (state.ride) return ridePhase(state.ride, walkAfter, nowMs).kind !== 'done';
+  if (state.asking) return nowMs < state.asking.dep + ASK_MINUTES * MIN;
   return state.pinned || nowMs < state.at + 30 * MIN;
 }
 
 export function enRouteStatus(state, nowMs) {
+  if (state.asking) return boardingQuestion(state.target.legs[0], nowMs);
   if (state.kind === 'track') {
     const leg = state.target?.legs[0];
     return leg ? `Tracking ${vehicleLabel(leg)} ${legTime(leg, leg.dep, nowMs)}` : 'Tracking';
@@ -2346,6 +2383,15 @@ export function walkActivityState(row, enRoute, nowMs) {
   const sub = enRoute.kind === 'leaving' && nowMs < enRoute.atStop ? `At the stop ~${t(enRoute.atStop)} · ${margin}` : `At the stop since ${t(enRoute.atStop)} · ${margin}`;
   Object.assign(out, { phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, sub, next: `Arrive ~${t(row.eta)}` });
   return withSoon(out, nowMs);
+}
+// The leave (or walk) card at the departure of a belled ride: the boarding question, until it's
+// answered or ASK_MINUTES pass. `row`: { legs, firstDep } is enough.
+export function askActivityState(row, nowMs) {
+  const first = row.legs[0];
+  return Object.assign(leaveCardBase(row, nowMs), {
+    phase: 'ask', title: 'Did you get on?', sub: `${lineToward(first)} left at ${legTime(first, first.dep, nowMs)}`,
+    next: 'Tap to answer', island: 'Got on?', soon: false,
+  });
 }
 // Whether this reminder check starts the leave card: the app sent a push-to-start token, no card
 // yet, the leave-by ahead, and the 10-min heads-up passing now (or never due: set within 10 min).

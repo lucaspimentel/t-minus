@@ -1,4 +1,4 @@
-// "Notify me": leave-time reminders through the push server (stubbed here at https://push.test;
+// The bell: leave-time reminders through the push server (stubbed here at https://push.test;
 // Push API stubbed too). Home to office at 6:50: the 7:08 bus 132 means leave by 7:02.
 import { test, expect } from '@playwright/test';
 import { openApp, tick, tickTo } from './helpers.js';
@@ -37,14 +37,19 @@ async function fakeServer(page) {
 
 const firstRow = page => page.locator('.row').first();
 
-test('Notify me sets a reminder: the times on the button, a bell on the collapsed row; tap again to cancel', async ({ page }) => {
+// The bell ("🔔 Track"): pins the ride and sets its reminders where notifications work.
+const bell = (row, name = 'Track') => row.getByRole('button', { name, exact: true });
+
+test('the bell sets a reminder: Tracking on the button, a bell on the collapsed row; tap again to cancel', async ({ page }) => {
   const calls = await fakeServer(page);
   await page.addInitScript(pushStub(), { supported: true, server: PUSH });
   await openApp(page, { time: '06:50' });
   await firstRow(page).click();
-  await firstRow(page).getByRole('button', { name: 'Notify me' }).click();
+  await bell(firstRow(page)).click();
   const on = firstRow(page).locator('.track-btn.on');
-  await expect(on).toHaveText('6:52am · 7:02am ✕'); // the first heads-up and leave-by
+  await expect(on).toHaveText('Tracking');
+  await expect(on).toHaveAttribute('aria-pressed', 'true');
+  await expect(firstRow(page)).toHaveClass(/tracked/);
   const post = calls.find(c => c.method === 'POST');
   expect(post.path).toBe('/reminders');
   expect(post.body).toMatchObject({ key: '132in-0708', timingIdx: 0, tripName: 'Home to office', leaveBy: Date.parse('2026-10-05T07:02:00-04:00'), stopSlackMinutes: 1 });
@@ -54,58 +59,76 @@ test('Notify me sets a reminder: the times on the button, a bell on the collapse
   await firstRow(page).locator('.big').click();
   await expect(firstRow(page).locator('.summary .bell')).toHaveCount(1);
   await expect(page.locator('.row').nth(1).locator('.bell')).toHaveCount(0);
-  // Kept across a reload.
+  // Kept across a reload, also past the leave-by (until the boarding question closes).
   await page.reload();
   await page.locator('.row').first().waitFor();
-  await tick(page, 1000);
+  await tick(page, 12 * 60_000 + 1000); // 7:02:01
   await expect(firstRow(page).locator('.summary .bell')).toHaveCount(1);
   await firstRow(page).click();
-  await firstRow(page).getByRole('button', { name: 'Cancel the reminder' }).click();
-  await expect(firstRow(page).getByRole('button', { name: 'Notify me' })).toBeVisible();
-  await firstRow(page).locator('.big').click();
-  await expect(firstRow(page).locator('.bell')).toHaveCount(0);
+  await bell(firstRow(page), 'Tracking').click();
+  await expect(bell(firstRow(page))).toBeVisible();
+  await expect(page.locator('.bell, .row.tracked')).toHaveCount(0);
   expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: '/reminders/r1' });
 });
 
-test('once leave-by passes, the reminder is done: no bell, no button', async ({ page }) => {
-  await fakeServer(page);
+test('one bell at a time: another departure\'s bell cancels the first one\'s reminder', async ({ page }) => {
+  const calls = await fakeServer(page);
   await page.addInitScript(pushStub(), { supported: true, server: PUSH });
   await openApp(page, { time: '06:50' });
   await firstRow(page).click();
-  await firstRow(page).getByRole('button', { name: 'Notify me' }).click();
+  await bell(firstRow(page)).click();
   await expect(firstRow(page).locator('.track-btn.on')).toHaveCount(1);
-  await firstRow(page).locator('.big').click();
-  await expect(firstRow(page).locator('.bell')).toHaveCount(1);
-  await tick(page, 12 * 60_000 + 1000); // 7:02:01
-  await expect(page.locator('.bell, .track-btn.on')).toHaveCount(0);
-  await firstRow(page).click();
-  await expect(firstRow(page).getByRole('button', { name: 'Notify me' })).toHaveCount(0);
+  const second = page.locator('.row').nth(1);
+  await second.click();
+  await bell(second).click();
+  await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
+  await expect.poll(() => calls.filter(c => c.method === 'POST' && c.path === '/reminders').length).toBe(2);
+  await expect(page.locator('.row.tracked')).toHaveCount(1);
+  await expect(page.locator('.track-btn.on')).toHaveCount(1);
 });
 
-test('without push (a Safari tab), Notify me is disabled with a hint; without a server, absent', async ({ page }) => {
+test('without push (a Safari tab), the bell pins only, with a hint; without a server, too', async ({ page }) => {
   await page.addInitScript(pushStub(), { supported: false, server: PUSH });
   await openApp(page, { time: '06:50' });
   await firstRow(page).click();
-  await expect(firstRow(page).getByRole('button', { name: 'Notify me' })).toBeDisabled();
-  await expect(firstRow(page).locator('.push-hint')).toHaveText('Add to Home Screen to get notifications.');
+  await expect(firstRow(page).locator('.push-hint')).toHaveCount(0);
+  await bell(firstRow(page)).click();
+  await expect(firstRow(page).locator('.track-btn.on')).toHaveText('Tracking');
+  await expect(firstRow(page).locator('.push-hint')).toHaveText('Notifications are off: tracking in the app only. Add to Home Screen to get them.');
 });
 
-test('no push server configured: no Notify me', async ({ page }) => {
+test('no push server configured: the bell pins only', async ({ page }) => {
   await page.addInitScript(pushStub(), { supported: true, server: '' });
   await openApp(page, { time: '06:50' });
   await firstRow(page).click();
-  await expect(firstRow(page).getByRole('button', { name: 'Track this trip' })).toBeVisible();
-  await expect(firstRow(page).getByRole('button', { name: 'Notify me' })).toHaveCount(0);
+  await bell(firstRow(page)).click();
+  await expect(firstRow(page).locator('.push-hint')).toHaveText('Notifications are off: tracking in the app only.');
+  await expect(page.locator('#enroute')).toContainText('Tracking');
 });
 
-test('a server error shows a toast with Retry', async ({ page }) => {
+test('a server error shows a toast with Retry; the pin stays', async ({ page }) => {
   await page.context().route(`${PUSH}/**`, route => route.fulfill({ status: 500, json: { error: 'trip is invalid' }, headers: { 'access-control-allow-origin': '*' } }));
   await page.addInitScript(pushStub(), { supported: true, server: PUSH });
   await openApp(page, { time: '06:50' });
   await firstRow(page).click();
-  await firstRow(page).getByRole('button', { name: 'Notify me' }).click();
+  await bell(firstRow(page)).click();
   await expect(page.locator('#toast')).toContainText("Couldn't set the reminder: trip is invalid");
-  await expect(firstRow(page).getByRole('button', { name: 'Notify me' })).toBeEnabled();
+  await expect(bell(firstRow(page), 'Tracking')).toBeEnabled();
+  await expect(firstRow(page).locator('.summary .bell')).toHaveCount(0);
+});
+
+test('reminders from before the bell ("Notify me", no pin) are cancelled at load', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(pushStub(), { supported: true, server: PUSH });
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('seeded')) {
+      sessionStorage.setItem('seeded', '1');
+      localStorage.setItem('t-minus:reminders', JSON.stringify({ '0/132in-0708': { id: 'old', leaveBy: Date.now() + 600_000, headsUps: [5], timingIdx: 0, key: '132in-0708' } }));
+    }
+  });
+  await openApp(page, { time: '06:50' });
+  await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/old')).toBe(true);
+  await expect(page.locator('.bell')).toHaveCount(0);
 });
 
 // Setup's "Send test notification in 10 s": the server sends it; nothing is stored here.
@@ -147,59 +170,48 @@ test('Reset in setup cancels pending reminders on the server', async ({ page }) 
   const calls = await fakeServer(page);
   await page.addInitScript(pushStub(), { supported: true, server: PUSH });
   await openApp(page, { time: '06:50' });
-  await firstRow(page).click();
-  await firstRow(page).getByRole('button', { name: 'Notify me' }).click();
-  await expect(firstRow(page).locator('.track-btn.on')).toHaveCount(1);
+  await setReminder(page, firstRow(page));
   await page.locator('#open-setup').click();
   page.once('dialog', d => d.accept());
   await page.getByRole('button', { name: 'Delete all trips and settings' }).click();
   await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
 });
 
-// Starting the trip cancels its reminders (silently); "I got on"'s Undo posts them again.
 async function setReminder(page, row) {
   await row.click();
-  await row.getByRole('button', { name: 'Notify me' }).click();
+  await bell(row).click();
   await expect(row.locator('.track-btn.on')).toBeVisible();
+  await expect(row.locator('.summary .bell, .track-btn.on')).toHaveCount(1);
 }
+const posted = calls => calls.some(c => c.method === 'POST' && c.path === '/reminders');
 
 for (const name of ['Leaving now', 'At the stop']) {
-  test(`${name} cancels the trip's reminders`, async ({ page }) => {
+  test(`${name} with the bell keeps its reminder, marked started (no more leave alerts)`, async ({ page }) => {
     const calls = await fakeServer(page);
     await page.addInitScript(pushStub(), { supported: true, server: PUSH });
     await openApp(page, { time: '06:50' });
     await setReminder(page, firstRow(page));
-    await page.getByRole('button', { name, exact: true }).click();
-    await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
-    await expect(page.locator('.bell, .track-btn.on')).toHaveCount(0);
-    expect(await page.evaluate(() => localStorage.getItem('t-minus:reminders'))).toBe('{}');
+    await expect.poll(() => posted(calls)).toBe(true);
+    await page.locator('#enroute').getByRole('button', { name, exact: true }).click();
+    await expect.poll(() => calls.some(c => c.method === 'PUT' && c.path === '/reminders/r1')).toBe(true);
+    // The at-stop time: now, or now + the 5-min walk (the page clock runs on: within a minute).
+    const atStop = calls.find(c => c.method === 'PUT').body.started.atStop - Date.parse(`2026-10-05T${name === 'At the stop' ? '06:50' : '06:55'}:00-04:00`);
+    expect(atStop >= 0 && atStop < 60_000).toBe(true);
+    expect(calls.some(c => c.method === 'DELETE')).toBe(false);
+    await expect(page.locator('.track-btn.on')).toHaveCount(1);
   });
 }
 
-test('Track this trip keeps the trip\'s reminders; At the stop then cancels them', async ({ page }) => {
+test('answering the boarding question deletes the reminder (Yes boards)', async ({ page }) => {
   const calls = await fakeServer(page);
   await page.addInitScript(pushStub(), { supported: true, server: PUSH });
   await openApp(page, { time: '06:50' });
   await setReminder(page, firstRow(page));
-  await firstRow(page).getByRole('button', { name: 'Track this trip' }).click();
-  await tick(page, 1000);
+  await expect.poll(() => posted(calls)).toBe(true);
+  await tickTo(page, '07:08:30');
+  await expect(page.locator('#enroute')).toContainText('Did you get on the 7:08am Bus 132?');
   expect(calls.some(c => c.method === 'DELETE')).toBe(false);
-  await expect(page.locator('.track-btn.on')).toHaveCount(1);
-  await page.locator('#enroute').getByRole('button', { name: 'At the stop', exact: true }).click();
-  await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
-  await expect(page.locator('.bell, .track-btn.on')).toHaveCount(0);
-});
-
-test('a tracked ride boarding by itself cancels the trip\'s reminders', async ({ page }) => {
-  const calls = await fakeServer(page);
-  await page.addInitScript(pushStub(), { supported: true, server: PUSH });
-  await openApp(page, { time: '06:50' });
-  await setReminder(page, page.locator('.row').nth(1)); // the next ride's
-  await firstRow(page).click();
-  await firstRow(page).getByRole('button', { name: 'Track this trip' }).click();
-  await tick(page, 1000);
-  expect(calls.some(c => c.method === 'DELETE')).toBe(false);
-  await tickTo(page, '07:08:30'); // the tracked 7:08am bus leaves: boarded
+  await page.locator('#enroute').getByRole('button', { name: 'Yes' }).click();
   await expect(page.locator('.row.ride')).toHaveCount(1);
   await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
 });
@@ -211,6 +223,7 @@ test('I got on cancels the reminders; its Undo sets them again', async ({ page }
   await openApp(page, { time: '17:43' });
   const row = page.locator('.row:not(.missed)').first();
   await setReminder(page, row);
+  await expect.poll(() => posted(calls)).toBe(true);
   const post = calls.find(c => c.method === 'POST' && c.path === '/reminders');
   await page.locator('#rows').getByRole('button', { name: 'Show previous rides ▾', exact: true }).click();
   await page.locator('.row.prev', { hasText: '5:41pm' }).locator('.row-toggle').click();
@@ -221,5 +234,5 @@ test('I got on cancels the reminders; its Undo sets them again', async ({ page }
   const again = calls.filter(c => c.method === 'POST' && c.path === '/reminders')[1];
   expect(again.body).toMatchObject({ key: post.body.key, leaveBy: post.body.leaveBy, timingIdx: post.body.timingIdx });
   await expect(page.locator('.row.ride')).toHaveCount(0);
-  await expect(page.locator('.bell, .track-btn.on')).toHaveCount(1);
+  await expect(page.locator('.row.tracked')).toHaveCount(1);
 });

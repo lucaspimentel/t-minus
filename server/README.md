@@ -35,7 +35,7 @@ its diagnostics to `POST /api/log` (`POST /api/log/read` lists a device's last 2
    npx web-push generate-vapid-keys
    ```
    Keep the private key secret. Changing the keys later invalidates existing subscriptions,
-   which is harmless: the app subscribes again on the next "Notify me".
+   which is harmless: the app subscribes again the next time the bell is turned on.
 4. **Variables** (service → Variables):
 
    | Name | Value |

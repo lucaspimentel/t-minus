@@ -57,7 +57,7 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   has no npm imports so `test/server.test.js` runs in `npm test`. The MBTA key goes only into
   Railway variables or a process env, never into a file. The Railway deploy config (build/start
   commands, healthcheck, watch paths) lives in the service's Railway settings, not the repo.
-  `SERVER_API` in `index.html` is `/api` (same origin; empty hides "Notify me").
+  `SERVER_API` in `index.html` is `/api` (same origin; empty: the bell pins without notifications).
 - Icons: `icons/icon.svg` is the source; re-render the PNGs (192, 512) from it with Playwright
   (and the iOS app icon, `ios/App/App/Assets.xcassets/AppIcon.appiconset/`, 1024 px, no alpha).
 - iOS app (`ios/`, Capacitor; behavior in `DESIGN.md` "iOS app", next phases in `IOS.md`): it loads the live site, so web and server

@@ -179,10 +179,10 @@
   .row-foot { gap: 8px; }
   .alerts-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .track-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .track-btn.on { color: var(--green); border-color: var(--green); }
+  .track-btn.on { background: var(--green); color: var(--card); border-color: var(--green); font-weight: 600; }
   .track-btn:disabled { opacity: .5; cursor: default; }
   .push-hint { margin-top: 6px; font-size: 13px; color: var(--muted); }
-  /* A reminder is set ("Notify me"): a bell beside the collapsed row's badge. */
+  /* The bell is on with notifications: a bell beside the collapsed row's badge. */
   .summary .bell { display: inline-flex; color: var(--green); margin-left: 6px; }
   .summary .bell svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .ride-outlook { margin-top: 6px; font-size: 14px; color: var(--muted); }
@@ -405,7 +405,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-21 · a79f3732c0</footer>
+    <footer class="version">Version 2026-10-22 · ca2c390e51</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -426,10 +426,10 @@ import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
-  unpinTarget, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
-  filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, remHeadsUps,
-} from './core.js?v=4ee071b2fd';
-import { openSetup } from './setup.js?v=bf03acf8d6';
+  unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
+  filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
+} from './core.js?v=8c94576b0e';
+import { openSetup } from './setup.js?v=063c72108c';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -457,6 +457,7 @@ function loadConfig() {
 }
 
 store.del('t-minus:direction'); // override key from the old format
+if (store.get(KEY_EN_ROUTE)) store.set(KEY_EN_ROUTE, migrateEnRoute(store.get(KEY_EN_ROUTE))); // pins from before the bell
 // The stored config (it may have no trips, keeping the settings); `config` is set only with trips.
 let savedConfig = loadConfig();
 // A one-off trip from "Go somewhere else…" (auto-route): { trip, at }. Shown after the saved trips,
@@ -684,7 +685,14 @@ function enRouteState() {
 // Returns the reminders a start of the trip cancelled ({ [remKey]: rem }; see restoreReminders).
 function setEnRoute(state) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
-  const removed = tripStarted(state) && !tripStarted(all[tripIdx]) ? cancelTripReminders(tripIdx) : {};
+  const prev = all[tripIdx];
+  const bell = state?.bell && !state.ride;
+  let removed = {};
+  if (tripStarted(state) && !tripStarted(prev)) {
+    if (bell) startReminders(tripIdx, state.atStop);
+    else removed = cancelTripReminders(tripIdx);
+  }
+  if (prev?.bell && !prev.ride && !bell) removed = { ...removed, ...dropReminders(tripIdx) };
   // Stop alerts follow a ride: none without one; a replaced or ended one is deleted on the server.
   if (state && !state.ride && state.alert) state = withoutAlert(state);
   const prevAlert = all[tripIdx]?.alert?.id;
@@ -841,7 +849,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   const firstLeg = state === 'missed' || state === 'enroute' || prev;
   const target = state === 'red' ? r.lastChance : firstLeg ? r.firstDep : r.leaveBy;
   const key = prev ? `prev:${r.key}` : rowKey(r);
-  const reminder = prev ? null : reminderFor(r, now);
+  const reminder = prev ? null : reminderFor(r);
   const label = countdownLabel(prev ? 'missed' : state, target - now, vehicleLabel(r.legs[0]));
   if (prev) gone = r;
   head.append(el('span', null, label), el('span', 'at', formatTime(target, now)));
@@ -889,46 +897,31 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   }
   // Expanded: the timeline replaces the summary (walks, legs with their badges, transfers).
   li.append(renderTimeline(timelineSteps(prev ? { ...r, enRoute: true } : r, config.trips[tripIdx], stopSlackMinutes(config), now, tripStopNames()), now, { key }));
-  // Footer: "Track this trip" (not next-day rows, nor rides already gone) and the ▴ hint.
+  // Footer: the bell ("🔔 Track": pins the ride and sets its reminders; not next-day rows, nor
+  // rides already gone), "I got on", and the ▴ hint.
   const foot = el('div', 'row-foot');
-  if (!r.nextDay && r.firstDep > now) {
-    const b = el('button', `track-btn${tracked ? ' tracking' : ''}`, tracked ? 'Tracking ✕' : 'Track this trip');
+  let hint = null;
+  if (!r.nextDay && (tracked || r.firstDep > now)) {
+    const b = el('button', `track-btn${tracked ? ' on' : ''}`);
     b.type = 'button';
+    b.innerHTML = BELL_SVG;
+    b.append(tracked ? 'Tracking' : 'Track');
     b.dataset.focus = `track:${key}`;
-    if (tracked) b.setAttribute('aria-label', 'Stop tracking');
+    b.setAttribute('aria-pressed', String(tracked));
+    b.disabled = reminderBusy === key;
     b.onclick = e => {
       e.stopPropagation();
-      if (tracked) return unpinTracking();
-      setEnRoute(pinTarget(enRouteState(), r, Date.now()));
-      render();
-      schedulePoll();
+      if (tracked) bellOff(); else bellOn(r);
     };
     foot.append(b);
+    if (tracked && !reminder && !canNotify()) {
+      hint = el('div', 'push-hint', `Notifications are off: tracking in the app only.${pushSupported ? '' : ' Add to Home Screen to get them.'}`);
+    }
   }
   if (gone) {
     const b = gotOnButton(gone, now);
     b.addEventListener('click', e => e.stopPropagation());
     foot.append(b);
-  }
-  // "Notify me": a push at leave-by (and a heads-up before), once the push server exists.
-  let hint = null;
-  if (SERVER_API && !r.nextDay && (reminder || r.leaveBy > now)) {
-    const b = el('button', `track-btn${reminder ? ' on' : ''}`);
-    b.type = 'button';
-    b.innerHTML = BELL_SVG;
-    // The first heads-up and the leave time.
-    const first = reminder && Math.max(...remHeadsUps(reminder));
-    const times = reminder && (first > 0 ? [r.leaveBy - first * 60_000, r.leaveBy] : [r.leaveBy]);
-    b.append(reminder ? `${times.map(t => formatTime(t, now)).join(' · ')} ✕` : 'Notify me');
-    b.dataset.focus = `notify:${key}`;
-    if (reminder) b.setAttribute('aria-label', 'Cancel the reminder');
-    b.disabled = !pushSupported || reminderBusy === key;
-    b.onclick = e => {
-      e.stopPropagation();
-      if (reminder) unnotify(reminderKey(r)); else notify(r);
-    };
-    foot.append(b);
-    if (!pushSupported) hint = el('div', 'push-hint', 'Add to Home Screen to get notifications.');
   }
   foot.append(chevron('▴'));
   li.append(foot);
@@ -939,7 +932,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
 // ---------- leave-time reminders ----------
 
 // The app's server API (server/, on Railway, which also serves this page; same origin). On
-// localhost, tests can override it in storage; '' hides "Notify me".
+// localhost, tests can override it in storage; '' turns the bell's notifications off.
 const pushOverride = location.hostname === 'localhost' ? store.get('t-minus:push-server') : null;
 const SERVER_API = pushOverride ?? '/api';
 // The iOS app (IOS.md): this page in a WKWebView with Capacitor's bridge (`window.Capacitor`).
@@ -995,22 +988,29 @@ async function apnsToken({ quiet = false } = {}) {
 
 // iOS has push only in the Home Screen app (or the iOS app).
 const pushSupported = native || ('PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window);
-// Set reminders: { ["<trip>/<row key>"]: { id, leaveBy, headsUps, timingIdx, key } }, until their
-// leave-by passes.
+// The bell's reminders: { ["<trip>/<row key>"]: { id, leaveBy, dep, headsUps, timingIdx, key, bell } },
+// until the boarding question closes (ASK_MINUTES after the departure).
 const KEY_REMINDERS = 't-minus:reminders';
 let reminders = store.get(KEY_REMINDERS) ?? {};
+// Reminders from before the bell ("Notify me", no pin) are cancelled.
+for (const [k, rem] of Object.entries(reminders)) {
+  if (rem.bell) continue;
+  delete reminders[k];
+  if (SERVER_API) fetch(`${SERVER_API}/reminders/${rem.id}`, { method: 'DELETE' }).catch(() => {});
+}
 let reminderBusy = null; // the row key while a request is in flight
 const BELL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
 
 const reminderKey = r => `${tripIdx}/${rowKey(r)}`;
-// The row's reminder, while its leave-by is still ahead.
-function reminderFor(r, now) {
-  const rem = reminders[reminderKey(r)];
-  return rem && r.leaveBy > now ? rem : null;
+// The row's reminder (the bell's, with notifications).
+function reminderFor(r) {
+  return reminders[reminderKey(r)] ?? null;
 }
+// Notifications can be set: the server, push, and permission not refused.
+const canNotify = () => !!SERVER_API && pushSupported && notifyPermission() !== 'denied';
 function saveReminders() {
   const now = Date.now();
-  reminders = Object.fromEntries(Object.entries(reminders).filter(([, rem]) => rem.leaveBy + 30 * 60_000 > now));
+  reminders = Object.fromEntries(Object.entries(reminders).filter(([, rem]) => (rem.dep ?? rem.leaveBy) + ASK_MINUTES * 60_000 > now));
   store.set(KEY_REMINDERS, reminders);
 }
 
@@ -1242,14 +1242,15 @@ function syncLeaveCard(now) {
   const s = (store.get(KEY_EN_ROUTE) ?? {})[leaveCard.idx];
   const shown = leaveCard.idx === tripIdx && config?.trips[tripIdx]?.name === s?.name;
   const row = shown && !s.ride ? currentRows(now, s).find(r => r.key === leaveCard.key) : null;
-  if (!s || s.ride || s.kind === 'track' || (shown && (!row || now >= row.firstDep))) {
+  if (!s || s.ride || s.kind === 'track' || (shown && !s.asking && (!row || now >= row.firstDep))) {
     const { id } = leaveCard;
     saveLeaveCard(null);
     endActivity(id, 'end leave card');
     return;
   }
-  if (!row) return;
-  const state = walkActivityState(row, s, now);
+  // Missed at the at-stop time: the boarding question until it's answered.
+  const state = s.asking ? askActivityState({ legs: s.target.legs, firstDep: s.asking.dep }, now) : row && walkActivityState(row, s, now);
+  if (!state) return;
   const json = JSON.stringify(state);
   if (json === leaveCard.last) return;
   saveLeaveCard({ ...leaveCard, last: json });
@@ -1302,8 +1303,11 @@ async function notify(r) {
       subscription: await subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
       timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy, ...(startToken && { startToken }),
     });
-    reminders[remKey] = { id, leaveBy: r.leaveBy, headsUps, timingIdx: r.timingIdx, key: r.key };
-    saveReminders();
+    const s = enRouteState();
+    if (s?.bell && !s.ride && s.target?.key === r.key) {
+      reminders[remKey] = { id, leaveBy: r.leaveBy, dep: r.firstDep, headsUps, timingIdx: r.timingIdx, key: r.key, bell: true };
+      saveReminders();
+    } else pushApi('DELETE', `/reminders/${id}`).catch(() => {}); // the bell went off meanwhile
   } catch (e) {
     showToast(`Couldn't set the reminder: ${e.message}`, 'Retry', () => notify(r));
   }
@@ -1367,8 +1371,8 @@ const pushDebug = {
   },
 };
 
-// Starting a trip (Leaving now, At the stop, I got on, boarding; not Track this trip, see
-// tripStarted) cancels its reminders, silently; returns them for Undo.
+// Starting a trip without the bell on (boarding, I got on; see tripStarted) cancels its
+// reminders, silently; returns them for Undo.
 function cancelTripReminders(idx) {
   const removed = Object.fromEntries(Object.entries(reminders).filter(([k]) => k.startsWith(`${idx}/`)));
   if (!Object.keys(removed).length) return removed;
@@ -1402,20 +1406,45 @@ async function restoreReminders(idx, removed) {
   render();
 }
 
-async function unnotify(remKey) {
-  const rem = reminders[remKey];
-  delete reminders[remKey];
+// "Leaving now" / "At the stop" with the bell on: its reminder stops the leave alerts (the card
+// becomes the walk card) and, at the departure, asks only if the at-stop time missed it.
+function startReminders(idx, atStop) {
+  const mine = Object.fromEntries(Object.entries(reminders).filter(([k]) => k.startsWith(`${idx}/`)));
+  for (const rem of Object.values(mine)) pushApi('PUT', `/reminders/${rem.id}`, { started: { atStop } }).catch(() => {});
+  adoptLeaveCards(idx, mine);
+}
+// The bell went off (off, Cancel, answered, unanswered): the trip's reminders are deleted and
+// their cards end. Returns them for Undo.
+function dropReminders(idx) {
+  const removed = Object.fromEntries(Object.entries(reminders).filter(([k]) => idx == null || k.startsWith(`${idx}/`)));
+  if (!Object.keys(removed).length) return removed;
+  for (const k of Object.keys(removed)) delete reminders[k];
   saveReminders();
-  endLeaveCards(new Set([rem.id])); // the server ends it too (when it has the card's token)
-  render();
-  try {
-    await pushApi('DELETE', `/reminders/${rem.id}`);
-  } catch (e) {
-    reminders[remKey] = rem;
-    saveReminders();
-    render();
-    showToast(`Couldn't cancel the reminder: ${e.message}`, 'Retry', () => unnotify(remKey));
+  endLeaveCards(new Set(Object.values(removed).map(rem => rem.id)));
+  for (const rem of Object.values(removed)) pushApi('DELETE', `/reminders/${rem.id}`).catch(() => {});
+  return removed;
+}
+
+// The bell on: pins the ride, one bell at a time (any other trip's goes off), and sets its
+// reminders where notifications work. Called straight from the tap (notify asks permission).
+function bellOn(r) {
+  const all = store.get(KEY_EN_ROUTE) ?? {};
+  for (const [k, s] of Object.entries(all)) {
+    if (Number(k) === tripIdx || !s?.bell || s.ride) continue;
+    const rest = unpinTarget(s);
+    if (rest) all[k] = rest; else delete all[k];
   }
+  store.set(KEY_EN_ROUTE, all);
+  dropReminders(null);
+  setEnRoute(pinTarget(enRouteState(), r, Date.now()));
+  render();
+  schedulePoll();
+  if (canNotify() && r.leaveBy > Date.now()) notify(r);
+}
+function bellOff() {
+  setEnRoute(unpinTarget(enRouteState()));
+  render();
+  schedulePoll();
 }
 
 // Stop names of the shown trip, from the stops its schedule and prediction responses include.
@@ -1582,7 +1611,7 @@ function render() {
   if (listTrip !== tripIdx) { listTrip = tripIdx; extraRows = 0; prevOpen = false; }
   const current = currentRows(now);
   renderEnRoute(now, current.length > 0);
-  // The ride being headed for: the pinned one ("Track this trip"), else en route the first
+  // The ride being headed for: the pinned one (the bell), else en route the first
   // reachable one.
   const s = enRouteState();
   const pinnedKey = s?.pinned ? s.target?.key ?? null : null;
@@ -1690,7 +1719,7 @@ function renderEnRoute(now, hasRows, riding = false) {
   enRouteKey = key;
   const bar = $('enroute');
   bar.hidden = riding || (!hasRows && !s);
-  bar.classList.toggle('wide', s?.kind === 'track'); // three buttons: status on its own line
+  bar.classList.toggle('wide', s?.kind === 'track' || !!s?.asking); // status on its own line
   if (riding) return bar.replaceChildren();
   const btn = (label, onclick) => {
     const b = el('button', null, label);
@@ -1699,7 +1728,9 @@ function renderEnRoute(now, hasRows, riding = false) {
     b.onclick = onclick;
     return b;
   };
-  bar.replaceChildren(...(s
+  bar.replaceChildren(...(s?.asking
+    ? [el('span', 'en-status', text), btn('Yes', () => answer(true)), btn('Missed it', () => answer(false))]
+    : s
     ? [el('span', 'en-status', text),
       s.kind === 'track' && btn('Leaving now', () => goEnRoute('leaving')),
       (s.kind === 'leaving' || s.kind === 'track') && btn('At the stop', () => goEnRoute('stop')),
@@ -1714,29 +1745,38 @@ function cancelTracking() {
   laterOpen = false;
   nextOpen = false;
   stopsOpen = null;
-  setEnRoute(null);
+  const removed = setEnRoute(null);
   render();
   schedulePoll();
   showToast('Tracking cancelled', 'Undo', () => {
     if (snap.idx !== tripIdx) setTrip(snap.idx, true); // Cancel let autoSwitch change trips
     setEnRoute(withoutAlert(snap.state));
+    restoreReminders(snap.idx, removed);
     render();
     schedulePoll();
   });
 }
 
-// "Tracking ✕" on the tracked row: drops only the pin (unpinTarget), with Undo.
-function unpinTracking() {
-  const snap = { idx: tripIdx, state: enRouteState() };
-  setEnRoute(unpinTarget(snap.state));
+// "Did you get on?" at a belled ride's departure (the bar, or the push's actions in the iOS app):
+// Yes tracks the ride from its departure; "Missed it" drops the pin.
+function answer(yes) {
+  const s = enRouteState();
+  if (!s?.asking) return;
+  setEnRoute(answerBoarding(s, yes));
   render();
   schedulePoll();
-  showToast('Tracking cancelled', 'Undo', () => {
-    if (snap.idx !== tripIdx) setTrip(snap.idx, true);
-    setEnRoute(snap.state);
-    render();
-    schedulePoll();
-  });
+}
+if (native) {
+  // The push's Yes / Missed it (both open the app; a plain tap just shows the bar): the bell's
+  // trip is shown, and the answer applies once its departure is reached.
+  Promise.resolve().then(() => plugins.PushNotifications.addListener('pushNotificationActionPerformed', ({ actionId, notification }) => {
+    if (notification?.data?.kind !== 'board' || !config) return;
+    const idx = Object.entries(store.get(KEY_EN_ROUTE) ?? {}).find(([, st]) => st?.bell && !st.ride)?.[0];
+    if (idx == null) return;
+    setTrip(Number(idx), true);
+    syncEnRoute(Date.now());
+    if (actionId === 'yes' || actionId === 'missed') answer(actionId === 'yes');
+  })).catch(e => nativeLog('push', `action listener: ${e.message}`));
 }
 
 // Bottom toast with one action (or none); a new one replaces the current one.

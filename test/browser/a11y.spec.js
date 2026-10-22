@@ -57,6 +57,21 @@ for (const scheme of ['light', 'dark']) {
   });
 }
 
+for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing with the bell on and on the boarding question (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openApp(page, { time: '06:55' });
+    await page.locator('.row-toggle').first().click();
+    await page.getByRole('button', { name: 'Track', exact: true }).click();
+    await tick(page, 1000);
+    await expect(page.locator('.track-btn.on')).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+    await tickTo(page, '07:08:30');
+    await expect(page.locator('#enroute')).toContainText('Did you get on');
+    expect(await violations(page)).toEqual([]);
+  });
+}
+
 test('a row is a button: its name says when to leave, and Enter expands it', async ({ page }) => {
   await openApp(page, { time: '06:55' });
   const btn = page.getByRole('button', { name: 'Leave in 6 min, 7:02am, arrive ~7:57am' });
@@ -78,7 +93,7 @@ test('keyboard focus stays on the same control through the redraw', async ({ pag
   await tick(page, 2000);
   expect(await focused()).toBe(row);
   await page.keyboard.press('Enter');
-  await page.getByRole('button', { name: 'Track this trip' }).focus();
+  await page.getByRole('button', { name: 'Track', exact: true }).focus();
   await tick(page, 2000);
   expect(await focused()).toMatch(/^track:/);
 });

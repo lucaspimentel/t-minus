@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -475,7 +475,7 @@ test('tracking: boarding, live leg times, phases, Missed it re-plan', () => {
   assert.equal(replanFrom([buses, trains], 1, at('08:01'), transfers), null);
 });
 
-test('Track this trip: pinned target', () => {
+test('The bell: pinned target, asked at departure', () => {
   const trip = homeToOffice;
   const buses = [veh('b1', '07:12', '07:26'), veh('b2', '07:40', '07:54')];
   const trains = [veh('o1', '07:31', '07:46'), veh('o3', '08:00', '08:15')];
@@ -484,28 +484,48 @@ test('Track this trip: pinned target', () => {
 
   // From the normal list: kind 'track', no at-stop time.
   const tracked = pinTarget(null, r2, at('07:00'));
-  assert.deepEqual([tracked.kind, tracked.pinned, tracked.target.key, tracked.atStop], ['track', true, 'b2', undefined]);
+  assert.deepEqual([tracked.kind, tracked.pinned, tracked.bell, tracked.target.key, tracked.atStop], ['track', true, true, 'b2', undefined]);
   assert.equal(enRouteStatus(tracked, at('07:00')), 'Tracking 132 7:40am');
-  // Not re-targeted when b1 departs; boards at b2's departure; no 30-min cap before that.
+  // Not re-targeted when b1 departs; no 30-min cap before b2 departs.
   let s = advanceEnRoute(tracked, rowsAt('07:12', null), at('07:12'));
   assert.deepEqual([s.ride, s.target.key], [undefined, 'b2']);
   assert.equal(enRouteActive(s, 10, at('07:39')), true);
+  // At b2's departure: asked, not boarded; the question stays ASK_MINUTES.
   s = advanceEnRoute(s, rowsAt('07:40', null), at('07:40'));
-  assert.deepEqual([s.ride.boardedAt, s.ride.legs.map(l => l.tripId)], [at('07:40'), ['b2', 'o3']]);
+  assert.deepEqual([s.ride, s.asking, s.target.key], [undefined, { dep: at('07:40') }, 'b2']);
+  assert.equal(enRouteStatus(s, at('07:41')), 'Did you get on the 7:40am 132?');
+  assert.equal(advanceEnRoute(s, rowsAt('07:50', null), at('07:50')), s);
+  assert.equal(enRouteActive(s, 10, at('08:09')), true);
+  assert.equal(enRouteActive(s, 10, at('08:10')), false);
+  // Yes: the ride from the departure; "Missed it": plain tracking ends.
+  const yes = answerBoarding(s, true);
+  assert.deepEqual([yes.ride.boardedAt, yes.ride.legs.map(l => l.tripId), yes.pinned, yes.bell, yes.asking, yes.target], [at('07:40'), ['b2', 'o3'], undefined, undefined, undefined, undefined]);
+  assert.equal(answerBoarding(s, false), null);
+  assert.equal(answerBoarding(tracked, true), tracked); // nothing asked
 
-  // Keeping an en-route state; "Leaving now" afterwards keeps the pin.
+  // Keeping an en-route state; "Leaving now" afterwards keeps the pin and the bell.
   const stop = startEnRoute('stop', at('07:05'), 5);
   const pinned = pinTarget(stop, r2, at('07:06'));
   assert.deepEqual([pinned.kind, pinned.atStop, pinned.target.key], ['stop', at('07:05'), 'b2']);
   const leaving = startEnRoute('leaving', at('07:08'), 5, tracked);
-  assert.deepEqual([leaving.pinned, leaving.target.key], [true, 'b2']);
+  assert.deepEqual([leaving.pinned, leaving.bell, leaving.target.key], [true, true, 'b2']);
   // Unpinning: plain tracking ends; an en-route state stays, without the pin.
   assert.equal(unpinTarget(tracked), null);
   assert.deepEqual(unpinTarget(pinned), { kind: 'stop', at: stop.at, atStop: at('07:05') });
   assert.deepEqual([unpinTarget(leaving).kind, unpinTarget(leaving).pinned, unpinTarget(leaving).target], ['leaving', undefined, undefined]);
-  // Pinned boards even if the at-stop estimate says it was unreachable.
+  // After "Leaving now": boards when reachable, else asks; "Missed it" keeps the en-route state.
+  const ok = advanceEnRoute(pinned, rowsAt('07:40', pinned), at('07:40'));
+  assert.deepEqual([ok.ride.boardedAt, ok.pinned, ok.bell, ok.target], [at('07:40'), undefined, undefined, undefined]);
   const late = pinTarget({ kind: 'leaving', at: at('07:10'), atStop: at('07:15') }, r1, at('07:10'));
-  assert.equal(advanceEnRoute(late, rowsAt('07:12', late), at('07:12')).ride.boardedAt, at('07:12'));
+  const asked = advanceEnRoute(late, rowsAt('07:12', late), at('07:12'));
+  assert.deepEqual([asked.ride, asked.asking], [undefined, { dep: at('07:12') }]);
+  assert.deepEqual(answerBoarding(asked, false), { kind: 'leaving', at: at('07:10'), atStop: at('07:15') });
+  // A new pin replaces an asked one.
+  assert.equal(pinTarget(asked, r2, at('07:13')).asking, undefined);
+
+  // Saved pins from before the bell are dropped (an en-route state stays, unpinned).
+  const old = { 0: { ...tracked, bell: undefined, name: 'A' }, 1: { ...pinned, bell: undefined, name: 'B' }, 2: { ...tracked, name: 'C' }, 3: { kind: 'track', at: 1, ride: { legs: [] }, pinned: true, name: 'D' } };
+  assert.deepEqual(migrateEnRoute(old), { 1: { kind: 'stop', at: stop.at, atStop: at('07:05'), name: 'B' }, 2: old[2], 3: old[3] });
 });
 
 test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
@@ -2004,7 +2024,10 @@ test('nextPush: a reminder\'s heads-up then Leave now; a ride\'s heads-up, then 
   assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUp: true }, at('06:50')), { kind: 'headsUp', at: at('06:59'), text: 'Leave in 5 min' });
   assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [] }, at('07:00')), { kind: 'leave', at: at('07:04'), text: 'Leave now' });
   // A leave card past its leave-by: it ends when the vehicle leaves.
-  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [], card: { left: true, firstDep: at('07:10') } }, at('07:05')), { kind: 'end', at: at('07:10'), text: 'Live Activity ends' });
+  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [], card: { left: true, firstDep: at('07:10') } }, at('07:05')), { kind: 'board', at: at('07:10'), text: 'Did you get on?' });
+  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [], left: true, seen: { firstDep: at('07:11') } }, at('07:05')), { kind: 'board', at: at('07:11'), text: 'Did you get on?' });
+  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [5], started: { atStop: 1 }, seen: { firstDep: at('07:11') } }, at('07:00')), { kind: 'board', at: at('07:11'), text: 'Did you get on? (if late)' });
+  assert.deepEqual(nextPush({ leaveBy: at('07:04'), headsUps: [], asked: at('07:11'), seen: { firstDep: at('07:11') } }, at('07:12')), { kind: 'end', at: at('07:41'), text: 'Question closes' });
   const trip = { name: 'Home to office', legs: [{ kind: 'walk', minutes: 5 }, { kind: 'transit', route: '132', stop: 's1', alight: 's2' },
     { kind: 'transfer', minutes: 5 }, { kind: 'transit', route: 'Orange', stop: 'o1', alight: 'o2' }, { kind: 'walk', minutes: 10 }] };
   const ride = { boardedAt: at('07:08'), legs: [
@@ -2055,7 +2078,12 @@ test('leaveActivityState: leave in, moved, leave now, departs, gone', () => {
   assert.deepEqual([gone.phase, gone.title, gone.until, gone.island], ['gone', 'Missed · left 7:48am', 0, '']);
   const cancelled = leaveCancelledState(before);
   assert.deepEqual([cancelled.phase, cancelled.title, cancelled.sub, cancelled.next, cancelled.until, cancelled.color], ['cancelled', 'Ride cancelled', '', 'Open the app for the next one.', 0, 'FFC72C']);
-  for (const st of [before, moved, now, departs, gone, cancelled, leaveCancelledState(null)]) assert.ok(hasRideStateKeys(st), st.phase);
+  const ask = askActivityState(row, at('07:50'));
+  assert.deepEqual([ask.phase, ask.title, ask.sub, ask.next, ask.until, ask.island, ask.warn, ask.soon, ask.label],
+    ['ask', 'Did you get on?', 'Bus 132 toward Malden left at 7:48am', 'Tap to answer', 0, 'Got on?', false, false, '132']);
+  assert.deepEqual(askActivityState({ legs: row.legs, firstDep: row.firstDep }, at('07:50')), ask); // the server's saved row
+  for (const st of [before, moved, now, departs, gone, cancelled, leaveCancelledState(null), ask]) assert.ok(hasRideStateKeys(st), st.phase);
+  assert.deepEqual(reminderText('board', 'Home to office', row, at('07:49')), { title: 'Did you get on the 7:48am Bus 132?', body: 'Home to office · tap to answer' });
 });
 
 test('walkActivityState: on the way, at the stop, late', () => {

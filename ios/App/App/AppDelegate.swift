@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import UserNotifications
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -8,6 +9,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         LiveActivityObserver.shared.start() // also in a background launch after a leave card's start
+        // The boarding question's actions (the server's `board` pushes): both open the app, which
+        // gets the action from the PushNotifications plugin (`pushNotificationActionPerformed`).
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: "board", actions: [
+                UNNotificationAction(identifier: "yes", title: "Yes", options: [.foreground]),
+                UNNotificationAction(identifier: "missed", title: "Missed it", options: [.foreground]),
+            ], intentIdentifiers: [])
+        ])
         return true
     }
 

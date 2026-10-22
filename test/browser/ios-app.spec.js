@@ -61,6 +61,8 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token, leav
     }),
   };
   window.emitStartToken = t => emit('TMinus.startToken', { token: t });
+  // A tap on a notification's action (`actionId`: 'tap', 'yes', 'missed').
+  window.emitAction = (actionId, data) => emit('pushNotificationActionPerformed', { actionId, notification: { data } });
   window.Capacitor = { isNativePlatform: () => true, Plugins: { PushNotifications, TMinus } };
 }
 
@@ -87,19 +89,19 @@ const nativeCalls = page => page.evaluate(() => window.nativeCalls);
 
 async function notifyMe(page) {
   await firstRow(page).click();
-  await firstRow(page).getByRole('button', { name: 'Notify me' }).click();
+  await firstRow(page).getByRole('button', { name: 'Track', exact: true }).click();
   await tick(page, 200); // the token arrives 50 ms after register()
 }
 
-test('Notify me asks iOS for permission, registers, and posts the device token; no Home Screen hint, no service worker', async ({ page }) => {
+test('the bell asks iOS for permission, registers, and posts the device token; no Home Screen hint, no service worker', async ({ page }) => {
   const calls = await fakeServer(page);
   await page.addInitScript(capacitorStub, { server: PUSH, token: TOKEN });
   await openApp(page, { time: '06:50' });
   await firstRow(page).click();
   await expect(page.locator('.push-hint')).toHaveCount(0);
-  await firstRow(page).getByRole('button', { name: 'Notify me' }).click();
+  await firstRow(page).getByRole('button', { name: 'Track', exact: true }).click();
   await tick(page, 200);
-  await expect(firstRow(page).locator('.track-btn.on')).toHaveText('6:52am · 7:02am ✕');
+  await expect(firstRow(page).locator('.track-btn.on')).toHaveText('Tracking');
   const post = calls.find(c => c.path === '/reminders');
   expect(post.body.subscription).toEqual({ endpoint: `apns:${TOKEN.toLowerCase()}` });
   expect(await nativeCalls(page)).toEqual(['requestPermissions', 'register']);
@@ -215,7 +217,7 @@ test('iOS refusing the Live Activity is logged once; the ride carries on', async
 // a card over when the trip starts.
 const leaveCalls = async page => (await activityCalls(page)).filter(c => c.id === 'leave1');
 
-test('Notify me sends the push-to-start token; a new token goes to the pending reminders; older builds post without it', async ({ page }) => {
+test('the bell sends the push-to-start token; a new token goes to the pending reminders; older builds post without it', async ({ page }) => {
   const calls = await fakeServer(page);
   await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
   await openApp(page, { time: '06:50' });
@@ -236,7 +238,7 @@ test('a build without the leave-card methods: the reminder posts without a start
   expect(calls.filter(c => c.path === '/log')).toEqual([]);
 });
 
-test('At the stop keeps the server\'s card as the walk card; boarding ends it before the ride card starts', async ({ page }) => {
+test('At the stop marks the reminder started and keeps the server\'s card as the walk card; boarding ends it before the ride card starts', async ({ page }) => {
   const calls = await fakeServer(page);
   await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
   await openApp(page, { time: '06:50' });
@@ -244,7 +246,8 @@ test('At the stop keeps the server\'s card as the walk card; boarding ends it be
   await page.evaluate(() => { window.fakeActivities = [{ id: 'leave1', reminderId: 'r1', tripName: 'Home to office' }]; });
   await tickTo(page, '07:00');
   await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
-  await expect.poll(() => calls.find(c => c.method === 'DELETE' && c.path === '/reminders/r1')?.search).toBe('?reason=started');
+  await expect.poll(() => calls.find(c => c.method === 'PUT' && c.path === '/reminders/r1')?.body?.started?.atStop).toBeGreaterThanOrEqual(at('07:00'));
+  expect(calls.some(c => c.method === 'DELETE')).toBe(false);
   await expect.poll(async () => (await leaveCalls(page))[0]?.call).toBe('update');
   const [walk] = await leaveCalls(page);
   expect(walk.state).toMatchObject({ phase: 'walk', title: 'Bus 132 in', island: '', join: ' ' });
@@ -253,7 +256,7 @@ test('At the stop keeps the server\'s card as the walk card; boarding ends it be
   await tickTo(page, '07:12'); // boarded
   await expect.poll(async () => (await activityCalls(page)).some(c => c.call === 'start')).toBe(true);
   const order = (await activityCalls(page)).map(c => (c.id === 'leave1' ? `leave:${c.call}` : c.call)).filter(c => c === 'leave:end' || c === 'start');
-  expect(order).toEqual(['leave:end', 'start']);
+  expect(order.slice(0, 2)).toEqual(['leave:end', 'start']); // (the fake list still has it: ended again, harmless)
 });
 
 test('Leaving now then Cancel ends the walk card', async ({ page }) => {
@@ -289,4 +292,35 @@ test('no card from the server: Leaving now makes no Live Activity calls', async 
   await page.locator('#enroute').getByRole('button', { name: 'Leaving now' }).click();
   await tick(page, 2000);
   expect(await activityCalls(page)).toEqual([]);
+});
+
+test('Leaving now misses the belled bus: at its departure the walk card asks "Did you get on?"; Missed it ends it', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await page.evaluate(() => { window.fakeActivities = [{ id: 'leave1', reminderId: 'r1', tripName: 'Home to office' }]; });
+  await tickTo(page, '07:05');
+  await page.locator('#enroute').getByRole('button', { name: 'Leaving now' }).click(); // at the stop ~7:10
+  await expect.poll(async () => (await leaveCalls(page))[0]?.state?.phase).toBe('walk');
+  await tickTo(page, '07:08:30');
+  await expect.poll(async () => (await leaveCalls(page)).at(-1)?.state?.phase).toBe('ask');
+  expect((await leaveCalls(page)).at(-1).state).toMatchObject({ title: 'Did you get on?', sub: 'Bus 132 toward Malden left at 7:08am', next: 'Tap to answer', island: 'Got on?' });
+  await page.locator('#enroute').getByRole('button', { name: 'Missed it' }).click();
+  await expect.poll(async () => (await leaveCalls(page)).at(-1)?.call).toBe('end');
+  await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1' && c.search === '')).toBe(true);
+});
+
+test('the push\'s Yes action answers the boarding question (the bell\'s trip shown); a plain tap only opens it', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await tickTo(page, '07:08:30');
+  await page.evaluate(() => window.emitAction('tap', { kind: 'board', reminderId: 'r1' }));
+  await tick(page, 300);
+  await expect(page.locator('#enroute')).toContainText('Did you get on the 7:08am Bus 132?');
+  await page.evaluate(() => window.emitAction('yes', { kind: 'board', reminderId: 'r1' }));
+  await tick(page, 1000);
+  await expect(page.locator('.row.ride')).toHaveCount(1);
 });

@@ -66,8 +66,8 @@ async function openPending(page) {
 test('pending notifications: server entries with sent and next pushes, local-only copies, the log; Delete, Clear all, Back', async ({ page }) => {
   const calls = await fakeServer(page);
   const reminders = {
-    '0/132in-0708': { id: 'r1', leaveBy: at('07:02'), headsUp: false, timingIdx: 0, key: '132in-0708' },
-    '1/OL-1735': { id: 'r9', leaveBy: at('17:29'), headsUp: true, timingIdx: 0, key: 'OL-1735' },
+    '0/132in-0708': { id: 'r1', leaveBy: at('07:02'), headsUp: false, timingIdx: 0, key: '132in-0708', bell: true },
+    '1/OL-1735': { id: 'r9', leaveBy: at('17:29'), headsUp: true, timingIdx: 0, key: 'OL-1735', bell: true },
   };
   await page.addInitScript(stub, { server: PUSH, reminders });
   await openApp(page, { time: '06:50' });
@@ -131,7 +131,7 @@ for (const scheme of ['light', 'dark']) {
   test(`axe finds nothing on the pending notifications screen (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await fakeServer(page);
-    await page.addInitScript(stub, { server: PUSH, reminders: { '1/OL-1735': { id: 'r9', leaveBy: at('17:29'), headsUp: true, timingIdx: 0, key: 'OL-1735' } } });
+    await page.addInitScript(stub, { server: PUSH, reminders: { '1/OL-1735': { id: 'r9', leaveBy: at('17:29'), headsUp: true, timingIdx: 0, key: 'OL-1735', bell: true } } });
     await openApp(page, { time: '06:50' });
     await openPending(page);
     await expect(cards(page)).toHaveCount(3);
