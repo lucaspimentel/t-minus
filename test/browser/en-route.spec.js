@@ -415,8 +415,9 @@ test('at the stop with the bell: boards on its own when reached; the bell off ke
   await expect(bar(page)).toContainText('At the stop since 7:00am');
   await expect(page.locator('.row.tracked')).toHaveCount(0);
   await expect(page.locator('.row.catch .big')).toContainText('7:08am');
-  await page.locator('.row').nth(1).click();
-  await bell(page.locator('.row').nth(1)).click();
+  const again = page.locator('.row').nth(1); // still expanded
+  if (!(await bell(again).isVisible())) await again.click();
+  await bell(again).click();
   await tickTo(page, '07:36:30');
   await expect(head(page)).toHaveText(riding('Bus 132'));
 });

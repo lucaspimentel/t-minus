@@ -14,6 +14,8 @@ function pushStub({ supported = true, server = PUSH } = {}) {
   return ({ supported, server }) => {
     if (server != null) localStorage.setItem('t-minus:push-server', JSON.stringify(server));
     if (!supported) { delete window.PushManager; return; }
+    // Not yet asked (the headless shell says 'denied', which pins without notifications).
+    Object.defineProperty(window.Notification, 'permission', { configurable: true, get: () => 'default' });
     window.Notification.requestPermission = async () => 'granted';
     const sub = { endpoint: 'https://push.example/1', keys: { p256dh: 'k', auth: 'a' } };
     const pushManager = { getSubscription: async () => null, subscribe: async () => ({ toJSON: () => sub }) };
