@@ -13,6 +13,8 @@ test.beforeEach(({ page }) => {
 const bar = page => page.locator('#enroute');
 const card = page => page.locator('.row.ride');
 const head = page => page.locator('.ride-head');
+// In the transfer: a departure row's headline, "Orange in 9 min" with the time on the right.
+const transferHead = (page, time) => expect(card(page).locator('.big')).toHaveText(new RegExp(`^Orange in (\\d+|<1) min\\s*${time}$`));
 // The ridden leg's drop-off time, in the card's timeline (the headline has minutes, not the time).
 const offAt = (page, t) => expect(page.locator('.row.ride .step.stop', { hasText: t })).not.toHaveCount(0);
 const toast = page => page.locator('#toast');
@@ -76,7 +78,9 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await tickTo(page, '07:11');
   await expect(card(page).getByRole('button', { name: 'Missed it' })).toHaveCount(0); // 2 min after boarding
   await tickTo(page, '07:23');
-  await expect(head(page)).toHaveText('Transfer · Orange ~7:32am');
+  await transferHead(page, '~7:32am');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Toward Forest Hills · 5 min to spare');
+  await expect(card(page)).not.toHaveClass(/amber/);
   // The bus leg is done; the transfer and the Orange boarding stop are current.
   expect(await cls(tl.locator('.step'))).toEqual(['done', 'done', 'done', 'current', 'current', '', '', '', '']);
   await tickTo(page, '07:33');
@@ -125,6 +129,11 @@ test('a bus running late: under the transfer time is tight; leaving before the a
   await offAt(page, '7:33am');
   await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills ~7:38am (missed 7:32am)');
   await expect(card(page).locator('.ride-outlook')).toHaveClass(/warn/);
+  // In the transfer: the countdown to the re-planned train, the card amber.
+  await tickTo(page, '07:34');
+  await transferHead(page, '~7:38am');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Toward Forest Hills (missed 7:32am)');
+  await expect(card(page)).toHaveClass(/amber/);
 });
 
 // The 7:08 bus running 8 min late at every stop: leaves Main St at 7:16, off at 7:30. Once it
@@ -148,7 +157,7 @@ test('after a reload, a ride\'s late bus keeps the live times it was stored with
   await openApp(page, { time: '07:00', scenario });
   await atTheStop(page);
   await tickTo(page, '07:31'); // off at 7:30: the bus has no predictions left
-  await expect(head(page)).toHaveText(/^Transfer · Orange/);
+  await transferHead(page, '~7:\\d\\dam');
   const tl = card(page).locator('.timeline');
   const busStops = tl.locator('.tl-leg').first().locator('.step.stop');
   await expect(busStops).toHaveText([/Main St @ South St\s*7:16am/, /Washington St opp Oak Grove Sta\s*7:30am/]);
@@ -168,21 +177,21 @@ test('in the transfer: I\'m at the stop takes the next train; Different train? p
   await openApp(page, { time: '07:00' });
   await atTheStop(page);
   await tickTo(page, '07:24');
-  await expect(head(page)).toHaveText('Transfer · Orange ~7:32am');
+  await transferHead(page, '~7:32am');
   await card(page).getByRole('button', { name: 'Different train?' }).click();
   await tick(page, 300);
   expect(await choiceNames(page)).toEqual(['Orange ~7:26am', 'Orange ~7:38am', 'Orange ~7:44am', 'Orange ~7:50am']);
   await card(page).getByRole('button', { name: 'Orange ~7:38am' }).click();
   await tick(page, 300);
-  await expect(head(page)).toHaveText('Transfer · Orange ~7:38am');
+  await transferHead(page, '~7:38am');
   await expect(card(page).getByRole('button', { name: 'Different train?' })).toBeVisible(); // closed
   // The pick sticks: the 7:32 is catchable and earlier, but no silent switch back.
   await tickTo(page, '07:25');
-  await expect(head(page)).toHaveText('Transfer · Orange ~7:38am');
+  await transferHead(page, '~7:38am');
   // At the platform: the next train from now.
   await card(page).getByRole('button', { name: "I'm at the stop" }).click();
   await tick(page, 300);
-  await expect(head(page)).toHaveText('Transfer · Orange ~7:26am');
+  await transferHead(page, '~7:26am');
   await expect(card(page).getByRole('button', { name: "I'm at the stop" })).toHaveCount(0); // nothing sooner
 });
 

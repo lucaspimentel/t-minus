@@ -262,8 +262,9 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
   - Headline by phase (`ridePhase`, `rideHeadline`): "Bus 132 · 9 stops · 4 min" (stops left once
     the vehicle's stop list is loaded, else "Bus 132 · 4 min"; minutes count down to the leg's
     live drop-off arrival, which the timeline shows); with only the drop-off left, "Next stop:
-    get off", or "Get off here" while stopped there (`getOffText`); "Transfer · Orange 7:31am"
-    (before leg i departs), "Walking · arrive 7:56am" (after the last arrival), "Arrived
+    get off", or "Get off here" while stopped there (`getOffText`); in the transfer (before
+    leg i departs), a departure row's headline: "Orange in 9 min" with "7:31am" on the right
+    (amber, with the card's edge, when the outlook below is a warning); "Walking · arrive 7:56am" (after the last arrival), "Arrived
     ~7:56am" (5 min, with Done), then back to the list.
   - The timeline (no first walk) with the current step bold; it ends with the arrival time
     (no separate "arrive" line under the headline).
@@ -293,6 +294,9 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
     (`ride.missed`); no chain: "No connection after 7:26am", plan kept. No extra requests (the
     per-leg vehicles already polled). (Before 2026-10-08 a negative margin counted as missed:
     at Oak Grove with time to spare, the 6:40pm bus was dropped for the 7:06pm.)
+    In the transfer the headline already names the vehicle and its time, so the line drops them:
+    "Toward Forest Hills · 4 min to spare" / "· tight" / "(missed 7:31am)" (the line, "Orange
+    Line", without a headsign); "No connection after …" as is.
   - A working connection still switches to a catchable vehicle leaving 2+ min sooner
     (`EARLIER_MIN`; not one that already left), e.g. the planned train fell behind a delayed
     earlier one: legs i+1… are re-planned from it, silently ("Then Orange 7:31am · 4 min to
@@ -1196,7 +1200,8 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   Live Activities is the only off switch). Notifications are unchanged, "3 stops to …" included.
 - **Card** (`ios/App/TMinusWidgets/RideViews.swift`, in the app's light / dark colors with the
   route's color as the dot): the trip name; a headline like the ride card's ("Orange · 4 stops",
-  "Next stop: get off", "Transfer · Bus 132", "Missed the 8:02am · next 8:14am" in amber, "No
+  "Next stop: get off", "Bus 132" in the transfer (sub line "Toward Malden · 8:02am · 3 min to
+  spare", "· tight" in amber), "Missed the 8:02am · next 8:14am" in amber, "No
   connection after …", "Walking", "Arrived ~8:25am") with a countdown; the drop-off line with the
   time first ("Get off 8:24am at …", so a long stop name is cut, not the time); the next
   connection or "Arrive ~…"; a progress bar with one segment per leg, sized by its riding time (at

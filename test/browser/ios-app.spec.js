@@ -182,7 +182,7 @@ test('a tracked ride starts a Live Activity, updates it when its content changes
   // Updated only when the content changes (the stops left, the transfer), never twice the same.
   await tickTo(page, '07:27');
   await expect.poll(async () => (await activityCalls(page)).filter(c => c.call === 'update').at(-1)?.state.phase).toBe('transfer');
-  expect((await activityCalls(page)).filter(c => c.call === 'update').at(-1).state.title).toMatch(/^Transfer · Orange/);
+  expect((await activityCalls(page)).filter(c => c.call === 'update').at(-1).state).toMatchObject({ title: 'Orange', sub: expect.stringMatching(/^Toward Forest Hills · ~7:32am · \d+ min to spare$/) });
   const states = [start, ...(await activityCalls(page)).filter(c => c.call === 'update')].map(c => JSON.stringify(c.state));
   expect(states.every((x, i) => i === 0 || x !== states[i - 1])).toBe(true);
   // Done (from the card once arrived) ends it at once.

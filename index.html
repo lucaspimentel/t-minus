@@ -164,6 +164,8 @@
   .strip .dot { margin-right: 4px; vertical-align: -1px; }
   .row.ride { cursor: default; border-left-color: var(--green); }
   .row.ride.arrived { border-left-color: var(--border); }
+  .row.ride.amber { border-left-color: var(--amber); }
+  .row.ride:not(.amber) .big { color: var(--green); }
   .ride-head { font-size: 20px; font-weight: 700; color: var(--green); }
   .row.ride.arrived .ride-head { color: var(--text); }
   .step.current { color: var(--text); font-weight: 600; }
@@ -405,7 +407,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-22 · ca2c390e51</footer>
+    <footer class="version">Version 2026-10-22 · a335ce2843</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -428,8 +430,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=8c94576b0e';
-import { openSetup } from './setup.js?v=063c72108c';
+} from './core.js?v=d0386f5f6e';
+import { openSetup } from './setup.js?v=726c7f5d0e';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1850,10 +1852,17 @@ function renderRideCard(s, now) {
   // Riding: the stops left to the drop-off (in the timeline, below), also counted in the headline.
   const { phase, stops, outlook: o, walkAfter } = rideCardData(s, now);
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
-  const li = el('li', `row ride ${phase.kind === 'arrived' ? 'arrived' : ''}`);
-  li.append(el('div', 'ride-head', rideHeadline(phase, ride, now, stops)));
-  // The next connection: spare time, tight, re-planned after a miss, or none.
-  const outlook = outlookText(o, ride, now);
+  const transfer = phase.kind === 'transfer';
+  // The next connection: spare time, tight, re-planned after a miss, or none (amber card then).
+  const outlook = outlookText(o, ride, now, { transfer });
+  const li = el('li', `row ride${phase.kind === 'arrived' ? ' arrived' : ''}${transfer && outlook?.warn ? ' amber' : ''}`);
+  const head = rideHeadline(phase, ride, now, stops);
+  // In the transfer, a departure row's headline: "Bus 132 in 9 min" with the time on the right.
+  if (transfer) {
+    const big = el('div', 'big');
+    big.append(el('span', null, head.text), el('span', 'at', head.at));
+    li.append(big);
+  } else li.append(el('div', 'ride-head', head));
   if (outlook) li.append(el('div', `ride-outlook${outlook.warn ? ' warn' : ''}`, outlook.text));
   // Timeline with the current step: the leg being ridden, the transfer before a leg, or the
   // final walk.

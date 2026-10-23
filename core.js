@@ -2058,6 +2058,9 @@ export function lineLabel(leg) {
 // "toward Forest Hills" from the trip's headsign ('' without one).
 export const toward = leg => (leg.headsign ? `toward ${leg.headsign}` : '');
 const lineToward = leg => [lineLabel(leg), toward(leg)].filter(Boolean).join(' ');
+// In the transfer, where the headline already names the vehicle and its time: "Toward Redstone",
+// or the line ("Orange Line") without a headsign.
+const towardOnly = leg => (leg.headsign ? `Toward ${leg.headsign}` : lineLabel(leg));
 
 // How much earlier another vehicle must leave before a working connection switches to it.
 export const EARLIER_MIN = 2;
@@ -2094,11 +2097,12 @@ export function transferOutlook(ride, phase, vehiclesByLeg, transfers, nowMs) {
 
 // The outlook line: "Then Orange Line toward Forest Hills 7:31am · 4 min to spare" / "· tight" (under 2 min) /
 // "(missed 7:31am)" after a re-plan (`ride.missed`) / "No connection after 7:26am".
-export function outlookText(outlook, ride, nowMs) {
+// `transfer`: in the transfer, under the "Orange in 4 min" headline: "Toward Forest Hills · 4 min to spare".
+export function outlookText(outlook, ride, nowMs, { transfer = false } = {}) {
   if (!outlook) return null;
   if (outlook.none) return { text: `No connection after ${formatTime(outlook.needed, nowMs)}`, warn: true };
   const leg = outlook.legs[outlook.leg];
-  const head = `Then ${lineToward(leg)} ${legTime(leg, leg.dep, nowMs)}`;
+  const head = transfer ? towardOnly(leg) : `Then ${lineToward(leg)} ${legTime(leg, leg.dep, nowMs)}`;
   const missed = outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null);
   if (missed != null) return { text: `${head} (missed ${formatTime(missed, nowMs)})`, warn: true };
   if (outlook.margin < 2 * MIN) return { text: `${head} · tight`, warn: true };
@@ -2151,7 +2155,8 @@ export function switchLeg(ride, i, vehicle, vehiclesByLeg, transfers) {
 }
 
 // `stops`: rideStops() for the leg being ridden (or null): stops left and minutes to the drop-off,
-// or "Next stop: get off" / "Get off here" with only the drop-off left.
+// or "Next stop: get off" / "Get off here" with only the drop-off left. In the transfer, like a
+// departure row: { text: 'Bus 132 in 9 min', at: '6:39pm' }.
 export function rideHeadline(phase, ride, nowMs, stops = null) {
   const leg = ride.legs[phase.leg];
   const n = stops?.stops.length ?? 0;
@@ -2161,7 +2166,7 @@ export function rideHeadline(phase, ride, nowMs, stops = null) {
       if (cue) return cue;
       return `${vehicleLabel(leg)}${n ? ` · ${n} stop${n === 1 ? '' : 's'}` : ''} · ${formatCountdown(leg.arr - nowMs)}`;
     }
-    case 'transfer': return `Transfer · ${vehicleLabel(leg)} ${legTime(leg, leg.dep, nowMs)}`;
+    case 'transfer': return { text: `${vehicleLabel(leg)} in ${formatCountdown(leg.dep - nowMs)}`, at: legTime(leg, leg.dep, nowMs) };
     case 'walking': return `Walking · arrive ${legTime(ride.legs[ride.legs.length - 1], phase.eta, nowMs)}`;
     default: return `Arrived ~${formatTime(phase.eta, nowMs)}`;
   }
@@ -2304,10 +2309,14 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
         break;
       }
       const missed = outlook?.missedDep ?? (ride.missed?.leg === phase.leg ? ride.missed.dep : null);
-      out.title = missed != null ? `Missed the ${t(missed)} · next ${legTime(leg, leg.dep, nowMs)}` : `Transfer · ${vehicleLabel(leg)}`;
-      out.warn = missed != null;
+      // The card's timer counts down to the departure; the sub line has the time and the spare
+      // ("· tight" in amber), like the app's outlook line.
+      out.title = missed != null ? `Missed the ${t(missed)} · next ${legTime(leg, leg.dep, nowMs)}` : vehicleLabel(leg);
       out.until = sec(leg.dep);
-      out.sub = [lineLabel(leg), toward(leg)].filter(Boolean).join(' ') + ` · ${legTime(leg, leg.dep, nowMs)}`;
+      out.sub = `${towardOnly(leg)} · ${legTime(leg, leg.dep, nowMs)}`;
+      const tight = missed == null && outlook && outlook.margin < 2 * MIN;
+      if (missed == null && outlook) out.sub += tight ? ' · tight' : ` · ${formatCountdown(outlook.margin)} to spare`;
+      out.warn = missed != null || !!tight;
       out.next = `Arrive ~${t(eta)}`;
       break;
     }
