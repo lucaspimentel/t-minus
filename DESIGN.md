@@ -408,9 +408,12 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 ### Accessibility (VoiceOver and keyboard)
 
 - **Rows:** each row's head (with the collapsed summary) is a `<button class="row-toggle"
-  aria-expanded>`, named by `rowAriaLabel` ("Leave in 5 min, 7:04am, arrive 7:50am", plus
+  aria-expanded>`, named by `rowAriaLabel` ("Leave in 5 min, 7:04am, Bus 132, Orange, scheduled, arrive 7:50am": the
+  collapsed row's visible text in order, which axe 4.14's label-content-name-mismatch requires, with
+  spaces between the spans so their words don't run together; plus
   ", reminder set"). A tap anywhere on the row still toggles it (the button's click bubbles to
-  the row). Track, Notify, and the ride card's controls are buttons of their own.
+  the row). Track, Notify, and the ride card's controls are buttons of their own. Setup's leg
+  buttons likewise: "Change leg 1, Bus 132 toward Malden · Main St → Oak Grove" (the › hidden).
 - **Focus across the redraw:** the rows are rebuilt every second, so focusable controls carry
   `data-focus` (`row:<key>`, `track:<key>`, `notify:<key>`, `ride:<label>`, `bar:<label>`) and
   `setRows` refocuses the same one after the rebuild. Keyboard focus shows a 2 px ring

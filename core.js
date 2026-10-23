@@ -2471,9 +2471,11 @@ export function statusProblem({ lastError, lastOk, rateLimited, notice, location
   return [mbtaDown && 'MBTA down', notice, locationOff && 'Location off', savedCopy && 'Saved copy'].filter(Boolean).join(' · ');
 }
 
-// The spoken name of a row's expand button: "Leave in 5 min, 7:04am, arrive 7:50am".
-export function rowAriaLabel(countdown, at, eta, reminder = false) {
-  return `${countdown}, ${at}, arrive ${eta}${reminder ? ', reminder set' : ''}`;
+// The spoken name of a row's expand button: "Leave in 5 min, 7:04am, Bus 132, Orange, scheduled,
+// arrive 7:50am". `details`: the leg labels and the badge text, in the collapsed row's order (its
+// visible text must appear in the name in order: WCAG 2.5.3, axe's label-content-name-mismatch).
+export function rowAriaLabel(countdown, at, eta, reminder = false, details = []) {
+  return [countdown, at, ...details, `arrive ${eta}`, ...(reminder ? ['reminder set'] : [])].join(', ');
 }
 
 // Headline for a departure row, given its countdownState and the time left until leave-by

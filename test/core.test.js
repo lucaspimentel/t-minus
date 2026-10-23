@@ -1754,6 +1754,11 @@ test('statusProblem: errors, the rate limit and notices, without times', () => {
 test('rowAriaLabel', () => {
   assert.equal(rowAriaLabel('Leave in 5 min', '7:04am', '7:50am'), 'Leave in 5 min, 7:04am, arrive 7:50am');
   assert.equal(rowAriaLabel('Hurry · 1 min', '7:06am', '7:50am', true), 'Hurry · 1 min, 7:06am, arrive 7:50am, reminder set');
+  // The collapsed row's visible text in order: legs, badge, arrival; the bell (an image) last.
+  assert.equal(rowAriaLabel('Leave in 6 min', '7:02am', '~7:57am', false, ['Bus 132', 'Orange', 'scheduled']),
+    'Leave in 6 min, 7:02am, Bus 132, Orange, scheduled, arrive ~7:57am');
+  assert.equal(rowAriaLabel('Leave in 2 min', '7:24am', '~7:41am', true, ['Orange', 'every 6 min']),
+    'Leave in 2 min, 7:24am, Orange, every 6 min, arrive ~7:41am, reminder set');
 });
 
 test('formatDistance: meters to 10 m under a kilometer, else km', () => {

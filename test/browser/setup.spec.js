@@ -587,7 +587,7 @@ test('route and stop lists are kept on the phone: a later session makes no list 
   const session = async () => {
     await warmLists(page);
     await setup(page).locator('.trip-row .item').first().click();
-    await button(page, 'Change leg 1').click();
+    await setup(page).getByRole('button', { name: /^Change leg 1, / }).click();
     await setup(page).locator('#picker-search').fill('132');
     await setup(page).locator('.item', { hasText: 'Bus 132' }).click();
     await expect(setup(page).locator('.list .item').first()).toBeVisible();
@@ -630,7 +630,7 @@ test('with saved lists, setup works while the API is down', async ({ page }) => 
   await page.reload();
   await page.locator('#open-setup').click();
   await setup(page).locator('.trip-row .item').first().click();
-  await button(page, 'Change leg 1').click();
+  await setup(page).getByRole('button', { name: /^Change leg 1, / }).click();
   await setup(page).locator('#picker-search').fill('132');
   await setup(page).locator('.item', { hasText: 'Bus 132' }).click();
   await expect(setup(page).locator('.list .item', { hasText: 'Main St @ South St' }).first()).toBeVisible();

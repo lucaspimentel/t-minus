@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=d0386f5f6e';
+} from './core.js?v=0a8c589b66';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -777,16 +777,17 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       moveItem(t.transit, j, delta);
       render();
     };
+    const legButton = (j, text) => h('button', { type: 'button', class: 'item leg-item', 'aria-label': `Change leg ${j + 1}, ${text.textContent}`, onclick: () => openPicker(j) },
+      h('div', { class: 'leg-main' }, h('div', { class: 'leg-title' }, `Leg ${j + 1}`), ' ', text),
+      h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
     const legs = t.transit.flatMap((l, j) => [
       j > 0 && numberField('Minutes to transfer', l.transferBefore, v => { l.transferBefore = v; }),
       // Each leg in its own box, like the trip list: tap to change it (Remove leg is in there),
       // ↑↓ on the right. Transfer and walk times sit between and around the boxes.
+      // Named with its visible text in order ("Change leg 1, Bus 132 toward …"); the space
+      // between the divs keeps "Leg 1" apart from the summary in the button's text.
       h('div', { class: 'leg-row' },
-        h('button', { type: 'button', class: 'item leg-item', 'aria-label': `Change leg ${j + 1}`, onclick: () => openPicker(j) },
-          h('div', { class: 'leg-main' },
-            h('div', { class: 'leg-title' }, `Leg ${j + 1}`),
-            h('div', { class: 'leg-text' }, legSummary(l))),
-          h('span', { class: 'go' }, '›')),
+        legButton(j, h('div', { class: 'leg-text' }, legSummary(l))),
         h('button', { type: 'button', 'aria-label': `Move leg ${j + 1} up`, disabled: j === 0, onclick: () => moveLeg(j, -1) }, '↑'),
         h('button', { type: 'button', 'aria-label': `Move leg ${j + 1} down`, disabled: j === t.transit.length - 1, onclick: () => moveLeg(j, 1) }, '↓')),
       // A leg on several routes: each can be dropped (one always stays).

@@ -407,7 +407,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-22 · a335ce2843</footer>
+    <footer class="version">Version 2026-10-23 · d7dbc5b986</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -430,8 +430,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=d0386f5f6e';
-import { openSetup } from './setup.js?v=726c7f5d0e';
+} from './core.js?v=0a8c589b66';
+import { openSetup } from './setup.js?v=0cb80cf2fd';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -854,7 +854,9 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   const reminder = prev ? null : reminderFor(r);
   const label = countdownLabel(prev ? 'missed' : state, target - now, vehicleLabel(r.legs[0]));
   if (prev) gone = r;
-  head.append(el('span', null, label), el('span', 'at', formatTime(target, now)));
+  // The spaces between spans (not rendered in the flex rows) keep the words apart in the
+  // button's text, which must read in order inside its name (rowAriaLabel).
+  head.append(el('span', null, label), ' ', el('span', 'at', formatTime(target, now)));
   // The head (and the collapsed summary) is the row's expand button; a tap anywhere on the row
   // still toggles it (the button's click bubbles to the row).
   const expanded = expandedRows.has(key);
@@ -863,35 +865,37 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   toggle.dataset.focus = `row:${key}`;
   toggle.setAttribute('aria-expanded', String(expanded));
   const lastLeg = r.legs[r.legs.length - 1];
-  toggle.setAttribute('aria-label', rowAriaLabel(label, formatTime(target, now), legTime(lastLeg, r.eta, now), !!reminder));
-  toggle.append(head);
+  // The collapsed row's badge: the timing leg's (the first leg's on missed and en-route rows).
+  const shown = r.legs[firstLeg ? 0 : r.timingIdx];
+  const details = [...r.legs.map(l => l.label), sourceText(shown)];
+  toggle.setAttribute('aria-label', rowAriaLabel(label, formatTime(target, now), legTime(lastLeg, r.eta, now), !!reminder, details));
+  toggle.append(head, ' ');
   li.append(toggle);
   li.onclick = () => {
     if (!expandedRows.delete(key)) expandedRows.add(key);
     render();
   };
   if (!expanded) {
-    // Collapsed: the live/scheduled badge of the timing leg (the first leg on missed and
-    // en-route rows), and the arrival under the leave time. Tap to expand for the legs.
-    const shown = r.legs[firstLeg ? 0 : r.timingIdx];
+    // Collapsed: the live/scheduled badge of the timing leg, and the arrival under the leave
+    // time. Tap to expand for the legs.
     // Leg strip: the timeline's rail and dots, laid out horizontally.
     const strip = el('div', 'strip');
     for (const leg of r.legs) {
       const stop = el('span', 'stop');
       stop.append(dot(leg.color), leg.label);
-      strip.append(el('span', 'seg'), stop);
+      strip.append(el('span', 'seg'), stop, ' ');
     }
     strip.append(el('span', 'seg'));
-    toggle.append(strip);
+    toggle.append(strip, ' ');
     const summary = el('div', 'detail summary');
-    summary.append(badge(shown));
+    summary.append(badge(shown), ' ');
     // A reminder is set: a bell beside the badge (the header has no room to spare).
     if (reminder) {
       const bell = el('span', 'bell');
       bell.innerHTML = BELL_SVG;
       bell.setAttribute('role', 'img');
       bell.setAttribute('aria-label', 'Reminder set');
-      summary.append(bell);
+      summary.append(bell, ' ');
     }
     summary.append(el('span', 'arrive', `arrive ${legTime(lastLeg, r.eta, now)}`), chevron('▾'));
     toggle.append(summary);
