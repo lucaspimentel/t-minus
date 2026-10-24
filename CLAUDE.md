@@ -19,7 +19,9 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - Update `DESIGN.md` when behavior changes; move finished items out of `TODO.md`.
 - After pushing to `main`: check that CI passed and that Railway deployed the commit, then tell
   the user the footer version (`Version <date> · <hash>` in `index.html`) so they can check that
-  the installed app has updated. Railway skips a commit whose CI failed, and a push that touches
+  the installed app has updated, together with the latest iOS build number (TestFlight "1.0 (N)":
+  N is the `ios` workflow's run number of the last successful run with `upload` on; say whether
+  the change needs that build or a newer one). Railway skips a commit whose CI failed, and a push that touches
   none of its watch paths (tests, docs) doesn't deploy, so the live footer stays on the previous
   version. Deploy a skipped commit that's still wanted by hand (Railway tools or dashboard), or bump
   `server/deploy-trigger` and push.
