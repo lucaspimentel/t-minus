@@ -41,6 +41,11 @@ const send = env.DRY_RUN
     return webpush.sendNotification(sub, JSON.stringify(payload), { TTL: 600, urgency: 'high' });
   };
 
+// Datadog RUM (optional): each app's ID and client token, both public; served at /api/config.
+// A pair counts only when both values are set.
+const rumPair = (id, token) => (env[id] && env[token] ? { applicationId: env[id], clientToken: env[token] } : null);
+const rum = { web: rumPair('DD_RUM_APP_ID', 'DD_RUM_CLIENT_TOKEN'), ios: rumPair('DD_IOS_RUM_APP_ID', 'DD_IOS_RUM_CLIENT_TOKEN') };
+
 const app = createApp({
   fetch,
   send,
@@ -50,6 +55,7 @@ const app = createApp({
   publicUrl: env.PUBLIC_URL || undefined,
   staticRoot: new URL('..', import.meta.url).pathname,
   proxy: env.MBTA_PROXY !== 'off',
+  rum,
   log,
 });
 const port = Number(env.PORT ?? 8080);

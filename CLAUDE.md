@@ -55,7 +55,8 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   needs its stop lists.
 - Local run: the push server serves the app and `/api` on one port (see `server/README.md`,
   `DRY_RUN=1`), open `http://localhost:8790/`.
-- Push server (`server/`, the only backend and the only runtime dependency, `web-push`; it also
+- Push server (`server/`, the only backend; its runtime dependencies are `web-push` and `dd-trace`,
+  the latter loaded only by the Railway start command; it also
   serves the app's files, answers setup's "Show nearby", `GET /api/nearby`, auto-route's `GET /api/plan` and `GET /api/places` (Photon / Nominatim), and proxies the app's MBTA
   requests, `GET /api/mbta/*`):
   `npm --prefix server ci`, then see `server/README.md` (env vars, `DRY_RUN=1`). `server/app.mjs`
@@ -63,6 +64,9 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   Railway variables or a process env, never into a file. The Railway deploy config (build/start
   commands, healthcheck, watch paths) lives in the service's Railway settings, not the repo.
   `SERVER_API` in `index.html` is `/api` (same origin; empty: the bell pins without notifications).
+  Datadog (DESIGN.md "Observability"): RUM is off unless `/api/config` has the RUM IDs (so it is
+  off locally and in the browser tests); never put the MBTA key in a URL (it would reach RUM and
+  traces).
 - Icons: `icons/icon.svg` is the source; re-render the PNGs (192, 512) from it with Playwright
   (and the iOS app icon, `ios/App/App/Assets.xcassets/AppIcon.appiconset/`, 1024 px, no alpha).
 - iOS app (`ios/`, Capacitor; behavior in `DESIGN.md` "iOS app", next phases in `IOS.md`): it loads the live site, so web and server

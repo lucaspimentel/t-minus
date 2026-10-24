@@ -34,7 +34,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Target device | Phone first; installable PWA (add to home screen) |
 | Hosting | The Railway service (`server/`) at `https://t-minus.lucasp.net/`: the app's files and its API under `/api/` on one origin (see Hosting) |
 | API calls | Through the server's MBTA proxy (`/api/mbta/*`, its key and a shared cache; see "MBTA data caching"), then direct from the browser to `api-v3.mbta.com` after an error or 2 s (CORS verified: `access-control-allow-origin: *`) |
-| API key | Not needed: the proxy uses the server's key. The optional key field in settings is used only for direct calls (the proxy unreachable or refusing), sent as the `api_key` query parameter (a custom header would add a CORS preflight). Stored in `localStorage` on the app's own origin (`t-minus.lucasp.net`; on GitHub Pages it was the shared `lucaspimentel.github.io` origin) |
+| API key | Not needed: the proxy uses the server's key. The optional key field in settings is used only for direct calls (the proxy unreachable or refusing), sent as the `x-api-key` header, never in the URL (URLs end up in RUM and traces; the header costs a CORS preflight, which the MBTA allows, on this fallback path only). Stored in `localStorage` on the app's own origin (`t-minus.lucasp.net`; on GitHub Pages it was the shared `lucaspimentel.github.io` origin) |
 | Persistence | `localStorage` per browser; sharing = app URL + self-serve config |
 | Default config | None: first run opens the setup view |
 | Trips | Any number of named trips, each with any number of transit legs; optional time window per trip picks the trip shown |
@@ -1017,6 +1017,30 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   2026-10-06; it moved here in two steps (a "moved" banner on the Pages copy, then the repo
   rename to `t-minus` and Pages off). Storage is per origin, so trips moved by Export/Import,
   and the key prefix changed from `mbta-leave-by:` to `t-minus:`.
+
+## Observability (Datadog, 2026-10-24)
+
+- **Server APM:** `dd-trace` (the server's second runtime dependency), loaded only by the Railway
+  start command (`node --import ./server/node_modules/dd-trace/initialize.mjs`: the package is
+  under `server/` and the command runs from the repo root), so local runs and `npm test` never
+  load it and `app.mjs` keeps no npm imports. Service `t-minus-api`, env `prod`, version the
+  deployed commit (`DD_VERSION=$RAILWAY_GIT_COMMIT_SHA`). Traces go to a Datadog agent in the same
+  Railway project (`datadog-agent-rust`, the serverless-compat image) over private networking;
+  Railway has none built in, and Node's tracer has no agentless mode.
+- **Browser RUM:** off unless the server has the RUM IDs (`GET /api/config` → `rum.web`; the ID
+  and client token are public by design). After the first render the app fetches the config,
+  then loads `datadog-rum.js` (v7, US1) asynchronously from Datadog's CDN; the service worker
+  ignores cross-origin requests, so it's never cached, and any failure leaves the app without
+  RUM. Service `t-minus-web`, version the footer hash, 100% of sessions, no Session Replay,
+  resources on, user interactions and long tasks off (`rumInitOptions` in `core.js`).
+- **RUM ↔ APM:** same-origin `/api/` requests carry `datadog` and `tracecontext` headers
+  (`allowedTracingUrls`), so a resource (an `/api/mbta/*` call, a reminder) links to its server
+  trace.
+- **The MBTA key:** never in a URL. The server and the app's direct fallback send it as
+  `x-api-key`; RUM's `beforeSend` also strips `api_key` from resource and view URLs.
+- **Budget:** `/api/config` is one same-origin request per page load, outside the MBTA budget.
+- **iOS (next, `TODO.md`):** native RUM with WebView tracking, so the web views join the native
+  session; its IDs come from `/api/config`'s `rum.ios`.
 
 ## MBTA data caching (investigation, 2026-10-06)
 

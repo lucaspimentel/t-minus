@@ -25,6 +25,10 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 
 ## iOS app (see `IOS.md`)
 
+- Native Datadog RUM (DESIGN.md "Observability"): `dd-sdk-ios` via SPM in the App target only,
+  crash reporting, `WebViewTracking.enable` for `t-minus.lucasp.net`; IDs from `/api/config`'s
+  `rum.ios`, cached in UserDefaults (the first launch starts RUM after the fetch). No dSYM upload.
+
 - Phase 3b: widget (next leave-by of the active trip).
 - Yes / Missed it buttons on the leave card's "Did you get on?" (App Intents, iOS 17+); today it
   only opens the app.

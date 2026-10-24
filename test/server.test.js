@@ -34,6 +34,7 @@ async function setup({ staticRoot = null } = {}) {
       return doc === 'fail' || !doc ? { ok: false, status: 503 } : { ok: true, status: 200, json: async () => doc };
     }
     world.calls.push(u.pathname);
+    (world.requests ??= []).push({ url, headers: opts?.headers ?? {} });
     await world.gate;
     if (world.failing) return { ok: false, status: world.failing === true ? 500 : world.failing };
     // Static data's Last-Modified (the MBTA sends no ETag): a matching If-Modified-Since gets 304.
@@ -1368,5 +1369,28 @@ test('leave card: cancelled shows "Ride cancelled" then ends 2 min later; bell o
     // Not for a ride.
     const { id: r } = await (await s.call('POST', '/api/rides', { ...followed(), subscription: apnsSub })).json();
     assert.equal((await s.call('PUT', `/api/reminders/${r}`, { activity: { token: CARD } })).status, 404);
+  } finally { await s.close(); }
+});
+
+test('the MBTA key goes in the x-api-key header, never the URL', async () => {
+  const s = await setup();
+  try {
+    const { call } = await s.serve({ apiKey: 'secret-key' });
+    assert.equal((await call('GET', '/api/mbta/stops?filter[route]=Red')).status, 200);
+    assert.ok(s.world.requests.length > 0);
+    for (const r of s.world.requests) {
+      assert.equal(r.headers['x-api-key'], 'secret-key');
+      assert.ok(!r.url.includes('secret-key') && !r.url.includes('api_key'), r.url);
+    }
+  } finally { await s.close(); }
+});
+
+test('GET /api/config serves the RUM IDs that are set, null otherwise', async () => {
+  const s = await setup();
+  try {
+    assert.deepEqual(await (await s.call('GET', '/api/config')).json(), { rum: { web: null, ios: null } });
+    const web = { applicationId: 'app', clientToken: 'pub' };
+    const { call } = await s.serve({ rum: { web, ios: null } });
+    assert.deepEqual(await (await call('GET', '/api/config')).json(), { rum: { web, ios: null } });
   } finally { await s.close(); }
 });

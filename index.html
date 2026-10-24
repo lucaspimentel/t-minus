@@ -407,7 +407,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-24 · 4430fa3647</footer>
+    <footer class="version">Version 2026-10-24 · f66cc9d86c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -427,11 +427,11 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
-  rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
+  rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=bae60299e8';
-import { openSetup } from './setup.js?v=e38c55fb5c';
+} from './core.js?v=fc21b75078';
+import { openSetup } from './setup.js?v=70d454abe0';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -531,8 +531,7 @@ async function api(path, params) {
   const doc = await viaProxy(path, params);
   if (doc) return doc;
   const qs = new URLSearchParams(params);
-  if (config?.apiKey) qs.set('api_key', config.apiKey);
-  const res = await fetch(`${API}${path}?${qs}`, { headers: { Accept: 'application/vnd.api+json' } });
+  const res = await fetch(`${API}${path}?${qs}`, { headers: { Accept: 'application/vnd.api+json', ...(config?.apiKey && { 'x-api-key': config.apiKey }) } });
   if (res.status === 429) throw Object.assign(new Error('Rate limited (429)'), { rateLimited: true });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -2278,8 +2277,25 @@ $('reload-new').onclick = () => location.reload();
 // iOS Safari applies :active on touch only when a touch listener exists.
 document.addEventListener('touchstart', () => {}, { passive: true });
 
+// Datadog RUM (DESIGN.md "Observability"): on when /api/config has the web app's IDs. The SDK
+// loads from Datadog's CDN after the first render; any failure leaves the app without RUM.
+async function startRum() {
+  if (!SERVER_API) return;
+  try {
+    const res = await fetch(`${SERVER_API}/config`);
+    const opts = res.ok ? rumInitOptions((await res.json())?.rum?.web, RUNNING_VERSION, location.origin) : null;
+    if (!opts) return;
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = RUM_SDK_URL;
+    s.onload = () => { try { window.DD_RUM?.init(opts); } catch { /* RUM off */ } };
+    document.head.append(s);
+  } catch { /* offline or no server: RUM off */ }
+}
+
 window.appStarted = true;
 render();
+startRum();
 if (config) { refresh({ force: true }); locate(); } // no trips: the empty state (Set up a trip / Import trips)
 </script>
 </body>

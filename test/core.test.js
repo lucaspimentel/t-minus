@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage,
+  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage, scrubApiKey, rumInitOptions,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -2160,4 +2160,33 @@ test('leaveActivityState: early (an hour or more ahead): "Leave at", no countdow
   assert.deepEqual([moved.title, moved.warn, moved.island, moved.next, moved.until], ['Leave at 7:36am', true, 'Leave 7:36am', 'Moved (was 7:39am) · arrive ~8:25am', 0]);
   assert.deepEqual(leaveStartText('Home to office', row, at('06:30')), { title: 'Leave at 7:39am · Home to office', body: 'Bus 132 toward Malden at 7:48am' });
   assert.deepEqual(leaveStartText('Home to office', row, at('07:30')), reminderText('headsUp', 'Home to office', row, at('07:30')));
+});
+
+test('scrubApiKey drops api_key from a URL and leaves others alone', () => {
+  assert.equal(scrubApiKey('https://api-v3.mbta.com/stops?filter%5Broute%5D=Red&api_key=k'), 'https://api-v3.mbta.com/stops?filter%5Broute%5D=Red');
+  assert.equal(scrubApiKey('https://api-v3.mbta.com/stops?api_key=k'), 'https://api-v3.mbta.com/stops');
+  assert.equal(scrubApiKey('https://t-minus.lucasp.net/api/config'), 'https://t-minus.lucasp.net/api/config');
+  assert.equal(scrubApiKey(undefined), undefined);
+});
+
+test('rumInitOptions: null without IDs; same-origin /api/ gets trace headers; version from the footer', () => {
+  const origin = 'https://t-minus.lucasp.net';
+  assert.equal(rumInitOptions(null, 'Version 2026-10-24 · 4430fa3647', origin), null);
+  assert.equal(rumInitOptions({ applicationId: 'a' }, 'Version 2026-10-24 · 4430fa3647', origin), null);
+  const o = rumInitOptions({ applicationId: 'a', clientToken: 'pub' }, 'Version 2026-10-24 · 4430fa3647', origin);
+  assert.deepEqual(
+    { ...o, allowedTracingUrls: undefined, beforeSend: undefined },
+    {
+      applicationId: 'a', clientToken: 'pub', site: 'datadoghq.com', service: 't-minus-web', env: 'prod', version: '4430fa3647',
+      sessionSampleRate: 100, sessionReplaySampleRate: 0, trackResources: true, trackUserInteractions: false, trackLongTasks: false,
+      allowedTracingUrls: undefined, beforeSend: undefined,
+    });
+  const [{ match, propagatorTypes }] = o.allowedTracingUrls;
+  assert.deepEqual(propagatorTypes, ['datadog', 'tracecontext']);
+  assert.equal(match(`${origin}/api/mbta/stops?x=1`), true);
+  assert.equal(match(`${origin}/index.html`), false);
+  assert.equal(match('https://api-v3.mbta.com/api/stops'), false);
+  const event = { resource: { url: 'https://api-v3.mbta.com/stops?api_key=k' } };
+  assert.equal(o.beforeSend(event), true);
+  assert.equal(event.resource.url, 'https://api-v3.mbta.com/stops');
 });

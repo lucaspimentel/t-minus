@@ -161,7 +161,7 @@ function nominatimPlaces(list) {
   }));
 }
 
-export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {}, sendTimeoutMs = SEND_TIMEOUT_MS }) {
+export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {}, sendTimeoutMs = SEND_TIMEOUT_MS, rum = {} }) {
   // A push that never finishes fails after sendTimeoutMs instead of stopping the loop (2026-10-19:
   // a hung APNs push held the loop for an hour: no reminders went out until a restart).
   const send = (sub, payload) => {
@@ -189,6 +189,8 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
   // ---------- MBTA (through the shared cache) ----------
 
+  // The key goes in a header, never the URL: URLs end up in traces and logs.
+  const keyHeader = apiKey ? { 'x-api-key': apiKey } : {};
   const docOf = e => (e.doc ??= JSON.parse(e.text));
   const textOf = e => (e.text ??= JSON.stringify(e.doc));
 
@@ -196,8 +198,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     const minute = Math.floor(t / MIN);
     calls = calls.minute === minute ? { minute, count: calls.count + 1 } : { minute, count: 1 };
     const qs = new URLSearchParams(params);
-    if (apiKey) qs.set('api_key', apiKey);
-    const headers = { Accept: 'application/vnd.api+json', ...(prev?.lastModified && { 'If-Modified-Since': prev.lastModified }) };
+    const headers = { Accept: 'application/vnd.api+json', ...keyHeader, ...(prev?.lastModified && { 'If-Modified-Since': prev.lastModified }) };
     let res;
     try {
       res = await fetch(`${API}${path}?${qs}`, { headers, signal: AbortSignal.timeout(MBTA_TIMEOUT_MS) });
@@ -388,6 +389,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
     if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true, reminders: store.count() });
     if (req.method === 'GET' && path === '/vapid') return reply(res, 200, { publicKey });
+    if (req.method === 'GET' && path === '/config') return reply(res, 200, { rum: { web: rum.web ?? null, ios: rum.ios ?? null } });
     // Auto-route: plans from the daily network.
     if (req.method === 'GET' && path === '/plan') {
       let net;
@@ -695,8 +697,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   // Large one-off documents, not kept in the MBTA cache.
   async function networkDoc(path, params) {
     const qs = new URLSearchParams(params);
-    if (apiKey) qs.set('api_key', apiKey);
-    const res = await fetch(`${API}${path}?${qs}`, { headers: { Accept: 'application/vnd.api+json' }, signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS) });
+    const res = await fetch(`${API}${path}?${qs}`, { headers: { Accept: 'application/vnd.api+json', ...keyHeader }, signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`MBTA ${path}: HTTP ${res.status}`);
     return res.json();
   }

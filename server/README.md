@@ -24,7 +24,9 @@ its diagnostics to `POST /api/log` (`POST /api/log/read` lists a device's last 2
 1. **Project:** in Railway, create a project with a service sourced from
    `lucaspimentel/t-minus`, branch `main` (repo root, so `server/` can import
    `../core.js`). The deploy config lives in the service's Railway settings, not the repo:
-   build command `npm ci --prefix server`, start command `node server/main.mjs`, health check
+   build command `npm ci --prefix server`, start command
+   `/bin/sh -c "export DD_VERSION=$RAILWAY_GIT_COMMIT_SHA; exec node --import ./server/node_modules/dd-trace/initialize.mjs server/main.mjs"`
+   (`node server/main.mjs` runs without Datadog tracing), health check
    `/health`, watch paths `server/**`, `core.js`, `index.html`, `setup.js`, `sw.js`,
    `manifest.json` and `icons/**` (the server and the app's files). To redeploy without a code
    change, edit `server/deploy-trigger` and push.
@@ -54,7 +56,16 @@ its diagnostics to `POST /api/log` (`POST /api/log/read` lists a device's last 2
    | `APNS_TOPIC` | with `APNS_KEY`: the app's bundle ID (`net.lucasp.tminus`) |
    | `APNS_HOST` | optional: `production` (default, also when empty; TestFlight builds) or `sandbox` (Xcode debug builds). A bad APNs setting logs `APNs off: …` at startup and leaves APNs off; the rest of the server runs |
 
-   `PORT` is set by Railway.
+   | `DD_RUM_APP_ID`, `DD_RUM_CLIENT_TOKEN` | optional: the Datadog Browser RUM application's ID and client token (public), served at `/api/config`; RUM is off without both |
+   | `DD_IOS_RUM_APP_ID`, `DD_IOS_RUM_CLIENT_TOKEN` | optional: the same for the iOS RUM application |
+   | `DD_SERVICE`, `DD_ENV`, `DD_SITE` | APM: `t-minus-api`, `prod`, `datadoghq.com` |
+   | `DD_AGENT_HOST` | APM: the agent service's private host, `datadog-agent-rust.railway.internal` |
+   | `DD_TRACE_*`, `DD_RUNTIME_METRICS_ENABLED`, … | tracer settings (propagation `datadog,tracecontext`, sample rate 1, no query strings on spans, remote config and telemetry off) |
+
+   `PORT` is set by Railway. The MBTA key is sent as the `x-api-key` header, never in a URL.
+8. **Datadog agent:** a second service, `datadog-agent-rust`, in the same project (private
+   networking doesn't cross projects): image `ghcr.io/lucaspimentel/datadog-serverless-compat`,
+   health check `/info`, variables `DD_API_KEY`, `DD_SITE`, `DD_ENV`, `DD_LOG_LEVEL`, `PORT`.
 5. **Always on:** in Settings, leave Serverless (app sleeping) **off**, so the 5-second loop
    keeps running. One replica is enough. Don't add more, because they would each send the
    pushes.

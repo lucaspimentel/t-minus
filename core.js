@@ -2243,6 +2243,53 @@ export function isNewerPage(html, currentVersion) {
   return !!v && v !== currentVersion;
 }
 
+// ---------- Datadog RUM ----------
+
+export const RUM_SDK_URL = 'https://www.datadoghq-browser-agent.com/us1/v7/datadog-rum.js';
+
+// A URL without its api_key parameter (a backstop: the key goes in a header, never the URL).
+export function scrubApiKey(url) {
+  if (typeof url !== 'string' || !url.includes('api_key')) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.delete('api_key');
+    return u.href;
+  } catch { return url.replace(/([?&])api_key=[^&#]*&?/g, '$1').replace(/[?&]$/, ''); }
+}
+
+// RUM init options from /api/config's `rum.web` (null: RUM stays off), the footer version
+// ("Version 2026-10-24 · 4430fa3647" → its hash) and the page's origin. Same-origin /api/
+// requests carry trace headers, so a resource links to its server trace (t-minus-api).
+export function rumInitOptions(web, version, origin) {
+  if (!web?.applicationId || !web?.clientToken) return null;
+  return {
+    applicationId: web.applicationId,
+    clientToken: web.clientToken,
+    site: 'datadoghq.com',
+    service: 't-minus-web',
+    env: 'prod',
+    version: /· ([0-9a-f]+)$/.exec(version ?? '')?.[1] ?? 'unknown',
+    sessionSampleRate: 100,
+    sessionReplaySampleRate: 0,
+    trackResources: true,
+    trackUserInteractions: false,
+    trackLongTasks: false,
+    allowedTracingUrls: [{ match: url => isApiUrl(url, origin), propagatorTypes: ['datadog', 'tracecontext'] }],
+    beforeSend: event => {
+      if (event.resource?.url) event.resource.url = scrubApiKey(event.resource.url);
+      if (event.view?.url) event.view.url = scrubApiKey(event.view.url);
+      return true;
+    },
+  };
+}
+
+function isApiUrl(url, origin) {
+  try {
+    const u = new URL(url, origin);
+    return u.origin === origin && u.pathname.startsWith('/api/');
+  } catch { return false; }
+}
+
 export function pollIntervalMs(rows, nowMs, riding = false) {
   if (riding) return 60_000;
   const soon = rows.some(r => r.lastChance > nowMs && (r.enRoute || (r.leaveBy != null && r.leaveBy - nowMs <= 15 * MIN)));
