@@ -73,8 +73,11 @@ private struct LeaveSheet: View {
                     .background(Theme.of(scheme).card)
                     .clipShape(RoundedRectangle(cornerRadius: 22))
             }
-            Text("Dynamic Island: compact (leave, <1 min, leave now, departs, walk), expanded").font(.caption).foregroundStyle(.white)
-            ForEach([0, 2, 3, 4, 7], id: \.self) { Compact(state: leaveSamples[$0].1) }
+            Text("Dynamic Island: compact (leave, <1 min, leave now, departs, got on?, walk, walk late), expanded").font(.caption).foregroundStyle(.white)
+            // By name, so a new sample doesn't shift which ones are drawn.
+            ForEach(["Leave in (10-min heads-up)", "Leave in <1 minute", "Leave now", "Departs in", "Did you get on? (at the departure)", "Walk card", "Walk card, late"], id: \.self) { name in
+                Compact(state: leaveSamples.first { $0.0 == name }!.1)
+            }
             IslandExpanded(state: leaveSamples[0].1)
                 .padding(18).background(.black).clipShape(RoundedRectangle(cornerRadius: 36))
                 .environment(\.colorScheme, .dark)
