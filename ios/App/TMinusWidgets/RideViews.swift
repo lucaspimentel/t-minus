@@ -138,14 +138,14 @@ struct IslandLeading: View {
     }
 }
 
-// A leave card: "Leave 9 minutes", "Leave now", "Departs 2 minutes" (amber), or the walking
-// figure and the countdown (scaled to fit: iOS has no live "9m" format).
+// A leave or walk card: "Leave 9 minutes", "Leave now", "Departs 2 minutes" (the walk card's, or
+// amber when too late; scaled to fit: iOS has no live "9m" format).
 struct IslandTrailing: View {
     let state: RideState
     var body: some View {
         if let word = state.island {
             HStack(spacing: 4) {
-                if state.phase == "walk" { Image(systemName: "figure.walk") } else { Text(word) }
+                Text(word)
                 if state.phase != "now", let countdown = countdownText(state) { countdown }
             }
             .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6).frame(maxWidth: 110)

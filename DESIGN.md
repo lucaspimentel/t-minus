@@ -1254,8 +1254,9 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   (island "Got on?"; tap opens the app), ended when answered or after 30 min. "Ride cancelled"
   / "Open the app for the next one.", dismissed after 2 min. The legs bar shows the trip, empty.
 - **Dynamic Island:** compact: the route's dot and label, then "Leave 9 minutes", "Leave now" or
-  "Departs 2 minutes" (amber), or the walking figure and the countdown (scaled to fit: iOS has no
-  live "9m"); expanded: the card.
+  "Departs 2 minutes" (amber when too late; the walk card's in white, amber when late: it counts
+  down to the departure, not a walk), scaled to fit (iOS has no live "9m"); expanded: the card.
+  (Before 2026-10-24 the walk card showed a walking figure, which read as "walk 10 minutes".)
 - **Walk card:** "Leaving now" / "At the stop" with the bell mark its reminder `started` (without
   the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Bus 132 in 6
   minutes", "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once there; "2 min late" in

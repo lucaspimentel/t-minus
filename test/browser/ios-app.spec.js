@@ -250,7 +250,7 @@ test('At the stop marks the reminder started and keeps the server\'s card as the
   expect(calls.some(c => c.method === 'DELETE')).toBe(false);
   await expect.poll(async () => (await leaveCalls(page))[0]?.call).toBe('update');
   const [walk] = await leaveCalls(page);
-  expect(walk.state).toMatchObject({ phase: 'walk', title: 'Bus 132 in', island: '', join: ' ' });
+  expect(walk.state).toMatchObject({ phase: 'walk', title: 'Bus 132 in', island: 'Departs', join: ' ' });
   expect(walk.state.sub).toMatch(/^At the stop since 7:00am · [78] min to spare/);
   expect((await leaveCalls(page)).some(c => c.call === 'end')).toBe(false);
   await tickTo(page, '07:12'); // boarded

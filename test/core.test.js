@@ -2106,7 +2106,7 @@ test('walkActivityState: on the way, at the stop, late', () => {
   const row = { ...leaveRow(), leaveBy: null, enRoute: true };
   const leaving = walkActivityState(row, { kind: 'leaving', at: at('07:38'), atStop: at('07:45') }, at('07:40'));
   assert.deepEqual([leaving.phase, leaving.title, leaving.join, leaving.until, leaving.island, leaving.sub, leaving.next, leaving.warn],
-    ['walk', 'Bus 132 in', ' ', at('07:48') / 1000, '', 'At the stop ~7:45am · 3 min to spare', 'Arrive ~8:25am', false]);
+    ['walk', 'Bus 132 in', ' ', at('07:48') / 1000, 'Departs', 'At the stop ~7:45am · 3 min to spare', 'Arrive ~8:25am', false]);
   assert.ok(hasRideStateKeys(leaving));
   assert.equal(walkActivityState(row, { kind: 'leaving', at: at('07:38'), atStop: at('07:45') }, at('07:46')).sub, 'At the stop since 7:45am · 3 min to spare');
   assert.equal(walkActivityState(row, { kind: 'stop', at: at('07:44'), atStop: at('07:44') }, at('07:44')).sub, 'At the stop since 7:44am · 4 min to spare');

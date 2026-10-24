@@ -2390,7 +2390,7 @@ export function walkActivityState(row, enRoute, nowMs) {
   const spare = Math.round((row.firstDep - enRoute.atStop) / MIN);
   const margin = spare < 0 ? `${-spare} min late` : `${spare} min to spare`;
   const sub = enRoute.kind === 'leaving' && nowMs < enRoute.atStop ? `At the stop ~${t(enRoute.atStop)} · ${margin}` : `At the stop since ${t(enRoute.atStop)} · ${margin}`;
-  Object.assign(out, { phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, sub, next: `Arrive ~${t(row.eta)}` });
+  Object.assign(out, { phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, island: 'Departs', sub, next: `Arrive ~${t(row.eta)}` });
   return withSoon(out, nowMs);
 }
 // The leave (or walk) card at the departure of a belled ride: the boarding question, until it's
