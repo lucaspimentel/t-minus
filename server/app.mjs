@@ -9,7 +9,7 @@ import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpsDue, remHeadsUps, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep, liveActivityState,
-  leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, REMINDER_MISSING, askActivityState, ASK_MINUTES,
+  leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
 } from '../core.js';
@@ -85,9 +85,10 @@ export function apnsPush({ kind, title, body, tag, renotify, data = null }) {
 // requires an alert; `input-push-token` asks iOS for the new card's update token), the rest to
 // the card's own token. Updates are sent only on change, so the card goes stale (dimmed) only
 // ACTIVITY_STALE_MS after its countdown ends without a newer one (no countdown: no stale date);
-// an end is dismissed at `dismissAt`. `alert` ({ title, body }): the card lights up and buzzes.
+// an end is dismissed at `dismissAt`. `alert` ({ title, body }): the card lights up and buzzes;
+// `quiet`: the alert without a sound (the quiet start: push-to-start needs an alert).
 export const ACTIVITY_STALE_MS = 2 * 60_000;
-export function apnsActivityPush({ event, state, nowMs, urgent = false, dismissAt = null, attributes = null, alert = null }) {
+export function apnsActivityPush({ event, state, nowMs, urgent = false, dismissAt = null, attributes = null, alert = null, quiet = false }) {
   const sec = ms => Math.floor(ms / 1000);
   const staleAt = event !== 'end' && state.until ? Math.max(nowMs, state.until * 1000) + ACTIVITY_STALE_MS : null;
   return {
@@ -96,7 +97,7 @@ export function apnsActivityPush({ event, state, nowMs, urgent = false, dismissA
       aps: {
         timestamp: sec(nowMs), event, 'content-state': state,
         ...(event === 'start' && { 'attributes-type': 'RideAttributes', attributes, 'input-push-token': 1 }),
-        ...(alert && { alert: { title: alert.title, body: alert.body, sound: 'default' } }),
+        ...(alert && { alert: { title: alert.title, body: alert.body, ...(!quiet && { sound: 'default' }) } }),
         ...(staleAt != null && { 'stale-date': sec(staleAt) }),
         ...(dismissAt != null && { 'dismissal-date': sec(dismissAt) }),
       },
@@ -849,7 +850,8 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       if (done === 'dropped') return true;
       if (done === 'kept') return schedule(rem, t);
     } else if (row && leaveCardStarts(rem, step, t) && await startCard(rem, step, row, t)) {
-      rem.sent = { leaveBy: step.leaveBy };
+      // `quiet`: only the card (and the app) showed this leave-by, no notification did.
+      rem.sent = { leaveBy: step.leaveBy, ...(step.action !== 'headsUp' && { quiet: true }) };
       return schedule(rem, t);
     }
     if (step.action === 'leave') {
@@ -863,6 +865,11 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       return drop(rem);
     }
     if (step.action === 'expire') return drop(rem);
+    // A move only a quietly started card showed (its token never came): no notification for it.
+    if (step.action === 'update' && rem.sent?.quiet) {
+      rem.sent = { leaveBy: step.leaveBy, quiet: true };
+      return schedule(rem, t);
+    }
     if (step.action === 'headsUp' || step.action === 'update') {
       rem.sent = { leaveBy: step.leaveBy };
       if (!(await push(rem, step.action, row, t, step))) return drop(rem);
@@ -870,11 +877,13 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     return schedule(rem, t);
   }
 
-  // Poll again in time for the next notification.
+  // Poll again in time for the next notification (and a leave card's switch from "Leave at" to
+  // the countdown, LEAVE_CARD_EARLY_MIN before the leave-by: a quiet update).
   function schedule(rem, t) {
-    const due = rem.headsUps.length ? rem.leaveBy - Math.max(...rem.headsUps) * MIN : rem.leaveBy;
+    const marks = [rem.headsUps.length ? rem.leaveBy - Math.max(...rem.headsUps) * MIN : rem.leaveBy];
+    if (rem.card && !rem.card.tried) marks.push(rem.leaveBy - LEAVE_CARD_EARLY_MIN * MIN);
     const next = t + reminderPollMs(rem.leaveBy, t);
-    rem.nextPollAt = due > t ? Math.min(next, due) : next;
+    rem.nextPollAt = Math.min(next, ...marks.filter(m => m > t));
     return false;
   }
 
@@ -899,13 +908,15 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     return null;
   }
 
-  // At the 10-min heads-up (or at once when set later): the start push, with the heads-up as
-  // its alert. True when sent (no notification then); a failure is not retried (`tried`).
+  // When the bell is set (or at the 10-min heads-up, set over 8 h ahead): the start push, quiet
+  // unless a heads-up passes now (then its alert, instead of the notification). True when sent;
+  // a failure is not retried (`tried`).
   async function startCard(rem, step, row, t) {
     const state = leaveActivityState(row, t, { was: step.was });
-    const alert = reminderText('headsUp', rem.tripName, row, t, step.was);
+    const headsUp = step.action === 'headsUp';
+    const alert = headsUp ? reminderText('headsUp', rem.tripName, row, t, step.was) : leaveStartText(rem.tripName, row, t);
     const failed = await sendCard(rem, rem.startToken, apnsActivityPush({
-      event: 'start', state, nowMs: t, attributes: { tripName: rem.tripName, reminderId: rem.id }, alert,
+      event: 'start', state, nowMs: t, attributes: { tripName: rem.tripName, reminderId: rem.id }, alert, quiet: !headsUp,
     }), t);
     if (failed) {
       if (failed.gone) delete rem.startToken;
@@ -936,9 +947,11 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     switch (step.action) {
       case 'headsUp':
       case 'update': {
-        rem.sent = { leaveBy: step.leaveBy };
+        // A move over an hour ahead ("Leave at"): a quiet update, amber with "(was …)".
+        const early = step.action === 'update' && leaveCardEarly(step.leaveBy, t);
+        rem.sent = { leaveBy: step.leaveBy, ...(early && { quiet: true }) };
         const was = step.was ?? null;
-        const ok = await cardPush(rem, { event: 'update', state: leaveActivityState(row, t, { was }), urgent: true, alert: text(step.action) }, t);
+        const ok = await cardPush(rem, { event: 'update', state: leaveActivityState(row, t, { was }), ...(!early && { urgent: true, alert: text(step.action) }) }, t);
         if (!ok) return 'fallback';
         rem.card.was = was;
         return 'kept';

@@ -37,6 +37,8 @@ private func leave(_ phase: String, _ title: String, until: Double, warn: Bool =
               soon: soon, island: island, join: " ")
 }
 private let leaveSamples: [(String, RideState)] = [
+    ("Leave at (an hour+ ahead)", leave("early", "Leave at 7:39am", until: 0, island: "Leave 7:39am", next: "Arrive ~8:25am")),
+    ("Leave at, moved", leave("early", "Leave at 7:42am", until: 0, warn: true, island: "Leave 7:42am", next: "Moved (was 7:39am) · arrive ~8:28am")),
     ("Leave in (10-min heads-up)", leave("leave", "Leave in", until: now + 540, island: "Leave", next: "Leave by 7:39am · arrive ~8:25am")),
     ("Leave-by moved", leave("leave", "Leave in", until: now + 360, warn: true, island: "Leave", next: "Leave by 7:36am (was 7:39am)")),
     ("Leave in <1 minute", leave("leave", "Leave in", until: now + 50, island: "Leave", next: "Leave by 7:39am · arrive ~8:25am", soon: true)),
@@ -73,12 +75,12 @@ private struct LeaveSheet: View {
                     .background(Theme.of(scheme).card)
                     .clipShape(RoundedRectangle(cornerRadius: 22))
             }
-            Text("Dynamic Island: compact (leave, <1 min, leave now, departs, got on?, walk, walk late), expanded").font(.caption).foregroundStyle(.white)
+            Text("Dynamic Island: compact (leave at, leave at moved, leave, <1 min, leave now, departs, got on?, walk, walk late), expanded").font(.caption).foregroundStyle(.white)
             // By name, so a new sample doesn't shift which ones are drawn.
-            ForEach(["Leave in (10-min heads-up)", "Leave in <1 minute", "Leave now", "Departs in", "Did you get on? (at the departure)", "Walk card", "Walk card, late"], id: \.self) { name in
+            ForEach(["Leave at (an hour+ ahead)", "Leave at, moved", "Leave in (10-min heads-up)", "Leave in <1 minute", "Leave now", "Departs in", "Did you get on? (at the departure)", "Walk card", "Walk card, late"], id: \.self) { name in
                 Compact(state: leaveSamples.first { $0.0 == name }!.1)
             }
-            IslandExpanded(state: leaveSamples[0].1)
+            IslandExpanded(state: leaveSamples.first { $0.0 == "Leave in (10-min heads-up)" }!.1)
                 .padding(18).background(.black).clipShape(RoundedRectangle(cornerRadius: 36))
                 .environment(\.colorScheme, .dark)
         }

@@ -2330,12 +2330,17 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
   return out;
 }
 
-// The leave card (Phase 3a): a reminder's Live Activity, started by the server's push at the
-// 10-min heads-up (or at once when set later), in the ride card's layout. Its phases: 'before'
-// the leave-by, 'now' until the last chance, 'departs' until the first vehicle leaves, then
-// 'gone' (the card ends). `island` (the Dynamic Island's short text) marks a leave or walk card;
-// `join` puts the countdown right after the title ("Leave in 9 minutes").
+// The leave card (Phase 3a): a reminder's Live Activity, started by the server's push when the
+// bell is set (at the 10-min heads-up when set more than LEAVE_CARD_MAX_MIN ahead), in the ride
+// card's layout. Its phases: 'early' ("Leave at 7:39am", no countdown) while the leave-by is more
+// than LEAVE_CARD_EARLY_MIN away, 'leave' (the countdown) until the leave-by, 'now' until the last
+// chance, 'departs' until the first vehicle leaves, then 'gone' (the card ends). `island` (the
+// Dynamic Island's short text) marks a leave or walk card; `join` puts the countdown right after
+// the title ("Leave in 9 minutes").
 export const LEAVE_CARD_MIN = HEADS_UP_MINS[0];
+export const LEAVE_CARD_EARLY_MIN = 60; // before this: "Leave at 7:39am", no countdown
+export const LEAVE_CARD_MAX_MIN = 8 * 60; // iOS ends a Live Activity after 8 h
+export const leaveCardEarly = (leaveBy, nowMs) => leaveBy - nowMs > LEAVE_CARD_EARLY_MIN * MIN;
 export function leavePhase(row, nowMs) {
   if (nowMs < row.leaveBy) return 'before';
   if (nowMs < row.lastChance) return 'now';
@@ -2358,6 +2363,13 @@ export function leaveActivityState(row, nowMs, { was = null } = {}) {
   const out = leaveCardBase(row, nowMs);
   switch (leavePhase(row, nowMs)) {
     case 'before':
+      if (leaveCardEarly(row.leaveBy, nowMs)) {
+        Object.assign(out, {
+          phase: 'early', title: `Leave at ${t(row.leaveBy)}`, until: 0, warn: was != null, island: `Leave ${t(row.leaveBy)}`,
+          next: was == null ? `Arrive ~${t(row.eta)}` : `Moved (was ${t(was)}) · arrive ~${t(row.eta)}`,
+        });
+        break;
+      }
       Object.assign(out, {
         phase: 'leave', title: 'Leave in', until: sec(row.leaveBy), warn: was != null, island: 'Leave',
         next: was == null ? `Leave by ${t(row.leaveBy)} · arrive ~${t(row.eta)}` : `Leave by ${t(row.leaveBy)} (was ${t(was)})`,
@@ -2402,12 +2414,19 @@ export function askActivityState(row, nowMs) {
     next: 'Tap to answer', island: 'Got on?', soon: false,
   });
 }
-// Whether this reminder check starts the leave card: the app sent a push-to-start token, no card
-// yet, the leave-by ahead, and the 10-min heads-up passing now (or never due: set within 10 min).
+// Whether this check starts the leave card: a push-to-start token, no card yet, the leave-by ahead.
+// Set within LEAVE_CARD_MAX_MIN of the leave-by: at once (the first check after the bell). Set
+// further ahead (iOS would end it before the ride): at the 10-min heads-up, as before.
 export function leaveCardStarts(rem, step, nowMs) {
   if (!rem.startToken || rem.card || !(step.leaveBy > nowMs) || !['headsUp', 'wait'].includes(step.action)) return false;
-  const had = remHeadsUps(rem).includes(LEAVE_CARD_MIN);
-  return had ? !step.headsUps.includes(LEAVE_CARD_MIN) : true;
+  if (step.leaveBy - (rem.createdAt ?? nowMs) <= LEAVE_CARD_MAX_MIN * MIN) return true;
+  return !step.headsUps.includes(LEAVE_CARD_MIN);
+}
+// The leave card's start alert: early, "Leave at 7:39am · Home to office"; else the heads-up's text.
+export function leaveStartText(tripName, row, nowMs) {
+  return leaveCardEarly(row.leaveBy, nowMs)
+    ? { title: `Leave at ${formatTime(row.leaveBy, nowMs)} · ${tripName}`, body: firstVehicleLine(row, nowMs) }
+    : reminderText('headsUp', tripName, row, nowMs);
 }
 
 // ---------- alerts ----------

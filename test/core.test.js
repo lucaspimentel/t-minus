@@ -12,7 +12,7 @@ import {
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, withoutArrived, stopConnections,
-  leavePhase, leaveActivityState, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, firstVehicleLine,
+  leavePhase, leaveActivityState, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, LEAVE_CARD_EARLY_MIN, LEAVE_CARD_MAX_MIN, leaveCardEarly, leaveStartText, firstVehicleLine,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -2114,17 +2114,50 @@ test('walkActivityState: on the way, at the stop, late', () => {
   assert.deepEqual([late.sub, late.warn], ['At the stop ~7:50am · 2 min late', true]);
 });
 
-test('leaveCardStarts: at the 10-min heads-up, or at once when set later', () => {
-  const rem = { startToken: 'ab'.repeat(32), leaveBy: at('07:39'), headsUps: [10, 5] };
+test('leaveCardStarts: at once when set within 8 h; set further ahead, at the 10-min heads-up', () => {
+  const H = 60 * 60_000;
+  const rem = { startToken: 'ab'.repeat(32), leaveBy: at('07:39'), headsUps: [10, 5], createdAt: at('05:00') };
   const step = (action, headsUps, leaveBy = at('07:39')) => ({ action, leaveBy, headsUps });
   assert.equal(LEAVE_CARD_MIN, 10);
-  assert.equal(leaveCardStarts(rem, step('wait', [10, 5]), at('07:20')), false);
-  assert.equal(leaveCardStarts(rem, step('headsUp', [5]), at('07:30')), true);
-  assert.equal(leaveCardStarts(rem, step('headsUp', []), at('07:35')), true); // a late poll: both passed
-  assert.equal(leaveCardStarts({ ...rem, headsUps: [5] }, step('wait', [5]), at('07:31')), true); // set within 10 min
-  assert.equal(leaveCardStarts({ ...rem, headsUps: [] }, step('wait', []), at('07:36')), true);
+  assert.equal(LEAVE_CARD_MAX_MIN, 480);
+  // At once (the first check after the bell), early or not.
+  assert.equal(leaveCardStarts(rem, step('wait', [10, 5]), at('05:00')), true);
+  assert.equal(leaveCardStarts(rem, step('wait', [10, 5]), at('07:20')), true);
+  assert.equal(leaveCardStarts({ ...rem, createdAt: at('07:39') - 8 * H }, step('wait', [10, 5]), at('07:39') - 8 * H), true); // exactly 8 h
+  // Set over 8 h ahead: at the 10-min heads-up, as before.
+  const far = { ...rem, createdAt: at('07:39') - 9 * H };
+  assert.equal(leaveCardStarts(far, step('wait', [10, 5]), at('07:20')), false);
+  assert.equal(leaveCardStarts(far, step('headsUp', [5]), at('07:30')), true);
+  assert.equal(leaveCardStarts(far, step('headsUp', []), at('07:35')), true); // a late poll: both passed
+  assert.equal(leaveCardStarts({ ...far, headsUps: [5] }, step('wait', [5]), at('07:31')), true);
+  // No createdAt (older reminders): counted from now.
+  const { createdAt: _, ...old } = rem;
+  assert.equal(leaveCardStarts(old, step('wait', [10, 5]), at('07:20')), true);
+  assert.equal(leaveCardStarts(old, step('wait', [10, 5]), at('07:39') - 9 * H), false);
   assert.equal(leaveCardStarts({ ...rem, startToken: undefined }, step('headsUp', [5]), at('07:30')), false);
   assert.equal(leaveCardStarts({ ...rem, card: { token: null } }, step('headsUp', [5]), at('07:30')), false);
   assert.equal(leaveCardStarts({ ...rem, headsUps: [] }, step('leave', []), at('07:39')), false);
   assert.equal(leaveCardStarts(rem, step('update', [5]), at('07:31')), false);
+});
+
+test('leaveActivityState: early (an hour or more ahead): "Leave at", no countdown; moved; then the countdown', () => {
+  const row = leaveRow();
+  const sec = hhmm => at(hhmm) / 1000;
+  assert.equal(LEAVE_CARD_EARLY_MIN, 60);
+  const early = leaveActivityState(row, at('06:30'));
+  assert.deepEqual(early, {
+    phase: 'early', warn: false, color: 'FFC72C', label: '132', title: 'Leave at 7:39am', until: 0, stops: -1,
+    sub: 'Bus 132 toward Malden at 7:48am', next: 'Arrive ~8:25am',
+    legs: [{ color: 'FFC72C', dep: sec('07:48'), arr: sec('08:02') }, { color: 'ED8B00', dep: sec('08:06'), arr: sec('08:15') }],
+    island: 'Leave 7:39am', join: ' ', soon: false,
+  });
+  assert.ok(hasRideStateKeys(early));
+  assert.equal(leaveCardEarly(row.leaveBy, at('06:39') - 1000), true);
+  assert.equal(leaveActivityState(row, at('06:39') - 1000).phase, 'early');
+  const switched = leaveActivityState(row, at('06:39')); // exactly 60 min: the countdown
+  assert.deepEqual([switched.phase, switched.title, switched.until, switched.next], ['leave', 'Leave in', sec('07:39'), 'Leave by 7:39am · arrive ~8:25am']);
+  const moved = leaveActivityState({ ...row, leaveBy: at('07:36') }, at('06:00'), { was: at('07:39') });
+  assert.deepEqual([moved.title, moved.warn, moved.island, moved.next, moved.until], ['Leave at 7:36am', true, 'Leave 7:36am', 'Moved (was 7:39am) · arrive ~8:25am', 0]);
+  assert.deepEqual(leaveStartText('Home to office', row, at('06:30')), { title: 'Leave at 7:39am · Home to office', body: 'Bus 132 toward Malden at 7:48am' });
+  assert.deepEqual(leaveStartText('Home to office', row, at('07:30')), reminderText('headsUp', 'Home to office', row, at('07:30')));
 });

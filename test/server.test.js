@@ -91,7 +91,7 @@ async function setup({ staticRoot = null } = {}) {
       if (world.activityStatus) throw Object.assign(new Error('gone'), { statusCode: world.activityStatus });
       const { aps } = payload.body;
       return void activity.push({ token: sub.endpoint.slice(5), event: aps.event, state: aps['content-state'], priority: payload.headers['apns-priority'], dismissAt: aps['dismissal-date'] ?? null,
-        ...(aps['attributes-type'] && { attributesType: aps['attributes-type'], attributes: aps.attributes }), ...(aps.alert && { alert: aps.alert.title }) });
+        ...(aps['attributes-type'] && { attributesType: aps['attributes-type'], attributes: aps.attributes }), ...(aps.alert && { alert: aps.alert.title, sound: aps.alert.sound ?? null }) });
     }
     if (world.sendStatus) throw Object.assign(new Error('gone'), { statusCode: world.sendStatus });
     raw.push(payload);
@@ -1099,31 +1099,35 @@ test('apnsActivityPush: a start carries the attributes, the alert, and asks for 
       'input-push-token': 1, alert: { title: 'T', body: 'B', sound: 'default' }, 'stale-date': at('07:06') / 1000,
     } },
   });
+  // The quiet start (the bell set an hour+ ahead): the alert without a sound; no countdown, no stale date.
+  const quiet = apnsActivityPush({ event: 'start', state: { title: 'Leave at 7:04am', until: 0 }, nowMs, attributes: { tripName: 'Home', reminderId: 'r1' }, alert: { title: 'T', body: 'B' }, quiet: true });
+  assert.deepEqual([quiet.body.aps.alert, quiet.body.aps['stale-date'], quiet.headers['apns-priority']], [{ title: 'T', body: 'B' }, undefined, '10']);
 });
 
-test('leave card: started at the 10-min heads-up instead of the notification, then alerts on the card, asks at departure', async () => {
+test('leave card: started quietly when the bell is set, then heads-ups alert on the card, asks at departure', async () => {
   const s = await setup();
   try {
     s.world.clock = at('06:44') + 30_000; // the bus's schedules are refetched at 7:00 (15 min old)
     assert.equal((await s.call('POST', '/api/reminders', leaveReminder({ startToken: 'nope' }))).status, 400);
     const { id } = await (await s.call('POST', '/api/reminders', leaveReminder())).json();
     await s.app.tick();
-    assert.deepEqual(s.activity, []);
-    s.world.clock = at('06:54');
-    await s.app.tick();
-    assert.deepEqual(s.sent, []); // no 10-min notification
-    assert.deepEqual(s.activity.map(a => [a.token, a.event, a.attributesType, a.attributes, a.alert, a.state.title, a.state.next, a.priority]), [
-      [START, 'start', 'RideAttributes', { tripName: 'Home to office', reminderId: id }, 'Leave in 10 min · Home to office', 'Leave in', 'Leave by 7:04am · arrive ~8:00am', '10']]);
+    assert.deepEqual(s.sent, []);
+    assert.deepEqual(s.activity.map(a => [a.token, a.event, a.attributesType, a.attributes, a.alert, a.sound, a.state.title, a.state.next, a.priority]), [
+      [START, 'start', 'RideAttributes', { tripName: 'Home to office', reminderId: id }, 'Leave in 19 min · Home to office', null, 'Leave in', 'Leave by 7:04am · arrive ~8:00am', '10']]);
     // The card's token, from the app's native code (no Origin).
     assert.equal((await s.call('PUT', `/api/reminders/${id}`, { activity: { token: 'xyz' } })).status, 400);
     assert.equal((await s.call('PUT', '/api/reminders/nope', { activity: { token: CARD } })).status, 404);
     assert.equal((await s.call('PUT', `/api/reminders/${id}`, { activity: { token: CARD } })).status, 204);
     let view = (await (await s.call('POST', '/api/pending', { subscription: apnsSub })).json()).entries[0];
     assert.deepEqual(view.activity, { sent: 1, title: 'Leave in', error: null, token: true });
+    // The 10- and 5-min heads-ups: alerts on the card, no notifications.
+    s.world.clock = at('06:54');
+    await s.app.tick();
     s.world.clock = at('06:59');
     await s.app.tick();
     assert.deepEqual(s.sent, []);
-    assert.deepEqual(s.activity.slice(1).map(a => [a.token, a.event, a.alert, a.priority]), [[CARD, 'update', 'Leave in 5 min · Home to office', '10']]);
+    assert.deepEqual(s.activity.slice(1).map(a => [a.token, a.event, a.alert, a.sound, a.priority]), [
+      [CARD, 'update', 'Leave in 10 min · Home to office', 'default', '10'], [CARD, 'update', 'Leave in 5 min · Home to office', 'default', '10']]);
     // The bus is 3 min later: amber, with an alert.
     s.world.bus = '07:13';
     s.world.clock = at('07:00');
@@ -1165,13 +1169,13 @@ test('leave card: started at the 10-min heads-up instead of the notification, th
   } finally { await s.close(); }
 });
 
-test('leave card: set within 10 min starts at once; no start token or a card without its token: notifications', async () => {
+test('leave card: set within 10 min starts at once, quietly; no start token or a card without its token: notifications', async () => {
   const s = await setup();
   try {
     s.world.clock = at('06:57');
     await s.call('POST', '/api/reminders', leaveReminder());
     await s.app.tick();
-    assert.deepEqual(s.activity.map(a => [a.event, a.alert]), [['start', 'Leave in 7 min · Home to office']]);
+    assert.deepEqual(s.activity.map(a => [a.event, a.alert, a.sound]), [['start', 'Leave in 7 min · Home to office', null]]);
     assert.deepEqual(s.sent, []);
     // No update token yet: the 5-min heads-up and Leave now as notifications.
     s.world.clock = at('06:59');
@@ -1188,6 +1192,63 @@ test('leave card: set within 10 min starts at once; no start token or a card wit
     s.world.clock = at('06:54');
     await s.app.tick();
     assert.equal(s.activity.length, 1);
+    assert.equal(s.sent.at(-1).title, 'Leave in 10 min · Home to office');
+  } finally { await s.close(); }
+});
+
+test('leave card: set an hour+ ahead: a quiet "Leave at" start, quiet moved update, quiet switch at 60 min, the 10-min heads-up alerts', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('05:30');
+    const { id } = await (await s.call('POST', '/api/reminders', leaveReminder())).json();
+    await s.app.tick();
+    assert.deepEqual(s.sent, []);
+    const start = s.activity[0];
+    assert.deepEqual([start.event, start.priority, start.alert, start.sound], ['start', '10', 'Leave at 7:04am · Home to office', null]);
+    assert.deepEqual([start.state.phase, start.state.title, start.state.until, start.state.island, start.state.next, start.state.warn],
+      ['early', 'Leave at 7:04am', 0, 'Leave 7:04am', 'Arrive ~8:00am', false]);
+    const log = (await (await s.call('POST', '/api/pending', { subscription: apnsSub })).json()).log;
+    assert.ok(log.some(l => l.title === 'Live Activity: Leave at 7:04am · Home to office' && l.ok));
+    await s.call('PUT', `/api/reminders/${id}`, { activity: { token: CARD } });
+    // The bus is 3 min later, over an hour ahead: a quiet update, amber with "(was …)".
+    s.world.bus = '07:13';
+    s.world.clock = at('05:50');
+    await s.app.tick();
+    const moved = s.activity.at(-1);
+    assert.deepEqual([moved.token, moved.event, moved.alert, moved.priority], [CARD, 'update', undefined, '5']);
+    assert.deepEqual([moved.state.title, moved.state.warn, moved.state.island, moved.state.next], ['Leave at 7:07am', true, 'Leave 7:07am', 'Moved (was 7:04am) · arrive ~8:00am']);
+    assert.deepEqual(s.sent, []);
+    // The next check lands on the 60-min mark, which switches the card to the countdown, quietly.
+    s.world.clock = at('06:06') + 30_000;
+    await s.app.tick();
+    assert.equal(s.store.get(id).nextPollAt, at('06:07'));
+    s.world.clock = at('06:07');
+    await s.app.tick();
+    const switched = s.activity.at(-1);
+    assert.deepEqual([switched.event, switched.alert, switched.priority], ['update', undefined, '5']);
+    assert.deepEqual([switched.state.phase, switched.state.title, switched.state.until, switched.state.next, switched.state.warn],
+      ['leave', 'Leave in', at('07:07') / 1000, 'Leave by 7:07am (was 7:04am)', true]);
+    // The 10-min heads-up still alerts, on the card.
+    s.world.clock = at('06:57');
+    await s.app.tick();
+    assert.deepEqual([s.activity.at(-1).token, s.activity.at(-1).event, s.activity.at(-1).alert, s.activity.at(-1).priority], [CARD, 'update', 'Leave in 10 min · Home to office', '10']);
+    assert.deepEqual(s.sent, []);
+  } finally { await s.close(); }
+});
+
+test('leave card: no card token after a quiet start: early moves send no notification, heads-ups do', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('05:30');
+    await s.call('POST', '/api/reminders', leaveReminder());
+    await s.app.tick();
+    assert.equal(s.activity.length, 1);
+    s.world.bus = '07:13';
+    s.world.clock = at('05:50');
+    await s.app.tick();
+    assert.deepEqual(s.sent, []);
+    s.world.clock = at('06:57');
+    await s.app.tick();
     assert.equal(s.sent.at(-1).title, 'Leave in 10 min · Home to office');
   } finally { await s.close(); }
 });

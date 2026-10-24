@@ -407,7 +407,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-24 · e40a01a34a</footer>
+    <footer class="version">Version 2026-10-24 · 4430fa3647</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -430,8 +430,8 @@ import {
   rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage,
   unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=a9775c96cb';
-import { openSetup } from './setup.js?v=4299b4cebb';
+} from './core.js?v=bae60299e8';
+import { openSetup } from './setup.js?v=e38c55fb5c';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1181,7 +1181,8 @@ async function syncLiveActivity(s, now) {
 
 // ---------- leave cards (the iOS app, Phase 3a) ----------
 
-// A reminder's Live Activity is started by the server's push at the 10-min heads-up (with the
+// A reminder's Live Activity is started by the server's push when the bell is set (at the 10-min
+// heads-up when set more than 8 h ahead; with the
 // app's push-to-start token, sent with each reminder; the card's own token goes to the server
 // from native code, as the page may not be loaded then). The app only takes it over when the trip
 // starts: "Leaving now" / "At the stop" keep it as the walk card (walkActivityState, updated here

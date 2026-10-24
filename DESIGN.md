@@ -862,10 +862,19 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   - **Leave cards (Phase 3a, server side; see "iOS app"):** a reminder may carry `startToken` (the
     app's push-to-start token, hex; `POST /reminders`, or `PUT /reminders/:id`, which also takes
     `activity: { token }`, the card's own token, sent by the app's native code; no Origin, 404 for
-    a ride). When the 10-min heads-up passes (`leaveCardStarts`; at once for a reminder set within
-    10 min), the server sends `event: start` to the start token (`attributes-type: RideAttributes`,
-    `attributes: { tripName, reminderId }`, `input-push-token: 1`, priority 10) with the heads-up's
-    text as its `alert`, instead of the notification. Once the card's token arrives, the 5-min
+    a ride). At the reminder's first check (`leaveCardStarts`; `POST` sets `nextPollAt` now, the
+    loop ticks every 5 s; 2026-10-24, before then at the 10-min heads-up), the server sends
+    `event: start` to the start token (`attributes-type: RideAttributes`, `attributes: { tripName,
+    reminderId }`, `input-push-token: 1`, priority 10), quietly: an `alert` without `sound`
+    (push-to-start carries one), "Leave at 7:39am · Home to office" while early (below), else the
+    heads-up's text. A reminder set more than 8 h before its leave-by (`LEAVE_CARD_MAX_MIN`, from
+    `createdAt`; iOS ends a Live Activity after 8 h) starts at the 10-min heads-up instead, with
+    the heads-up as its alert (and sound), instead of the notification. Existing reminders got
+    theirs at their first check after the deploy. While a card exists, a check is scheduled at
+    leave-by − 60 min (`LEAVE_CARD_EARLY_MIN`) for the quiet switch from "Leave at" to the
+    countdown; a move of 2+ min while early is a quiet update (`rem.sent.quiet`), and a card
+    without its token sends no "update" notification for a move only the card showed.
+    "Pending notifications" lists alerting sends only, so the switch isn't listed. Once the card's token arrives, the 5-min
     heads-up, a moved leave-by and "Leave now" go to the card as updates with an `alert` (priority
     10), not as notifications; small changes ("<1 minute") as quiet updates. Past the leave-by the
     reminder stays: "Departs in" from the last chance (priority 10), then at the departure the
@@ -1240,12 +1249,16 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 
 ### Leave cards (Phase 3a, 2026-10-20)
 
-- **What:** a reminder set in the app (the bell) becomes a Live Activity at its 10-min
-  heads-up, started by the server's push (push-to-start, iOS 17.2+) even with the app closed, in
+- **What:** a reminder set in the app (the bell) becomes a Live Activity at once (quietly; at its
+  10-min heads-up when set more than 8 h ahead; 2026-10-24, no new build: web and server only),
+  started by the server's push (push-to-start, iOS 17.2+) even with the app closed, in
   the ride card's layout. One card per reminder. iOS Settings → T-Minus → Live Activities off:
   notifications as before. The 10-min / 5-min / "Leave now" and moved-time notifications go to the
   card (as its alerts) while it has its update token; otherwise they are sent as before.
-- **Content** (`leaveActivityState`, `core.js`; mockup accepted 2026-10-20): "Leave in 9 minutes"
+- **Content** (`leaveActivityState`, `core.js`; mockup accepted 2026-10-20): more than 60 min
+  before the leave-by (`'early'`), "Leave at 7:39am" with no countdown, the first vehicle, "Arrive
+  ~8:25am"; moved then: amber "Leave at 7:36am" with "Moved (was 7:39am) · arrive ~8:25am", a
+  quiet update; at 60 min a quiet update to the countdown. Then "Leave in 9 minutes"
   (counting down to the leave-by, "<1 minute" at the end), the first vehicle ("Bus 132 toward
   Malden at 7:48am", as the notification's body), "Leave by 7:39am · arrive ~8:25am"; a moved
   leave-by in amber with "Leave by 7:36am (was 7:39am)"; "Leave now" (amber) with "Last chance
@@ -1253,7 +1266,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   at the departure "Did you get on?" / "Bus 132 toward Malden left at 7:48am" / "Tap to answer"
   (island "Got on?"; tap opens the app), ended when answered or after 30 min. "Ride cancelled"
   / "Open the app for the next one.", dismissed after 2 min. The legs bar shows the trip, empty.
-- **Dynamic Island:** compact: the route's dot and label, then "Leave 9 minutes", "Leave now" or
+- **Dynamic Island:** compact: the route's dot and label, then "Leave 7:39am" (early), "Leave 9 minutes", "Leave now" or
   "Departs 2 minutes" (amber when too late; the walk card's in white, amber when late: it counts
   down to the departure, not a walk), scaled to fit (iOS has no live "9m"); expanded: the card.
   (Before 2026-10-24 the walk card showed a walking figure, which read as "walk 10 minutes".)
@@ -1273,8 +1286,8 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   token (`TMinus.liveActivityStartToken`, the `startToken` event) and sends each leave card's token
   to `PUT /api/reminders/<reminderId>` (`server.url` from the bundled Capacitor config, 3 tries).
   Builds without these methods: the app posts reminders without a start token, nothing logged.
-- **Previews:** the `ios` workflow also renders `leave-card-<theme>.png` (every state and the
-  island).
+- **Previews:** the `ios` workflow also renders `leave-card-<theme>.png` (every state, the early
+  "Leave at" ones included, and the island; the compact islands are picked by name).
 - **Build:** TestFlight build 15. Only the phone tests push-to-start and the background token
   send.
 
