@@ -1040,9 +1040,9 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   `x-api-key`; RUM's `beforeSend` also strips `api_key` from resource and view URLs.
 - **Budget:** `/api/config` is one same-origin request per page load, outside the MBTA budget;
   the iOS app adds one native request per launch.
-- **Native iOS RUM** (`Observability.swift`): `dd-sdk-ios` 3.20.0 (SPM, App target only: Core,
+- **Native iOS RUM** (`Observability.swift`, first in TestFlight build 21): `dd-sdk-ios` 3.20.0 (SPM, App target only: Core,
   RUM, CrashReporting, WebViewTracking), US1, service `t-minus-ios`, env `prod`, version
-  `<marketing>-<build>` (e.g. `1.0-19`), 100% of sessions, consent granted. No native view or
+  `<marketing>-<build>` (e.g. `1.0-21`), 100% of sessions, consent granted. No native view or
   action tracking (the only native UI is the web view), no background events. Crash reporting
   without dSYM upload (unsymbolicated).
   - IDs: `/api/config`'s `rum.ios`, cached in UserDefaults. A cached pair starts RUM at launch;
