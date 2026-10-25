@@ -8,8 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		061C8ED28F425B3BB04049FD /* RideAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19FF04653AEF48A6ED811D9 /* RideAttributes.swift */; };
+		2283E5DECAE29C1DFF863C99 /* DatadogCrashReporting in Frameworks */ = {isa = PBXBuildFile; productRef = 35E9FDC237D525524C6731AB /* DatadogCrashReporting */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		3406005EE3AC2CC3355C762C /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E08BE0C5A510FA6554458F25 /* MainViewController.swift */; };
+		43D30674FF44C8A7453C5F88 /* DatadogCore in Frameworks */ = {isa = PBXBuildFile; productRef = 83230DCC052E9FEDE67A2ACE /* DatadogCore */; };
 		45CBD6ECEFE0570B45947DF1 /* RideState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A22F0960B9741C28CC9DA3 /* RideState.swift */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -18,11 +20,14 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		5635F2165031316CE924F99F /* DatadogRUM in Frameworks */ = {isa = PBXBuildFile; productRef = 511AAD5279E37706D0F5A71A /* DatadogRUM */; };
 		6D05587455ECECAFD4293ED3 /* RideActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92704E90C72C76C65F64A0CB /* RideActivityWidget.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		9E27E2126ABBF2FC73F80AF2 /* LiveActivityObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9091E44CDF0BDB348AFFCCF5 /* LiveActivityObserver.swift */; };
 		A58DD02BE7A2AB2A629E186D /* RideState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A22F0960B9741C28CC9DA3 /* RideState.swift */; };
 		BF357FE97FBADC690D1B4510 /* RideViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA9BCA404177730EC091E482 /* RideViews.swift */; };
+		C9205FEC26884D517F225758 /* DatadogWebViewTracking in Frameworks */ = {isa = PBXBuildFile; productRef = 773D5873466A0C6C72230E63 /* DatadogWebViewTracking */; };
+		E015E2C0AD3C65EED148BDE6 /* Observability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5FA967D9B1BBDD1A3A3781 /* Observability.swift */; };
 		F5DA4DC356370BC10584FFDB /* TMinusPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62AFAE337766795634C533E9 /* TMinusPlugin.swift */; };
 		FCA667B3875831DBDF48D1C9 /* TMinusWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E1F2449C2B25D3D8F5285323 /* TMinusWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FE979A6286EB240B17AD5C8C /* RideAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19FF04653AEF48A6ED811D9 /* RideAttributes.swift */; };
@@ -57,6 +62,7 @@
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		3CEDD9BBA8F039FA3B3F5772 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		42A22F0960B9741C28CC9DA3 /* RideState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RideState.swift; sourceTree = "<group>"; };
+		4C5FA967D9B1BBDD1A3A3781 /* Observability.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Observability.swift; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -82,6 +88,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+				43D30674FF44C8A7453C5F88 /* DatadogCore in Frameworks */,
+				5635F2165031316CE924F99F /* DatadogRUM in Frameworks */,
+				2283E5DECAE29C1DFF863C99 /* DatadogCrashReporting in Frameworks */,
+				C9205FEC26884D517F225758 /* DatadogWebViewTracking in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -150,6 +160,7 @@
 				62AFAE337766795634C533E9 /* TMinusPlugin.swift */,
 				1A7DEE8B39F35BD1246C78F2 /* App.entitlements */,
 				9091E44CDF0BDB348AFFCCF5 /* LiveActivityObserver.swift */,
+				4C5FA967D9B1BBDD1A3A3781 /* Observability.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -192,6 +203,10 @@
 			name = App;
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
+				83230DCC052E9FEDE67A2ACE /* DatadogCore */,
+				511AAD5279E37706D0F5A71A /* DatadogRUM */,
+				35E9FDC237D525524C6731AB /* DatadogCrashReporting */,
+				773D5873466A0C6C72230E63 /* DatadogWebViewTracking */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -241,6 +256,7 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
+				6BF2F2361F08EE475726DBC9 /* XCRemoteSwiftPackageReference "dd-sdk-ios" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -287,6 +303,7 @@
 				A58DD02BE7A2AB2A629E186D /* RideState.swift in Sources */,
 				061C8ED28F425B3BB04049FD /* RideAttributes.swift in Sources */,
 				9E27E2126ABBF2FC73F80AF2 /* LiveActivityObserver.swift in Sources */,
+				E015E2C0AD3C65EED148BDE6 /* Observability.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -577,11 +594,42 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		6BF2F2361F08EE475726DBC9 /* XCRemoteSwiftPackageReference "dd-sdk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/DataDog/dd-sdk-ios";
+			requirement = {
+				kind = exactVersion;
+				version = 3.20.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		35E9FDC237D525524C6731AB /* DatadogCrashReporting */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6BF2F2361F08EE475726DBC9 /* XCRemoteSwiftPackageReference "dd-sdk-ios" */;
+			productName = DatadogCrashReporting;
+		};
 		4D22ABE82AF431CB00220026 /* CapApp-SPM */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;
 			productName = "CapApp-SPM";
+		};
+		511AAD5279E37706D0F5A71A /* DatadogRUM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6BF2F2361F08EE475726DBC9 /* XCRemoteSwiftPackageReference "dd-sdk-ios" */;
+			productName = DatadogRUM;
+		};
+		773D5873466A0C6C72230E63 /* DatadogWebViewTracking */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6BF2F2361F08EE475726DBC9 /* XCRemoteSwiftPackageReference "dd-sdk-ios" */;
+			productName = DatadogWebViewTracking;
+		};
+		83230DCC052E9FEDE67A2ACE /* DatadogCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6BF2F2361F08EE475726DBC9 /* XCRemoteSwiftPackageReference "dd-sdk-ios" */;
+			productName = DatadogCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

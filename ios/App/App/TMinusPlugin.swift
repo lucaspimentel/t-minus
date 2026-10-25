@@ -66,6 +66,7 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
                     }
                 }
             } catch {
+                Observability.addError(error, ["step": "liveActivityStart"])
                 call.reject("start: \(error.localizedDescription)")
             }
         }

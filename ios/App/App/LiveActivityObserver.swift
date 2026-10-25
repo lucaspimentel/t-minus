@@ -51,16 +51,24 @@ final class LiveActivityObserver {
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["activity": ["token": token]])
         let task = UIApplication.shared.beginBackgroundTask(withName: "leave card token", expirationHandler: nil)
         defer { UIApplication.shared.endBackgroundTask(task) }
+        var lastStatus = 0
+        var lastError: Error?
         for attempt in 0..<3 {
             if attempt > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
             do {
                 let (_, res) = try await URLSession.shared.data(for: req)
                 let status = (res as? HTTPURLResponse)?.statusCode ?? 0
                 if status < 500 { return } // 204, or 404: the reminder is gone
+                lastStatus = status
             } catch {
+                lastError = error
                 continue
             }
         }
+        // Never the token itself.
+        Observability.addError(message: "Leave card token not sent", type: "LiveActivityToken",
+                               attributes: ["reminderId": reminderId, "status": lastStatus,
+                                            "error": lastError?.localizedDescription ?? ""])
     }
 
     static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }

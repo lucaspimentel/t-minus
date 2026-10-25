@@ -8,6 +8,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        Observability.shared.start() // Datadog RUM, before any native request
         LiveActivityObserver.shared.start() // also in a background launch after a leave card's start
         // The boarding question's actions (the server's `board` pushes): both open the app, which
         // gets the action from the PushNotifications plugin (`pushNotificationActionPerformed`).
@@ -27,6 +28,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+        Observability.addError(error, ["step": "apns registration"])
     }
 
     func application(_ application: UIApplication,

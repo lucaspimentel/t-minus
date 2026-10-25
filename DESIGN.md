@@ -1038,9 +1038,28 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   trace.
 - **The MBTA key:** never in a URL. The server and the app's direct fallback send it as
   `x-api-key`; RUM's `beforeSend` also strips `api_key` from resource and view URLs.
-- **Budget:** `/api/config` is one same-origin request per page load, outside the MBTA budget.
-- **iOS (next, `TODO.md`):** native RUM with WebView tracking, so the web views join the native
-  session; its IDs come from `/api/config`'s `rum.ios`.
+- **Budget:** `/api/config` is one same-origin request per page load, outside the MBTA budget;
+  the iOS app adds one native request per launch.
+- **Native iOS RUM** (`Observability.swift`): `dd-sdk-ios` 3.20.0 (SPM, App target only: Core,
+  RUM, CrashReporting, WebViewTracking), US1, service `t-minus-ios`, env `prod`, version
+  `<marketing>-<build>` (e.g. `1.0-19`), 100% of sessions, consent granted. No native view or
+  action tracking (the only native UI is the web view), no background events. Crash reporting
+  without dSYM upload (unsymbolicated).
+  - IDs: `/api/config`'s `rum.ios`, cached in UserDefaults. A cached pair starts RUM at launch;
+    the fetch then saves a new pair (or, on the first launch, starts RUM); `ios` null clears the
+    cache (off from the next launch); a failed fetch keeps it. A changed pair applies from the
+    next launch.
+  - WebView tracking for `t-minus.lucasp.net`, set up in `capacitorDidLoad` (before the first page
+    load): the page's browser SDK (still started by `startRum` with `rum.web`) forwards its views,
+    resources and errors to the native session over the bridge. On the first launch the page
+    already on screen stays on the web app until it reloads.
+  - Native `URLSession` requests to the site are tracked automatically with `datadog` and
+    `tracecontext` headers, so they link to `t-minus-api` traces. Today that is the leave-card
+    token `PUT` (`LiveActivityObserver`) and the `/api/config` fetch; the APNs and ride-card
+    tokens go through the page.
+  - Errors: APNs registration failure, a leave-card token given up after 3 tries (never the token
+    itself), and a failed `liveActivityStart`. Background launches (a leave card's push-to-start)
+    report nothing.
 
 ## MBTA data caching (investigation, 2026-10-06)
 
@@ -1201,7 +1220,8 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 - **Native code (thin):** `AppDelegate` forwards the APNs registration to Capacitor's
   PushNotifications plugin (`presentationOptions` banner, sound, list: alerts show with the app
   open); `TMinusPlugin.keepAwake({ on })` sets `isIdleTimerDisabled`, registered by
-  `MainViewController`. The web side of push, screen-on and the app log: Notifications, "In the iOS
+  `MainViewController`; `Observability` starts Datadog RUM from `AppDelegate` and WebView
+  tracking from `MainViewController` (see Observability). The web side of push, screen-on and the app log: Notifications, "In the iOS
   app"; the server side: Notifications, "APNs".
 - **App:** "T-Minus" on the Home Screen; "T-Minus Boston Commute" in App Store Connect and
   TestFlight ("T-Minus" was taken; "MBTA" left out, since the MassDOT license bars using its

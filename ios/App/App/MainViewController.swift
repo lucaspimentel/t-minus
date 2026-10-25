@@ -5,5 +5,6 @@ import Capacitor
 class MainViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(TMinusPlugin())
+        Observability.shared.track(webView: webView)
     }
 }
