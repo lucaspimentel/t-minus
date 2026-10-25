@@ -8,7 +8,7 @@ import {
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
-  reverseTrip, nearestStop, windowLabel, shortRouteLabel, labelLegs,
+  reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, withoutArrived, stopConnections,
@@ -1190,7 +1190,7 @@ test('planRoutes: station to station on rail, fewest transfers, then fewest stop
   assert.deepEqual(brief('5991', 'place-ogmnl'), []);
   // The editor's form: named from the stations, walks given, 3 min to change within a station.
   assert.deepEqual(planToForm(net, planRoutes(net, 'place-ogmnl', 'place-knncl')[1], 5, 7), {
-    name: 'Oak Grove to Kendall/MIT', window: null, near: false, timingLeg: null, walkBefore: 5, walkAfter: 7,
+    name: 'Oak Grove → Kendall/MIT', window: null, near: false, timingLeg: null, walkBefore: 5, walkAfter: 7,
     transit: [
       { route: 'Orange', direction_id: 0, stop: 'place-ogmnl', alight: 'place-haecl', transferBefore: 0 },
       { route: 'Green-D', also: ['Green-E'], direction_id: 0, stop: 'place-haecl', alight: 'place-pktrm', transferBefore: 3 },
@@ -1278,7 +1278,7 @@ test('planTrips: bus to rail to bus, walks up to 250 m between stops, routes rid
   assert.deepEqual(viaMid.map(o => o.legs.map(l => [l.route, l.stop])), [[['Orange', 'place-hub'], ['Q', 'q1']]]);
   // The editor's form: the walk's minutes as the transfer.
   const form = optionToForm(zed, 'Elm St', 'Zed Sq', 5, 4);
-  assert.equal(form.name, 'Elm St to Zed Sq');
+  assert.equal(form.name, 'Elm St → Zed Sq');
   assert.deepEqual(form.transit.map(l => [l.route, l.also, l.transferBefore]), [['B1', ['B3'], 0], ['Orange', undefined, 3], ['B2', undefined, 3]]);
 });
 
@@ -1554,7 +1554,7 @@ test('searchStops, stopsAfter, and defaultTransferMinutes', () => {
 test('reverseTrip flips legs, directions, stops, and walks', () => {
   const back = reverseTrip(homeToOffice);
   assert.deepEqual(back, {
-    name: 'Home to office (return)',
+    name: 'office → Home',
     legs: [
       { kind: 'walk', minutes: 10 },
       { kind: 'transit', route: 'Orange', direction_id: 1, stop: 'place-state', alight: 'place-ogmnl' },
@@ -1570,6 +1570,24 @@ test('reverseTrip flips legs, directions, stops, and walks', () => {
   const r3 = reverseTrip(three);
   assert.deepEqual(r3.legs.map(l => (l.kind === 'transit' ? l.route : l.minutes)), ['C', 7, 'B', 2, 'A']);
   assert.equal(r3.timingLeg, 2);
+  assert.equal(r3.name, 'T (return)');
+});
+
+test('returnName swaps the ends of "A → B" or "A to B", else adds (return)', () => {
+  const cases = [
+    ['Oak Grove → State', 'State → Oak Grove'],
+    ['Oak Grove to State', 'State → Oak Grove'],
+    ['Main St @ South St to State', 'State → Main St @ South St'],
+    ['Commute', 'Commute (return)'],
+    ['A → B → C', 'A → B → C (return)'],
+    ['A to B to C', 'A to B to C (return)'],
+    ['A to B → C', 'A to B → C (return)'],
+    ['Toronto', 'Toronto (return)'],
+    ['Home To Office', 'Home To Office (return)'],
+    ['', ''],
+    ['  ', ''],
+  ];
+  for (const [name, want] of cases) assert.equal(returnName(name), want, name);
 });
 
 test('nearestStop picks the closest stop with coordinates', () => {

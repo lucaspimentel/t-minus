@@ -445,7 +445,7 @@ export function planRoutes(net, fromId, toId, maxTransfers = 2, limit = 3) {
   return options.filter(o => options.every(x => x.transfers.length >= o.transfers.length || x.stops > o.stops)).slice(0, limit);
 }
 
-// A trip editor form (tripToForm's shape) for a planned option: named "Oak Grove to Kendall/MIT",
+// A trip editor form (tripToForm's shape) for a planned option: named "Oak Grove → Kendall/MIT",
 // with the walks given and the default transfer time (3 min within a station).
 export function planToForm(net, option, walkBefore, walkAfter) {
   const name = id => networkStation(net, id)?.name ?? id;
@@ -458,7 +458,7 @@ export function planToForm(net, option, walkBefore, walkAfter) {
 export function optionToForm(option, fromName, toName, walkBefore, walkAfter) {
   const legs = option.legs;
   return {
-    name: `${fromName} to ${toName}`,
+    name: `${fromName} → ${toName}`,
     window: null, near: false, timingLeg: null, walkBefore, walkAfter,
     transit: legs.map((l, i) => ({
       route: l.route, direction_id: l.direction_id, stop: l.stop, alight: l.alight, ...(l.also.length && { also: [...l.also] }),
@@ -995,9 +995,23 @@ export function stopConnections(stops, railStops, exclude = []) {
   return new Map([...tags].map(([id, byColor]) => [id, mergedLines(byColor)]));
 }
 
+// The return trip's name: "A → B" or "A to B" (one separator) becomes "B → A"; any other name
+// gets " (return)"; a blank one stays blank (the editor suggests one from the stops).
+export function returnName(name) {
+  if (!name.trim()) return '';
+  for (const [sep, other] of [[' → ', ' to '], [' to ', ' → ']]) {
+    const parts = name.split(sep);
+    if (parts.length !== 2 || name.includes(other)) continue;
+    const [a, b] = parts.map(x => x.trim());
+    if (a && b) return `${b} → ${a}`;
+  }
+  return `${name} (return)`;
+}
+
 // The trip back: legs in reverse order, opposite directions, board and drop-off swapped,
 // walks swapped, each transfer kept between the same pair of legs. No time window. Reversed
 // bus stops are usually on the other side of the street; the save-time stop check flags them.
+// Named by returnName.
 export function reverseTrip(trip) {
   const form = tripToForm(trip);
   const n = form.transit.length;
@@ -1009,7 +1023,7 @@ export function reverseTrip(trip) {
     };
   });
   return formToTrip({
-    name: `${form.name} (return)`,
+    name: returnName(form.name),
     window: null,
     timingLeg: form.timingLeg == null ? null : n - 1 - form.timingLeg,
     walkBefore: form.walkAfter,

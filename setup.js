@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=fc21b75078';
+} from './core.js?v=2b49c1a0c5';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -698,8 +698,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // served in the other direction (the stop across the street is), so each stop missing from
   // the new direction's list is replaced by that list's nearest stop.
   async function addReturnTrip() {
-    const { idx, form } = editing;
+    const { idx, form, suggested } = editing;
     const back = tripToForm(reverseTrip(formToTrip(form)));
+    // A name from the stops is suggested again from the reversed (maybe replaced) stops.
+    if (!form.name.trim() || form.name === suggested || form.name === stopSuggestion(form)) back.name = '';
     const replaced = [];
     try {
       for (const leg of back.transit) {
@@ -724,6 +726,12 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     shown = null; // a different trip: start at the top
     loadNames();
     render();
+  }
+
+  // The name suggested from the stops: first board stop → last drop-off ('' without legs).
+  function stopSuggestion(t) {
+    const first = t.transit[0], last = t.transit.at(-1);
+    return first ? `${stopName(first.route, first.direction_id, first.stop)} → ${stopName(last.route, last.direction_id, last.alight)}` : '';
   }
 
   function legSummary(l) {
@@ -753,8 +761,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   function tripScreen() {
     const t = editing.form;
     // Name from the stops ("Wyoming Ave @ Fellsway E → State") until one is typed.
-    const first = t.transit[0], last = t.transit.at(-1);
-    const suggestion = first ? `${stopName(first.route, first.direction_id, first.stop)} → ${stopName(last.route, last.direction_id, last.alight)}` : '';
+    const suggestion = stopSuggestion(t);
     if (!t.name || t.name === editing.suggested) { t.name = suggestion; editing.suggested = suggestion; }
     editing.moreOpen ??= !!(t.window || t.near || Number.isInteger(t.timingLeg));
     const mode = t.window ? 'window' : t.near ? 'near' : 'never';

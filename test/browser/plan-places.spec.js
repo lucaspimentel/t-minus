@@ -76,7 +76,7 @@ test('setup: an address or place from the search; the plan walks from it; the pi
   const tl = await expandOption(page);
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 3 min', 'Walk 3 min to transfer', 'Walk 5 min']);
   await pickOption(page);
-  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Fenway Park to State');
+  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Fenway Park → State');
   await expect(setup(page).getByLabel('Minutes to first stop')).toHaveValue('3');
   await expect(setup(page).getByLabel('Minutes from last stop')).toHaveValue('5');
 });
@@ -116,7 +116,7 @@ test('main screen: Current location as From makes a one-off trip named from its 
   await pickOption(page);
   await expect(page.locator('#oneoff')).toBeVisible();
   const oneOff = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:one-off')).trip);
-  expect(oneOff.name).toBe('Main St @ South St to State');
+  expect(oneOff.name).toBe('Main St @ South St → State');
   expect(oneOff.legs[0]).toEqual({ kind: 'walk', minutes: 3 });
 });
 
@@ -134,7 +134,7 @@ test('setup: Current location as To; the trip is named for its last stop', async
   await expect(setup(page).getByLabel('Minutes from last stop')).toHaveCount(0);
   expect(calls.plan).toEqual(['?from=place-ogmnl&to=%4042.358%2C-71.0577']);
   await pickOption(page);
-  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove to State');
+  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove → State');
 });
 
 test('Current location without permission says so and keeps the list', async ({ page }) => {

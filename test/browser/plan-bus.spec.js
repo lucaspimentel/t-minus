@@ -73,11 +73,11 @@ test('setup: a route\'s stop to a station; the pick opens in the editor with the
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min', 'Walk 3 min to transfer', 'Walk 5 min']);
   expect(calls).toEqual(['?from=15982%2C25996&to=place-state']); // both sides: the server picks
   await pickOption(page);
-  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Main St @ South St to State');
+  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Main St @ South St → State');
   await expect(setup(page).getByLabel('Minutes to transfer')).toHaveValue('3');
   await expect(setup(page).locator('.leg-item')).toHaveText([/Bus 132.*Main St @ South St → Washington St/, /Orange.*Oak Grove → State/]);
   await button(page, 'Save').click();
-  await expect(setup(page).locator('.trip-row .item b')).toHaveText(['Home to office', 'Office to home', 'Main St @ South St to State']);
+  await expect(setup(page).locator('.trip-row .item b')).toHaveText(['Home to office', 'Office to home', 'Main St @ South St → State']);
 });
 
 test('main screen: a one-off trip from a bus stop has the bus and the train', async ({ page }) => {

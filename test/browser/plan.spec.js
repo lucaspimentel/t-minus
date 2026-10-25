@@ -48,13 +48,13 @@ test('setup: auto-route lists the ways between two stations and opens the pick i
   await pickStation(page, 'to', 'kendall', 'Kendall/MIT');
   await setup(page).getByLabel('Minutes from last stop').fill('7');
   await pickOption(page);
-  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove to Kendall/MIT');
+  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove → Kendall/MIT');
   await expect(setup(page).getByLabel('Minutes to first stop')).toHaveValue('5');
   await expect(setup(page).getByLabel('Minutes from last stop')).toHaveValue('7');
   await expect(setup(page).getByLabel('Minutes to transfer')).toHaveValue('3');
   await expect(setup(page).locator('.leg-item')).toHaveText([/Orange.*Oak Grove → Downtown Crossing/, /Red.*Downtown Crossing → Kendall\/MIT/]);
   await button(page, 'Save').click();
-  await expect(setup(page).locator('.trip-row .item b')).toHaveText(['Home to office', 'Office to home', 'Oak Grove to Kendall/MIT']);
+  await expect(setup(page).locator('.trip-row .item b')).toHaveText(['Home to office', 'Office to home', 'Oak Grove → Kendall/MIT']);
   const trip = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips[2]);
   expect(trip.legs.map(l => [l.kind, l.route ?? l.minutes, l.stop, l.alight])).toEqual([
     ['walk', 5, undefined, undefined], ['transit', 'Orange', 'place-ogmnl', 'place-dwnxg'], ['transfer', 3, undefined, undefined],
@@ -99,7 +99,7 @@ test('main screen: Go somewhere else… makes a one-off trip, kept across reload
     .map(sel => document.querySelector(sel).getBoundingClientRect().top));
   expect(tops).toEqual([...tops].sort((x, y) => x - y));
   await expect(page.locator('#toggle select')).toHaveValue('2');
-  await expect(page.locator('#toggle select option:checked')).toHaveText('Oak Grove to State (one-off)');
+  await expect(page.locator('#toggle select option:checked')).toHaveText('Oak Grove → State (one-off)');
   await expect(page.locator('.row .strip').first()).toHaveText(/^\s*Orange\s*$/);
   await expect(page.locator('.row:not(.missed) .big').first()).toContainText('7:02am'); // the 7:08 train, 5-min walk + 1 min early
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips.length)).toBe(2); // not saved
@@ -118,14 +118,14 @@ test('main screen: Go somewhere else… makes a one-off trip, kept across reload
   await expect(page.locator('#toggle button')).toHaveText(['Home to office', 'Office to home']);
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(bar).toBeVisible();
-  await expect(page.locator('#toggle select option:checked')).toHaveText('Oak Grove to State (one-off)');
+  await expect(page.locator('#toggle select option:checked')).toHaveText('Oak Grove → State (one-off)');
   // Save: a saved trip at the same place; the bar goes.
   await bar.getByRole('button', { name: 'Save' }).click();
   await expect(bar).toBeHidden();
   await expect(toast(page)).toContainText('Trip saved');
-  await expect(page.locator('#toggle select option:checked')).toHaveText('Oak Grove to State');
+  await expect(page.locator('#toggle select option:checked')).toHaveText('Oak Grove → State');
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips.map(t => t.name)))
-    .toEqual(['Home to office', 'Office to home', 'Oak Grove to State']);
+    .toEqual(['Home to office', 'Office to home', 'Oak Grove → State']);
   expect(await page.evaluate(() => localStorage.getItem('t-minus:one-off'))).toBeNull();
 });
 

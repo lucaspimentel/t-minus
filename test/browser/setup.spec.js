@@ -383,6 +383,29 @@ test('Delete removes the trip at once, with Undo; a later save hides the toast',
   await expect(toast(page)).toBeHidden();
 });
 
+test('Add return trip: "A to B" swaps the ends; a name from the stops follows the reversed stops', async ({ page }) => {
+  await openSetup(page);
+  await setup(page).locator('.trip-row .item').first().click();
+  await button(page, 'Add return trip').click();
+  await expect(setup(page).getByLabel('Trip name')).toHaveValue('office → Home');
+  await button(page, 'Save').click();
+  await expect(setup(page).locator('.trip-row')).toHaveCount(3);
+  expect(await storedNames(page)).toEqual(['Home to office', 'office → Home', 'Office to home']);
+});
+
+test('Add return trip: a name from the stops is suggested again from the stops across the street', async ({ page }) => {
+  const bus = { kind: 'transit', route: '132', direction_id: 1, stop: '25996', alight: '5991', label: 'Bus 132', color: 'FFC72C' };
+  await openApp(page, { time: '07:00', config: { ...CONFIG, trips: [{ name: 'Main St @ South St → Washington St opp Oak Grove Sta', legs: [bus] }] } });
+  await page.locator('#open-setup').click();
+  await setup(page).locator('.trip-row .item').first().click();
+  await button(page, 'Add return trip').click();
+  // 5991 and 25996 aren't served toward Malden: the stops across the street (9326, 15982).
+  await expect(setup(page).getByLabel('Trip name')).toHaveValue('Washington St @ Oak Grove Station → Main St @ South St');
+  await button(page, 'Save').click();
+  await expect(setup(page).locator('.trip-row')).toHaveCount(2);
+  expect((await storedNames(page)).at(-1)).toBe('Washington St @ Oak Grove Station → Main St @ South St');
+});
+
 test('the last trip can be deleted: settings stay, Done shows the empty main screen, setup reopens as first run', async ({ page }) => {
   const one = { ...CONFIG, trips: [CONFIG.trips[0]], departureCount: 3, apiKey: 'k1' };
   await openApp(page, { time: '07:00', config: one });

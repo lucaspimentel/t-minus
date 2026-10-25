@@ -164,7 +164,7 @@ picked by hand after it was made (`chooseTrip`).
   `{ trip, at }`), labeled from the route list like a saved trip but never written into the saved
   config. It is shown after the saved trips (`withOneOff`), so saved trips keep their indices,
   and works like any trip: rows, tracking, reminders, stop alerts.
-- The trip dropdown names it "Oak Grove to State (one-off)" (with one saved trip the two side-by-side
+- The trip dropdown names it "Oak Grove → State (one-off)" (with one saved trip the two side-by-side
   buttons stay). While it is shown, a banner under the trip buttons, above "Go somewhere else…" (a
   bordered card, 2026-10-13, chosen from three mockups: the old plain line and the "Leaving
   now" bar below it didn't line up), reads "One-off trip: not saved" with Save and "✕" (Remove).
@@ -504,7 +504,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   transfers, then stops, then the change stations' names; an option with more transfers is shown
   only if it rides fewer stops than every option with fewer. None: "No way on the subway with 2
   transfers or fewer." (e.g. Mattapan to Wonderland needs 3). In setup the pick opens the trip
-  editor (`planToForm`: "Oak Grove to Kendall/MIT", 3 min to change within a station, no time
+  editor (`planToForm`: "Oak Grove → Kendall/MIT", 3 min to change within a station, no time
   window) to review and save; from the main screen it becomes the one-off trip. Addresses are a
   later phase (`TODO.md`).
 - Trip screen (tap a row, or "Add trip (manual)"): name, "Show automatically" (During a time window,
@@ -543,7 +543,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   the bus or train you take first." with a filled accent "+ Add transit leg", and Save is
   disabled until a leg exists; with legs, the add button has an accent outline. A new trip's
   name is suggested from its stops ("Oak Grove → State", first board stop → last drop-off)
-  until one is typed; an empty name saves as "Trip N".
+  until one is typed; an empty name saves as "Trip N". Generated names all use " → " (this
+  suggestion, and auto-route and one-off trips via `optionToForm`); saved names are not migrated.
 - Trips and legs share one pattern: tap the item (a muted › hints at it) to edit it, ↑↓ on
   its right (dimmed on the first and last). Deleting is inside: "Delete trip" in the trip
   editor, "Remove leg" in a leg's "Change leg" screen (both with Undo). In the trip editor
@@ -640,6 +641,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   direction (a bus stop across the street) is replaced by the nearest stop that is, and the
   replacements are listed for review. For the example commute this reproduces the real
   return trip (`5991 → 9326`, `15999 → 15979`).
+  Its name: a name that is the stops' suggestion (or blank) is suggested again from the
+  reversed stops; "A → B" or "A to B" (exactly one separator) becomes "B → A" (`returnName`);
+  any other name gets " (return)".
 - Existing legs show stop names from the per-route/direction `/stops` docs, which Save then
   reuses for `checkStops` (only the edited trip's stops are checked).
 - Save errors appear on the trip screen; nothing is saved until they're fixed.
@@ -1535,7 +1539,7 @@ point → stops → plan on the live network) and two grill rounds with mockups.
   Boston". From's and To's lists start with "Current location · plan from (to) where you are"
   (the browser's location; "Location is off for this app." when denied; To added 2026-10-12). A place is `@lat,lon` with its name.
 - **Planner:** a point end has no walk field (its walk comes with each option); the trip is
-  named "Fenway Park to State", "Current location" by the first (From) or last (To) stop's name. Only stops and legs
+  named "Fenway Park → State", "Current location" by the first (From) or last (To) stop's name. Only stops and legs
   are saved, no coordinates. Without the server: "Needs the T-Minus server.".
 - Live (2026-10-12): 600 Main St, Melrose → Fenway Park: 137 → Orange → Green, ~53-56 min;
   350 Washington St, Malden → MGH: Orange to North Station or Orange → Red to Charles/MGH,
