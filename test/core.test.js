@@ -9,7 +9,7 @@ import {
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
-  MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery,
+  MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, stopCountTrip, stopCountText, rideLine,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, withoutArrived, stopConnections,
   leavePhase, leaveActivityState, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, LEAVE_CARD_EARLY_MIN, LEAVE_CARD_MAX_MIN, leaveCardEarly, leaveStartText, firstVehicleLine,
@@ -1187,6 +1187,10 @@ test('planRoutes: station to station on rail, fewest transfers, then fewest stop
   assert.deepEqual(brief('place-matt', 'place-wondl'), []);
   assert.equal(planRoutes(net, 'place-matt', 'place-wondl', 3).length > 0, true);
   assert.deepEqual(brief('place-ogmnl', 'place-ogmnl'), []);
+  // Each leg carries its stops; they add up to the option's.
+  const kendall = planRoutes(net, 'place-ogmnl', 'place-knncl');
+  assert.deepEqual(kendall.map(o => o.legs.map(l => l.stops)), [[9, 3], [7, 2, 2], [6, 3, 2]]);
+  for (const o of kendall) assert.equal(o.legs.reduce((n, l) => n + l.stops, 0), o.stops);
   assert.deepEqual(brief('5991', 'place-ogmnl'), []);
   // The editor's form: named from the stations, walks given, 3 min to change within a station.
   assert.deepEqual(planToForm(net, planRoutes(net, 'place-ogmnl', 'place-knncl')[1], 5, 7), {
@@ -1241,8 +1245,8 @@ test('planTrips: bus to rail to bus, walks up to 250 m between stops, routes rid
   const net = smallNetwork();
   const [hub] = planTrips(net, 'a1', 'place-mid');
   assert.deepEqual(hub.legs, [
-    { route: 'B1', also: ['B3'], direction_id: 0, stop: 'a1', alight: 'hb', stopName: 'Elm St', alightName: 'Hub Busway' },
-    { route: 'Orange', also: [], direction_id: 0, stop: 'place-hub', alight: 'place-mid', stopName: 'Hub', alightName: 'Mid' },
+    { route: 'B1', also: ['B3'], direction_id: 0, stop: 'a1', alight: 'hb', stopName: 'Elm St', alightName: 'Hub Busway', stops: 2 },
+    { route: 'Orange', also: [], direction_id: 0, stop: 'place-hub', alight: 'place-mid', stopName: 'Hub', alightName: 'Mid', stops: 1 },
   ]);
   assert.deepEqual(hub.transfers, [{ name: 'Hub Busway → Hub', meters: 33, min: 3 }]);
   assert.equal(hub.minutes, 11 + 3 + 2); // B1 11, change 3, Orange ~2.2
@@ -2207,4 +2211,56 @@ test('rumInitOptions: null without IDs; same-origin /api/ gets trace headers; ve
   const event = { resource: { url: 'https://api-v3.mbta.com/stops?api_key=k' } };
   assert.equal(o.beforeSend(event), true);
   assert.equal(event.resource.url, 'https://api-v3.mbta.com/stops');
+});
+
+test('stop counts: from the trip\'s stop list (not stop_sequence), borrowed trips, ride lines', () => {
+  const M = 60_000;
+  // Orange-like: sequences 1, 10, 20, 30, 40 on child platforms, given out of order.
+  const rec = (id, seq) => ({ type: 'schedule', attributes: { stop_sequence: seq }, relationships: { stop: { data: { id } } } });
+  const plat = (id, parent) => ({ type: 'stop', id, relationships: { parent_station: { data: { id: parent } } } });
+  const doc = {
+    data: [rec('p3', 20), rec('p1', 1), rec('p5', 40), rec('p2', 10), rec('p4', 30)],
+    included: [plat('p1', 'place-a'), plat('p4', 'place-d')],
+  };
+  assert.equal(tripStopCount(doc, 'place-a', 'place-d'), 3);
+  assert.equal(tripStopCount(doc, 'p4', 'p5'), 1);
+  assert.equal(tripStopCount(doc, 'place-d', 'place-a'), null); // wrong order
+  assert.equal(tripStopCount(doc, 'nowhere', 'p5'), null);
+  assert.equal(tripStopCount({ data: [] }, 'p1', 'p2'), null);
+  assert.equal(tripStopCount(null, 'p1', 'p2'), null);
+  assert.deepEqual(tripStopsQuery('t1', '2026-10-05'), {
+    'filter[trip]': 't1', 'filter[date]': '2026-10-05', include: 'stop', 'fields[schedule]': 'stop_sequence', 'fields[stop]': 'parent_station' });
+  assert.equal(proxyRequestError('/schedules', Object.entries(tripStopsQuery('t1', '2026-10-05'))), null);
+
+  // The trip to count: its own when scheduled, else the scheduled one closest in time.
+  const at = (trip, stop, ms) => ({ type: 'schedule', attributes: { departure_time: new Date(ms).toISOString(), arrival_time: new Date(ms).toISOString() },
+    relationships: { trip: { data: { id: trip } }, stop: { data: { id: stop } } } });
+  const t0 = Date.parse('2026-10-05T12:00:00Z');
+  const sched = mergeTrips(null, { data: [at('s1', 'a', t0), at('s1', 'b', t0 + 10 * M), at('s2', 'a', t0 + 6 * M), at('s2', 'b', t0 + 16 * M)] });
+  const leg = { stop: 'a', alight: 'b' };
+  assert.equal(stopCountTrip({ tripId: 's1', dep: t0 }, leg, sched), 's1');
+  assert.equal(stopCountTrip({ tripId: 'ADDED-1', dep: t0 + 5 * M }, leg, sched), 's2');
+  assert.equal(stopCountTrip({ tripId: 'ADDED-1', dep: t0 + 5 * M }, leg, null), 'ADDED-1');
+  assert.equal(stopCountTrip({ tripId: 'ADDED-1', dep: t0 }, leg, new Map()), null);
+
+  // The ride line: stops and minutes when known.
+  const orange = { label: 'Orange', route: 'Orange' };
+  assert.equal(stopCountText(1), '1 stop');
+  assert.equal(rideLine({ leg: orange, stops: 13, minutes: '12 min' }), 'Orange Line · 13 stops · 12 min');
+  assert.equal(rideLine({ leg: orange, stops: 1, minutes: '12 min' }), 'Orange Line · 1 stop · 12 min');
+  assert.equal(rideLine({ leg: orange, minutes: '12 min' }), 'Orange Line · 12 min');
+  assert.equal(rideLine({ leg: orange, stops: 13, minutes: null }), 'Orange Line · 13 stops');
+  assert.equal(rideLine({ leg: orange, minutes: null }), 'Orange Line');
+
+  // Timeline steps carry the counts given (rows) or the option legs' (auto-route).
+  const trip = { legs: [{ kind: 'transit', route: '132', direction_id: 1, stop: 'x', alight: 'y' }, { kind: 'transfer', minutes: 3 },
+    { kind: 'transit', route: 'Orange', direction_id: 0, stop: 'y2', alight: 'z' }] };
+  const row = { leaveBy: 0, eta: 40 * M, legs: [{ label: 'Bus 132', dep: 0, arr: 10 * M }, { label: 'Orange', dep: 15 * M, arr: 30 * M }] };
+  const legSteps = c => timelineSteps(row, trip, 0, 0, new Map(), c).filter(s => s.kind === 'leg').map(s => s.stops);
+  assert.deepEqual(legSteps([2, 1]), [2, 1]);
+  assert.deepEqual(legSteps([null, 4]), [undefined, 4]);
+  assert.deepEqual(legSteps(), [undefined, undefined]);
+  const legs = [{ label: 'Bus 132' }, { label: 'Orange' }];
+  const opt = optionSteps({ legs: [{ stops: 9 }, {}], transfers: [] }, { walkBefore: 0, walkAfter: 0, legs });
+  assert.deepEqual(opt.filter(s => s.kind === 'leg').map(s => s.stops), [9, undefined]);
 });

@@ -34,7 +34,7 @@ test('setup: auto-route lists the ways between two stations and opens the pick i
   // Expanded: the timeline, without times (a saved trip is used at many times of day).
   const tl = await expandOption(page, 1);
   await expect(tl.locator('.step.stop .n')).toHaveText(['Oak Grove', 'Haymarket', 'Haymarket', 'Park Street', 'Park Street', 'Kendall/MIT']);
-  await expect(tl.locator('.step.ride')).toHaveText(['Orange Line', /^Green Line/, 'Red Line']);
+  await expect(tl.locator('.step.ride')).toHaveText(['Orange Line · 7 stops', /^Green Line.* · 2 stops$/, 'Red Line · 2 stops']);
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min', 'Transfer', 'Transfer', 'Walk 5 min']);
   await expect(tl.locator('.step.stop .t, .step.end .t')).toHaveText(['', '', '', '', '', '', '', '']);
   await expect(tl.locator('.badge')).toHaveCount(0);

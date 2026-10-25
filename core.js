@@ -393,7 +393,7 @@ export function legBetween(net, fromId, toId) {
 // riding past a change and back). Ranked by transfers, then stops ridden, then the transfer
 // stations' names; an option with more transfers is kept only if it rides fewer stops than every
 // option with fewer. Each option:
-// { legs: [{ route, also, direction_id, stop, alight }], transfers: [station name], stops }.
+// { legs: [{ route, also, direction_id, stop, alight, stops }], transfers: [station name], stops }.
 export function planRoutes(net, fromId, toId, maxTransfers = 2, limit = 3) {
   const from = networkStation(net, fromId)?.id;
   const to = networkStation(net, toId)?.id;
@@ -437,7 +437,7 @@ export function planRoutes(net, fromId, toId, maxTransfers = 2, limit = 3) {
   };
   walk(from, [], new Set(), new Set([from]));
   const options = found.map(path => ({
-    legs: path.map(h => ({ route: h.leg.route, also: h.leg.also, direction_id: h.leg.direction, stop: h.from, alight: h.to })),
+    legs: path.map(h => ({ route: h.leg.route, also: h.leg.also, direction_id: h.leg.direction, stop: h.from, alight: h.to, stops: h.stops })),
     transfers: path.slice(1).map(h => name(h.from)),
     stops: path.reduce((n, h) => n + h.stops, 0),
   }));
@@ -676,7 +676,7 @@ function changeAt(net, place) {
 // (`changeAt`).
 // `from` / `to`: an id (stop or station; comma-separated: any of them, e.g. both sides of a street),
 // or the stops near a point with their walks: [{ id, min }].
-// Each: { legs: [{ route, also, direction_id, stop, alight, stopName, alightName }], transfers:
+// Each: { legs: [{ route, also, direction_id, stop, alight, stopName, alightName, stops (ridden) }], transfers:
 // [{ name ("Downtown Crossing", or "Downtown Crossing → Park Street" for a walk between stations),
 // meters (walked), min }], minutes (rides and changes, no waits), walkBefore, walkAfter (the
 // chosen ends' walks; 0 for an id) } (stops named by their station when they have one).
@@ -718,7 +718,7 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
           // `seen` holds places (a stop's station, else the stop): no station passed twice.
           if (passed.has(placeOf(net, s))) break;
           via.push(placeOf(net, s));
-          const leg = { pattern: pi, from: b.id, to: s, minutes: ride, walk: b };
+          const leg = { pattern: pi, from: b.id, to: s, minutes: ride, walk: b, stops: j - i };
           if (target.has(s)) {
             const after = target.get(s);
             found.push({ path: [...path, leg], minutes: m + ride, after, cost: t + wait + ride * weight + after + TRANSFER_PENALTY_MIN * path.length });
@@ -758,7 +758,7 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
     const legs = f.path.map(l => {
       const p = net.patterns[l.pattern];
       const [stop, alight] = [placeOf(net, l.from), placeOf(net, l.to)];
-      return { route: p.route, also: alsoFor(l.pattern, l.from, l.to), direction_id: p.direction, stop, alight, stopName: placeName(net, stop), alightName: placeName(net, alight) };
+      return { route: p.route, also: alsoFor(l.pattern, l.from, l.to), direction_id: p.direction, stop, alight, stopName: placeName(net, stop), alightName: placeName(net, alight), stops: l.stops };
     });
     const sig = legs.map(l => `${l.route}@${l.stop}>${l.alight}`).join('|');
     const shape = legs.map(l => [l.route, ...l.also].sort().join('/')).join('|') + '#' + legs.map(l => l.stop).join();
@@ -819,8 +819,8 @@ export function timedOptions(options, rows, limit = 8) {
 }
 
 // An auto-route option as timeline steps (timelineSteps' shape): Leave, the walk, each ride
-// (`legs`: [{ label, color, from, to }] per option leg) with its timed vehicle (o.deps) and the
-// transfers between, the walk, Arrive. Untimed: no times, durations or badges; a transfer is its
+// (`legs`: [{ label, color, from, to }] per option leg) with its timed vehicle (o.deps) and its
+// stop count (the option leg's `stops`), the transfers between, the walk, Arrive. Untimed: no times, durations or badges; a transfer is its
 // walk ("Walk 3 min to transfer"), or "Transfer" in the station.
 export function optionSteps(o, { walkBefore, walkAfter, slack = 0, legs }) {
   const timed = o.leave != null;
@@ -838,7 +838,7 @@ export function optionSteps(o, { walkBefore, walkAfter, slack = 0, legs }) {
     }
     const { label, color, from, to } = legs[i];
     steps.push({
-      kind: 'leg', from, to, minutes: d ? formatCountdown(d.arr - d.dep) : null,
+      kind: 'leg', from, to, minutes: d ? formatCountdown(d.arr - d.dep) : null, ...stopsOf(l.stops),
       leg: { label, color, ...(d && { dep: d.dep, arr: d.arr, source: d.source, ...(d.headsign && { headsign: d.headsign }), ...(d.every && { every: d.every }) }) },
     });
   });
@@ -1668,7 +1668,8 @@ export function keepAwakeRiding(ride, walkAfter, nowMs, on) {
 // ride's `minutes`; walk and transfer steps are short text, with `walking` when they involve
 // walking (walks over 0 min, every transfer). `end` steps put the leave-by time ("Leave", rows
 // with one) and the arrival ("Arrive") on the rail like stops.
-export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map()) {
+// `stopCounts`: stops ridden per leg (null: unknown), shown on the ride line when known.
+export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map(), stopCounts = []) {
   const { walkBefore, walkAfter, transit } = tripShape(trip);
   const steps = [];
   if (!row.enRoute && row.leaveBy != null) steps.push({ kind: 'end', label: 'Leave', time: row.leaveBy });
@@ -1679,7 +1680,7 @@ export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map())
   row.legs.forEach((leg, i) => {
     if (i > 0) steps.push({ kind: 'walk', text: `${formatCountdown(leg.dep - row.legs[i - 1].arr)} to transfer`, walking: true });
     steps.push({
-      kind: 'leg', leg, minutes: formatCountdown(leg.arr - leg.dep), approx: !!leg.every,
+      kind: 'leg', leg, minutes: formatCountdown(leg.arr - leg.dep), approx: !!leg.every, ...stopsOf(stopCounts[i]),
       from: names.get(transit[i]?.stop) ?? null, to: names.get(transit[i]?.alight) ?? null,
     });
   });
@@ -1887,6 +1888,48 @@ export function rideStops(doc, alightId, nowMs) {
   }
   return { vehicle, stops };
 }
+
+// A leg's stop count (stops ridden: after boarding, the drop-off included) for its ride line.
+// From the trip's own stop list (`tripStopsQuery`), never stop_sequence arithmetic: the MBTA's
+// sequences skip (Orange 1, 10, 20…; Red 110 → 130 at the branch).
+export const tripStopsQuery = (tripId, date) => ({
+  'filter[trip]': tripId, 'filter[date]': date, include: 'stop', 'fields[schedule]': 'stop_sequence', 'fields[stop]': 'parent_station',
+});
+
+// Stops from `board` to `alight` (ids or parent stations of the trip's platforms) in the trip's
+// /schedules doc; null when either isn't on it in that order.
+export function tripStopCount(doc, board, alight) {
+  const parents = parentMapOf(doc);
+  const ids = (doc?.data ?? [])
+    .map(r => ({ id: r.relationships?.stop?.data?.id, seq: r.attributes?.stop_sequence }))
+    .filter(r => r.id && Number.isFinite(r.seq))
+    .sort((a, b) => a.seq - b.seq)
+    .map(r => r.id);
+  const is = (id, want) => id === want || parents.get(id) === want;
+  const i = ids.findIndex(id => is(id, board));
+  if (i < 0) return null;
+  const j = ids.findIndex((id, k) => k > i && is(id, alight));
+  return j < 0 ? null : j - i;
+}
+
+// The trip to count a row leg's stops on: its own when scheduled (`scheduleTrips`: mergeTrips of
+// the leg's /schedules doc); an ADDED or prediction-only one borrows the scheduled trip closest in
+// time that serves both stops in order (same pattern, same count); null when there is none.
+export function stopCountTrip(leg, transitLeg, scheduleTrips) {
+  if (!scheduleTrips) return leg.tripId ?? null;
+  if (scheduleTrips.has(leg.tripId)) return leg.tripId;
+  let best = null;
+  for (const v of legVehicles(scheduleTrips, transitLeg)) {
+    if (!best || Math.abs(v.dep - leg.dep) < Math.abs(best.dep - leg.dep)) best = v;
+  }
+  return best?.tripId ?? null;
+}
+
+export const stopCountText = n => `${n} stop${n === 1 ? '' : 's'}`;
+const stopsOf = n => (Number.isInteger(n) && n > 0 ? { stops: n } : {});
+
+// A timeline ride line: "Orange Line · 13 stops · 12 min" (stops and minutes when known).
+export const rideLine = s => [lineLabel(s.leg), s.stops > 0 && stopCountText(s.stops), s.minutes].filter(Boolean).join(' · ');
 
 // The ridden vehicle's remaining stops (rideStops): the ride card and the server's stop alerts.
 export function rideStopsQuery(tripId) {
@@ -2178,7 +2221,7 @@ export function rideHeadline(phase, ride, nowMs, stops = null) {
     case 'riding': {
       const cue = n ? getOffText(stops) : null;
       if (cue) return cue;
-      return `${vehicleLabel(leg)}${n ? ` · ${n} stop${n === 1 ? '' : 's'}` : ''} · ${formatCountdown(leg.arr - nowMs)}`;
+      return `${vehicleLabel(leg)}${n ? ` · ${stopCountText(n)}` : ''} · ${formatCountdown(leg.arr - nowMs)}`;
     }
     case 'transfer': return { text: `${vehicleLabel(leg)} in ${formatCountdown(leg.dep - nowMs)}`, at: legTime(leg, leg.dep, nowMs) };
     case 'walking': return `Walking · arrive ${legTime(ride.legs[ride.legs.length - 1], phase.eta, nowMs)}`;
@@ -2354,7 +2397,7 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
       withLeg(leg);
       const n = stops?.stops.length ?? 0;
       const drop = stops?.stops[n - 1];
-      out.title = (n && getOffText(stops)) || `${vehicleLabel(leg)}${n ? ` · ${n} stop${n === 1 ? '' : 's'}` : ''}`;
+      out.title = (n && getOffText(stops)) || `${vehicleLabel(leg)}${n ? ` · ${stopCountText(n)}` : ''}`;
       out.until = sec(leg.arr);
       out.stops = n || -1;
       // The time first: a long stop name is cut at the end on the card, not the time.
@@ -2599,7 +2642,7 @@ const FIELD_TYPES = ['prediction', 'schedule', 'trip', 'stop', 'vehicle', 'alert
 const proxyPath = (cache, filters) => ({ cache, params: new Set([...filters.map(f => `filter[${f}]`), 'include', ...FIELD_TYPES.map(t => `fields[${t}]`)]) });
 export const MBTA_PROXY_PATHS = {
   '/predictions': proxyPath('predictions', ['route', 'direction_id', 'stop', 'trip']),
-  '/schedules': proxyPath('schedules', ['route', 'direction_id', 'stop', 'date', 'min_time', 'max_time']),
+  '/schedules': proxyPath('schedules', ['route', 'direction_id', 'stop', 'trip', 'date', 'min_time', 'max_time']),
   '/alerts': proxyPath('alerts', ['route', 'datetime']),
   '/routes': proxyPath('static', ['type', 'stop']),
   '/stops': proxyPath('static', ['route', 'direction_id', 'latitude', 'longitude', 'radius', 'route_type']),

@@ -25,7 +25,7 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   const tl = first.locator('.timeline');
   await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
   await expect(tl.locator('.step.stop .t')).toHaveText(['7:08am', '7:22am', '~7:32am', '~7:47am']);
-  await expect(tl.locator('.step.ride')).toHaveText([/^Bus 132 · 14 min\s*scheduled\s*toward Malden$/i, /^Orange Line · 15 min\s*every 6 min\s*toward Forest Hills$/i]);
+  await expect(tl.locator('.step.ride')).toHaveText([/^Bus 132 · 2 stops · 14 min\s*scheduled\s*toward Malden$/i, /^Orange Line · 1 stop · 15 min\s*every 6 min\s*toward Forest Hills$/i]);
   await expect(tl.locator('.step.ride .toward')).toHaveText(['toward Malden', 'toward Forest Hills']); // the trip's headsign, on its own line
   expect(await tl.locator('.tl-leg').evaluateAll(ls => ls.map(l => l.style.getPropertyValue('--c')))).toEqual(['#FFC72C', '#ED8B00']);
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min · 1 min early at the stop', '10 min to transfer', 'Walk 10 min']);
@@ -47,6 +47,24 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   await expect(first.locator('.row-foot .chev')).toHaveText('▴');
   await first.click();
   await expect(first.locator('.timeline')).toHaveCount(0);
+});
+
+test('an expanded row\'s rides show their stop count, fetched once per trip on expand', async ({ page }) => {
+  const scenario = commute();
+  // Orange from Oak Grove with Malden Center, Wellington and Assembly before State: 4 stops.
+  for (const t of scenario.trips.filter(x => x.id.startsWith('OLin'))) t.stops.splice(1, 0, ['70034', t.stops[0][1]], ['70032', t.stops[0][1]], ['70278', t.stops[0][1]]);
+  const mbta = await openApp(page, { time: '06:55', scenario, proxy: {} });
+  const tripHits = () => mbta.proxyHits.filter(h => h.path === '/schedules' && h.query.has('filter[trip]'));
+  expect(tripHits()).toHaveLength(0); // collapsed rows cost nothing
+  const first = page.locator('.row').first();
+  await first.click();
+  await expect(first.locator('.timeline .step.ride')).toHaveText([/^Bus 132 · 2 stops · 14 min/, /^Orange Line · 4 stops · 15 min/]);
+  expect(tripHits().map(h => h.query.get('filter[date]'))).toEqual(['2026-10-05', '2026-10-05']);
+  await first.locator('.row-toggle').click();
+  await first.click();
+  await expect(first.locator('.timeline .step.ride')).toHaveText([/· 2 stops ·/, /· 4 stops ·/]);
+  await tick(page, 1500);
+  expect(tripHits()).toHaveLength(2); // kept per trip
 });
 
 test('before stop names are known, the timeline keeps its shape with "—"', async ({ page }) => {

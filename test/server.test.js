@@ -748,8 +748,8 @@ test('auto-route: the network is built from 3 MBTA requests a day; plans', async
       from: 'Main St @ South St', to: 'State',
       options: [{
         legs: [
-          { route: '132', also: [], direction_id: 0, stop: '25996', alight: '5991', stopName: 'Main St @ South St', alightName: 'Washington St @ Oak Grove Sta' },
-          { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state', stopName: 'Oak Grove', alightName: 'State' },
+          { route: '132', also: [], direction_id: 0, stop: '25996', alight: '5991', stopName: 'Main St @ South St', alightName: 'Washington St @ Oak Grove Sta', stops: 1 },
+          { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state', stopName: 'Oak Grove', alightName: 'State', stops: 1 },
         ],
         transfers: [{ name: 'Washington St @ Oak Grove Sta → Oak Grove', meters: 32, min: 3 }],
         minutes: 14 + 3 + 15, walkBefore: 0, walkAfter: 0,

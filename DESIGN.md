@@ -350,10 +350,18 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   (`renderTimeline`, shared with the ride card): Leave, each stop once, and Arrive as nodes on
   the rail with their times in one right-aligned column; each stop a hollow node ("Wyoming Ave @ Fellsway E 7:08am"); each ride as a bar in its route's
   color from its first node to its last (drawn in pieces, so it ends at the node even when a
-  name wraps), with "Orange Line · 15 min SCHEDULED" between the two stops (`lineLabel`: the
+  name wraps), with "Orange Line · 13 stops · 15 min SCHEDULED" between the two stops (`rideLine`; `lineLabel`: the
   vehicle's label, `vehicleLabel` for legs on several routes, plus "Line" for subway lines,
   "Green Line B") and "toward Forest Hills" below it (`toward`: the trip's headsign, from
-  `include=trip`; left out without one); walks and transfers on a dotted gray rail with a walking figure
+  `include=trip`; left out without one). The stop count ("1 stop"; stops after boarding, the
+  drop-off included) comes from the leg's trip stop list, `/schedules?filter[trip]=…&filter[date]=…`
+  (`tripStopsQuery`), counted from the board stop to the drop-off with child platforms matched to
+  their stations (`tripStopCount`). It is fetched only when a row is expanded, one request per leg,
+  kept in memory per trip and service date (a failure retries after a minute, while expanded);
+  until it lands, or without it, the line shows minutes only. A leg whose trip isn't in its
+  schedules (an ADDED or prediction-only train) counts on the scheduled trip closest in time that
+  serves both stops (`stopCountTrip`; none: minutes only). Auto-route options get theirs from the
+  plan (legs' `stops`). Walks and transfers on a dotted gray rail with a walking figure
   (walks over 0 min, every transfer) and short text ("10 min to transfer"). Stop names come
   from the `include=stop` records the schedule and prediction responses already carry
   (`stopNames`, `fields[stop]=name,parent_station`; a parent station takes its platform's
@@ -720,6 +728,10 @@ Base: `https://api-v3.mbta.com` (V3 API, JSON:API format, GTFS/GTFS-Realtime bas
   scheduled trip. Observed 2026-10-09 10:05pm at State toward Oak Grove: scheduled 77822004 at
   10:09pm had no prediction, `ADDED-1584988985` was predicted at 10:09:05pm (the same train);
   77822012 (scheduled 10:14pm) was predicted at 10:21pm under its own id.
+- `stop_sequence` is not a stop count (checked 2026-10-25): Orange trips go 1, 10, 20, …; Red
+  skips 110 → 130 at the branch; Green-E jumps (… 110, 580, …); buses are consecutive. Counts use
+  positions in the trip's ordered stop list. `/schedules?filter[trip]=` needs the trip's own
+  service date in `filter[date]` (another day's returns `[]`).
 - Rail station order per branch: `/route_patterns?filter[route]=<rail>&filter[canonical]=true
   &include=representative_trip.stops` (18 patterns; one per branch and direction). The
   per-direction `/stops` lists merge branches (Red: Ashmont and Braintree).
@@ -735,6 +747,8 @@ still holds, to stay well inside it either way:
 - Schedules: one request per transit leg on load, on trip change, and every 15 min.
 - Alerts: one request every 5 min.
 - While riding a tracked trip: one `/predictions?filter[trip]=…` request per poll (60 s).
+- Expanding a row: one `/schedules?filter[trip]=…` per transit leg for its stop counts, once per
+  trip and service date (memory); collapsed rows cost nothing.
 - Schedule window: from 30 min ago (for missed rows, with the 15-min refresh) to
   max(6 h, 90 min × `departureCount`) ahead; once it reaches
   22:00 it is extended to the end of the service day (28:00).
@@ -1443,7 +1457,8 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
     times, durations or badges. The card's button picks it ("Review and save" in setup, "See
     departures" for a one-off trip). The total includes the walks (a point end's from the
     option, else the field's). The rail-only fallback's options show their stop count instead of
-    minutes. Legs carry `stopName` / `alightName`.
+    minutes. Legs carry `stopName` / `alightName` and `stops` (ridden, from the pattern: "Orange
+    Line · 13 stops" on the timeline; no extra requests).
 - **Picking From/To:** the planner shows From and To as buttons; each opens the manual leg
   picker in plan mode (`picker.planField`), titled "From" / "To", Back to the planner. Its search
   ("Search stations or routes") lists Stations (rail line tags) and Routes, never bus stop names
@@ -1497,7 +1512,7 @@ is for now, so its options are timed.
   the timed answer; the best 3 as cards (2026-10-13, from mockups: arrival first, collapsible
   like the rows): "Arrive 2:31pm · ~39 min", "Leave 1:52pm (in 4 min)" ("Leave now" once due),
   the route strip and the first ride's LIVE / SCHEDULED badge. Expanded: the main list's
-  timeline with each stop's time, "Orange Line · 18 min LIVE / toward Forest Hills", "7 min to
+  timeline with each stop's time, "Orange Line · 8 stops · 18 min LIVE / toward Forest Hills", "7 min to
   transfer" (the wait between vehicles, as on the rows), then "See departures". The times are as of
   the answer, not refreshed (2026-10-13: a 60 s refresh was removed after a closed search's timer
   redrew it over a later one; the list is for picking, and the picked trip's rows stay live).

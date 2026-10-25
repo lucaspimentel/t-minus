@@ -5,10 +5,10 @@
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=2b49c1a0c5';
+} from './core.js?v=675b83a72c';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -606,7 +606,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const head = o.arrive != null
         ? [h('b', { class: 'opt-head' }, `Arrive ${formatTime(o.arrive, now)} · ~${Math.round((o.arrive - o.leave) / 60_000)} min`),
           h('div', { class: 'detail' }, inMin > 0 ? `Leave ${formatTime(o.leave, now)} (in ${inMin} min)` : 'Leave now')]
-        : [h('b', { class: 'opt-head' }, o.minutes != null ? `~${o.minutes + wb + wa} min` : `${o.stops} stop${o.stops === 1 ? '' : 's'}`)];
+        : [h('b', { class: 'opt-head' }, o.minutes != null ? `~${o.minutes + wb + wa} min` : stopCountText(o.stops))];
       const first = o.deps?.[0];
       const toggle = h('button', { type: 'button', class: 'row-toggle', 'aria-expanded': String(open), 'data-focus': `option:${k}` }, ...head,
         !open && h('div', { class: 'strip' }, ...tags.flatMap(t => [h('span', { class: 'seg' }), h('span', { class: 'stop' }, dot(t.color), t.label)]), h('span', { class: 'seg' })),

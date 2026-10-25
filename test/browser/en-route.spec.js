@@ -464,11 +464,11 @@ test('a leg with several routes is labeled by what they share, each vehicle by i
   await expect(rows.first().locator('.strip')).toHaveText(/^\s*Green\s*$/);
   const greenB = rows.filter({ hasText: '6:49am' }); // leave-by for the 6:55 B
   await greenB.click();
-  await expect(greenB.locator('.timeline .step.ride')).toContainText('Green Line B · 2 min');
+  await expect(greenB.locator('.timeline .step.ride')).toContainText('Green Line B · 1 stop · 2 min');
   await expect(greenB.locator('.timeline .step.stop .t')).toHaveText(['~6:55am', '~6:57am']);
   const greenD = rows.filter({ hasText: '6:44am' }); // leave-by for the 6:50 D
   await greenD.click();
-  await expect(greenD.locator('.timeline .step.ride')).toContainText('Green Line D · 2 min');
+  await expect(greenD.locator('.timeline .step.ride')).toContainText('Green Line D · 1 stop · 2 min');
   await atTheStop(page);
   await expect(page.locator('.row.catch .big')).toContainText('Green B in 4 min');
   await tickTo(page, '06:45:30');

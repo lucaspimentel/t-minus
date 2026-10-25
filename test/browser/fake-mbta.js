@@ -1,5 +1,5 @@
 // A fake MBTA V3 API for the browser tests: answers the app's queries (see `legQuery`,
-// `fetchSchedules`, `fetchPredictions`, `fetchRideStops`, `fetchAlerts` in index.html and the
+// `fetchSchedules`, `fetchPredictions`, `legStopCounts` (a trip's stop list), `fetchRideStops`, `fetchAlerts` in index.html and the
 // setup.js route/stop lists) from a readable scenario, so tests never touch the live API.
 //
 // scenario = {
@@ -114,6 +114,17 @@ export async function fakeMbta(context, scenario, { now }) {
   const delayOf = (trip, stopId) => (trip.live === true || (trip.live?.stops && !trip.live.stops.includes(stopId)) ? 0 : trip.live?.delay ?? 0) * MIN;
 
   function schedules(q) {
+    // One trip's stop list (an expanded row's stop counts): sequences 10, 20, … like the MBTA's
+    // rail (not a count).
+    if (q.has('filter[trip]')) {
+      const t = scenario.trips.find(x => x.id === q.get('filter[trip]') && !x.added);
+      if (!t) return { data: [], included: [] };
+      const date = q.get('filter[date]') ?? serviceDate(mbta.now);
+      const data = timesOf(t, date).map(({ stopId, ms, seq }) => ({ type: 'schedule', id: `sch-${t.id}-${stopId}`,
+        attributes: { stop_sequence: seq * 10, arrival_time: iso(ms), departure_time: iso(ms) },
+        relationships: { route: { data: { id: t.route, type: 'route' } }, trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } }));
+      return { data, included: t.stops.map(([stopId]) => stopRecord(stopId)) };
+    }
     const wanted = new Set(q.get('filter[stop]').split(','));
     const date = q.get('filter[date]');
     const lo = minutesOf(q.get('filter[min_time]'));

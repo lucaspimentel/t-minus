@@ -18,8 +18,8 @@ const PLAN = {
   from: 'Main St @ South St', to: 'State',
   options: [{
     legs: [
-      { route: '132', also: [], direction_id: 1, stop: '25996', alight: '5991', stopName: 'Main St @ South St', alightName: 'Washington St @ Oak Grove Sta' },
-      { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state', stopName: 'Oak Grove', alightName: 'State' },
+      { route: '132', also: [], direction_id: 1, stop: '25996', alight: '5991', stopName: 'Main St @ South St', alightName: 'Washington St @ Oak Grove Sta', stops: 9 },
+      { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state', stopName: 'Oak Grove', alightName: 'State', stops: 8 },
     ],
     transfers: [{ name: 'Washington St @ Oak Grove Sta → Oak Grove', meters: 32, min: 3 }],
     minutes: 32, walkBefore: 0, walkAfter: 0,
@@ -71,6 +71,7 @@ test('setup: a route\'s stop to a station; the pick opens in the editor with the
   const tl = await expandOption(page);
   await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St @ Oak Grove Sta', 'Oak Grove', 'State']);
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min', 'Walk 3 min to transfer', 'Walk 5 min']);
+  await expect(tl.locator('.step.ride')).toHaveText(['Bus 132 · 9 stops', 'Orange Line · 8 stops']); // the plan's stop counts
   expect(calls).toEqual(['?from=15982%2C25996&to=place-state']); // both sides: the server picks
   await pickOption(page);
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Main St @ South St → State');

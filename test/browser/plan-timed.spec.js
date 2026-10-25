@@ -13,7 +13,7 @@ const options = planOptions;
 const lines = optionLines;
 
 const leg = (route, stop, alight, stopName, alightName, direction_id = 0) => ({ route, also: [], direction_id, stop, alight, stopName, alightName });
-const VIA_OAK = [leg('Orange', 'place-ogmnl', 'place-state', 'Oak Grove', 'State')];
+const VIA_OAK = [{ ...leg('Orange', 'place-ogmnl', 'place-state', 'Oak Grove', 'State'), stops: 8 }];
 const VIA_MALDEN = [leg('Orange', 'place-mlmnl', 'place-state', 'Malden Center', 'State')];
 const option = (legs, leave, arrive, deps) => ({
   legs, transfers: [], minutes: 20, walkBefore: 0, walkAfter: 0,
@@ -60,7 +60,7 @@ test('Go somewhere else…: timed options, best 3, not refreshed', async ({ page
   await expect(tl.locator('.step.end')).toHaveText([/^Leave\s*7:04am$/, /^Arrive\s*7:35am$/]);
   await expect(tl.locator('.step.stop .n')).toHaveText(['Oak Grove', 'State']);
   await expect(tl.locator('.step.stop .t')).toHaveText(['7:10am', '7:30am']);
-  await expect(tl.locator('.step.ride')).toHaveText(/^Orange Line · 20 min\s*live\s*toward Forest Hills$/i);
+  await expect(tl.locator('.step.ride')).toHaveText(/^Orange Line · 8 stops · 20 min\s*live\s*toward Forest Hills$/i);
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min · 1 min early at the stop', 'Walk 5 min']);
   await expect(options(page).nth(0).locator('.row-foot button')).toHaveText('See departures');
   // No refresh: minutes later, the same answer (one request).

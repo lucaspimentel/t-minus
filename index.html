@@ -407,7 +407,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-25 · d0ebc69497</footer>
+    <footer class="version">Version 2026-10-25 · d1f7278e6b</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -427,11 +427,11 @@
 import {
   validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
-  rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
-  unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, lineLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
+  rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
+  unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=2b49c1a0c5';
-import { openSetup } from './setup.js?v=a5fdece2b5';
+} from './core.js?v=675b83a72c';
+import { openSetup } from './setup.js?v=b778766ab9';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -550,6 +550,38 @@ function fetchPredictions(trip) {
 // The ridden vehicle's remaining stops (predictions for its trip) and position.
 function fetchRideStops(tripId) {
   return api('/predictions', rideStopsQuery(tripId));
+}
+
+// Stops per leg for an expanded row's ride lines: each leg's trip stop list (tripStopsQuery),
+// fetched on first expand and kept in memory by trip and service date ({ doc } | { pending } |
+// { failedAt }: retried after a minute, only while still expanded). Unknown → null.
+const tripStopDocs = new Map();
+const mergedSchedules = new WeakMap();
+const scheduleTrips = doc => {
+  if (!doc) return null;
+  if (!mergedSchedules.has(doc)) mergedSchedules.set(doc, mergeTrips(null, doc));
+  return mergedSchedules.get(doc);
+};
+function legStopCounts(r, trip) {
+  const c = cache[tripIdx];
+  const s = r.nextDay ? c?.nextDay : c?.schedules;
+  const date = s?.date ?? serviceDate(Date.now()).date;
+  const { transit } = tripShape(trip);
+  return r.legs.map((leg, i) => {
+    const t = transit[i];
+    const id = t && stopCountTrip(leg, t, scheduleTrips(s?.docs?.[i]));
+    if (!id) return null;
+    const key = `${id}@${date}`;
+    const hit = tripStopDocs.get(key);
+    if (hit?.doc) return tripStopCount(hit.doc, t.stop, t.alight);
+    if (hit?.pending || (hit?.failedAt && Date.now() - hit.failedAt < 60_000)) return null;
+    tripStopDocs.set(key, { pending: true });
+    while (tripStopDocs.size > 200) tripStopDocs.delete(tripStopDocs.keys().next().value);
+    api('/schedules', tripStopsQuery(id, date))
+      .then(doc => { tripStopDocs.set(key, { doc }); render(); })
+      .catch(() => { tripStopDocs.set(key, { failedAt: Date.now() }); });
+    return null;
+  });
 }
 
 // The leg being ridden on the shown trip, if any: { leg, idx }.
@@ -901,7 +933,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
     return li;
   }
   // Expanded: the timeline replaces the summary (walks, legs with their badges, transfers).
-  li.append(renderTimeline(timelineSteps(prev ? { ...r, enRoute: true } : r, config.trips[tripIdx], stopSlackMinutes(config), now, tripStopNames()), now, { key }));
+  li.append(renderTimeline(timelineSteps(prev ? { ...r, enRoute: true } : r, config.trips[tripIdx], stopSlackMinutes(config), now, tripStopNames(), legStopCounts(r, config.trips[tripIdx])), now, { key }));
   // Footer: the bell ("🔔 Track": pins the ride and sets its reminders; not next-day rows, nor
   // rides already gone), "I got on", and the ▴ hint.
   const foot = el('div', 'row-foot');
@@ -1522,9 +1554,9 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     }
     const leg = el('div', 'tl-leg');
     leg.style.setProperty('--c', s.leg.color ? `#${s.leg.color}` : 'var(--muted)');
-    // "Orange Line · 15 min LIVE", then "toward Forest Hills" (the trip's headsign) below.
-    // Untimed (an auto-route option in setup): the line alone.
-    const ride = el('div', `step ride${legState(i, 'ride')}`, s.minutes ? `${lineLabel(s.leg)} · ${s.minutes}` : lineLabel(s.leg));
+    // "Orange Line · 13 stops · 15 min LIVE" (stops when known), then "toward Forest Hills" (the
+    // trip's headsign) below. Untimed (an auto-route option in setup): no minutes.
+    const ride = el('div', `step ride${legState(i, 'ride')}`, rideLine(s));
     if (s.leg.source) ride.append(badge(s.leg));
     if (s.leg.headsign) ride.append(el('div', 'toward', toward(s.leg)));
     leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from'), s.leg), ride,
