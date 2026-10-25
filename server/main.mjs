@@ -44,7 +44,7 @@ const send = env.DRY_RUN
 // Datadog RUM (optional): each app's ID and client token, both public; served at /api/config.
 // A pair counts only when both values are set.
 const rumPair = (id, token) => (env[id] && env[token] ? { applicationId: env[id], clientToken: env[token] } : null);
-const rum = { web: rumPair('DD_RUM_APP_ID', 'DD_RUM_CLIENT_TOKEN'), ios: rumPair('DD_IOS_RUM_APP_ID', 'DD_IOS_RUM_CLIENT_TOKEN') };
+const rum = { web: rumPair('DD_WEB_RUM_APP_ID', 'DD_WEB_RUM_CLIENT_TOKEN'), ios: rumPair('DD_IOS_RUM_APP_ID', 'DD_IOS_RUM_CLIENT_TOKEN') };
 
 const app = createApp({
   fetch,

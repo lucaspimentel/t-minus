@@ -56,7 +56,7 @@ its diagnostics to `POST /api/log` (`POST /api/log/read` lists a device's last 2
    | `APNS_TOPIC` | with `APNS_KEY`: the app's bundle ID (`net.lucasp.tminus`) |
    | `APNS_HOST` | optional: `production` (default, also when empty; TestFlight builds) or `sandbox` (Xcode debug builds). A bad APNs setting logs `APNs off: …` at startup and leaves APNs off; the rest of the server runs |
 
-   | `DD_RUM_APP_ID`, `DD_RUM_CLIENT_TOKEN` | optional: the Datadog Browser RUM application's ID and client token (public), served at `/api/config`; RUM is off without both |
+   | `DD_WEB_RUM_APP_ID`, `DD_WEB_RUM_CLIENT_TOKEN` | optional: the Datadog Browser RUM application's ID and client token (public), served at `/api/config`; RUM is off without both |
    | `DD_IOS_RUM_APP_ID`, `DD_IOS_RUM_CLIENT_TOKEN` | optional: the same for the iOS RUM application |
    | `DD_SERVICE`, `DD_ENV`, `DD_SITE` | APM: `t-minus-api`, `prod`, `datadoghq.com` |
    | `DD_AGENT_HOST` | APM: the agent service's private host, `datadog-agent-rust.railway.internal` |
