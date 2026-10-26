@@ -38,12 +38,12 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     // widgetSave({ body }): the leave-times widget's request (JSON text; widgetRequest in core.js)
-    // to the App Group, then a reload (the app is in the foreground: not counted against iOS's
-    // widget budget).
+    // to the shared keychain, then a reload (the app is in the foreground: not counted against
+    // iOS's widget budget).
     @objc func widgetSave(_ call: CAPPluginCall) {
         guard let body = call.getString("body") else { return call.reject("body is missing") }
-        guard let defaults = WidgetStore.defaults else { return call.reject("no App Group") }
-        defaults.set(body, forKey: WidgetStore.request)
+        let status = WidgetStore.saveRequest(body)
+        guard status == errSecSuccess else { return call.reject("keychain: \(status)") }
         WidgetCenter.shared.reloadTimelines(ofKind: WidgetStore.kind)
         call.resolve()
     }

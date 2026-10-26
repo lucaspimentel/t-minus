@@ -465,7 +465,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
 
     // The iOS app's widget: the shown trip's next leave-bys as a timeline (widgetView). Stateless:
-    // the widget sends the trips and the trip choice's inputs (the app writes them to the App Group).
+    // the widget sends the trips and the trip choice's inputs (the app writes them to the shared keychain).
     if (req.method === 'POST' && path === '/widget') {
       const err = widgetRequestError(body);
       if (err) return reply(res, 400, { error: err });

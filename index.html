@@ -407,7 +407,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-26 · a382096765</footer>
+    <footer class="version">Version 2026-10-26 · 4bcb9eb3e0</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -430,8 +430,8 @@ import {
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=771ffdf68c';
-import { openSetup } from './setup.js?v=a08d0c587e';
+} from './core.js?v=73e2a409ae';
+import { openSetup } from './setup.js?v=f19a04e7bb';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -2010,12 +2010,12 @@ let wakeLock = null;
 let wakeWanted = false;
 let wakeRequesting = false;
 let nativeAwake = false; // the iOS app: what TMinus.keepAwake was last told
-// The iOS app's widget (IOS.md): its request (the trips and the trip choice's inputs) in the App
-// Group, rewritten when it changes; the widget sends it to /api/widget. A build without
-// TMinus.widgetSave logs the failure (once per change).
+// The iOS app's widget (IOS.md): its request (the trips and the trip choice's inputs) in the
+// shared keychain, rewritten when it changes; the widget sends it to /api/widget. Builds without
+// TMinus.widgetSave: nothing written, nothing logged; a failed write is logged (once per change).
 let widgetSent = null;
 function syncWidget() {
-  if (!native) return;
+  if (typeof plugins.TMinus?.widgetSave !== 'function') return;
   const body = JSON.stringify(widgetRequest(config, oneOff?.at ?? null, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP)));
   if (body === widgetSent) return;
   widgetSent = body;

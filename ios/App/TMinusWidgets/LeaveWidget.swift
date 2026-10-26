@@ -2,7 +2,7 @@ import SwiftUI
 import WidgetKit
 
 // The leave-times widget (IOS.md Phase 3b): the shown trip's next leave-bys on the Home Screen and
-// the Lock Screen. Each reload posts the app's request (the App Group) to /api/widget, which times
+// the Lock Screen. Each reload posts the app's request (the shared keychain) to /api/widget, which times
 // the trip (core.js); the answer's entries carry their own countdowns, a minute apart. Reloads:
 // at the answer's `refresh` (10 min, or the next leave-by), and when the app changes the request.
 // Without an answer the last one is kept (and retried in 10 min); past its times, "Open T-Minus".
@@ -43,9 +43,9 @@ struct LeaveProvider: TimelineProvider {
 
     // The server's answer (saved for later), else the last one saved: (answer, fresh).
     static func load() async -> (WidgetView?, Bool) {
-        let defaults = WidgetStore.defaults
-        let saved = (defaults?.data(forKey: WidgetStore.last)).flatMap { try? JSONDecoder().decode(WidgetView.self, from: $0) }
-        guard let body = defaults?.string(forKey: WidgetStore.request) else { return (saved, false) }
+        let defaults = UserDefaults.standard
+        let saved = defaults.data(forKey: WidgetStore.last).flatMap { try? JSONDecoder().decode(WidgetView.self, from: $0) }
+        guard let body = WidgetStore.loadRequest() else { return (saved, false) }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "content-type")
@@ -54,7 +54,7 @@ struct LeaveProvider: TimelineProvider {
             let (data, res) = try await URLSession.shared.data(for: req)
             guard (res as? HTTPURLResponse)?.statusCode == 200 else { return (saved, false) }
             let view = try JSONDecoder().decode(WidgetView.self, from: data)
-            defaults?.set(data, forKey: WidgetStore.last)
+            defaults.set(data, forKey: WidgetStore.last)
             return (view, true)
         } catch {
             return (saved, false)

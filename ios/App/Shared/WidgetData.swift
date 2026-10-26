@@ -1,15 +1,40 @@
 import Foundation
+import Security
 
 // The leave-times widget's data (IOS.md, DESIGN.md "Widget"). The app writes the widget's request
-// to the App Group (TMinus.widgetSave); the widget posts it to /api/widget and draws the answer,
-// widgetView in core.js: rows and entries with their text, times in Unix seconds. Plain Codable
-// so the views also compile on macOS for the CI previews (ios/Previews).
+// to the shared keychain group (TMinus.widgetSave); the widget posts it to /api/widget and draws
+// the answer, widgetView in core.js: rows and entries with their text, times in Unix seconds.
+// Plain Codable so the views also compile on macOS for the CI previews (ios/Previews).
+//
+// Keychain sharing, not an App Group: the CI's App Store Connect API key can't register App
+// Groups (401 on /appGroups), while every profile already allows the team's keychain groups. Both
+// targets list `<team>.net.lucasp.tminus.shared` first in keychain-access-groups, so items added
+// without a group land there, and reads without one search it.
 enum WidgetStore {
-    static let group = "group.net.lucasp.tminus"
-    static let request = "widget.request" // the request body (JSON text), from the app
-    static let last = "widget.last"       // the last answer, kept for when the server can't be reached
     static let kind = "LeaveWidget"
-    static var defaults: UserDefaults? { UserDefaults(suiteName: group) }
+    static let last = "widget.last" // the widget's last answer (its own UserDefaults), for when the server can't be reached
+    private static let item: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "net.lucasp.tminus.widget",
+        kSecAttrAccount as String: "request",
+    ]
+
+    // The request body (JSON text), from the app; readable by the widget once the phone has been
+    // unlocked since it started. Returns the keychain's status (errSecSuccess when saved).
+    static func saveRequest(_ body: String) -> OSStatus {
+        let data = Data(body.utf8)
+        let update: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
+        let status = SecItemUpdate(item as CFDictionary, update as CFDictionary)
+        guard status == errSecItemNotFound else { return status }
+        return SecItemAdd(item.merging(update) { $1 } as CFDictionary, nil)
+    }
+
+    static func loadRequest() -> String? {
+        var out: CFTypeRef?
+        let query = item.merging([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]) { $1 }
+        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
 }
 
 struct WidgetView: Codable, Hashable {

@@ -6,9 +6,9 @@
 	<string>production</string>
 	<key>com.apple.developer.usernotifications.time-sensitive</key>
 	<true/>
-	<key>com.apple.security.application-groups</key>
+	<key>keychain-access-groups</key>
 	<array>
-		<string>group.net.lucasp.tminus</string>
+		<string>$(AppIdentifierPrefix)net.lucasp.tminus.shared</string>
 	</array>
 </dict>
 </plist>

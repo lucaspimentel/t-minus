@@ -21,13 +21,13 @@ names and bundle ID) are in `DESIGN.md` ("iOS app").
 ## Prerequisites
 
 - A new target gets its own App ID / profile; the CI's automatic signing with the API key creates
-  them (it did for `net.lucasp.tminus.widgets`). The App Group (`group.net.lucasp.tminus`, 3b) is
-  in both targets' entitlements; if the export can't add it to the App IDs, register it in the
-  developer portal and enable it on both.
+  them (it did for `net.lucasp.tminus.widgets`). It can't register App Groups (the API key gets
+  401 on `/appGroups`), so the widget shares data with the app through a keychain group instead
+  (3b; every profile allows the team's keychain groups).
 
 ## Working without a Mac
 
-- **Project changes:** new targets, capabilities, App Group, and `Info.plist` keys are edited as
+- **Project changes:** new targets, capabilities, entitlements, and `Info.plist` keys are edited as
   files, not in Xcode: the `xcodeproj` Ruby gem, run here, for new files, build settings and the
   `TMinusWidgets` extension (Phase 2); the result is committed. 3b added the widget to it.
 - **Seeing native UI:** no SwiftUI previews; the `ios` workflow renders the views to PNGs

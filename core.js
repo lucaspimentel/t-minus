@@ -2544,7 +2544,7 @@ export function shownTrip(nowMs, cfg, oneOffAt, override, lastUsed, located = -1
   return pickTrip(nowMs, cfg, override, lastUsed, located);
 }
 
-// The widget's request (`POST /api/widget`; the app writes it to the App Group): the trips as on
+// The widget's request (`POST /api/widget`; the app writes it to the shared keychain): the trips as on
 // the main screen (the one-off last), the stop slack and the trip choice's inputs.
 export function widgetRequest(cfg, oneOffAt, override, lastUsed) {
   return {

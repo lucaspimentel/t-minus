@@ -1362,8 +1362,8 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   the one-off trip unless another was picked by hand since, the manual pick until the next window
   start, the trip whose window contains now, else the last used.
 - **Data:** the app writes the widget's request (`widgetRequest`: the trips with the one-off last,
-  the stop slack, the one-off's time, the manual pick, the last used) to the App Group
-  (`group.net.lucasp.tminus`, `TMinus.widgetSave`) when it changes, which also reloads the
+  the stop slack, the one-off's time, the manual pick, the last used) to a shared keychain item
+  (group `<team>.net.lucasp.tminus.shared`, `TMinus.widgetSave`) when it changes, which also reloads the
   widget. Each reload posts it to `POST /api/widget` (stateless; validated like reminders' trips),
   which picks the trip and times it with predictions and schedules through the shared cache (the
   timing leg from schedules, `scheduleTimingLeg`; 6 upcoming rows, missed ones left out; once
@@ -1385,11 +1385,13 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   to the departure) over the route label.
 - **Reloads:** at the answer's `refresh` (10 min, or the next leave-by if sooner; iOS's budget is
   roughly 40-70 a day), and when the app rewrites the request. A failed request keeps the last
-  answer (saved in the App Group) and retries in 10 min.
+  answer (saved in the widget's own storage) and retries in 10 min.
 - **Native pieces:** `LeaveWidget` (+ `LeaveWidgetViews`, SwiftUI only) in `TMinusWidgets`;
-  `WidgetData` (the answer's Codable shape, the App Group keys, the timeline) in both targets; the
-  App Group in both targets' entitlements (the `ios` workflow fails without it in the signed app
-  or the extension). Builds without `widgetSave`: logged to the app log once per change.
+  `WidgetData` (the answer's Codable shape, the keychain item, the timeline) in both targets; the
+  keychain group in both targets' entitlements (the `ios` workflow fails without it in the signed
+  app or the extension). Keychain sharing, not an App Group: the CI's API key can't register App
+  Groups (401 on `/appGroups`); profiles already allow the team's keychain groups. Builds without
+  `widgetSave`: nothing written, nothing logged.
 - **Previews:** the `ios` workflow also renders `widget-<theme>.png` (every small state, three
   medium, the Lock Screen sizes).
 

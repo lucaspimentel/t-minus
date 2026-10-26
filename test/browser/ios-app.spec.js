@@ -18,7 +18,8 @@ test.beforeEach(({ page }) => {
 // activity's push token follows a start by 50 ms).
 // `leave` (Phase 3a): the plugin has the leave-card methods (liveActivityStartToken, and
 // liveActivityList from window.fakeActivities); window.emitStartToken(token) fires its event.
-function capacitorStub({ server, permission = 'prompt', fail = null, token, leave = false }) {
+// `widget` (Phase 3b): the plugin has widgetSave; its bodies land in window.widgetBodies.
+function capacitorStub({ server, permission = 'prompt', fail = null, token, leave = false, widget = false }) {
   localStorage.setItem('t-minus:push-server', JSON.stringify(server));
   window.nativeCalls = [];
   const listeners = {};
@@ -59,6 +60,7 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token, leav
       liveActivityStartToken: async () => ({ token: 'EF'.repeat(40) }),
       liveActivityList: async () => ({ activities: window.fakeActivities ?? [] }),
     }),
+    ...(widget && { widgetSave: async ({ body }) => { (window.widgetBodies ??= []).push(JSON.parse(body)); } }),
   };
   window.emitStartToken = t => emit('TMinus.startToken', { token: t });
   // A tap on a notification's action (`actionId`: 'tap', 'yes', 'missed').
@@ -142,6 +144,22 @@ test('the screen stays on through the TMinus plugin, told only when it changes',
   await page.mouse.click(5, 5); // a tap re-syncs; no second call
   await tick(page, 1000);
   expect(await awake()).toEqual(['keepAwake:true']);
+});
+
+test('the widget\'s request goes to the shared keychain on open and when the trip choice changes, not on every redraw', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, widget: true });
+  await openApp(page, { time: '06:50' });
+  const bodies = () => page.evaluate(() => window.widgetBodies ?? []);
+  await expect.poll(async () => (await bodies()).length).toBe(1);
+  const [first] = await bodies();
+  expect(first.trips.map(t => t.name)).toEqual(['Home to office', 'Office to home']);
+  expect(first).toMatchObject({ stopSlackMinutes: 1, oneOffAt: null, override: null });
+  await tick(page, 3000);
+  expect(await bodies()).toHaveLength(1);
+  await page.locator('#toggle button', { hasText: 'Office to home' }).click();
+  await expect.poll(async () => (await bodies()).length).toBe(2);
+  expect((await bodies())[1]).toMatchObject({ override: { index: 1 }, lastUsed: 1 });
 });
 
 test('Pending notifications shows the device token and the app log', async ({ page }) => {

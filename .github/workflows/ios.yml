@@ -96,9 +96,9 @@ jobs:
           codesign -d --entitlements - --xml "$RUNNER_TEMP/ipa/Payload/App.app" | tee "$RUNNER_TEMP/entitlements.plist"
           grep -q 'aps-environment' "$RUNNER_TEMP/entitlements.plist" || { echo "::error::The signed app has no aps-environment entitlement"; exit 1; }
           test -d "$RUNNER_TEMP/ipa/Payload/App.app/PlugIns/TMinusWidgets.appex" || { echo "::error::The Live Activity extension is not embedded"; exit 1; }
-          # The widget reads the app's request from the App Group: both need it.
-          grep -q 'group.net.lucasp.tminus' "$RUNNER_TEMP/entitlements.plist" || { echo "::error::The signed app has no App Group"; exit 1; }
-          codesign -d --entitlements - --xml "$RUNNER_TEMP/ipa/Payload/App.app/PlugIns/TMinusWidgets.appex" | grep -q 'group.net.lucasp.tminus' || { echo "::error::The signed extension has no App Group"; exit 1; }
+          # The widget reads the app's request from the shared keychain group: both need it, with the team prefix.
+          grep -q "$APPLE_TEAM_ID.net.lucasp.tminus.shared" "$RUNNER_TEMP/entitlements.plist" || { echo "::error::The signed app has no shared keychain group"; exit 1; }
+          codesign -d --entitlements - --xml "$RUNNER_TEMP/ipa/Payload/App.app/PlugIns/TMinusWidgets.appex" | grep -q "$APPLE_TEAM_ID.net.lucasp.tminus.shared" || { echo "::error::The signed extension has no shared keychain group"; exit 1; }
           export_ipa upload
 
       - name: Collect logs
