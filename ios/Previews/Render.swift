@@ -127,6 +127,8 @@ private func wrow(_ time: String, _ arrive: String, vehicle: String = "Bus 132",
     WidgetView.Row(time: time, vehicle: vehicle, color: color, label: label, line: "\(vehicle) at \(time)", arrive: "arrive \(arrive)", arriveTitle: "Arrive \(arrive)")
 }
 private let wrows = [wrow("7:48am", "8:25am"), wrow("7:54am", "8:37am"), wrow("8:06am", "8:49am")]
+// Wide times (the phone cut "10:22am" to "10:2…" in a fixed-width column).
+private let lateRows = [wrow("10:22am", "11:08am"), wrow("11:22am", "12:04pm"), wrow("12:22pm", "1:04pm")]
 private func went(_ title: String, _ count: String, warn: Bool = false, next: String = "Arrive 8:25am", lock: String? = nil, lockSub: String, inline: String, circle: String,
                   row: Int = 0) -> WidgetView.Entry {
     WidgetView.Entry(at: 0, row: row, title: title, count: count, warn: warn, next: next, lock: lock ?? title, lockSub: lockSub, inline: inline, circle: circle, circleSub: row >= 0 ? "132" : "")
@@ -159,8 +161,9 @@ private struct WidgetSheet: View {
                     }
                 }
             }
-            Text("Home medium: leave in, departs, no more today").font(.caption).foregroundStyle(.white)
+            Text("Home medium: leave in, departs, no more today, wide times").font(.caption).foregroundStyle(.white)
             ForEach([0, 2, 4], id: \.self) { i in home(widgetSamples[i].1, .medium, width: 364) }
+            home(LeaveContent(name: "Home → Office", entry: widgetSamples[0].1.entry, rows: lateRows), .medium, width: 364)
             Text("Lock Screen: inline, rectangular, circular (iOS tints them)").font(.caption).foregroundStyle(.white)
             ForEach([0, 2, 3, 6], id: \.self) { i in
                 let c = widgetSamples[i].1

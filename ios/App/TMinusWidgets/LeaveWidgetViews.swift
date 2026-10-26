@@ -73,15 +73,20 @@ private struct MediumLeave: View {
                 if !content.next.isEmpty { Text(content.next).font(.subheadline).foregroundStyle(th.muted) }
             } else {
                 Rectangle().fill(th.track).frame(height: 1).padding(.bottom, 4)
-                ForEach(Array(content.rows.enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: 6) {
-                        Text(row.time).font(.subheadline.weight(.semibold)).frame(width: 62, alignment: .leading)
-                        RouteDot(hex: row.color, size: 8)
-                        Text(row.vehicle).font(.subheadline).lineLimit(1)
-                        Spacer(minLength: 4)
-                        Text(row.arrive).font(.subheadline).foregroundStyle(th.muted).lineLimit(1)
+                // A grid: the time column as wide as its widest time ("10:22am"; a fixed width cut it).
+                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
+                    ForEach(Array(content.rows.enumerated()), id: \.offset) { _, row in
+                        GridRow {
+                            Text(row.time).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
+                            HStack(spacing: 6) {
+                                RouteDot(hex: row.color, size: 8)
+                                Text(row.vehicle).font(.subheadline).lineLimit(1)
+                            }
+                            Text(row.arrive).font(.subheadline).foregroundStyle(th.muted).lineLimit(1).fixedSize()
+                                .gridColumnAlignment(.trailing).frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                        .foregroundStyle(th.text)
                     }
-                    .foregroundStyle(th.text)
                 }
             }
         }
