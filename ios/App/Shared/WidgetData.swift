@@ -41,6 +41,7 @@ struct WidgetView: Codable, Hashable {
     struct Row: Codable, Hashable {
         var time: String        // "7:48am": the first vehicle's departure
         var vehicle: String     // "Bus 132", "Orange Line"
+        var short: String? = nil // "Bus 132", "Orange" (absent from answers before the ring)
         var color: String       // the route's hex color, "" for none
         var label: String       // "132", "OL"
         var line: String        // "Bus 132 at 7:48am"
@@ -57,8 +58,9 @@ struct WidgetView: Codable, Hashable {
         var lock: String        // Lock Screen rectangular: the bold line
         var lockSub: String     // and the one under it
         var inline: String      // "132 Leave 7:42am"
-        var circle: String      // "9", "now", "5:12"
-        var circleSub: String   // "132"
+        var circle: String      // "38m", "now", "5:12"
+        var circleSub: String   // "Bus 132", "Orange"
+        var ring: Double? = nil // the circular ring: 1 an hour before the leave-by, 0 at it; nil or -1: none
     }
     var name: String
     var rows: [Row]

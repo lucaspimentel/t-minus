@@ -1381,8 +1381,10 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   7:48am") and the arrival; medium: the title and countdown, then the entry's row and the next
   two in one format (departure, route, "arrive 8:37am"; "~" on a headway estimate); rectangular:
   the name, "Leave 7:42am", "in 9 min · Bus 132"; inline: "132 Leave 7:42am" (the time, not the
-  countdown); circular: the minutes left (the time more than an hour out, "now", or the minutes
-  to the departure) over the route label.
+  countdown); circular (2026-10-26, after the phone showed a bare "38 / 132"): "38m" over "Bus
+  132" ("Orange" for the Orange Line) in a ring, open at the bottom like the system's gauge, full
+  an hour before the leave-by and empty at it (drawn by hand so the previews show it); the time
+  with no ring more than an hour out; "now", then the minutes to the departure ("2m").
 - **Reloads:** at the answer's `refresh` (10 min, or the next leave-by if sooner; iOS's budget is
   roughly 40-70 a day), and when the app rewrites the request. A failed request keeps the last
   answer (saved in the widget's own storage) and retries in 10 min.

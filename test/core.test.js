@@ -2300,25 +2300,25 @@ test('widgetView: per-minute countdowns, leave now, departs, the next row; early
   const row = (lb, lc, dep, eta, extra = {}) => ({ ...leaveRow(), leaveBy: at(lb), lastChance: at(lc), firstDep: at(dep), eta: at(eta), ...extra });
   const now = at('07:29') + 30_000;
   const v = widgetView('Home → Work', [row('07:39', '07:42', '07:48', '08:25'), row('07:51', '07:54', '08:00', '08:37')], now);
-  assert.deepEqual(v.rows[0], { time: '7:48am', vehicle: 'Bus 132', color: 'FFC72C', label: '132', line: 'Bus 132 at 7:48am', arrive: 'arrive 8:25am', arriveTitle: 'Arrive 8:25am' });
+  assert.deepEqual(v.rows[0], { time: '7:48am', vehicle: 'Bus 132', short: 'Bus 132', color: 'FFC72C', label: '132', line: 'Bus 132 at 7:48am', arrive: 'arrive 8:25am', arriveTitle: 'Arrive 8:25am' });
   const when = (hhmm, s = 0) => (at(hhmm) + s * 1000) / 1000;
   const shown = sec => v.entries.filter(e => e.at <= sec).at(-1);
-  const pick = e => [e.row, e.title, e.count, e.warn, e.lockSub, e.inline, e.circle];
+  const pick = e => [e.row, e.title, e.count, e.warn, e.lockSub, e.inline, e.circle, e.circleSub, e.ring];
   assert.equal(v.entries[0].at, now / 1000);
-  assert.deepEqual(pick(shown(now / 1000)), [0, 'Leave 7:39am', 'in 9 min', false, 'in 9 min · Bus 132', '132 Leave 7:39am', '9']);
-  assert.deepEqual(pick(shown(when('07:30', 30))), [0, 'Leave 7:39am', 'in 8 min', false, 'in 8 min · Bus 132', '132 Leave 7:39am', '8']);
-  assert.deepEqual(pick(shown(when('07:38', 30))), [0, 'Leave 7:39am', 'in <1 min', false, 'in <1 min · Bus 132', '132 Leave 7:39am', '<1']);
-  assert.deepEqual(pick(shown(when('07:40'))), [0, 'Leave now', 'Last chance 7:42am', true, 'Last chance 7:42am', '132 Leave now', 'now']);
-  assert.deepEqual(pick(shown(when('07:43', 10))), [0, 'Departs', 'in 4 min', true, 'Bus 132 at 7:48am', '132 Departs in 4 min', '4']);
+  assert.deepEqual(pick(shown(now / 1000)), [0, 'Leave 7:39am', 'in 9 min', false, 'in 9 min · Bus 132', '132 Leave 7:39am', '9m', 'Bus 132', 9.5 / 60]);
+  assert.deepEqual(pick(shown(when('07:30', 30))), [0, 'Leave 7:39am', 'in 8 min', false, 'in 8 min · Bus 132', '132 Leave 7:39am', '8m', 'Bus 132', 539 / 3600]);
+  assert.deepEqual(pick(shown(when('07:38', 30))), [0, 'Leave 7:39am', 'in <1 min', false, 'in <1 min · Bus 132', '132 Leave 7:39am', '<1m', 'Bus 132', 59 / 3600]);
+  assert.deepEqual(pick(shown(when('07:40'))), [0, 'Leave now', 'Last chance 7:42am', true, 'Last chance 7:42am', '132 Leave now', 'now', 'Bus 132', 0]);
+  assert.deepEqual(pick(shown(when('07:43', 10))), [0, 'Departs', 'in 4 min', true, 'Bus 132 at 7:48am', '132 Departs in 4 min', '4m', 'Bus 132', 0]);
   assert.equal(shown(when('07:43', 10)).next, 'Too late at your pace');
-  assert.deepEqual(pick(shown(when('07:48'))), [1, 'Leave 7:51am', 'in 3 min', false, 'in 3 min · Bus 132', '132 Leave 7:51am', '3']);
+  assert.deepEqual(pick(shown(when('07:48'))), [1, 'Leave 7:51am', 'in 3 min', false, 'in 3 min · Bus 132', '132 Leave 7:51am', '3m', 'Bus 132', 3 / 60]);
   assert.equal(v.end, when('08:00'));
   assert.equal(v.refresh, when('07:39')); // the next leave-by, sooner than 10 min
   assert.deepEqual(v.entries.map(e => e.at), [...v.entries.map(e => e.at)].sort((a, b) => a - b));
 
   // More than an hour ahead: the time only, then the countdown.
   const far = widgetView('Work → Home', [row('17:12', '17:15', '17:20', '18:01', { legs: [{ ...leaveRow().legs[1], dep: at('17:20') }] })], at('15:58'));
-  assert.deepEqual(pick(far.entries[0]), [0, 'Leave 5:12pm', '', false, 'Orange Line at 5:20pm', 'OL Leave 5:12pm', '5:12']);
+  assert.deepEqual(pick(far.entries[0]), [0, 'Leave 5:12pm', '', false, 'Orange Line at 5:20pm', 'OL Leave 5:12pm', '5:12', 'Orange', -1]);
   assert.equal(far.entries[1].at, when('16:12', 1));
   assert.equal(far.entries[1].count, 'in 59 min');
   assert.equal(far.refresh, when('16:08'));

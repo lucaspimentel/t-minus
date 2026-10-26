@@ -16,7 +16,7 @@ struct LeaveProvider: TimelineProvider {
     static let sample = LeaveEntry(date: Date(), content: LeaveContent(
         name: "Home → Work",
         entry: WidgetView.Entry(at: 0, row: 0, title: "Leave 7:42am", count: "in 9 min", warn: false, next: "Arrive 8:25am",
-                                lock: "Leave 7:42am", lockSub: "in 9 min · Bus 132", inline: "132 Leave 7:42am", circle: "9", circleSub: "132"),
+                                lock: "Leave 7:42am", lockSub: "in 9 min · Bus 132", inline: "132 Leave 7:42am", circle: "9m", circleSub: "Bus 132", ring: 9.0 / 60),
         rows: [WidgetView.Row(time: "7:48am", vehicle: "Bus 132", color: "FFC72C", label: "132", line: "Bus 132 at 7:48am", arrive: "arrive 8:25am", arriveTitle: "Arrive 8:25am")]))
 
     func placeholder(in context: Context) -> LeaveEntry { Self.sample }
@@ -86,7 +86,12 @@ private struct LeaveWidgetEntryView: View {
         case .accessoryInline:
             LeaveWidgetView(content: entry.content, size: .inline).containerBackground(.clear, for: .widget)
         case .accessoryCircular:
-            LeaveWidgetView(content: entry.content, size: .circular).containerBackground(for: .widget) { AccessoryWidgetBackground() }
+            // The round background in the view itself (as a container background it didn't show).
+            ZStack {
+                AccessoryWidgetBackground()
+                LeaveWidgetView(content: entry.content, size: .circular)
+            }
+            .containerBackground(.clear, for: .widget)
         default:
             LeaveWidgetView(content: entry.content, size: .small).containerBackground(Theme.of(scheme).card, for: .widget)
         }

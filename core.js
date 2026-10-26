@@ -2579,7 +2579,9 @@ export const WIDGET_REFRESH_MIN = 10; // the reload asked of iOS (sooner at the 
 // ("in 9 min", rounded down like the page's) change by entry, one a minute. Per row: more than
 // LEAVE_CARD_EARLY_MIN before the leave-by the time only ("No more today" for a next-day row),
 // then the countdown, "Leave now" until the last chance, "Departs in" until the departure, then
-// the next row. `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`: when to
+// the next row. The circular size: "38m" (or the time, "now") over the vehicle ("Bus 132") in
+// a ring, `ring` full an hour before the leave-by and empty at it (-1: none).
+// `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`: when to
 // ask again. `tripName` null: no trips.
 export function widgetView(tripName, rows, nowMs) {
   const sec = ms => Math.round(ms / 1000);
@@ -2589,19 +2591,19 @@ export function widgetView(tripName, rows, nowMs) {
     const first = r.legs[0];
     const approx = r.legs.some(l => l.every) ? '~' : '';
     return {
-      time: legTime(first, r.firstDep, nowMs), vehicle: lineLabel(first), color: first.color ?? '', label: islandLabel(first),
+      time: legTime(first, r.firstDep, nowMs), vehicle: lineLabel(first), short: vehicleLabel(first), color: first.color ?? '', label: islandLabel(first),
       line: `${lineLabel(first)} at ${legTime(first, r.firstDep, nowMs)}`, arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
     };
   });
   const view = { name: tripName ?? '', rows: lines, entries: [], end: null, refresh: sec(nowMs + WIDGET_REFRESH_MIN * MIN) };
-  const empty = (title, next = '') => ({ row: -1, title, count: '', warn: false, next, lock: title, lockSub: next, inline: title, circle: '–', circleSub: '' });
+  const empty = (title, next = '') => ({ row: -1, title, count: '', warn: false, next, lock: title, lockSub: next, inline: title, circle: '–', circleSub: '', ring: -1 });
   if (tripName == null) { view.entries.push({ at: sec(nowMs), ...empty('Set up a trip in T-Minus') }); return view; }
-  const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, circleSub: lines[i].label, ...e });
+  const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, circleSub: lines[i].short, ring: 0, ...e });
   // One entry a minute from `from` to `to`, counting down to `to`.
   const countdown = (from, to, i, make) => {
     for (let at = from; at < to && at < horizon;) {
       const n = Math.floor((to - at) / MIN);
-      add(at, i, make(`in ${formatCountdown(to - at)}`, n ? String(n) : '<1'));
+      add(at, i, make(`in ${formatCountdown(to - at)}`, `${n || '<1'}m`, Math.min(1, (to - at) / (LEAVE_CARD_EARLY_MIN * MIN))));
       at = to - n * MIN + 1000; // a second after it drops (the widget's times are whole seconds)
     }
   };
@@ -2615,10 +2617,10 @@ export function widgetView(tripName, rows, nowMs) {
     const countFrom = r.leaveBy - LEAVE_CARD_EARLY_MIN * MIN + 1000; // from "in 59 min"
     if (start < countFrom) {
       if (r.nextDay) add(start, i, { ...empty('No more today', `First ${formatTime(r.leaveBy)}`), row: -1 });
-      else add(start, i, { title: leave, count: '', next: L.arriveTitle, lock: leave, lockSub: L.line, inline: `${label} ${leave}`, circle: formatTime(r.leaveBy).replace(/[ap]m$/, ''), circleSub: label });
+      else add(start, i, { title: leave, count: '', next: L.arriveTitle, lock: leave, lockSub: L.line, inline: `${label} ${leave}`, circle: formatTime(r.leaveBy).replace(/[ap]m$/, ''), ring: -1 });
     }
-    countdown(Math.max(start, countFrom), r.leaveBy, i, (count, n) => ({
-      title: leave, count, next: L.arriveTitle, lock: leave, lockSub: `${count} · ${L.vehicle}`, inline: `${label} ${leave}`, circle: n,
+    countdown(Math.max(start, countFrom), r.leaveBy, i, (count, n, ring) => ({
+      title: leave, count, next: L.arriveTitle, lock: leave, lockSub: `${count} · ${L.vehicle}`, inline: `${label} ${leave}`, circle: n, ring,
     }));
     if (Math.max(start, r.leaveBy) < r.lastChance) {
       const last = `Last chance ${t(r.lastChance)}`;

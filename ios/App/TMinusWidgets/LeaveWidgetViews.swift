@@ -106,13 +106,27 @@ private struct RectangularLeave: View {
     }
 }
 
+// "38m" over "Bus 132" in a ring like the system's circular gauge (open at the bottom), draining
+// over the hour before the leave-by. Drawn by hand, not Gauge, so the macOS previews show it.
 private struct CircularLeave: View {
     let content: LeaveContent
+    private let sweep = 0.75 // of the circle; the gap is the rest, centered at the bottom
     var body: some View {
-        VStack(spacing: 0) {
-            Text(content.entry?.circle ?? "–").font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.5)
-            if let sub = content.entry?.circleSub, !sub.isEmpty { Text(sub).font(.caption2).lineLimit(1).minimumScaleFactor(0.7) }
+        ZStack {
+            if let ring = content.entry?.ring, ring >= 0 {
+                Circle().trim(from: 0, to: sweep).stroke(.primary.opacity(0.3), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .rotationEffect(.degrees(135))
+                if ring > 0 {
+                    Circle().trim(from: 0, to: sweep * min(ring, 1)).stroke(.primary, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .rotationEffect(.degrees(135))
+                }
+            }
+            VStack(spacing: 0) {
+                Text(content.entry?.circle ?? "–").font(.title3.weight(.bold)).lineLimit(1).minimumScaleFactor(0.5)
+                if let sub = content.entry?.circleSub, !sub.isEmpty { Text(sub).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.6) }
+            }
+            .padding(.horizontal, 9)
         }
-        .padding(6)
+        .padding(3)
     }
 }

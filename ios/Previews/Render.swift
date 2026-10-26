@@ -130,15 +130,16 @@ private let wrows = [wrow("7:48am", "8:25am"), wrow("7:54am", "8:37am"), wrow("8
 // Wide times (the phone cut "10:22am" to "10:2…" in a fixed-width column).
 private let lateRows = [wrow("10:22am", "11:08am"), wrow("11:22am", "12:04pm"), wrow("12:22pm", "1:04pm")]
 private func went(_ title: String, _ count: String, warn: Bool = false, next: String = "Arrive 8:25am", lock: String? = nil, lockSub: String, inline: String, circle: String,
-                  row: Int = 0) -> WidgetView.Entry {
-    WidgetView.Entry(at: 0, row: row, title: title, count: count, warn: warn, next: next, lock: lock ?? title, lockSub: lockSub, inline: inline, circle: circle, circleSub: row >= 0 ? "132" : "")
+                  ring: Double = 0, row: Int = 0) -> WidgetView.Entry {
+    WidgetView.Entry(at: 0, row: row, title: title, count: count, warn: warn, next: next, lock: lock ?? title, lockSub: lockSub, inline: inline, circle: circle,
+                     circleSub: row >= 0 ? "Bus 132" : "", ring: row >= 0 ? ring : -1)
 }
 private let widgetSamples: [(String, LeaveContent)] = [
-    ("Leave in", LeaveContent(name: "Home → Work", entry: went("Leave 7:42am", "in 9 min", lockSub: "in 9 min · Bus 132", inline: "132 Leave 7:42am", circle: "9"), rows: wrows)),
+    ("Leave in", LeaveContent(name: "Home → Work", entry: went("Leave 7:42am", "in 9 min", lockSub: "in 9 min · Bus 132", inline: "132 Leave 7:42am", circle: "9m", ring: 9.0 / 60), rows: wrows)),
     ("Leave now", LeaveContent(name: "Home → Work", entry: went("Leave now", "Last chance 7:45am", warn: true, lockSub: "Last chance 7:45am", inline: "132 Leave now", circle: "now"), rows: wrows)),
-    ("Departs", LeaveContent(name: "Home → Work", entry: went("Departs", "in 2 min", warn: true, next: "Too late at your pace", lock: "Departs in 2 min", lockSub: "Bus 132 at 7:48am", inline: "132 Departs in 2 min", circle: "2"), rows: wrows)),
+    ("Departs", LeaveContent(name: "Home → Work", entry: went("Departs", "in 2 min", warn: true, next: "Too late at your pace", lock: "Departs in 2 min", lockSub: "Bus 132 at 7:48am", inline: "132 Departs in 2 min", circle: "2m"), rows: wrows)),
     ("An hour+ ahead", LeaveContent(name: "Work → Home", entry: WidgetView.Entry(at: 0, row: 0, title: "Leave 5:12pm", count: "", warn: false, next: "Arrive 6:01pm", lock: "Leave 5:12pm",
-        lockSub: "Orange Line at 5:20pm", inline: "OL Leave 5:12pm", circle: "5:12", circleSub: "OL"), rows: [wrow("5:20pm", "6:01pm", vehicle: "Orange Line", color: orange, label: "OL")])),
+        lockSub: "Orange Line at 5:20pm", inline: "OL Leave 5:12pm", circle: "5:12", circleSub: "Orange", ring: -1), rows: [wrow("5:20pm", "6:01pm", vehicle: "Orange Line", color: orange, label: "OL")])),
     ("No more today", LeaveContent(name: "Home → Work", entry: went("No more today", "", next: "First 5:12am", lockSub: "First 5:12am", inline: "No more today", circle: "–", row: -1), rows: [])),
     ("Set up", LeaveContent(name: "", entry: went("Set up a trip in T-Minus", "", next: "", lockSub: "", inline: "Set up a trip in T-Minus", circle: "–", row: -1), rows: [])),
     ("Stale", .stale("Home → Work")),
@@ -165,7 +166,7 @@ private struct WidgetSheet: View {
             ForEach([0, 2, 4], id: \.self) { i in home(widgetSamples[i].1, .medium, width: 364) }
             home(LeaveContent(name: "Home → Office", entry: widgetSamples[0].1.entry, rows: lateRows), .medium, width: 364)
             Text("Lock Screen: inline, rectangular, circular (iOS tints them)").font(.caption).foregroundStyle(.white)
-            ForEach([0, 2, 3, 6], id: \.self) { i in
+            ForEach([0, 1, 2, 3, 6], id: \.self) { i in
                 let c = widgetSamples[i].1
                 VStack(spacing: 8) {
                     LeaveWidgetView(content: c, size: .inline).font(.subheadline.weight(.semibold))
@@ -173,6 +174,10 @@ private struct WidgetSheet: View {
                         LeaveWidgetView(content: c, size: .rectangular).padding(.horizontal, 8).frame(width: 170, height: 72)
                             .background(.white.opacity(0.15)).clipShape(RoundedRectangle(cornerRadius: 12))
                         LeaveWidgetView(content: c, size: .circular).frame(width: 72, height: 72).background(.white.opacity(0.15)).clipShape(Circle())
+                        if i == 0 {
+                            LeaveWidgetView(content: LeaveContent(name: c.name, entry: widgetSamples[0].1.entry.map { var e = $0; e.circle = "38m"; e.ring = 38.0 / 60; return e }, rows: c.rows), size: .circular)
+                                .frame(width: 72, height: 72).background(.white.opacity(0.15)).clipShape(Circle())
+                        }
                     }
                 }
                 .foregroundStyle(.white).environment(\.colorScheme, .dark).frame(maxWidth: .infinity)
