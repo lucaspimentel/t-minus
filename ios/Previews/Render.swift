@@ -4,7 +4,8 @@ import SwiftUI
 // The Live Activity's previews for review without a Mac (the ios workflow's artifact): the views
 // in ios/App/TMinusWidgets/RideViews.swift rendered from sample states to PNGs per theme (ride
 // cards, and the leave cards).
-// swiftc -parse-as-library ios/App/Shared/RideState.swift ios/App/TMinusWidgets/RideViews.swift ios/Previews/Render.swift -o render
+// The leave-times widget's sizes too (widget-<theme>.png).
+// swiftc -parse-as-library ios/App/Shared/RideState.swift ios/App/Shared/WidgetData.swift ios/App/TMinusWidgets/RideViews.swift ios/App/TMinusWidgets/LeaveWidgetViews.swift ios/Previews/Render.swift -o render
 // ./render <out dir>
 
 private let now = Date().timeIntervalSince1970
@@ -121,6 +122,66 @@ private struct Sheet: View {
     }
 }
 
+// The leave-times widget (Phase 3b): Home to office, buses 132 at 7:48, 7:54 and 8:06.
+private func wrow(_ time: String, _ arrive: String, vehicle: String = "Bus 132", color: String = bus, label: String = "132") -> WidgetView.Row {
+    WidgetView.Row(time: time, vehicle: vehicle, color: color, label: label, line: "\(vehicle) at \(time)", arrive: "arrive \(arrive)", arriveTitle: "Arrive \(arrive)")
+}
+private let wrows = [wrow("7:48am", "8:25am"), wrow("7:54am", "8:37am"), wrow("8:06am", "8:49am")]
+private func went(_ title: String, _ count: String, warn: Bool = false, next: String = "Arrive 8:25am", lock: String? = nil, lockSub: String, inline: String, circle: String,
+                  row: Int = 0) -> WidgetView.Entry {
+    WidgetView.Entry(at: 0, row: row, title: title, count: count, warn: warn, next: next, lock: lock ?? title, lockSub: lockSub, inline: inline, circle: circle, circleSub: row >= 0 ? "132" : "")
+}
+private let widgetSamples: [(String, LeaveContent)] = [
+    ("Leave in", LeaveContent(name: "Home → Work", entry: went("Leave 7:42am", "in 9 min", lockSub: "in 9 min · Bus 132", inline: "132 Leave 7:42am", circle: "9"), rows: wrows)),
+    ("Leave now", LeaveContent(name: "Home → Work", entry: went("Leave now", "Last chance 7:45am", warn: true, lockSub: "Last chance 7:45am", inline: "132 Leave now", circle: "now"), rows: wrows)),
+    ("Departs", LeaveContent(name: "Home → Work", entry: went("Departs", "in 2 min", warn: true, next: "Too late at your pace", lock: "Departs in 2 min", lockSub: "Bus 132 at 7:48am", inline: "132 Departs in 2 min", circle: "2"), rows: wrows)),
+    ("An hour+ ahead", LeaveContent(name: "Work → Home", entry: WidgetView.Entry(at: 0, row: 0, title: "Leave 5:12pm", count: "", warn: false, next: "Arrive 6:01pm", lock: "Leave 5:12pm",
+        lockSub: "Orange Line at 5:20pm", inline: "OL Leave 5:12pm", circle: "5:12", circleSub: "OL"), rows: [wrow("5:20pm", "6:01pm", vehicle: "Orange Line", color: orange, label: "OL")])),
+    ("No more today", LeaveContent(name: "Home → Work", entry: went("No more today", "", next: "First 5:12am", lockSub: "First 5:12am", inline: "No more today", circle: "–", row: -1), rows: [])),
+    ("Set up", LeaveContent(name: "", entry: went("Set up a trip in T-Minus", "", next: "", lockSub: "", inline: "Set up a trip in T-Minus", circle: "–", row: -1), rows: [])),
+    ("Stale", .stale("Home → Work")),
+]
+
+private struct WidgetSheet: View {
+    @Environment(\.colorScheme) private var scheme
+    private func home(_ c: LeaveContent, _ size: LeaveSize, width: CGFloat) -> some View {
+        LeaveWidgetView(content: c, size: size).padding(16).frame(width: width, height: 170)
+            .background(Theme.of(scheme).card).clipShape(RoundedRectangle(cornerRadius: 22))
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Home small: leave in, leave now, departs, an hour+ ahead, no more today, set up, stale").font(.caption).foregroundStyle(.white)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+                ForEach(Array(stride(from: 0, to: widgetSamples.count, by: 2)), id: \.self) { i in
+                    GridRow {
+                        home(widgetSamples[i].1, .small, width: 170)
+                        if i + 1 < widgetSamples.count { home(widgetSamples[i + 1].1, .small, width: 170) }
+                    }
+                }
+            }
+            Text("Home medium: leave in, departs, no more today").font(.caption).foregroundStyle(.white)
+            ForEach([0, 2, 4], id: \.self) { i in home(widgetSamples[i].1, .medium, width: 364) }
+            Text("Lock Screen: inline, rectangular, circular (iOS tints them)").font(.caption).foregroundStyle(.white)
+            ForEach([0, 2, 3, 6], id: \.self) { i in
+                let c = widgetSamples[i].1
+                VStack(spacing: 8) {
+                    LeaveWidgetView(content: c, size: .inline).font(.subheadline.weight(.semibold))
+                    HStack(spacing: 10) {
+                        LeaveWidgetView(content: c, size: .rectangular).padding(.horizontal, 8).frame(width: 170, height: 72)
+                            .background(.white.opacity(0.15)).clipShape(RoundedRectangle(cornerRadius: 12))
+                        LeaveWidgetView(content: c, size: .circular).frame(width: 72, height: 72).background(.white.opacity(0.15)).clipShape(Circle())
+                    }
+                }
+                .foregroundStyle(.white).environment(\.colorScheme, .dark).frame(maxWidth: .infinity)
+            }
+        }
+        .padding(16)
+        .frame(width: 400)
+        .background(LinearGradient(colors: scheme == .dark ? [Color(hex: "232A3A"), Color(hex: "0B0D12")] : [Color(hex: "5B6B8C"), Color(hex: "2C3447")],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+}
+
 @main
 struct Render {
     @MainActor static func main() throws {
@@ -136,6 +197,7 @@ struct Render {
         for (name, scheme) in [("light", ColorScheme.light), ("dark", ColorScheme.dark)] {
             try write(Sheet().environment(\.colorScheme, scheme), "live-activity-\(name).png")
             try write(LeaveSheet().environment(\.colorScheme, scheme), "leave-card-\(name).png")
+            try write(WidgetSheet().environment(\.colorScheme, scheme), "widget-\(name).png")
         }
     }
 }

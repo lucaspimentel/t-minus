@@ -2533,6 +2533,110 @@ export function leaveStartText(tripName, row, nowMs) {
     : reminderText('headsUp', tripName, row, nowMs);
 }
 
+// ---------- the iOS app's widget (Home Screen and Lock Screen: the next leave-bys) ----------
+
+// The trip the main screen shows: the one-off (the last trip; `oneOffAt` set) while it exists,
+// unless another trip was picked by hand since; else pickTrip. The widget (on the server) uses it
+// without a location fix.
+export function shownTrip(nowMs, cfg, oneOffAt, override, lastUsed, located = -1) {
+  const one = oneOffAt != null && cfg.trips.length ? cfg.trips.length - 1 : -1;
+  if (one >= 0 && !(override && override.setAt >= oneOffAt && override.index !== one)) return one;
+  return pickTrip(nowMs, cfg, override, lastUsed, located);
+}
+
+// The widget's request (`POST /api/widget`; the app writes it to the App Group): the trips as on
+// the main screen (the one-off last), the stop slack and the trip choice's inputs.
+export function widgetRequest(cfg, oneOffAt, override, lastUsed) {
+  return {
+    trips: cfg?.trips ?? [], stopSlackMinutes: cfg ? stopSlackMinutes(cfg) : DEFAULT_STOP_SLACK_MINUTES,
+    oneOffAt: oneOffAt ?? null, override: override ?? null, lastUsed: Number.isInteger(lastUsed) ? lastUsed : null,
+  };
+}
+// The request's error message, or null.
+export function widgetRequestError(b) {
+  if (!Array.isArray(b?.trips) || b.trips.length > 50) return 'trips is invalid';
+  if (b.trips.length && validateConfig({ trips: b.trips }).length) return 'trips is invalid';
+  if (!(Number.isFinite(b.stopSlackMinutes) && b.stopSlackMinutes >= 0 && b.stopSlackMinutes <= 60)) return 'stopSlackMinutes is invalid';
+  if (b.oneOffAt != null && !Number.isFinite(b.oneOffAt)) return 'oneOffAt is invalid';
+  if (b.override != null && !(Number.isInteger(b.override.index) && Number.isFinite(b.override.setAt))) return 'override is invalid';
+  if (b.lastUsed != null && !Number.isInteger(b.lastUsed)) return 'lastUsed is invalid';
+  return null;
+}
+
+// The timing leg from schedules alone (as the page does, without its hysteresis).
+export function scheduleTimingLeg(trip, scheduleDocs) {
+  const { transit } = tripShape(trip);
+  return pickTimingLeg(transit.map((l, i) => averageHeadway(legVehicles(mergeTrips(null, scheduleDocs?.[i]), l))), null, trip.timingLeg);
+}
+
+export const WIDGET_ROWS = 6; // rows the server times
+export const WIDGET_HORIZON_MIN = 120; // entries this far ahead; past them: "Open T-Minus"
+export const WIDGET_REFRESH_MIN = 10; // the reload asked of iOS (sooner at the next leave-by)
+
+// The widget's timeline from the shown trip's rows (upcoming; next-day ones marked `nextDay`).
+// `rows`: one line per row (the medium size lists the entry's row and the next two). `entries`:
+// what each size shows from `at` (Unix seconds) on, `row` its row (-1: none); the countdowns
+// ("in 9 min", rounded down like the page's) change by entry, one a minute. Per row: more than
+// LEAVE_CARD_EARLY_MIN before the leave-by the time only ("No more today" for a next-day row),
+// then the countdown, "Leave now" until the last chance, "Departs in" until the departure, then
+// the next row. `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`: when to
+// ask again. `tripName` null: no trips.
+export function widgetView(tripName, rows, nowMs) {
+  const sec = ms => Math.round(ms / 1000);
+  const t = ms => formatTime(ms, nowMs);
+  const horizon = nowMs + WIDGET_HORIZON_MIN * MIN;
+  const lines = rows.map(r => {
+    const first = r.legs[0];
+    const approx = r.legs.some(l => l.every) ? '~' : '';
+    return {
+      time: legTime(first, r.firstDep, nowMs), vehicle: lineLabel(first), color: first.color ?? '', label: islandLabel(first),
+      line: `${lineLabel(first)} at ${legTime(first, r.firstDep, nowMs)}`, arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
+    };
+  });
+  const view = { name: tripName ?? '', rows: lines, entries: [], end: null, refresh: sec(nowMs + WIDGET_REFRESH_MIN * MIN) };
+  const empty = (title, next = '') => ({ row: -1, title, count: '', warn: false, next, lock: title, lockSub: next, inline: title, circle: '–', circleSub: '' });
+  if (tripName == null) { view.entries.push({ at: sec(nowMs), ...empty('Set up a trip in T-Minus') }); return view; }
+  const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, circleSub: lines[i].label, ...e });
+  // One entry a minute from `from` to `to`, counting down to `to`.
+  const countdown = (from, to, i, make) => {
+    for (let at = from; at < to && at < horizon;) {
+      const n = Math.floor((to - at) / MIN);
+      add(at, i, make(`in ${formatCountdown(to - at)}`, n ? String(n) : '<1'));
+      at = to - n * MIN + 1000; // a second after it drops (the widget's times are whole seconds)
+    }
+  };
+  let start = nowMs;
+  let end = null;
+  rows.forEach((r, i) => {
+    if (start >= horizon) return;
+    const L = lines[i];
+    const label = L.label;
+    const leave = `Leave ${t(r.leaveBy)}`;
+    const countFrom = r.leaveBy - LEAVE_CARD_EARLY_MIN * MIN + 1000; // from "in 59 min"
+    if (start < countFrom) {
+      if (r.nextDay) add(start, i, { ...empty('No more today', `First ${formatTime(r.leaveBy)}`), row: -1 });
+      else add(start, i, { title: leave, count: '', next: L.arriveTitle, lock: leave, lockSub: L.line, inline: `${label} ${leave}`, circle: formatTime(r.leaveBy).replace(/[ap]m$/, ''), circleSub: label });
+    }
+    countdown(Math.max(start, countFrom), r.leaveBy, i, (count, n) => ({
+      title: leave, count, next: L.arriveTitle, lock: leave, lockSub: `${count} · ${L.vehicle}`, inline: `${label} ${leave}`, circle: n,
+    }));
+    if (Math.max(start, r.leaveBy) < r.lastChance) {
+      const last = `Last chance ${t(r.lastChance)}`;
+      add(Math.max(start, r.leaveBy), i, { title: 'Leave now', count: last, warn: true, next: L.arriveTitle, lock: 'Leave now', lockSub: last, inline: `${label} Leave now`, circle: 'now' });
+    }
+    countdown(Math.max(start, r.lastChance), r.firstDep, i, (count, n) => ({
+      title: 'Departs', count, warn: true, next: 'Too late at your pace', lock: `Departs ${count}`, lockSub: L.line, inline: `${label} Departs ${count}`, circle: n,
+    }));
+    start = Math.max(start, r.firstDep);
+    end = start;
+  });
+  if (!view.entries.length) view.entries.push({ at: sec(nowMs), ...empty('No more today') });
+  else view.end = sec(Math.min(end ?? horizon, horizon));
+  const nextLeave = rows.map(r => r.leaveBy).find(x => x > nowMs);
+  if (nextLeave != null) view.refresh = sec(Math.min(nowMs + WIDGET_REFRESH_MIN * MIN, nextLeave));
+  return view;
+}
+
 // ---------- alerts ----------
 
 // Expands configured stop ids with child stops found in trip data (child → parent map).

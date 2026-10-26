@@ -12,6 +12,7 @@ import {
   leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
+  shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, WIDGET_ROWS, fillRows, nextServiceWindow,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -463,6 +464,22 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       return reply(res, 202, { at: t + TEST_PUSH_DELAY_MS });
     }
 
+    // The iOS app's widget: the shown trip's next leave-bys as a timeline (widgetView). Stateless:
+    // the widget sends the trips and the trip choice's inputs (the app writes them to the App Group).
+    if (req.method === 'POST' && path === '/widget') {
+      const err = widgetRequestError(body);
+      if (err) return reply(res, 400, { error: err });
+      if (!body.trips.length) return reply(res, 200, widgetView(null, [], t));
+      const cfg = { trips: body.trips };
+      const trip = cfg.trips[shownTrip(t, cfg, body.oneOffAt, body.override, body.lastUsed)];
+      try {
+        return reply(res, 200, widgetView(trip.name, await widgetRows(trip, body.stopSlackMinutes, t), t));
+      } catch (e) {
+        log(`widget: ${e.message}`);
+        return reply(res, 502, { error: 'MBTA unavailable' });
+      }
+    }
+
     // The setup's "Pending notifications" (debug): this phone's reminders and followed rides, each
     // with its next push, and the pushes sent to it in the last 24 h. POST, so the push endpoint
     // (a secret) stays out of URLs. Clear deletes them all; the log stays.
@@ -643,6 +660,25 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       log(`timed plan: ${e.message}`);
       return { options: untimed, timedError: true };
     }
+  }
+
+  // ---------- the widget ----------
+
+  // The trip's next WIDGET_ROWS upcoming rows (missed ones left out), timed on the leg the page
+  // would pick from schedules; once today's service runs out, the next service day's first ones.
+  async function widgetRows(trip, slack, t) {
+    const { transit } = tripShape(trip);
+    const winOf = w => ({ 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime });
+    const w = scheduleWindow(t);
+    const [predictions, scheduleDocs] = await Promise.all([
+      Promise.all(transit.map(l => mbta('/predictions', legQuery(l)))),
+      Promise.all(transit.map(l => mbta('/schedules', { ...legQuery(l), ...winOf(w) }))),
+    ]);
+    const timing = scheduleTimingLeg(trip, scheduleDocs);
+    const rows = rowsFromDocs(trip, predictions, scheduleDocs, timing, t, slack, WIDGET_ROWS + 1).filter(r => !r.missed).slice(0, WIDGET_ROWS);
+    if (rows.length >= WIDGET_ROWS || !w.coversEndOfService) return rows;
+    const nextDay = await Promise.all(transit.map(l => mbta('/schedules', { ...legQuery(l), ...winOf(nextServiceWindow(t)) })));
+    return fillRows(rows, rowsFromDocs(trip, null, nextDay, timing, t, slack, WIDGET_ROWS), WIDGET_ROWS);
   }
 
   // ---------- auto-route place search ----------

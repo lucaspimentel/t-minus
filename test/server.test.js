@@ -273,6 +273,31 @@ test('origins, validation, and per-subscription cap', async () => {
   } finally { await s.close(); }
 });
 
+test('/api/widget: the shown trip\'s timeline; no trips; bad requests; the MBTA failing', async () => {
+  const s = await setup();
+  try {
+    const body = (extra = {}) => ({ trips: [trip], stopSlackMinutes: 1, oneOffAt: null, override: null, lastUsed: null, ...extra });
+    const res = await s.call('POST', '/api/widget', body());
+    assert.equal(res.status, 200);
+    const v = await res.json();
+    assert.equal(v.name, trip.name);
+    assert.deepEqual(v.rows.map(r => [r.time, r.vehicle]), [['7:10am', '132']]);
+    assert.equal(v.entries[0].at, at('07:00') / 1000);
+    assert.equal(v.end, at('07:10') / 1000);
+    // The shown trip: the one-off (last) unless another was picked by hand since.
+    const other = { ...trip, name: 'One-off' };
+    assert.equal((await (await s.call('POST', '/api/widget', body({ trips: [trip, other], oneOffAt: at('06:00') }))).json()).name, 'One-off');
+    assert.equal((await (await s.call('POST', '/api/widget', body({ trips: [trip, other], oneOffAt: at('06:00'), override: { index: 0, setAt: at('06:30') } }))).json()).name, trip.name);
+    const none = await (await s.call('POST', '/api/widget', body({ trips: [] }))).json();
+    assert.equal(none.entries[0].title, 'Set up a trip in T-Minus');
+    assert.equal((await s.call('POST', '/api/widget', body({ trips: [{ name: 'x' }] }))).status, 400);
+    assert.equal((await s.call('POST', '/api/widget', body({ stopSlackMinutes: -1 }))).status, 400);
+    s.world.clock = at('07:20'); // past the cached copies
+    s.world.failing = true;
+    assert.equal((await s.call('POST', '/api/widget', body())).status, 502);
+  } finally { await s.close(); }
+});
+
 test('declarativePush: the W3C format, the tap URL, and the old fields', () => {
   assert.deepEqual(declarativePush({ kind: 'getOff', title: 'Next stop: get off', body: 'Arrive 8:06am', tag: 'ride:r1:1', renotify: true }, 'http://localhost:8790/'), {
     web_push: 8030, mutable: true,

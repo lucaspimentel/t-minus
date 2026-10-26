@@ -57,7 +57,7 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   `DRY_RUN=1`), open `http://localhost:8790/`.
 - Push server (`server/`, the only backend; its runtime dependencies are `web-push` and `dd-trace`,
   the latter loaded only by the Railway start command; it also
-  serves the app's files, answers setup's "Show nearby", `GET /api/nearby`, auto-route's `GET /api/plan` and `GET /api/places` (Photon / Nominatim), and proxies the app's MBTA
+  serves the app's files, answers setup's "Show nearby", `GET /api/nearby`, auto-route's `GET /api/plan` and `GET /api/places` (Photon / Nominatim), the iOS widget's `POST /api/widget`, and proxies the app's MBTA
   requests, `GET /api/mbta/*`):
   `npm --prefix server ci`, then see `server/README.md` (env vars, `DRY_RUN=1`). `server/app.mjs`
   has no npm imports so `test/server.test.js` runs in `npm test`. The MBTA key goes only into

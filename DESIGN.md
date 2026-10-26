@@ -154,7 +154,7 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:05`
 4. Otherwise the last trip used (so a location pick sticks after walking away).
 
 A one-off trip (below) comes before all of these while it exists, unless another trip was
-picked by hand after it was made (`chooseTrip`).
+picked by hand after it was made (`shownTrip`; the iOS widget uses it without step 2).
 
 ### One-off trip ("Go somewhere else…")
 
@@ -1223,7 +1223,7 @@ the setup data is small on the wire. In order, if more people use the app keyles
 - Polling pauses while the page is hidden (browsers throttle background timers
   anyway); the `visibilitychange` refetch covers returning to the app.
 
-## iOS app (Phase 1, 2026-10-19; Phase 2, Live Activities, 2026-10-20; Phase 3a, leave cards, 2026-10-20)
+## iOS app (Phase 1, 2026-10-19; Phase 2, Live Activities, 2026-10-20; Phase 3a, leave cards, 2026-10-20; Phase 3b, widget, 2026-10-26)
 
 A native shell around the web app, for what a Home Screen PWA can't do (Live Activities,
 widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live Activity, widget): `IOS.md`.
@@ -1352,6 +1352,46 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   "Leave at" ones included, and the island; the compact islands are picked by name).
 - **Build:** TestFlight build 15. Only the phone tests push-to-start and the background token
   send.
+
+### Widget (Phase 3b, 2026-10-26)
+
+- **What:** "Leave times", the shown trip's next leave-bys on the Home Screen (small, medium) and
+  the Lock Screen (rectangular, inline, circular); mockups accepted 2026-10-26. Tap opens the app.
+  A tracked ride doesn't change it (the Live Activity covers the ride).
+- **Which trip:** the main screen's choice without the location match (`shownTrip`, `core.js`):
+  the one-off trip unless another was picked by hand since, the manual pick until the next window
+  start, the trip whose window contains now, else the last used.
+- **Data:** the app writes the widget's request (`widgetRequest`: the trips with the one-off last,
+  the stop slack, the one-off's time, the manual pick, the last used) to the App Group
+  (`group.net.lucasp.tminus`, `TMinus.widgetSave`) when it changes, which also reloads the
+  widget. Each reload posts it to `POST /api/widget` (stateless; validated like reminders' trips),
+  which picks the trip and times it with predictions and schedules through the shared cache (the
+  timing leg from schedules, `scheduleTimingLeg`; 6 upcoming rows, missed ones left out; once
+  today's service runs out, the next service day's first rows): 2 MBTA requests per transit leg
+  (+1 per leg late at night), fresh copies only. The answer (`widgetView`) is text, not times to
+  format: `rows` (one line each) and `entries`, each shown from its `at`.
+- **Entries:** per row, more than 60 min before the leave-by "Leave 5:12pm" with no countdown (a
+  next-day row: "No more today" / "First 5:12am"); then "Leave 7:42am" / "in 9 min", one entry a
+  minute (rounded down like the page's; iOS's own countdown formats can't say "9 min"); "Leave
+  now" / "Last chance 7:45am" (amber) until the last chance; "Departs" / "in 2 min" (amber, "Too
+  late at your pace") until the departure; then the next row. Entries run 2 h ahead at most;
+  past the last one (`end`), "Open T-Minus" / "for new times". No trips: "Set up a trip in
+  T-Minus"; no rows: "No more today".
+- **Sizes:** small: the trip name, the title and countdown, the first vehicle ("Bus 132 at
+  7:48am") and the arrival; medium: the title and countdown, then the entry's row and the next
+  two in one format (departure, route, "arrive 8:37am"; "~" on a headway estimate); rectangular:
+  the name, "Leave 7:42am", "in 9 min · Bus 132"; inline: "132 Leave 7:42am" (the time, not the
+  countdown); circular: the minutes left (the time more than an hour out, "now", or the minutes
+  to the departure) over the route label.
+- **Reloads:** at the answer's `refresh` (10 min, or the next leave-by if sooner; iOS's budget is
+  roughly 40-70 a day), and when the app rewrites the request. A failed request keeps the last
+  answer (saved in the App Group) and retries in 10 min.
+- **Native pieces:** `LeaveWidget` (+ `LeaveWidgetViews`, SwiftUI only) in `TMinusWidgets`;
+  `WidgetData` (the answer's Codable shape, the App Group keys, the timeline) in both targets; the
+  App Group in both targets' entitlements (the `ios` workflow fails without it in the signed app
+  or the extension). Builds without `widgetSave`: logged to the app log once per change.
+- **Previews:** the `ios` workflow also renders `widget-<theme>.png` (every small state, three
+  medium, the Lock Screen sizes).
 
 ## Remaining unknowns
 

@@ -17,7 +17,9 @@ fails, 120 requests/min per IP; see `DESIGN.md`, "MBTA data caching").
 
 The iOS app (`IOS.md`) subscribes with an APNs device token (`{ endpoint: 'apns:<token>' }`)
 instead of a Web Push subscription; its pushes go to Apple over HTTP/2 (`server/apns.mjs`), and
-its diagnostics to `POST /api/log` (`POST /api/log/read` lists a device's last 24 h).
+its diagnostics to `POST /api/log` (`POST /api/log/read` lists a device's last 24 h). Its
+leave-times widget posts the app's trips to `POST /api/widget` and gets the shown trip's timeline
+(`DESIGN.md`, "Widget"; nothing stored).
 
 ## Railway setup
 

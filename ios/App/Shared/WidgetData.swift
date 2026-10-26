@@ -1,0 +1,68 @@
+import Foundation
+
+// The leave-times widget's data (IOS.md, DESIGN.md "Widget"). The app writes the widget's request
+// to the App Group (TMinus.widgetSave); the widget posts it to /api/widget and draws the answer,
+// widgetView in core.js: rows and entries with their text, times in Unix seconds. Plain Codable
+// so the views also compile on macOS for the CI previews (ios/Previews).
+enum WidgetStore {
+    static let group = "group.net.lucasp.tminus"
+    static let request = "widget.request" // the request body (JSON text), from the app
+    static let last = "widget.last"       // the last answer, kept for when the server can't be reached
+    static let kind = "LeaveWidget"
+    static var defaults: UserDefaults? { UserDefaults(suiteName: group) }
+}
+
+struct WidgetView: Codable, Hashable {
+    struct Row: Codable, Hashable {
+        var time: String        // "7:48am": the first vehicle's departure
+        var vehicle: String     // "Bus 132", "Orange Line"
+        var color: String       // the route's hex color, "" for none
+        var label: String       // "132", "OL"
+        var line: String        // "Bus 132 at 7:48am"
+        var arrive: String      // "arrive 8:25am"
+        var arriveTitle: String // "Arrive 8:25am"
+    }
+    struct Entry: Codable, Hashable {
+        var at: Double          // shown from (Unix seconds)
+        var row: Int            // its row, -1 for none
+        var title: String       // "Leave 7:42am", "Leave now", "Departs", "No more today"
+        var count: String       // "in 9 min", "Last chance 7:45am", ""
+        var warn: Bool          // amber
+        var next: String        // "Arrive 8:25am", "Too late at your pace", "First 5:12am"
+        var lock: String        // Lock Screen rectangular: the bold line
+        var lockSub: String     // and the one under it
+        var inline: String      // "132 Leave 7:42am"
+        var circle: String      // "9", "now", "5:12"
+        var circleSub: String   // "132"
+    }
+    var name: String
+    var rows: [Row]
+    var entries: [Entry]
+    var end: Double?            // past it: "Open T-Minus"
+    var refresh: Double         // when to ask again
+}
+
+// What one timeline entry shows: an entry of the answer and its rows (from its own, up to 3), or
+// "Open T-Minus" (`entry` nil: no answer yet, or every time in it has passed).
+struct LeaveContent: Hashable {
+    var name: String
+    var entry: WidgetView.Entry?
+    var rows: [WidgetView.Row]
+
+    static func stale(_ name: String) -> LeaveContent { LeaveContent(name: name, entry: nil, rows: []) }
+
+    // The answer as (date, content) pairs from `now` on: entries already replaced are left out,
+    // and "Open T-Minus" follows at `end`.
+    static func timeline(_ v: WidgetView?, now: Date) -> [(Date, LeaveContent)] {
+        guard let v else { return [(now, .stale(""))] }
+        var out: [(Date, LeaveContent)] = []
+        for (i, e) in v.entries.enumerated() {
+            if i + 1 < v.entries.count, Date(timeIntervalSince1970: v.entries[i + 1].at) <= now { continue }
+            let rows = e.row >= 0 && e.row < v.rows.count ? Array(v.rows[e.row...].prefix(3)) : []
+            out.append((max(Date(timeIntervalSince1970: e.at), out.isEmpty ? .distantPast : out[out.count - 1].0), LeaveContent(name: v.name, entry: e, rows: rows)))
+        }
+        if let end = v.end { out.append((Date(timeIntervalSince1970: end), .stale(v.name))) }
+        if out.isEmpty || out[0].0 > now { out.insert((now, .stale(v.name)), at: 0) }
+        return out
+    }
+}

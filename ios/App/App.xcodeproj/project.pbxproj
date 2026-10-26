@@ -20,14 +20,18 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		520AEC1E5DFE9033A79D2517 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5995BBD1B658B6A780AD6716 /* WidgetData.swift */; };
 		5635F2165031316CE924F99F /* DatadogRUM in Frameworks */ = {isa = PBXBuildFile; productRef = 511AAD5279E37706D0F5A71A /* DatadogRUM */; };
+		6381ACECB09956738921FDA8 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5995BBD1B658B6A780AD6716 /* WidgetData.swift */; };
 		6D05587455ECECAFD4293ED3 /* RideActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92704E90C72C76C65F64A0CB /* RideActivityWidget.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		9E27E2126ABBF2FC73F80AF2 /* LiveActivityObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9091E44CDF0BDB348AFFCCF5 /* LiveActivityObserver.swift */; };
 		A58DD02BE7A2AB2A629E186D /* RideState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A22F0960B9741C28CC9DA3 /* RideState.swift */; };
 		BF357FE97FBADC690D1B4510 /* RideViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA9BCA404177730EC091E482 /* RideViews.swift */; };
 		C9205FEC26884D517F225758 /* DatadogWebViewTracking in Frameworks */ = {isa = PBXBuildFile; productRef = 773D5873466A0C6C72230E63 /* DatadogWebViewTracking */; };
+		D0F9B1AA78AC0C5EF3DF18CB /* LeaveWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BA2154613B7F878311FD8A1 /* LeaveWidget.swift */; };
 		E015E2C0AD3C65EED148BDE6 /* Observability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5FA967D9B1BBDD1A3A3781 /* Observability.swift */; };
+		E9B9DB43D0F83211039518F9 /* LeaveWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C1B5951859124D6C949EA7 /* LeaveWidgetViews.swift */; };
 		F5DA4DC356370BC10584FFDB /* TMinusPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62AFAE337766795634C533E9 /* TMinusPlugin.swift */; };
 		FCA667B3875831DBDF48D1C9 /* TMinusWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E1F2449C2B25D3D8F5285323 /* TMinusWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FE979A6286EB240B17AD5C8C /* RideAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19FF04653AEF48A6ED811D9 /* RideAttributes.swift */; };
@@ -71,11 +75,15 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		56C1B5951859124D6C949EA7 /* LeaveWidgetViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LeaveWidgetViews.swift; sourceTree = "<group>"; };
+		5995BBD1B658B6A780AD6716 /* WidgetData.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
 		62AFAE337766795634C533E9 /* TMinusPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TMinusPlugin.swift; sourceTree = "<group>"; };
+		837FF6AA260BE2BD07A2E2BB /* TMinusWidgets.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = TMinusWidgets.entitlements; sourceTree = "<group>"; };
 		9091E44CDF0BDB348AFFCCF5 /* LiveActivityObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityObserver.swift; sourceTree = "<group>"; };
 		92704E90C72C76C65F64A0CB /* RideActivityWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RideActivityWidget.swift; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		9BA2154613B7F878311FD8A1 /* LeaveWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LeaveWidget.swift; sourceTree = "<group>"; };
 		BA9BCA404177730EC091E482 /* RideViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RideViews.swift; sourceTree = "<group>"; };
 		C19FF04653AEF48A6ED811D9 /* RideAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RideAttributes.swift; sourceTree = "<group>"; };
 		E08BE0C5A510FA6554458F25 /* MainViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
@@ -111,6 +119,9 @@
 				BA9BCA404177730EC091E482 /* RideViews.swift */,
 				92704E90C72C76C65F64A0CB /* RideActivityWidget.swift */,
 				3CEDD9BBA8F039FA3B3F5772 /* Info.plist */,
+				9BA2154613B7F878311FD8A1 /* LeaveWidget.swift */,
+				56C1B5951859124D6C949EA7 /* LeaveWidgetViews.swift */,
+				837FF6AA260BE2BD07A2E2BB /* TMinusWidgets.entitlements */,
 			);
 			name = TMinusWidgets;
 			path = TMinusWidgets;
@@ -170,6 +181,7 @@
 			children = (
 				42A22F0960B9741C28CC9DA3 /* RideState.swift */,
 				C19FF04653AEF48A6ED811D9 /* RideAttributes.swift */,
+				5995BBD1B658B6A780AD6716 /* WidgetData.swift */,
 			);
 			name = Shared;
 			path = Shared;
@@ -304,6 +316,7 @@
 				061C8ED28F425B3BB04049FD /* RideAttributes.swift in Sources */,
 				9E27E2126ABBF2FC73F80AF2 /* LiveActivityObserver.swift in Sources */,
 				E015E2C0AD3C65EED148BDE6 /* Observability.swift in Sources */,
+				6381ACECB09956738921FDA8 /* WidgetData.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -315,6 +328,9 @@
 				FE979A6286EB240B17AD5C8C /* RideAttributes.swift in Sources */,
 				BF357FE97FBADC690D1B4510 /* RideViews.swift in Sources */,
 				6D05587455ECECAFD4293ED3 /* RideActivityWidget.swift in Sources */,
+				520AEC1E5DFE9033A79D2517 /* WidgetData.swift in Sources */,
+				D0F9B1AA78AC0C5EF3DF18CB /* LeaveWidget.swift in Sources */,
+				E9B9DB43D0F83211039518F9 /* LeaveWidgetViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -354,6 +370,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = TMinusWidgets/TMinusWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -535,6 +552,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = TMinusWidgets/TMinusWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;

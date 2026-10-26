@@ -407,7 +407,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-25 · d1f7278e6b</footer>
+    <footer class="version">Version 2026-10-26 · a382096765</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -425,13 +425,13 @@
 </script>
 <script type="module">
 import {
-  validateConfig, tripShape, commuteEntities, pickTrip, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
+  validateConfig, tripShape, commuteEntities, shownTrip, widgetRequest, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=675b83a72c';
-import { openSetup } from './setup.js?v=b778766ab9';
+} from './core.js?v=771ffdf68c';
+import { openSetup } from './setup.js?v=a08d0c587e';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -479,8 +479,7 @@ let config = withOneOff(savedConfig);
 const oneOffIdx = () => (oneOff && config ? config.trips.length - 1 : -1);
 // pickTrip, but the one-off while it exists, unless another trip was picked by hand since.
 function chooseTrip(now, override, near = -1) {
-  if (oneOff && !(override && override.setAt >= oneOff.at && override.index !== oneOffIdx())) return oneOffIdx();
-  return pickTrip(now, config, override, store.get(KEY_LAST_TRIP), near);
+  return shownTrip(now, config, oneOff?.at ?? null, override, store.get(KEY_LAST_TRIP), near);
 }
 let tripIdx = config ? chooseTrip(Date.now(), store.get(KEY_OVERRIDE)) : 0;
 // Per-trip cache, one doc per transit leg:
@@ -1574,6 +1573,7 @@ const rowKey = r => `${r.key}${r.nextDay ? '@next' : ''}`;
 let lastProblem = '';
 function render() {
   const now = Date.now();
+  syncWidget();
   renderToggle();
   $('refresh').hidden = !config; // nothing to refresh without trips
   $('oneoff').hidden = !config || tripIdx !== oneOffIdx();
@@ -2010,6 +2010,17 @@ let wakeLock = null;
 let wakeWanted = false;
 let wakeRequesting = false;
 let nativeAwake = false; // the iOS app: what TMinus.keepAwake was last told
+// The iOS app's widget (IOS.md): its request (the trips and the trip choice's inputs) in the App
+// Group, rewritten when it changes; the widget sends it to /api/widget. A build without
+// TMinus.widgetSave logs the failure (once per change).
+let widgetSent = null;
+function syncWidget() {
+  if (!native) return;
+  const body = JSON.stringify(widgetRequest(config, oneOff?.at ?? null, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP)));
+  if (body === widgetSent) return;
+  widgetSent = body;
+  Promise.resolve().then(() => plugins.TMinus.widgetSave({ body })).catch(e => nativeLog('widget', e.message));
+}
 function syncWakeLock(want) {
   wakeWanted = want;
   if (native) {

@@ -43,5 +43,6 @@ private struct LockScreen: View {
 struct TMinusWidgets: WidgetBundle {
     var body: some Widget {
         RideActivityWidget()
+        LeaveWidget()
     }
 }

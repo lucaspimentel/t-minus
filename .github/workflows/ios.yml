@@ -1,7 +1,7 @@
 name: ios
 
 # Builds the iOS app (ios/, Capacitor) and uploads it to TestFlight. Manual: Actions → ios → Run
-# workflow. Every run renders the Live Activity previews (ios/Previews) as the
+# workflow. Every run renders the Live Activity and widget previews (ios/Previews) as the
 # live-activity-previews artifact; `upload` off stops there. Web and server changes reach the app
 # through its remote URL, so a build is needed only for native changes or before a TestFlight
 # build expires (90 days). See IOS.md.
@@ -33,10 +33,10 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Live Activity previews
+      - name: Live Activity and widget previews
         run: |
           mkdir -p "$RUNNER_TEMP/previews"
-          swiftc -parse-as-library ios/App/Shared/RideState.swift ios/App/TMinusWidgets/RideViews.swift ios/Previews/Render.swift -o "$RUNNER_TEMP/render"
+          swiftc -parse-as-library ios/App/Shared/RideState.swift ios/App/Shared/WidgetData.swift ios/App/TMinusWidgets/RideViews.swift ios/App/TMinusWidgets/LeaveWidgetViews.swift ios/Previews/Render.swift -o "$RUNNER_TEMP/render"
           "$RUNNER_TEMP/render" "$RUNNER_TEMP/previews"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -96,6 +96,9 @@ jobs:
           codesign -d --entitlements - --xml "$RUNNER_TEMP/ipa/Payload/App.app" | tee "$RUNNER_TEMP/entitlements.plist"
           grep -q 'aps-environment' "$RUNNER_TEMP/entitlements.plist" || { echo "::error::The signed app has no aps-environment entitlement"; exit 1; }
           test -d "$RUNNER_TEMP/ipa/Payload/App.app/PlugIns/TMinusWidgets.appex" || { echo "::error::The Live Activity extension is not embedded"; exit 1; }
+          # The widget reads the app's request from the App Group: both need it.
+          grep -q 'group.net.lucasp.tminus' "$RUNNER_TEMP/entitlements.plist" || { echo "::error::The signed app has no App Group"; exit 1; }
+          codesign -d --entitlements - --xml "$RUNNER_TEMP/ipa/Payload/App.app/PlugIns/TMinusWidgets.appex" | grep -q 'group.net.lucasp.tminus' || { echo "::error::The signed extension has no App Group"; exit 1; }
           export_ipa upload
 
       - name: Collect logs

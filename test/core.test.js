@@ -12,6 +12,7 @@ import {
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, stopCountTrip, stopCountText, rideLine,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, withoutArrived, stopConnections,
+  shownTrip, widgetRequest, widgetRequestError, scheduleTimingLeg, widgetView, WIDGET_HORIZON_MIN,
   leavePhase, leaveActivityState, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, LEAVE_CARD_EARLY_MIN, LEAVE_CARD_MAX_MIN, leaveCardEarly, leaveStartText, firstVehicleLine,
 } from '../core.js';
 
@@ -2263,4 +2264,72 @@ test('stop counts: from the trip\'s stop list (not stop_sequence), borrowed trip
   const legs = [{ label: 'Bus 132' }, { label: 'Orange' }];
   const opt = optionSteps({ legs: [{ stops: 9 }, {}], transfers: [] }, { walkBefore: 0, walkAfter: 0, legs });
   assert.deepEqual(opt.filter(s => s.kind === 'leg').map(s => s.stops), [9, undefined]);
+});
+
+test('shownTrip: the one-off unless another trip was picked by hand since; else pickTrip', () => {
+  const cfg = { trips: [{ name: 'a', legs: [] }, { name: 'b', legs: [] }, { name: 'one-off', legs: [] }] };
+  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), null, 0), 2);
+  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), { index: 0, setAt: at('06:00') }, 1), 2); // picked before the one-off
+  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), { index: 0, setAt: at('07:30') }, 1), 0);
+  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), { index: 2, setAt: at('07:30') }, 1), 2);
+  assert.equal(shownTrip(at('08:00'), cfg, null, null, 1), 1);
+});
+
+test('widgetRequest / widgetRequestError: the trips and the choice\'s inputs', () => {
+  const cfg = { ...EXAMPLE, stopSlackMinutes: 2 };
+  const b = widgetRequest(cfg, null, { index: 1, setAt: 5 }, 1);
+  assert.deepEqual(Object.keys(b), ['trips', 'stopSlackMinutes', 'oneOffAt', 'override', 'lastUsed']);
+  assert.equal(b.stopSlackMinutes, 2);
+  assert.equal(widgetRequestError(b), null);
+  assert.equal(widgetRequestError(widgetRequest(null, null, null, null)), null); // no trips
+  assert.equal(widgetRequestError({ ...b, trips: [{ name: 'x' }] }), 'trips is invalid');
+  assert.equal(widgetRequestError({ ...b, stopSlackMinutes: 99 }), 'stopSlackMinutes is invalid');
+  assert.equal(widgetRequestError({ ...b, override: { index: 'a' } }), 'override is invalid');
+  assert.equal(widgetRequestError(null), 'trips is invalid');
+});
+
+test('scheduleTimingLeg: the longest headway from schedules, or the pinned leg', () => {
+  const trip = { name: 't', legs: [{ kind: 'transit', route: 'A', direction_id: 0, stop: 's1', alight: 's2' }, { kind: 'transit', route: 'B', direction_id: 0, stop: 's3', alight: 's4' }] };
+  const sched = (route, stop, alight, times) => doc(times.flatMap((h, i) => [rec('schedule', `${route}${i}`, stop, h, h), rec('schedule', `${route}${i}`, alight, `${h.slice(0, 3)}${String(Number(h.slice(3)) + 5).padStart(2, '0')}`, null)]));
+  const docs = [sched('A', 's1', 's2', ['08:00', '08:05', '08:10']), sched('B', 's3', 's4', ['08:00', '08:20', '08:40'])];
+  assert.equal(scheduleTimingLeg(trip, docs), 1);
+  assert.equal(scheduleTimingLeg({ ...trip, timingLeg: 0 }, docs), 0);
+});
+
+test('widgetView: per-minute countdowns, leave now, departs, the next row; early; next day; empty', () => {
+  const row = (lb, lc, dep, eta, extra = {}) => ({ ...leaveRow(), leaveBy: at(lb), lastChance: at(lc), firstDep: at(dep), eta: at(eta), ...extra });
+  const now = at('07:29') + 30_000;
+  const v = widgetView('Home → Work', [row('07:39', '07:42', '07:48', '08:25'), row('07:51', '07:54', '08:00', '08:37')], now);
+  assert.deepEqual(v.rows[0], { time: '7:48am', vehicle: 'Bus 132', color: 'FFC72C', label: '132', line: 'Bus 132 at 7:48am', arrive: 'arrive 8:25am', arriveTitle: 'Arrive 8:25am' });
+  const when = (hhmm, s = 0) => (at(hhmm) + s * 1000) / 1000;
+  const shown = sec => v.entries.filter(e => e.at <= sec).at(-1);
+  const pick = e => [e.row, e.title, e.count, e.warn, e.lockSub, e.inline, e.circle];
+  assert.equal(v.entries[0].at, now / 1000);
+  assert.deepEqual(pick(shown(now / 1000)), [0, 'Leave 7:39am', 'in 9 min', false, 'in 9 min · Bus 132', '132 Leave 7:39am', '9']);
+  assert.deepEqual(pick(shown(when('07:30', 30))), [0, 'Leave 7:39am', 'in 8 min', false, 'in 8 min · Bus 132', '132 Leave 7:39am', '8']);
+  assert.deepEqual(pick(shown(when('07:38', 30))), [0, 'Leave 7:39am', 'in <1 min', false, 'in <1 min · Bus 132', '132 Leave 7:39am', '<1']);
+  assert.deepEqual(pick(shown(when('07:40'))), [0, 'Leave now', 'Last chance 7:42am', true, 'Last chance 7:42am', '132 Leave now', 'now']);
+  assert.deepEqual(pick(shown(when('07:43', 10))), [0, 'Departs', 'in 4 min', true, 'Bus 132 at 7:48am', '132 Departs in 4 min', '4']);
+  assert.equal(shown(when('07:43', 10)).next, 'Too late at your pace');
+  assert.deepEqual(pick(shown(when('07:48'))), [1, 'Leave 7:51am', 'in 3 min', false, 'in 3 min · Bus 132', '132 Leave 7:51am', '3']);
+  assert.equal(v.end, when('08:00'));
+  assert.equal(v.refresh, when('07:39')); // the next leave-by, sooner than 10 min
+  assert.deepEqual(v.entries.map(e => e.at), [...v.entries.map(e => e.at)].sort((a, b) => a - b));
+
+  // More than an hour ahead: the time only, then the countdown.
+  const far = widgetView('Work → Home', [row('17:12', '17:15', '17:20', '18:01', { legs: [{ ...leaveRow().legs[1], dep: at('17:20') }] })], at('15:58'));
+  assert.deepEqual(pick(far.entries[0]), [0, 'Leave 5:12pm', '', false, 'Orange Line at 5:20pm', 'OL Leave 5:12pm', '5:12']);
+  assert.equal(far.entries[1].at, when('16:12', 1));
+  assert.equal(far.entries[1].count, 'in 59 min');
+  assert.equal(far.refresh, when('16:08'));
+
+  // Today's service over: "No more today" with the first leave-by until its countdown.
+  const late = widgetView('Home → Work', [row('05:12', '05:15', '05:21', '06:00', { nextDay: true })].map(r => ({ ...r, leaveBy: r.leaveBy + 86400_000, lastChance: r.lastChance + 86400_000, firstDep: r.firstDep + 86400_000, eta: r.eta + 86400_000 })), at('23:30'));
+  assert.deepEqual([late.entries[0].title, late.entries[0].next, late.entries[0].lockSub], ['No more today', 'First 5:12am', 'First 5:12am']);
+  assert.equal(late.end, at('23:30') / 1000 + WIDGET_HORIZON_MIN * 60); // the horizon comes first
+
+  const none = widgetView('Home → Work', [], at('23:30'));
+  assert.deepEqual([none.entries.length, none.entries[0].title, none.entries[0].next, none.end], [1, 'No more today', '', null]);
+  const noTrips = widgetView(null, [], at('23:30'));
+  assert.deepEqual([noTrips.name, noTrips.entries[0].title, noTrips.end], ['', 'Set up a trip in T-Minus', null]);
 });

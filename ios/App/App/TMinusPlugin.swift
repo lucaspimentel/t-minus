@@ -1,6 +1,7 @@
 import ActivityKit
 import Capacitor
 import UIKit
+import WidgetKit
 
 // window.Capacitor.Plugins.TMinus: native calls the web app makes (index.html, `native`).
 @objc(TMinusPlugin)
@@ -14,6 +15,7 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "liveActivityEnd", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "liveActivityStartToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "liveActivityList", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "widgetSave", returnType: CAPPluginReturnPromise),
     ]
 
     private var startTokenObserver: NSObjectProtocol?
@@ -33,6 +35,17 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
             UIApplication.shared.isIdleTimerDisabled = on
             call.resolve()
         }
+    }
+
+    // widgetSave({ body }): the leave-times widget's request (JSON text; widgetRequest in core.js)
+    // to the App Group, then a reload (the app is in the foreground: not counted against iOS's
+    // widget budget).
+    @objc func widgetSave(_ call: CAPPluginCall) {
+        guard let body = call.getString("body") else { return call.reject("body is missing") }
+        guard let defaults = WidgetStore.defaults else { return call.reject("no App Group") }
+        defaults.set(body, forKey: WidgetStore.request)
+        WidgetCenter.shared.reloadTimelines(ofKind: WidgetStore.kind)
+        call.resolve()
     }
 
     // ---------- Live Activity (the tracked ride on the Lock Screen; IOS.md) ----------
