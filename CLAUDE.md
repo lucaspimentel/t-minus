@@ -37,6 +37,23 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - When several items are reported to be handled "one by one", add them all to `TODO.md` first,
   then grill, plan, implement, and push each separately.
 
+## UI rules
+
+Surfaces: the app's cards and rows, the leave and walk cards (Live Activity, Dynamic Island),
+the widget's sizes, notifications. Check a UI change against every surface that shows the same
+ride, and against these rules:
+
+- One answer: every surface shows the app's current answer for the ride. A surface that can lag
+  (widget, leave card) is refreshed when that answer changes.
+- One time per phase: the leave-by while there's time to walk; the vehicle's departure once past
+  the leave-by or walking. Every surface switches at the same moment.
+- Each fact once per surface: a time, vehicle or arrival appears once in a given card or widget.
+- A countdown and the time beside it name the same moment.
+- One wording and format: "Bus 132" / "Orange", "2:18pm", "in 6 min" (rounded down), "~" for a
+  headway estimate, "arrive 3:03pm".
+- Color carries state: amber/red mean late or at risk, at the same thresholds on every surface;
+  the color and the time say it, without a separate warning line.
+
 ## Commands
 
 - Unit tests: `npm test` (Node 22+, `node --test test/*.test.js`). CI runs the same on push.
