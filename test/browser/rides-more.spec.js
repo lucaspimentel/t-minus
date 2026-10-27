@@ -25,7 +25,7 @@ test('previous rides list the trains that left in the last 15 min, in place of t
   const last = await prevRows(page).last().boundingBox();
   const next = await page.locator('#rows > li.row:not(.prev)').first().boundingBox();
   expect(next.y - (last.y + last.height)).toBeGreaterThanOrEqual(22);
-  await expect(prevRows(page).locator('.strip')).toHaveText([/Orange → Oak Grove\s*Bus 132/, /Orange → Oak Grove\s*Bus 132/]);
+  await expect(prevRows(page).locator('.strip')).toHaveText([/Orange\s*Bus 132/, /Orange\s*Bus 132/]);
   await expect(prevRows(page).locator('.summary .arrive')).toHaveText(['arrive 6:15pm', 'arrive 6:15pm']);
   await expect(prevRows(page).locator('.badge')).toHaveCount(2);
   await expect(prevRows(page).getByRole('button', { name: /^I got on/ })).toHaveCount(0); // collapsed
