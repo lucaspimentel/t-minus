@@ -407,7 +407,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-27 · 298f358f2a</footer>
+    <footer class="version">Version 2026-10-27 · 52d1e64e10</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -897,7 +897,8 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   const lastLeg = r.legs[r.legs.length - 1];
   // The collapsed row's badge: the timing leg's (the first leg's on missed and en-route rows).
   const shown = r.legs[firstLeg ? 0 : r.timingIdx];
-  const details = [...r.legs.map(l => l.label), sourceText(shown)];
+  const stripText = r.legs.map((l, i) => (i === 0 ? vehicleArrow(l, l.label) : l.label)); // the leg strip's (and the name's)
+  const details = [...stripText, sourceText(shown)];
   toggle.setAttribute('aria-label', rowAriaLabel(label, formatTime(target, now), legTime(lastLeg, r.eta, now), !!reminder, details));
   toggle.append(head, ' ');
   li.append(toggle);
@@ -913,7 +914,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
     // The first leg with its headsign ("Bus 132 → Malden"; CLAUDE.md "UI rules").
     for (const [i, leg] of r.legs.entries()) {
       const stop = el('span', 'stop');
-      stop.append(dot(leg.color), i === 0 ? vehicleArrow(leg, leg.label) : leg.label);
+      stop.append(dot(leg.color), stripText[i]);
       strip.append(el('span', 'seg'), stop, ' ');
     }
     strip.append(el('span', 'seg'));

@@ -74,7 +74,7 @@ for (const scheme of ['light', 'dark']) {
 
 test('a row is a button: its name says when to leave, and Enter expands it', async ({ page }) => {
   await openApp(page, { time: '06:55' });
-  const btn = page.getByRole('button', { name: 'Leave in 6 min, 7:02am, Bus 132, Orange, scheduled, arrive ~7:57am' });
+  const btn = page.getByRole('button', { name: 'Leave in 6 min, 7:02am, Bus 132 → Malden, Orange, scheduled, arrive ~7:57am' });
   await expect(btn).toHaveAttribute('aria-expanded', 'false');
   await btn.focus();
   await page.keyboard.press('Enter');
