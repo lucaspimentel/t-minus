@@ -49,8 +49,12 @@ ride, and against these rules:
   the leave-by or walking. Every surface switches at the same moment.
 - Each fact once per surface: a time, vehicle or arrival appears once in a given card or widget.
 - A countdown and the time beside it name the same moment.
-- One wording and format: "Bus 132" / "Orange", "2:18pm", "in 6 min" (rounded down), "~" for a
-  headway estimate, "arrive 3:03pm".
+- One wording and format: "2:18pm", "in 6 min" (rounded down), "~" for a headway estimate,
+  "arrive 3:03pm". Vehicles in two forms: full text lines (notifications, the leave card, the ride
+  bar, the expanded row) say "Bus 132 toward Malden" / "Orange Line"; tight ones (the card's leg
+  strip, every widget size, the Dynamic Island) say "Bus 132 → Malden" / "Orange". The headsign
+  goes with the first leg only, and not on the Lock Screen widgets or the Dynamic Island.
+  DESIGN.md "Surface wording" lists each surface.
 - Color carries state: amber/red mean late or at risk, at the same thresholds on every surface;
   the color and the time say it, without a separate warning line.
 

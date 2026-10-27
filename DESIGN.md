@@ -44,6 +44,32 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
 | Deferred | See `TODO.md` (default times estimated from stop coordinates, commuter rail/ferry) |
 
+## Surface wording (decided 2026-10-27)
+
+The same ride on every surface follows CLAUDE.md "UI rules". Which time each phase shows (done,
+2026-10-27): the leave-by while there's time to walk; from the leave-by on, or once walking, the
+first vehicle's departure, counted down to (the red row, the widget's "Leave now", the leave
+card's "Leave now · departs in").
+
+Vehicle names and headsigns (decided 2026-10-27; pending, `TODO.md`):
+
+| Surface | Vehicle | Headsign (first leg) |
+|---|---|---|
+| Notifications (reminders, ride alerts) | "Orange Line" | "toward Malden" |
+| Leave and walk cards (Lock Screen lines) | "Orange Line" | "toward Malden" |
+| Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
+| App card leg strip | "Orange" | "→ Malden" (new) |
+| Widget medium rows, small vehicle line | "Orange" | "→ Malden" (new; long names shrink) |
+| Widget rectangular, inline, circular; Dynamic Island | "Orange" | none |
+
+Later legs keep their headsign in the expanded row only; no headsign: the vehicle alone ("Bus
+132"). Red, Blue and Green follow Orange ("Green Line B" / "Green B").
+
+Reminder notifications: the heads-ups (10 and 5 min) come before the leave-by, so their body is
+the vehicle and the arrival, "Bus 132 toward Malden · arrive ~8:25am" (moved: "Bus 132 toward
+Malden · leave by 7:36am (was 7:39am)"); "Leave now", sent at the leave-by, names the departure,
+"Bus 132 toward Malden at 7:48am".
+
 ## Data sources and fallback
 
 Each leg time shown carries a source badge:

@@ -28,6 +28,15 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 - Yes / Missed it buttons on the leave card's "Did you get on?" (App Intents, iOS 17+); today it
   only opens the app.
 
+## Surface wording (decided; `DESIGN.md` "Surface wording")
+
+- Heads-up notification bodies: the vehicle and the arrival, not the departure time.
+- "Orange Line" on full text lines, "Orange" on tight surfaces (widget medium rows and the small
+  vehicle line now say "Orange Line").
+- The first leg's headsign on the app card's leg strip and the widget's medium rows and small
+  vehicle line ("Bus 132 → Malden").
+- Mockups (card strip, widget) before implementing.
+
 ## Deferred
 
 - Default times to/from the stops and transfer times estimated from stop coordinates
