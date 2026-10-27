@@ -84,7 +84,9 @@ test('countdown goes green → amber → red → missed, and the missed row leav
   await expect(first.locator('.big')).toContainText('Leave in 2 min');
   await tickTo(page, '07:02:30');
   await expect(first).toHaveClass(/\bred\b/);
-  await expect(first.locator('.big')).toContainText('Hurry');
+  // Past the leave-by: counting to the first departure, and showing it (CLAUDE.md "UI rules").
+  await expect(first.locator('.big')).toContainText('Hurry · 5 min');
+  await expect(first.locator('.big')).toContainText('7:08am');
   await tickTo(page, '07:03:30');
   await expect(first).toHaveClass(/\bmissed\b/);
   await expect(first).toHaveClass(/\bdeparts\b/);

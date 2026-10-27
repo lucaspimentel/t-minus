@@ -39,12 +39,12 @@ enum WidgetStore {
 
 struct WidgetView: Codable, Hashable {
     struct Row: Codable, Hashable {
-        var time: String        // "7:48am": the first vehicle's departure
+        var time: String        // "7:39am": the leave-by
         var vehicle: String     // "Bus 132", "Orange Line"
         var short: String? = nil // "Bus 132", "Orange" (absent from answers before the ring)
         var color: String       // the route's hex color, "" for none
         var label: String       // "132", "OL"
-        var line: String        // "Bus 132 at 7:48am"
+        var line: String        // "Bus 132" (answers before the leave-by rule: "Bus 132 at 7:48am")
         var arrive: String      // "arrive 8:25am"
         var arriveTitle: String // "Arrive 8:25am"
     }
@@ -52,15 +52,20 @@ struct WidgetView: Codable, Hashable {
         var at: Double          // shown from (Unix seconds)
         var row: Int            // its row, -1 for none
         var title: String       // "Leave 7:42am", "Leave now", "Departs", "No more today"
-        var count: String       // "in 9 min", "Last chance 7:45am", ""
+        var count: String       // "in 9 min", "departs in 8 min", ""
         var warn: Bool          // amber
-        var next: String        // "Arrive 8:25am", "Too late at your pace", "First 5:12am"
+        var next: String        // "Arrive 8:25am", "First 5:12am"
         var lock: String        // Lock Screen rectangular: the bold line
         var lockSub: String     // and the one under it
         var inline: String      // "132 Leave 7:42am"
         var circle: String      // "38m", "now", "5:12"
         var circleSub: String   // "Bus 132", "Orange"
         var ring: Double? = nil // the circular ring: 1 an hour before the leave-by, 0 at it; nil or -1: none
+        // Absent from answers before the leave-by rule (CLAUDE.md "UI rules"):
+        var head: String? = nil      // the medium header: "Leave in 9 min", "Leave now", "Departs in 4 min"
+        var headCount: String? = nil // beside it: "departs in 8 min"
+        var line: String? = nil      // the vehicle line, for the row's: "Bus 132 at 7:48am" past the leave-by
+        var rowTime: String? = nil   // the first row's time, amber: the departure past the leave-by
     }
     var name: String
     var rows: [Row]

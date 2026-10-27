@@ -281,7 +281,7 @@ test('/api/widget: the shown trip\'s timeline; no trips; bad requests; the MBTA 
     assert.equal(res.status, 200);
     const v = await res.json();
     assert.equal(v.name, trip.name);
-    assert.deepEqual(v.rows.map(r => [r.time, r.vehicle]), [['7:10am', '132']]);
+    assert.deepEqual(v.rows.map(r => [r.time, r.vehicle]), [['7:04am', '132']]);
     assert.equal(v.entries[0].at, at('07:00') / 1000);
     assert.equal(v.end, at('07:10') / 1000);
     // The shown trip: the one-off (last) unless another was picked by hand since.
@@ -1166,7 +1166,7 @@ test('leave card: started quietly when the bell is set, then heads-ups alert on 
     assert.deepEqual([s.activity.at(-1).state.soon, s.activity.at(-1).alert, s.activity.at(-1).priority], [true, undefined, '5']);
     s.world.clock = at('07:07');
     await s.app.tick();
-    assert.deepEqual([s.activity.at(-1).state.title, s.activity.at(-1).alert, s.activity.at(-1).state.next], ['Leave now', 'Leave now · Home to office', 'Last chance 7:08am']);
+    assert.deepEqual([s.activity.at(-1).state.title, s.activity.at(-1).alert, s.activity.at(-1).state.next], ['Leave now · departs in', 'Leave now · Home to office', 'Arrive ~8:00am']);
     assert.ok(s.store.get(id), 'kept past the leave-by');
     view = (await (await s.call('POST', '/api/pending', { subscription: apnsSub })).json()).entries[0];
     assert.deepEqual(view.next, { kind: 'board', at: at('07:13'), text: 'Did you get on?' });

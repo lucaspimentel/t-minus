@@ -205,7 +205,7 @@ unavailable: fallback, and the status line adds "Location off".
 |---|---|---|
 | Green | `now < leave_by - 3 min` | "Leave in 12 min", leave-by time on the right |
 | Amber | `leave_by - 3 min <= now < leave_by` | "Leave in 2 min" (the color carries the urgency) |
-| Red | `leave_by <= now < last_chance` | "Hurry · <1 min" (to `last_chance`), last-chance time on the right |
+| Red | `leave_by <= now < last_chance` | "Hurry · 5 min" (to the first departure), first-leg departure on the right (2026-10-27: the leave-by, then the departure, on every surface; CLAUDE.md "UI rules") |
 | Missed | `last_chance <= now < first_leg.departure + 5 min` | Amber "Departs in 2 min" (can no longer be reached at your pace, still to leave; `.departs`, 2026-10-21, like the leave card; screen readers hear the same), then gray "Missed · left 3 min ago"; first-leg departure on the right |
 | Hidden | `now >= first_leg.departure + 5 min` | Row removed |
 
@@ -429,8 +429,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - **Announcements** (`#announce`, a visually hidden polite `role=status`):
   - status problems, once each as they appear (`statusProblem`: error, Stale, Rate limited,
     the save notice, Location off, Saved copy); not "Updated …" nor the retry countdown;
-  - the first row's leave state changing (green → amber → red → missed), e.g. "Hurry · <1 min ·
-    7:03am"; a new first row (one left, another trip) only resets the baseline.
+  - the first row's leave state changing (green → amber → red → missed), e.g. "Hurry · 5 min ·
+    7:08am" (the departure); a new first row (one left, another trip) only resets the baseline.
   - The "New version available" card is a `role=status` too; toasts already were.
 - A visually hidden `<h1>T-Minus</h1>` names the page.
 - `test/browser/a11y.spec.js` runs axe (`@axe-core/playwright`) on the main list, an expanded
@@ -1322,9 +1322,10 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   ~8:25am"; moved then: amber "Leave at 7:36am" with "Moved (was 7:39am) · arrive ~8:25am", a
   quiet update; at 60 min a quiet update to the countdown. Then "Leave in 9 minutes"
   (counting down to the leave-by, "<1 minute" at the end), the first vehicle ("Bus 132 toward
-  Malden at 7:48am", as the notification's body), "Leave by 7:39am · arrive ~8:25am"; a moved
-  leave-by in amber with "Leave by 7:36am (was 7:39am)"; "Leave now" (amber) with "Last chance
-  7:42am"; "Departs in 2 minutes" (amber, to the departure) with "Too late at your walking pace";
+  Malden"; its departure time only from the leave-by on, 2026-10-27), "Leave by 7:39am · arrive
+  ~8:25am"; a moved leave-by in amber with "Leave by 7:36am (was 7:39am)"; "Leave now · departs in
+  7 minutes" (amber, to the departure) with "Bus 132 toward Malden at 7:48am" and "Arrive
+  ~8:25am"; "Departs in 2 minutes" (amber, to the departure), the same two lines;
   at the departure "Did you get on?" / "Bus 132 toward Malden left at 7:48am" / "Tap to answer"
   (island "Got on?"; tap opens the app), ended when answered or after 30 min. "Ride cancelled"
   / "Open the app for the next one.", dismissed after 2 min. The legs bar shows the trip, empty.
@@ -1370,23 +1371,29 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   today's service runs out, the next service day's first rows): 2 MBTA requests per transit leg
   (+1 per leg late at night), fresh copies only. The answer (`widgetView`) is text, not times to
   format: `rows` (one line each) and `entries`, each shown from its `at`.
-- **Entries:** per row, more than 60 min before the leave-by "Leave 5:12pm" with no countdown (a
+- **Entries** (2026-10-27: the leave-by, then the departure, as everywhere; CLAUDE.md "UI
+  rules"): per row, more than 60 min before the leave-by "Leave 5:12pm" with no countdown (a
   next-day row: "No more today" / "First 5:12am"); then "Leave 7:42am" / "in 9 min", one entry a
   minute (rounded down like the page's; iOS's own countdown formats can't say "9 min"); "Leave
-  now" / "Last chance 7:45am" (amber) until the last chance; "Departs" / "in 2 min" (amber, "Too
-  late at your pace") until the departure; then the next row. Entries run 2 h ahead at most;
+  now" / "departs in 5 min" (amber) until the last chance; "Departs" / "in 2 min" (amber) until
+  the departure; then the next row. Past the leave-by the vehicle line gets the departure ("Bus
+  132 at 7:48am") and the medium's first row shows it in amber. Entries run 2 h ahead at most;
   past the last one (`end`), "Open T-Minus" / "for new times". No trips: "Set up a trip in
   T-Minus"; no rows: "No more today".
-- **Sizes:** small: the trip name, the title and countdown, the first vehicle ("Bus 132 at
-  7:48am") and the arrival; medium: the title and countdown, then the entry's row and the next
-  two in one format (departure, route, "arrive 8:37am"; "~" on a headway estimate); rectangular:
-  the name, "Leave 7:42am", "in 9 min · Bus 132"; inline: "132 Leave 7:42am" (the time, not the
+- **Sizes:** small: the trip name, the title and countdown, the first vehicle ("Bus 132") and
+  the arrival; medium: the countdown only (`head`: "Leave in 9 min", "Leave in 1h 06m" an hour+
+  out, "Leave now · departs in 5 min", "Departs in 2 min"; the leave-by isn't repeated), then the
+  entry's row and the next two in one format (leave-by, route, "arrive 8:37am"; "~" on a headway
+  estimate; build 25 shows the small's title and count instead); rectangular: the name, "Leave
+  7:42am", "in 9 min · Bus 132" (past the leave-by: "Bus 132 at 7:48am"); inline: "132 Leave 7:42am" (the time, not the
   countdown); circular (2026-10-26, after the phone showed a bare "38 / 132"): "38m" over "Bus
   132" ("Orange" for the Orange Line) in a ring, open at the bottom like the system's gauge, full
   an hour before the leave-by and empty at it (drawn by hand so the previews show it); the time
   with no ring more than an hour out; "now", then the minutes to the departure ("2m").
-- **Reloads:** at the answer's `refresh` (10 min, or the next leave-by if sooner; iOS's budget is
-  roughly 40-70 a day), and when the app rewrites the request. A failed request keeps the last
+- **Reloads:** at the answer's `refresh` (10 min, or the next leave-by or last chance if sooner;
+  iOS's budget is roughly 40-70 a day), and from the app: when it rewrites the request, when its
+  shown next ride's leave-by, departure or arrival changes (to the minute), and on each return to
+  the app, so the widget doesn't lag the app's live times. A failed request keeps the last
   answer (saved in the widget's own storage) and retries in 10 min.
 - **Native pieces:** `LeaveWidget` (+ `LeaveWidgetViews`, SwiftUI only) in `TMinusWidgets`;
   `WidgetData` (the answer's Codable shape, the keychain item, the timeline) in both targets; the
@@ -1394,7 +1401,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   app or the extension). Keychain sharing, not an App Group: the CI's API key can't register App
   Groups (401 on `/appGroups`); profiles already allow the team's keychain groups. Builds without
   `widgetSave`: nothing written, nothing logged.
-- **Previews:** the `ios` workflow also renders `widget-<theme>.png` (every small state, three
+- **Previews:** the `ios` workflow also renders `widget-<theme>.png` (every small state, five
   medium, the Lock Screen sizes).
 
 ## Remaining unknowns

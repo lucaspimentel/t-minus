@@ -2438,9 +2438,10 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
 // bell is set (at the 10-min heads-up when set more than LEAVE_CARD_MAX_MIN ahead), in the ride
 // card's layout. Its phases: 'early' ("Leave at 7:39am", no countdown) while the leave-by is more
 // than LEAVE_CARD_EARLY_MIN away, 'leave' (the countdown) until the leave-by, 'now' until the last
-// chance, 'departs' until the first vehicle leaves, then 'gone' (the card ends). `island` (the
-// Dynamic Island's short text) marks a leave or walk card; `join` puts the countdown right after
-// the title ("Leave in 9 minutes").
+// chance, 'departs' until the first vehicle leaves, then 'gone' (the card ends). The vehicle line
+// (`sub`) gets the departure time from the leave-by on, and both late phases count down to it.
+// `island` (the Dynamic Island's short text) marks a leave or walk card; `join` puts the countdown
+// right after the title ("Leave in 9 minutes").
 export const LEAVE_CARD_MIN = HEADS_UP_MINS[0];
 export const LEAVE_CARD_EARLY_MIN = 60; // before this: "Leave at 7:39am", no countdown
 export const LEAVE_CARD_MAX_MIN = 8 * 60; // iOS ends a Live Activity after 8 h
@@ -2455,7 +2456,7 @@ function leaveCardBase(row, nowMs) {
   const first = row.legs[0];
   return {
     phase: '', warn: false, color: first.color ?? '', label: islandLabel(first), title: '', until: 0, stops: -1,
-    sub: firstVehicleLine(row, nowMs), next: '', legs: row.legs.map(l => ({ color: l.color ?? '', dep: Math.round(l.dep / 1000), arr: Math.round(l.arr / 1000) })),
+    sub: lineToward(first), next: '', legs: row.legs.map(l => ({ color: l.color ?? '', dep: Math.round(l.dep / 1000), arr: Math.round(l.arr / 1000) })),
     island: '', join: ' ',
   };
 }
@@ -2479,11 +2480,15 @@ export function leaveActivityState(row, nowMs, { was = null } = {}) {
         next: was == null ? `Leave by ${t(row.leaveBy)} · arrive ~${t(row.eta)}` : `Leave by ${t(row.leaveBy)} (was ${t(was)})`,
       });
       break;
+    // Past the leave-by: the vehicle's departure, counted down to (CLAUDE.md "UI rules").
     case 'now':
-      Object.assign(out, { phase: 'now', title: 'Leave now', warn: true, island: 'Leave now', next: `Last chance ${t(row.lastChance)}` });
+      Object.assign(out, {
+        phase: 'now', title: 'Leave now · departs in', until: sec(row.firstDep), warn: true, island: 'Leave now',
+        sub: firstVehicleLine(row, nowMs), next: `Arrive ~${t(row.eta)}`,
+      });
       break;
     case 'departs':
-      Object.assign(out, { phase: 'departs', title: 'Departs in', until: sec(row.firstDep), warn: true, island: 'Departs', next: 'Too late at your walking pace' });
+      Object.assign(out, { phase: 'departs', title: 'Departs in', until: sec(row.firstDep), warn: true, island: 'Departs', sub: firstVehicleLine(row, nowMs), next: `Arrive ~${t(row.eta)}` });
       break;
     default: {
       const first = row.legs[0];
@@ -2574,34 +2579,39 @@ export const WIDGET_HORIZON_MIN = 120; // entries this far ahead; past them: "Op
 export const WIDGET_REFRESH_MIN = 10; // the reload asked of iOS (sooner at the next leave-by)
 
 // The widget's timeline from the shown trip's rows (upcoming; next-day ones marked `nextDay`).
-// `rows`: one line per row (the medium size lists the entry's row and the next two). `entries`:
-// what each size shows from `at` (Unix seconds) on, `row` its row (-1: none); the countdowns
-// ("in 9 min", rounded down like the page's) change by entry, one a minute. Per row: more than
-// LEAVE_CARD_EARLY_MIN before the leave-by the time only ("No more today" for a next-day row),
-// then the countdown, "Leave now" until the last chance, "Departs in" until the departure, then
-// the next row. The circular size: "38m" (or the time, "now") over the vehicle ("Bus 132") in
-// a ring, `ring` full an hour before the leave-by and empty at it (-1: none).
-// `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`: when to
-// ask again. `tripName` null: no trips.
+// `rows`: one line per row, its leave-by time (the medium size lists the entry's row and the next
+// two). `entries`: what each size shows from `at` (Unix seconds) on, `row` its row (-1: none); the
+// countdowns ("in 9 min", rounded down like the page's) change by entry, one a minute. Per row:
+// "Leave 7:42am" (with "in 9 min" from LEAVE_CARD_EARLY_MIN before), "Leave now" until the last
+// chance, "Departs in" until the departure, then the next row. Times follow CLAUDE.md "UI rules":
+// the leave-by, then from the leave-by on the departure (`line` "Bus 132 at 7:48am", `rowTime`
+// the first row's time, amber), counted down to. `head`/`headCount`: the medium size's header,
+// the countdown only ("Leave in 9 min"; the rows carry the times). The circular size: "38m" (or
+// the time, "now") over the vehicle ("Bus 132") in a ring, `ring` full an hour before the
+// leave-by and empty at it (-1: none).
+// `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`: when to ask again
+// (also at each leave-by and last chance, so the late phases get fresh times). `tripName` null:
+// no trips.
 export function widgetView(tripName, rows, nowMs) {
   const sec = ms => Math.round(ms / 1000);
   const t = ms => formatTime(ms, nowMs);
   const horizon = nowMs + WIDGET_HORIZON_MIN * MIN;
+  const deps = rows.map(r => legTime(r.legs[0], r.firstDep, nowMs));
   const lines = rows.map(r => {
     const first = r.legs[0];
     const approx = r.legs.some(l => l.every) ? '~' : '';
     return {
-      time: legTime(first, r.firstDep, nowMs), vehicle: lineLabel(first), short: vehicleLabel(first), color: first.color ?? '', label: islandLabel(first),
-      line: `${lineLabel(first)} at ${legTime(first, r.firstDep, nowMs)}`, arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
+      time: t(r.leaveBy), vehicle: lineLabel(first), short: vehicleLabel(first), color: first.color ?? '', label: islandLabel(first),
+      line: lineLabel(first), arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
     };
   });
   const view = { name: tripName ?? '', rows: lines, entries: [], end: null, refresh: sec(nowMs + WIDGET_REFRESH_MIN * MIN) };
   const empty = (title, next = '') => ({ row: -1, title, count: '', warn: false, next, lock: title, lockSub: next, inline: title, circle: '–', circleSub: '', ring: -1 });
   if (tripName == null) { view.entries.push({ at: sec(nowMs), ...empty('Set up a trip in T-Minus') }); return view; }
   const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, circleSub: lines[i].short, ring: 0, ...e });
-  // One entry a minute from `from` to `to`, counting down to `to`.
-  const countdown = (from, to, i, make) => {
-    for (let at = from; at < to && at < horizon;) {
+  // One entry a minute from `from` until `until`, counting down to `to`.
+  const countdown = (from, until, to, i, make) => {
+    for (let at = from; at < until && at < horizon;) {
       const n = Math.floor((to - at) / MIN);
       add(at, i, make(`in ${formatCountdown(to - at)}`, `${n || '<1'}m`, Math.min(1, (to - at) / (LEAVE_CARD_EARLY_MIN * MIN))));
       at = to - n * MIN + 1000; // a second after it drops (the widget's times are whole seconds)
@@ -2614,28 +2624,32 @@ export function widgetView(tripName, rows, nowMs) {
     const L = lines[i];
     const label = L.label;
     const leave = `Leave ${t(r.leaveBy)}`;
+    const lineAt = `${L.line} at ${deps[i]}`;
+    const late = { warn: true, next: L.arriveTitle, lockSub: lineAt, line: lineAt, rowTime: deps[i] };
     const countFrom = r.leaveBy - LEAVE_CARD_EARLY_MIN * MIN + 1000; // from "in 59 min"
-    if (start < countFrom) {
-      if (r.nextDay) add(start, i, { ...empty('No more today', `First ${formatTime(r.leaveBy)}`), row: -1 });
-      else add(start, i, { title: leave, count: '', next: L.arriveTitle, lock: leave, lockSub: L.line, inline: `${label} ${leave}`, circle: formatTime(r.leaveBy).replace(/[ap]m$/, ''), ring: -1 });
+    if (r.nextDay && start < countFrom) add(start, i, { ...empty('No more today', `First ${formatTime(r.leaveBy)}`), row: -1 });
+    else {
+      countdown(start, countFrom, r.leaveBy, i, count => ({
+        title: leave, count: '', head: `Leave ${count}`, next: L.arriveTitle, lock: leave, lockSub: L.line, inline: `${label} ${leave}`,
+        circle: formatTime(r.leaveBy).replace(/[ap]m$/, ''), ring: -1,
+      }));
     }
-    countdown(Math.max(start, countFrom), r.leaveBy, i, (count, n, ring) => ({
-      title: leave, count, next: L.arriveTitle, lock: leave, lockSub: `${count} · ${L.vehicle}`, inline: `${label} ${leave}`, circle: n, ring,
+    countdown(Math.max(start, countFrom), r.leaveBy, r.leaveBy, i, (count, n, ring) => ({
+      title: leave, count, head: `Leave ${count}`, next: L.arriveTitle, lock: leave, lockSub: `${count} · ${L.vehicle}`, inline: `${label} ${leave}`, circle: n, ring,
     }));
-    if (Math.max(start, r.leaveBy) < r.lastChance) {
-      const last = `Last chance ${t(r.lastChance)}`;
-      add(Math.max(start, r.leaveBy), i, { title: 'Leave now', count: last, warn: true, next: L.arriveTitle, lock: 'Leave now', lockSub: last, inline: `${label} Leave now`, circle: 'now' });
-    }
-    countdown(Math.max(start, r.lastChance), r.firstDep, i, (count, n) => ({
-      title: 'Departs', count, warn: true, next: 'Too late at your pace', lock: `Departs ${count}`, lockSub: L.line, inline: `${label} Departs ${count}`, circle: n,
+    countdown(Math.max(start, r.leaveBy), r.lastChance, r.firstDep, i, count => ({
+      ...late, title: 'Leave now', count: `departs ${count}`, head: 'Leave now', headCount: `departs ${count}`, lock: 'Leave now', inline: `${label} Leave now`, circle: 'now',
+    }));
+    countdown(Math.max(start, r.lastChance), r.firstDep, r.firstDep, i, (count, n) => ({
+      ...late, title: 'Departs', count, head: `Departs ${count}`, lock: `Departs ${count}`, inline: `${label} Departs ${count}`, circle: n,
     }));
     start = Math.max(start, r.firstDep);
     end = start;
   });
   if (!view.entries.length) view.entries.push({ at: sec(nowMs), ...empty('No more today') });
   else view.end = sec(Math.min(end ?? horizon, horizon));
-  const nextLeave = rows.map(r => r.leaveBy).find(x => x > nowMs);
-  if (nextLeave != null) view.refresh = sec(Math.min(nowMs + WIDGET_REFRESH_MIN * MIN, nextLeave));
+  const nextChange = rows.flatMap(r => [r.leaveBy, r.lastChance]).filter(x => x > nowMs).sort((a, b) => a - b)[0];
+  if (nextChange != null) view.refresh = sec(Math.min(nowMs + WIDGET_REFRESH_MIN * MIN, nextChange));
   return view;
 }
 

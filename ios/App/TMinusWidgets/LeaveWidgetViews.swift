@@ -12,6 +12,7 @@ private extension LeaveContent {
     var next: String { entry == nil ? "for new times" : entry!.next }
     var warn: Bool { entry?.warn ?? false }
     var firstRow: WidgetView.Row? { rows.first }
+    var headCount: String? { entry?.head == nil ? entry?.count : entry?.headCount }
 }
 
 struct LeaveWidgetView: View {
@@ -44,7 +45,7 @@ private struct SmallLeave: View {
             if let row = content.firstRow {
                 HStack(spacing: 5) {
                     RouteDot(hex: row.color, size: 8)
-                    Text(row.line).lineLimit(1).minimumScaleFactor(0.8)
+                    Text(content.entry?.line ?? row.line).lineLimit(1).minimumScaleFactor(0.8)
                 }
                 .font(.caption).foregroundStyle(th.text)
             }
@@ -54,7 +55,9 @@ private struct SmallLeave: View {
     }
 }
 
-// The entry's header, then its row and the next two in one format: departure, route, arrival.
+// The countdown ("Leave in 9 min"), then the entry's row and the next two in one format: leave-by
+// (the first row's departure, amber, past it), route, arrival. Answers without `head`: the
+// small size's title and count.
 private struct MediumLeave: View {
     let content: LeaveContent
     @Environment(\.colorScheme) private var scheme
@@ -64,8 +67,8 @@ private struct MediumLeave: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(content.title).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
-                if let count = content.entry?.count, !count.isEmpty { Text(count).font(.subheadline.weight(.semibold)).lineLimit(1) }
+                Text(content.entry?.head ?? content.title).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
+                if let count = content.headCount, !count.isEmpty { Text(count).font(.subheadline.weight(.semibold)).lineLimit(1) }
             }
             .foregroundStyle(tint)
             Spacer(minLength: 0)
@@ -75,9 +78,11 @@ private struct MediumLeave: View {
                 Rectangle().fill(th.track).frame(height: 1).padding(.bottom, 4)
                 // A grid: the time column as wide as its widest time ("10:22am"; a fixed width cut it).
                 Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
-                    ForEach(Array(content.rows.enumerated()), id: \.offset) { _, row in
+                    ForEach(Array(content.rows.enumerated()), id: \.offset) { i, row in
+                        let late = i == 0 ? content.entry?.rowTime : nil
                         GridRow {
-                            Text(row.time).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
+                            Text(late ?? row.time).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
+                                .foregroundStyle(late == nil ? th.text : th.amber)
                             HStack(spacing: 6) {
                                 RouteDot(hex: row.color, size: 8)
                                 Text(row.vehicle).font(.subheadline).lineLimit(1)

@@ -407,7 +407,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-26 · 20ab2859ae</footer>
+    <footer class="version">Version 2026-10-27 · c5a9a56f7a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -430,8 +430,8 @@ import {
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=5d6a0c1a45';
-import { openSetup } from './setup.js?v=b61f5c4dc1';
+} from './core.js?v=4da76b8530';
+import { openSetup } from './setup.js?v=b127babc76';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -876,10 +876,10 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   const departs = state === 'missed' && r.firstDep > now;
   const li = el('li', `row ${state}${departs ? ' departs' : ''}${isCatch ? ' catch' : ''}${tracked ? ' tracked' : ''}`);
   const head = el('div', 'big');
-  // Red counts down to (and shows) the last chance; leave-by has already passed. Missed and
-  // en route count to/from the first departure.
-  const firstLeg = state === 'missed' || state === 'enroute' || prev;
-  const target = state === 'red' ? r.lastChance : firstLeg ? r.firstDep : r.leaveBy;
+  // The leave-by until it passes, then the first departure (CLAUDE.md "UI rules"): red, missed
+  // and en route count to/from it.
+  const firstLeg = state === 'red' || state === 'missed' || state === 'enroute' || prev;
+  const target = firstLeg ? r.firstDep : r.leaveBy;
   const key = prev ? `prev:${r.key}` : rowKey(r);
   const reminder = prev ? null : reminderFor(r);
   const label = countdownLabel(prev ? 'missed' : state, target - now, vehicleLabel(r.legs[0]));
@@ -1664,7 +1664,9 @@ function render() {
     const p = r.missed && r.firstDep <= now ? prev.find(p => p.key === r.legs[0].tripId) : null;
     return p && prevOpen ? [] : [renderRow(r, now, r === catchRow, pinnedKey, p)];
   }).filter(Boolean);
-  announceLeaveState(current.find(r => rowState(now, r) !== 'hidden'), now);
+  const next = current.find(r => rowState(now, r) !== 'hidden');
+  announceLeaveState(next, now);
+  widgetNext = next ? [next.leaveBy, next.firstDep, next.eta].map(ms => Math.floor(ms / 60_000)).join('/') : null;
   const top = prev.length ? [listButton(prevOpen ? 'Hide previous rides ▴' : 'Show previous rides ▾', 'prev', () => { prevOpen = !prevOpen; render(); }),
     ...(prevOpen ? prev.map(r => renderRow(r, now, false, null, null, true)) : [])] : [];
   const more = current.length && currentRows(now, s, extraRows + 4).length > current.length
@@ -1740,8 +1742,7 @@ function announceLeaveState(r, now) {
   const state = rowState(now, r);
   const key = `${tripIdx}/${rowKey(r)}`;
   if (lastLeave?.key === key && lastLeave.state !== state) {
-    const firstLeg = state === 'missed' || state === 'enroute';
-    const target = state === 'red' ? r.lastChance : firstLeg ? r.firstDep : r.leaveBy;
+    const target = state === 'red' || state === 'missed' || state === 'enroute' ? r.firstDep : r.leaveBy;
     announce(`${countdownLabel(state, target - now, vehicleLabel(r.legs[0]))} · ${formatTime(target, now)}`);
   }
   lastLeave = { key, state };
@@ -2011,14 +2012,22 @@ let wakeWanted = false;
 let wakeRequesting = false;
 let nativeAwake = false; // the iOS app: what TMinus.keepAwake was last told
 // The iOS app's widget (IOS.md): its request (the trips and the trip choice's inputs) in the
-// shared keychain, rewritten when it changes; the widget sends it to /api/widget. Builds without
-// TMinus.widgetSave: nothing written, nothing logged; a failed write is logged (once per change).
-let widgetSent = null;
+// shared keychain, rewritten (and the widget reloaded) when it changes, when the shown next ride's
+// times change to the minute (`widgetNext`, from the last render), and on each return to the app,
+// so the widget shows the app's answer (CLAUDE.md "UI rules"); the widget sends it to /api/widget.
+// Builds without TMinus.widgetSave: nothing written, nothing logged; a failed write is logged
+// (once per change).
+let widgetSent = null; // { body, next }; `next` null: not known yet (the baseline is taken without a write)
+let widgetNext = null;
 function syncWidget() {
   if (typeof plugins.TMinus?.widgetSave !== 'function') return;
   const body = JSON.stringify(widgetRequest(config, oneOff?.at ?? null, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP)));
-  if (body === widgetSent) return;
-  widgetSent = body;
+  const moved = widgetSent?.next != null && widgetNext != null && widgetNext !== widgetSent.next;
+  if (body === widgetSent?.body && !moved) {
+    widgetSent.next ??= widgetNext;
+    return;
+  }
+  widgetSent = { body, next: moved ? widgetNext : null }; // another request: its next ride from the next render
   Promise.resolve().then(() => plugins.TMinus.widgetSave({ body })).catch(e => nativeLog('widget', e.message));
 }
 function syncWakeLock(want) {
@@ -2280,6 +2289,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) clearTimeout(pollTimer);
   else {
     checkForUpdate();
+    widgetSent = null; // the widget may have fallen behind
     if (!setupView) { refresh(); locate(); }
   }
 });

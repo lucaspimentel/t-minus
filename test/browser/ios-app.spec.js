@@ -146,7 +146,7 @@ test('the screen stays on through the TMinus plugin, told only when it changes',
   expect(await awake()).toEqual(['keepAwake:true']);
 });
 
-test('the widget\'s request goes to the shared keychain on open and when the trip choice changes, not on every redraw', async ({ page }) => {
+test('the widget\'s request goes to the shared keychain on open, when the trip choice or the next ride changes, and on return; not on every redraw', async ({ page }) => {
   await fakeServer(page);
   await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, widget: true });
   await openApp(page, { time: '06:50' });
@@ -160,6 +160,16 @@ test('the widget\'s request goes to the shared keychain on open and when the tri
   await page.locator('#toggle button', { hasText: 'Office to home' }).click();
   await expect.poll(async () => (await bodies()).length).toBe(2);
   expect((await bodies())[1]).toMatchObject({ override: { index: 1 }, lastUsed: 1 });
+  await tick(page, 3000);
+  expect(await bodies()).toHaveLength(2); // the other trip's next ride is a new baseline, not a change
+  // Back in the app: rewritten (reloading the widget), the request unchanged.
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect.poll(async () => (await bodies()).length).toBe(3);
+  expect((await bodies())[2]).toEqual((await bodies())[1]);
+  // The shown next ride changing (the first one left): rewritten too.
+  const n = (await bodies()).length;
+  await tickTo(page, '07:30');
+  await expect.poll(async () => (await bodies()).length).toBeGreaterThan(n);
 });
 
 test('Pending notifications shows the device token and the app log', async ({ page }) => {

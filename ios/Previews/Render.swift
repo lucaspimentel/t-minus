@@ -32,7 +32,7 @@ private let samples: [(String, RideState)] = [
 
 // Leave cards (Phase 3a): Home to office, the 7:48 bus 132.
 private let ahead = legs((bus, 9, 23), (orange, 27, 36))
-private func leave(_ phase: String, _ title: String, until: Double, warn: Bool = false, island: String, sub: String = "Bus 132 toward Malden at 7:48am",
+private func leave(_ phase: String, _ title: String, until: Double, warn: Bool = false, island: String, sub: String = "Bus 132 toward Malden",
                    next: String, soon: Bool = false) -> RideState {
     RideState(phase: phase, warn: warn, color: bus, label: "132", title: title, until: until, stops: -1, sub: sub, next: next, legs: ahead,
               soon: soon, island: island, join: " ")
@@ -43,10 +43,10 @@ private let leaveSamples: [(String, RideState)] = [
     ("Leave in (10-min heads-up)", leave("leave", "Leave in", until: now + 540, island: "Leave", next: "Leave by 7:39am · arrive ~8:25am")),
     ("Leave-by moved", leave("leave", "Leave in", until: now + 360, warn: true, island: "Leave", next: "Leave by 7:36am (was 7:39am)")),
     ("Leave in <1 minute", leave("leave", "Leave in", until: now + 50, island: "Leave", next: "Leave by 7:39am · arrive ~8:25am", soon: true)),
-    ("Leave now", leave("now", "Leave now", until: 0, warn: true, island: "Leave now", next: "Last chance 7:42am")),
-    ("Departs in", leave("departs", "Departs in", until: now + 120, warn: true, island: "Departs", next: "Too late at your walking pace")),
+    ("Leave now", leave("now", "Leave now · departs in", until: now + 420, warn: true, island: "Leave now", sub: "Bus 132 toward Malden at 7:48am", next: "Arrive ~8:25am")),
+    ("Departs in", leave("departs", "Departs in", until: now + 120, warn: true, island: "Departs", sub: "Bus 132 toward Malden at 7:48am", next: "Arrive ~8:25am")),
     ("Missed (the end)", RideState(phase: "gone", warn: true, color: bus, label: "132", title: "Missed · left 7:48am", until: 0, stops: -1,
-                                   sub: "Bus 132 toward Malden at 7:48am", next: "", legs: ahead, island: "", join: " · ")),
+                                   sub: "Bus 132 toward Malden", next: "", legs: ahead, island: "", join: " · ")),
     ("Ride cancelled", RideState(phase: "cancelled", warn: false, color: bus, label: "132", title: "Ride cancelled", until: 0, stops: -1,
                                  sub: "", next: "Open the app for the next one.", legs: ahead, island: "", join: " · ")),
     ("Did you get on? (at the departure)", leave("ask", "Did you get on?", until: 0, island: "Got on?", sub: "Bus 132 toward Malden left at 7:48am", next: "Tap to answer")),
@@ -122,24 +122,29 @@ private struct Sheet: View {
     }
 }
 
-// The leave-times widget (Phase 3b): Home to office, buses 132 at 7:48, 7:54 and 8:06.
+// The leave-times widget (Phase 3b): Home to office, buses 132 at 7:48, 7:54 and 8:06; rows show
+// the leave-by (CLAUDE.md "UI rules").
 private func wrow(_ time: String, _ arrive: String, vehicle: String = "Bus 132", color: String = bus, label: String = "132") -> WidgetView.Row {
-    WidgetView.Row(time: time, vehicle: vehicle, color: color, label: label, line: "\(vehicle) at \(time)", arrive: "arrive \(arrive)", arriveTitle: "Arrive \(arrive)")
+    WidgetView.Row(time: time, vehicle: vehicle, color: color, label: label, line: vehicle, arrive: "arrive \(arrive)", arriveTitle: "Arrive \(arrive)")
 }
-private let wrows = [wrow("7:48am", "8:25am"), wrow("7:54am", "8:37am"), wrow("8:06am", "8:49am")]
+private let wrows = [wrow("7:42am", "8:25am"), wrow("7:48am", "8:37am"), wrow("8:00am", "8:49am")]
 // Wide times (the phone cut "10:22am" to "10:2…" in a fixed-width column).
 private let lateRows = [wrow("10:22am", "11:08am"), wrow("11:22am", "12:04pm"), wrow("12:22pm", "1:04pm")]
 private func went(_ title: String, _ count: String, warn: Bool = false, next: String = "Arrive 8:25am", lock: String? = nil, lockSub: String, inline: String, circle: String,
-                  ring: Double = 0, row: Int = 0) -> WidgetView.Entry {
+                  ring: Double = 0, row: Int = 0, head: String? = nil, headCount: String? = nil, line: String? = nil, rowTime: String? = nil) -> WidgetView.Entry {
     WidgetView.Entry(at: 0, row: row, title: title, count: count, warn: warn, next: next, lock: lock ?? title, lockSub: lockSub, inline: inline, circle: circle,
-                     circleSub: row >= 0 ? "Bus 132" : "", ring: row >= 0 ? ring : -1)
+                     circleSub: row >= 0 ? "Bus 132" : "", ring: row >= 0 ? ring : -1, head: head, headCount: headCount, line: line, rowTime: rowTime)
 }
 private let widgetSamples: [(String, LeaveContent)] = [
-    ("Leave in", LeaveContent(name: "Home → Work", entry: went("Leave 7:42am", "in 9 min", lockSub: "in 9 min · Bus 132", inline: "132 Leave 7:42am", circle: "9m", ring: 9.0 / 60), rows: wrows)),
-    ("Leave now", LeaveContent(name: "Home → Work", entry: went("Leave now", "Last chance 7:45am", warn: true, lockSub: "Last chance 7:45am", inline: "132 Leave now", circle: "now"), rows: wrows)),
-    ("Departs", LeaveContent(name: "Home → Work", entry: went("Departs", "in 2 min", warn: true, next: "Too late at your pace", lock: "Departs in 2 min", lockSub: "Bus 132 at 7:48am", inline: "132 Departs in 2 min", circle: "2m"), rows: wrows)),
+    ("Leave in", LeaveContent(name: "Home → Work", entry: went("Leave 7:42am", "in 9 min", lockSub: "in 9 min · Bus 132", inline: "132 Leave 7:42am", circle: "9m", ring: 9.0 / 60,
+                                                              head: "Leave in 9 min"), rows: wrows)),
+    ("Leave now", LeaveContent(name: "Home → Work", entry: went("Leave now", "departs in 5 min", warn: true, lockSub: "Bus 132 at 7:48am", inline: "132 Leave now", circle: "now",
+                                                               head: "Leave now", headCount: "departs in 5 min", line: "Bus 132 at 7:48am", rowTime: "7:48am"), rows: wrows)),
+    ("Departs", LeaveContent(name: "Home → Work", entry: went("Departs", "in 2 min", warn: true, lock: "Departs in 2 min", lockSub: "Bus 132 at 7:48am", inline: "132 Departs in 2 min", circle: "2m",
+                                                             head: "Departs in 2 min", line: "Bus 132 at 7:48am", rowTime: "7:48am"), rows: wrows)),
     ("An hour+ ahead", LeaveContent(name: "Work → Home", entry: WidgetView.Entry(at: 0, row: 0, title: "Leave 5:12pm", count: "", warn: false, next: "Arrive 6:01pm", lock: "Leave 5:12pm",
-        lockSub: "Orange Line at 5:20pm", inline: "OL Leave 5:12pm", circle: "5:12", circleSub: "Orange", ring: -1), rows: [wrow("5:20pm", "6:01pm", vehicle: "Orange Line", color: orange, label: "OL")])),
+        lockSub: "Orange Line", inline: "OL Leave 5:12pm", circle: "5:12", circleSub: "Orange", ring: -1, head: "Leave in 1h 06m"),
+        rows: [wrow("5:12pm", "6:01pm", vehicle: "Orange Line", color: orange, label: "OL")])),
     ("No more today", LeaveContent(name: "Home → Work", entry: went("No more today", "", next: "First 5:12am", lockSub: "First 5:12am", inline: "No more today", circle: "–", row: -1), rows: [])),
     ("Set up", LeaveContent(name: "", entry: went("Set up a trip in T-Minus", "", next: "", lockSub: "", inline: "Set up a trip in T-Minus", circle: "–", row: -1), rows: [])),
     ("Stale", .stale("Home → Work")),
@@ -162,8 +167,8 @@ private struct WidgetSheet: View {
                     }
                 }
             }
-            Text("Home medium: leave in, departs, no more today, wide times").font(.caption).foregroundStyle(.white)
-            ForEach([0, 2, 4], id: \.self) { i in home(widgetSamples[i].1, .medium, width: 364) }
+            Text("Home medium: leave in, leave now, departs, an hour+ ahead, no more today, wide times").font(.caption).foregroundStyle(.white)
+            ForEach([0, 1, 2, 3, 4], id: \.self) { i in home(widgetSamples[i].1, .medium, width: 364) }
             home(LeaveContent(name: "Home → Office", entry: widgetSamples[0].1.entry, rows: lateRows), .medium, width: 364)
             Text("Lock Screen: inline, rectangular, circular (iOS tints them)").font(.caption).foregroundStyle(.white)
             ForEach([0, 1, 2, 3, 6], id: \.self) { i in

@@ -105,7 +105,7 @@ test('leave-state changes and status problems are announced', async ({ page }) =
   await tickTo(page, '06:59:30');
   await expect(announced).toHaveText('Leave in 2 min · 7:02am');
   await tickTo(page, '07:02:30');
-  await expect(announced).toHaveText('Hurry · <1 min · 7:03am');
+  await expect(announced).toHaveText('Hurry · 5 min · 7:08am');
   mbta.mode = '503';
   await page.locator('#refresh').click();
   await expect(announced).toHaveText('Stale (HTTP 503)');
