@@ -49,12 +49,6 @@ from the server's daily network) and phase 3 (addresses and places) are done.
   (`otherVehicles`, trains that already left). Word the riding one differently (e.g.
   "On a different train?" / "I'm on this one").
 
-- Setup, trip "More": the "Shown from" / "until" time inputs overlap each other and run past the
-  card's right edge on iOS (seen 2026-10-27). `.row2` is `grid-template-columns: 1fr 1fr`, and a
-  `1fr` track's minimum is the content's (iOS Safari's time input has a wide intrinsic width).
-  Fix: `minmax(0, 1fr)` tracks and `min-width: 0; width: 100%` on the inputs; check both themes
-  at phone width.
-
 ## Surface wording follow-ups (seen on the phone 2026-10-27, build 26)
 
 - Widget medium rows cut the headsign ("Orange →…": no room for "Orange → Oak Grove" between the
