@@ -234,7 +234,7 @@ unavailable: fallback, and the status line adds "Location off".
 | Green | `now < leave_by - 3 min` | "Leave in 12 min", leave-by time on the right |
 | Amber | `leave_by - 3 min <= now < leave_by` | "Leave in 2 min" (the color carries the urgency) |
 | Red | `leave_by <= now < last_chance` | "Hurry · 5 min" (to the first departure), first-leg departure on the right (2026-10-27: the leave-by, then the departure, on every surface; CLAUDE.md "UI rules") |
-| Missed | `last_chance <= now < first_leg.departure + 5 min` | Amber "Departs in 2 min" (can no longer be reached at your pace, still to leave; `.departs`, 2026-10-21, like the leave card; screen readers hear the same), then gray "Missed · left 3 min ago"; first-leg departure on the right |
+| Missed | `last_chance <= now < first_leg.departure + 5 min` | Amber "Departs in 2 min" at full size (can no longer be reached at your pace, still to leave; `.departs`, 2026-10-21, like the leave card; screen readers hear the same), then gray and smaller "Missed · left 3 min ago"; first-leg departure on the right |
 | Hidden | `now >= first_leg.departure + 5 min` | Row removed |
 
 A missed row's collapsed line shows the first leg (the one missed) instead of the timing leg.

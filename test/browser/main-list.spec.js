@@ -92,9 +92,11 @@ test('countdown goes green → amber → red → missed, and the missed row leav
   await expect(first).toHaveClass(/\bmissed\b/);
   await expect(first).toHaveClass(/\bdeparts\b/);
   await expect(first.locator('.big')).toContainText('Departs in 4 min');
+  await expect(first.locator('.big')).toHaveCSS('font-size', '28px'); // full size while still to leave
   await tickTo(page, '07:10');
   await expect(first.locator('.big')).toContainText('Missed · left 2 min ago');
   await expect(first).not.toHaveClass(/\bdeparts\b/);
+  await expect(first.locator('.big')).toHaveCSS('font-size', '20px');
   await tickTo(page, '07:13:30');
   await expect(page.locator('.row.missed')).toHaveCount(0);
   await expect(first.locator('.big')).toContainText('7:30am');

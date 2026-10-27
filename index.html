@@ -132,7 +132,8 @@
   }
   .missed .big { color: var(--muted); font-size: 20px; }
   .row.missed.departs { border-left-color: var(--amber); }
-  .missed.departs .big { color: var(--amber); }
+  /* Still to leave (often the ride being headed for): full size; smaller once gone. */
+  .missed.departs .big { color: var(--amber); font-size: 28px; }
   .none .big { color: var(--muted); font-size: 20px; }
   .detail { color: var(--muted); font-size: 14px; }
   .dot {
@@ -409,7 +410,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-27 · f21dadbd00</footer>
+    <footer class="version">Version 2026-10-27 · 62d8d030e0</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
