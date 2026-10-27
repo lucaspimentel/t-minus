@@ -28,6 +28,13 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 - Yes / Missed it buttons on the leave card's "Did you get on?" (App Intents, iOS 17+); today it
   only opens the app.
 
+## Main list
+
+- "Show more rides" can't be undone: "Show previous rides" toggles to "Hide previous rides ▴",
+  but "Show more rides ▾" only adds 4 rows a tap (`extraRows`, `index.html`), with no way back
+  short of switching trips. Add a way to hide the extra rows (e.g. "Show fewer rides ▴" once
+  any are shown); decide whether it removes all extras or 4 at a time.
+
 ## Surface wording follow-ups (seen on the phone 2026-10-27, build 26)
 
 - Widget medium rows cut the headsign ("Orange →…": no room for "Orange → Oak Grove" between the
