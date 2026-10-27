@@ -44,26 +44,28 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
 | Deferred | See `TODO.md` (default times estimated from stop coordinates, commuter rail/ferry) |
 
-## Surface wording (decided 2026-10-27)
+## Surface wording (2026-10-27)
 
 The same ride on every surface follows CLAUDE.md "UI rules". Which time each phase shows (done,
 2026-10-27): the leave-by while there's time to walk; from the leave-by on, or once walking, the
 first vehicle's departure, counted down to (the red row, the widget's "Leave now", the leave
 card's "Leave now · departs in").
 
-Vehicle names and headsigns (decided 2026-10-27; pending, `TODO.md`):
+Vehicle names and headsigns (`lineLabel` + `toward` on full text lines, `vehicleArrow` on tight
+ones):
 
 | Surface | Vehicle | Headsign (first leg) |
 |---|---|---|
 | Notifications (reminders, ride alerts) | "Orange Line" | "toward Malden" |
 | Leave and walk cards (Lock Screen lines) | "Orange Line" | "toward Malden" |
 | Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
-| App card leg strip | "Orange" | "→ Malden" (new) |
-| Widget medium rows, small vehicle line | "Orange" | "→ Malden" (new; long names shrink) |
+| App card leg strip | "Orange" | "→ Malden" |
+| Widget medium rows, small vehicle line | "Orange" | "→ Malden" (long names shrink) |
 | Widget rectangular, inline, circular; Dynamic Island | "Orange" | none |
 
 Later legs keep their headsign in the expanded row only; no headsign: the vehicle alone ("Bus
-132"). Red, Blue and Green follow Orange ("Green Line B" / "Green B").
+132"). Red, Blue and Green follow Orange ("Green Line B" / "Green B"). The Dynamic Island's
+compact badge stays the route's short label ("132", "OL").
 
 Reminder notifications: the heads-ups (10 and 5 min) come before the leave-by, so their body is
 the vehicle and the arrival, "Bus 132 toward Malden · arrive ~8:25am" (moved: "Bus 132 toward
@@ -843,8 +845,10 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     worker is registered in the app, and the Home Screen hints never show.
   - Errors show a toast with Retry.
 - **Push:**
-  - The service worker shows `{ title, body, tag, renotify }`. The body names the first vehicle, its
-    direction and time: "Bus 132 toward Malden at 7:08am" (`reminderText`). The tag is the row key, so a later push
+  - The service worker shows `{ title, body, tag, renotify }`. The body names the first vehicle and
+    its direction, then the arrival before the leave-by ("Bus 132 toward Malden · arrive ~7:57am")
+    or the departure at it ("Leave now": "Bus 132 toward Malden at 7:08am"; `reminderText`,
+    "Surface wording"). The tag is the row key, so a later push
     for the same ride replaces the earlier one.
   - **Updates (`UPDATE_MIN` = 2):** a sent notification is re-sent with its tag when its time
     moves 2+ min from the one it showed (smaller moves are prediction jitter), with the old time:
@@ -986,9 +990,9 @@ service on Railway (`server/`), which also serves the app (see Hosting).
       `headsUp` (the 5-min one; `remHeadsUps`).
     - "Leave now" goes out at leave-by. All times follow the row as predictions change.
     - After the first heads-up, a leave-by moved 2+ min from the one last sent (`rem.sent`) sends
-      an update with the same tag: "Leave in 7 min · Home to office" / "Bus 132 toward Malden at
-      7:13am · leave by 7:07am (was 7:04am)". A heads-up due after such a move carries the same
-      "· leave by … (was …)".
+      an update with the same tag: "Leave in 7 min · Home to office" / "Bus 132 toward Malden ·
+      leave by 7:07am (was 7:04am)". A heads-up due after such a move carries the same
+      "· leave by … (was …)" instead of the arrival.
     - A row missing 3 polls in a row (cancelled, or the connection no longer works) sends "Ride
       cancelled" and ends the reminder. MBTA errors don't count; they retry in 20 s.
     - A reminder 5 min past leave-by with no row just expires (`MISSED_MINUTES`; never after
@@ -1403,15 +1407,15 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   minute (rounded down like the page's; iOS's own countdown formats can't say "9 min"); "Leave
   now" / "departs in 5 min" (amber) until the last chance; "Departs" / "in 2 min" (amber) until
   the departure; then the next row. Past the leave-by the vehicle line gets the departure ("Bus
-  132 at 7:48am") and the medium's first row shows it in amber. Entries run 2 h ahead at most;
+  132 → Malden at 7:48am") and the medium's first row shows it in amber. Entries run 2 h ahead at most;
   past the last one (`end`), "Open T-Minus" / "for new times". No trips: "Set up a trip in
   T-Minus"; no rows: "No more today".
-- **Sizes:** small: the trip name, the title and countdown, the first vehicle ("Bus 132") and
+- **Sizes:** small: the trip name, the title and countdown, the first vehicle ("Bus 132 → Malden") and
   the arrival; medium: the countdown only (`head`: "Leave in 9 min", "Leave in 1h 06m" an hour+
   out, "Leave now · departs in 5 min", "Departs in 2 min"; the leave-by isn't repeated), then the
-  entry's row and the next two in one format (leave-by, route, "arrive 8:37am"; "~" on a headway
+  entry's row and the next two in one format (leave-by, "Bus 132 → Malden", "arrive 8:37am"; "~" on a headway
   estimate; build 25 shows the small's title and count instead); rectangular: the name, "Leave
-  7:42am", "in 9 min · Bus 132" (past the leave-by: "Bus 132 at 7:48am"); inline: "132 Leave 7:42am" (the time, not the
+  7:42am", "in 9 min · Bus 132" (past the leave-by: "Bus 132 at 7:48am"; no headsign); inline: "132 Leave 7:42am" (the time, not the
   countdown); circular (2026-10-26, after the phone showed a bare "38 / 132"): "38m" over "Bus
   132" ("Orange" for the Orange Line) in a ring, open at the bottom like the system's gauge, full
   an hour before the leave-by and empty at it (drawn by hand so the previews show it); the time

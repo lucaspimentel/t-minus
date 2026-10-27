@@ -11,7 +11,7 @@ import {
   reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, stopCountTrip, stopCountText, rideLine,
   legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
-  lineLabel, toward, withoutArrived, stopConnections,
+  lineLabel, toward, vehicleArrow, withoutArrived, stopConnections,
   shownTrip, widgetRequest, widgetRequestError, scheduleTimingLeg, widgetView, WIDGET_HORIZON_MIN,
   leavePhase, leaveActivityState, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, LEAVE_CARD_EARLY_MIN, LEAVE_CARD_MAX_MIN, leaveCardEarly, leaveStartText, firstVehicleLine,
 } from '../core.js';
@@ -1680,12 +1680,15 @@ test('headsUpsDue, reminderText, reminderPollMs', () => {
   assert.deepEqual(headsUpsDue(at('07:14'), at('07:03')), [10, 5]);
   assert.deepEqual(headsUpsDue(at('07:14'), at('07:06')), [5]);
   assert.deepEqual(headsUpsDue(at('07:14'), at('07:09')), []);
-  const row = { leaveBy: at('07:14'), legs: [{ label: 'Bus 132', dep: at('07:20') }] };
-  assert.deepEqual(reminderText('headsUp', 'Home to office', row, at('07:09')), { title: 'Leave in 5 min · Home to office', body: 'Bus 132 at 7:20am' });
-  assert.deepEqual(reminderText('headsUp', 'Home to office', row, at('07:09'), at('07:11')), { title: 'Leave in 5 min · Home to office', body: 'Bus 132 at 7:20am · leave by 7:14am (was 7:11am)' });
+  const row = { leaveBy: at('07:14'), eta: at('07:58'), legs: [{ label: 'Bus 132', dep: at('07:20') }] };
+  // Before the leave-by: the vehicle and the arrival, not the departure (CLAUDE.md "UI rules").
+  assert.deepEqual(reminderText('headsUp', 'Home to office', row, at('07:09')), { title: 'Leave in 5 min · Home to office', body: 'Bus 132 · arrive 7:58am' });
+  assert.equal(reminderText('headsUp', 'Home to office', { ...row, eta: undefined }, at('07:09')).body, 'Bus 132');
+  assert.equal(reminderText('headsUp', 'Home to office', { ...row, legs: [{ ...row.legs[0], every: 6 }] }, at('07:09')).body, 'Bus 132 · arrive ~7:58am');
+  assert.deepEqual(reminderText('headsUp', 'Home to office', row, at('07:09'), at('07:11')), { title: 'Leave in 5 min · Home to office', body: 'Bus 132 · leave by 7:14am (was 7:11am)' });
   assert.deepEqual(reminderText('leave', 'Home to office', row, at('07:14')), { title: 'Leave now · Home to office', body: 'Bus 132 at 7:20am' });
   assert.deepEqual(reminderText('update', 'Home to office', { ...row, leaveBy: at('07:12') }, at('07:10'), at('07:14')),
-    { title: 'Leave in 2 min · Home to office', body: 'Bus 132 at 7:20am · leave by 7:12am (was 7:14am)' });
+    { title: 'Leave in 2 min · Home to office', body: 'Bus 132 · leave by 7:12am (was 7:14am)' });
   assert.deepEqual(reminderText('cancelled', 'Home to office', null, at('07:00')), { title: 'Ride cancelled · Home to office', body: 'Open the app for the next one.' });
   assert.equal(reminderPollMs(at('07:30'), at('07:00')), 60_000);
   assert.equal(reminderPollMs(at('07:15'), at('07:00')), 20_000);
@@ -1706,6 +1709,10 @@ test('headsigns: from included trips onto vehicles, legs, outlook and push text'
   assert.equal(onVehicle({ label: 'Orange', headsign: 'Forest Hills' }, vs[1]).headsign, 'Ruggles');
   assert.equal(toward({ headsign: 'Forest Hills' }), 'toward Forest Hills');
   assert.equal(toward({}), '');
+  assert.equal(vehicleArrow({ label: 'Bus 132', headsign: 'Malden' }), 'Bus 132 → Malden');
+  assert.equal(vehicleArrow({ label: 'Orange' }), 'Orange');
+  assert.equal(vehicleArrow({ label: 'Green B/C', routeLabels: { 'Green-B': 'Green B' }, vehicleRoute: 'Green-B', headsign: 'Boston College' }), 'Green B → Boston College');
+  assert.equal(vehicleArrow({ label: 'Green', headsign: 'Boston College' }, 'Green'), 'Green → Boston College');
   const leg = { label: 'Orange', headsign: 'Forest Hills', dep: at('07:32') };
   assert.equal(outlookText({ legs: [leg], leg: 0, margin: 5 * MIN }, {}, at('07:20')).text, 'Then Orange Line toward Forest Hills 7:32am · 5 min to spare');
   assert.equal(outlookText({ legs: [leg], leg: 0, margin: 5 * MIN }, {}, at('07:20'), { transfer: true }).text, 'Toward Forest Hills · 5 min to spare');
@@ -2304,7 +2311,8 @@ test('widgetView: per-minute countdowns, leave now, departs, the next row; early
   const now = at('07:29') + 30_000;
   const v = widgetView('Home → Work', [row('07:39', '07:42', '07:48', '08:25'), row('07:51', '07:54', '08:00', '08:37')], now);
   // Rows: the leave-by (CLAUDE.md "UI rules").
-  assert.deepEqual(v.rows[0], { time: '7:39am', vehicle: 'Bus 132', short: 'Bus 132', color: 'FFC72C', label: '132', line: 'Bus 132', arrive: 'arrive 8:25am', arriveTitle: 'Arrive 8:25am' });
+  // The vehicle with its headsign (the tight form, CLAUDE.md "UI rules").
+  assert.deepEqual(v.rows[0], { time: '7:39am', vehicle: 'Bus 132 → Malden', short: 'Bus 132', color: 'FFC72C', label: '132', line: 'Bus 132 → Malden', arrive: 'arrive 8:25am', arriveTitle: 'Arrive 8:25am' });
   const when = (hhmm, s = 0) => (at(hhmm) + s * 1000) / 1000;
   const shown = sec => v.entries.filter(e => e.at <= sec).at(-1);
   const pick = e => [e.row, e.title, e.count, e.warn, e.lockSub, e.inline, e.circle, e.circleSub, e.ring];
@@ -2316,9 +2324,9 @@ test('widgetView: per-minute countdowns, leave now, departs, the next row; early
   assert.deepEqual(pick(shown(when('07:38', 30))), [0, 'Leave 7:39am', 'in <1 min', false, 'in <1 min · Bus 132', '132 Leave 7:39am', '<1m', 'Bus 132', 59 / 3600]);
   // Past the leave-by: the departure, counted down to.
   assert.deepEqual(pick(shown(when('07:40', 30))), [0, 'Leave now', 'departs in 7 min', true, 'Bus 132 at 7:48am', '132 Leave now', 'now', 'Bus 132', 0]);
-  assert.deepEqual(medium(shown(when('07:40', 30))), ['Leave now', 'departs in 7 min', 'Bus 132 at 7:48am', '7:48am', 'Arrive 8:25am']);
+  assert.deepEqual(medium(shown(when('07:40', 30))), ['Leave now', 'departs in 7 min', 'Bus 132 → Malden at 7:48am', '7:48am', 'Arrive 8:25am']);
   assert.deepEqual(pick(shown(when('07:43', 10))), [0, 'Departs', 'in 4 min', true, 'Bus 132 at 7:48am', '132 Departs in 4 min', '4m', 'Bus 132', 0]);
-  assert.deepEqual(medium(shown(when('07:43', 10))), ['Departs in 4 min', undefined, 'Bus 132 at 7:48am', '7:48am', 'Arrive 8:25am']);
+  assert.deepEqual(medium(shown(when('07:43', 10))), ['Departs in 4 min', undefined, 'Bus 132 → Malden at 7:48am', '7:48am', 'Arrive 8:25am']);
   assert.deepEqual(pick(shown(when('07:48'))), [1, 'Leave 7:51am', 'in 3 min', false, 'in 3 min · Bus 132', '132 Leave 7:51am', '3m', 'Bus 132', 3 / 60]);
   assert.equal(v.end, when('08:00'));
   assert.equal(v.refresh, when('07:39')); // the next leave-by, sooner than 10 min
@@ -2327,7 +2335,7 @@ test('widgetView: per-minute countdowns, leave now, departs, the next row; early
 
   // More than an hour ahead: the time, the medium header counting; then the countdown.
   const far = widgetView('Work → Home', [row('17:12', '17:15', '17:20', '18:01', { legs: [{ ...leaveRow().legs[1], dep: at('17:20') }] })], at('15:58'));
-  assert.deepEqual(pick(far.entries[0]), [0, 'Leave 5:12pm', '', false, 'Orange Line', 'OL Leave 5:12pm', '5:12', 'Orange', -1]);
+  assert.deepEqual(pick(far.entries[0]), [0, 'Leave 5:12pm', '', false, 'Orange', 'OL Leave 5:12pm', '5:12', 'Orange', -1]);
   assert.equal(far.entries[0].head, 'Leave in 1h 14m');
   const farAt = sec => far.entries.filter(e => e.at <= sec).at(-1);
   assert.deepEqual([farAt(when('16:00', 30)).head, farAt(when('16:00', 30)).count], ['Leave in 1h 11m', '']);

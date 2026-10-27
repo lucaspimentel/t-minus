@@ -461,7 +461,7 @@ test('a leg with several routes is labeled by what they share, each vehicle by i
   ] };
   await openApp(page, { time: '06:40', config, scenario });
   const rows = page.locator('.row');
-  await expect(rows.first().locator('.strip')).toHaveText(/^\s*Green\s*$/);
+  await expect(rows.first().locator('.strip')).toHaveText(/^\s*Green( → \S.*)?\s*$/); // the shared label, with the headsign when known
   const greenB = rows.filter({ hasText: '6:49am' }); // leave-by for the 6:55 B
   await greenB.click();
   await expect(greenB.locator('.timeline .step.ride')).toContainText('Green Line B · 1 stop · 2 min');

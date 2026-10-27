@@ -144,7 +144,7 @@ test('a reminder sends heads-ups at 10 and 5 min, then "Leave now", asks at the 
     s.world.clock = at('06:54');
     await s.app.tick();
     assert.deepEqual(s.sent.map(p => p.title), ['Leave in 10 min · Home to office']);
-    assert.equal(s.sent[0].body, '132 toward Malden at 7:10am'); // the fixture has no labels; the headsign is included
+    assert.equal(s.sent[0].body, '132 toward Malden · arrive 8:00am'); // the fixture has no labels; the headsign is included
     assert.equal(s.sent[0].tag, 'o1');
     assert.equal(s.store.all()[0].nextPollAt, at('06:54') + 20_000);
     s.world.clock = at('06:58') + 50_000;
@@ -203,7 +203,7 @@ test('after the heads-up, a leave-by moved 2+ min updates it (same tag; quiet wh
     s.world.bus = '07:13';
     s.world.clock = at('07:00');
     await s.app.tick();
-    assert.deepEqual(s.sent.at(-1), { kind: 'update', title: 'Leave in 7 min · Home to office', body: '132 toward Malden at 7:13am · leave by 7:07am (was 7:04am)', tag: 'o1', renotify: false });
+    assert.deepEqual(s.sent.at(-1), { kind: 'update', title: 'Leave in 7 min · Home to office', body: '132 toward Malden · leave by 7:07am (was 7:04am)', tag: 'o1', renotify: false });
     assert.deepEqual(s.store.all()[0].sent, { leaveBy: at('07:07') });
     s.world.clock = at('07:01');
     await s.app.tick();
@@ -281,7 +281,7 @@ test('/api/widget: the shown trip\'s timeline; no trips; bad requests; the MBTA 
     assert.equal(res.status, 200);
     const v = await res.json();
     assert.equal(v.name, trip.name);
-    assert.deepEqual(v.rows.map(r => [r.time, r.vehicle]), [['7:04am', '132']]);
+    assert.deepEqual(v.rows.map(r => [r.time, r.vehicle]), [['7:04am', '132 → Malden']]);
     assert.equal(v.entries[0].at, at('07:00') / 1000);
     assert.equal(v.end, at('07:10') / 1000);
     // The shown trip: the one-off (last) unless another was picked by hand since.
@@ -336,7 +336,7 @@ test('the iOS app: an APNs token is a subscription; its pushes use apnsPush; a d
     const { id } = await res.json();
     s.world.clock = at('06:54');
     await s.app.tick();
-    assert.deepEqual(s.sent, [{ kind: 'headsUp', title: 'Leave in 10 min · Home to office', body: '132 toward Malden at 7:10am', tag: 'o1', apns: apns(1).endpoint, level: 'time-sensitive' }]);
+    assert.deepEqual(s.sent, [{ kind: 'headsUp', title: 'Leave in 10 min · Home to office', body: '132 toward Malden · arrive 8:00am', tag: 'o1', apns: apns(1).endpoint, level: 'time-sensitive' }]);
     // Logged for its "Pending notifications" like a Web Push.
     const p = await (await s.call('POST', '/api/pending', { subscription: apns(1) })).json();
     assert.deepEqual(p.entries.map(e => e.id), [id]);
