@@ -39,6 +39,10 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 - The Dynamic Island said "Leave 40 minutes" while the widget, the leave card and the app said 39:
   possibly the screenshots' timing, possibly iOS's offset format rounding instead of rounding
   down. Check against the previews before changing native code.
+- Drop the headsign from the app card's leg strip ("Orange → Oak Grove — Bus 132" is too busy, and
+  the expanded row already says "toward Oak Grove"): back to "Orange — Bus 132". Update the
+  CLAUDE.md wording rule and the DESIGN.md "Surface wording" table (the strip loses its headsign;
+  revisit the widget's at the same time, see the medium-row item above).
 
 ## Deferred
 
