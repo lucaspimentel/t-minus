@@ -341,7 +341,8 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
     the same way.
   - "Different train?" ("Different bus?" on a bus or Silver Line leg; riding): the leg's other
     vehicles that left in the last 15 min (`otherVehicles`, up to 4, earlier or later than the
-    assumed one); picking one moves the leg to it and re-plans the later legs (`switchLeg`).
+    assumed one; on a later leg only those leaving after the previous leg's arrival, even under
+    the transfer time, as a tight connection is kept; none: no button); picking one moves the leg to it and re-plans the later legs (`switchLeg`).
   - "Missed it" for 2 min after each boarding: on the first leg, back to "At the stop" now; on
     a later leg, that leg's next vehicle (not the missed one) and the earliest connections
     after it (`replanFrom`), or "No later connection." "Cancel trip" ends tracking.

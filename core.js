@@ -2178,9 +2178,11 @@ export function outlookText(outlook, ride, nowMs, { transfer = false } = {}) {
 export const PREVIOUS_MINUTES = 15;
 
 // Vehicles of a leg other than the assumed one that left in the last PREVIOUS_MINUTES (up to 4,
-// the most recent): "Different train?", earlier or later.
-export function otherVehicles(vehicles, leg, nowMs) {
-  return vehicles.filter(v => v.dep <= nowMs && v.dep >= nowMs - PREVIOUS_MINUTES * MIN && v.tripId !== leg.tripId).slice(-4);
+// the most recent): "Different train?", earlier or later. `afterMs`: the previous leg's arrival on
+// a later leg (a vehicle leaving by then couldn't have been caught; one leaving after it, even
+// under the transfer time, could, as in transferOutlook).
+export function otherVehicles(vehicles, leg, nowMs, afterMs = -Infinity) {
+  return vehicles.filter(v => v.dep <= nowMs && v.dep >= nowMs - PREVIOUS_MINUTES * MIN && v.dep > afterMs && v.tripId !== leg.tripId).slice(-4);
 }
 
 // "Different connection?" / "Different bus?" in the transfer: up to 4 vehicles of the next leg

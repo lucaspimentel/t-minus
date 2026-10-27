@@ -34,10 +34,6 @@ from the server's daily network) and phase 3 (addresses and places) are done.
   but "Show more rides ▾" only adds 4 rows a tap (`extraRows`, `index.html`), with no way back
   short of switching trips. Add a way to hide the extra rows (e.g. "Show fewer rides ▴" once
   any are shown); decide whether it removes all extras or 4 at a time.
-- Riding, "Different train?" (`otherVehicles`) offers trains that couldn't have been caught:
-  on the Orange after the 9:37 bus arrival + 8 min transfer, it listed 9:32, 9:37, 9:41. Start
-  the window at the previous leg's arrival + transfer (first leg: the leave-by / boarding
-  question), not just the last 15 min; hide the button when nothing is left.
 - "Keep this train" means two things: in the transfer it closes the next-leg picker
   (`connectionChoices`, later trains); while riding it closes the current-leg correction
   (`otherVehicles`, trains that already left). Word the riding one differently (e.g.

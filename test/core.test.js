@@ -601,6 +601,10 @@ test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
   assert.deepEqual(otherVehicles(buses, leg(buses[0], 'Bus 132'), at('07:39')), []);
   assert.deepEqual(otherVehicles(trains, leg(trains[1], 'Orange'), at('07:37')).map(v => v.tripId), ['o0', 'o2']);
   assert.deepEqual(otherVehicles(trains, leg(trains[1], 'Orange'), at('07:44')).map(v => v.tripId), ['o2']); // o0 left 16 min ago
+  // On a later leg, not before the previous leg's arrival (b1 arrives 07:26): o0 leaves 07:28, kept.
+  assert.deepEqual(otherVehicles(trains, leg(trains[1], 'Orange'), at('07:37'), at('07:26')).map(v => v.tripId), ['o0', 'o2']);
+  assert.deepEqual(otherVehicles(trains, leg(trains[1], 'Orange'), at('07:37'), at('07:28')).map(v => v.tripId), ['o2']);
+  assert.deepEqual(otherVehicles(trains, leg(trains[2], 'Orange'), at('07:37'), at('07:31')), []);
   assert.deepEqual([vehicleNoun(leg(buses[0], 'Bus 132')), vehicleNoun(leg(trains[0], 'Orange')), vehicleNoun({ label: 'Silver SL1' })], ['bus', 'train', 'bus']);
   // Switching re-plans the later legs from the new arrival (07:54 + 5 → o3 at 08:00); the switched
   // leg is the rider's pick, the re-planned ones aren't.
