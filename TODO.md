@@ -51,6 +51,17 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 - The Dynamic Island said "Leave 40 minutes" while the widget, the leave card and the app said 39:
   possibly the screenshots' timing, possibly iOS's offset format rounding instead of rounding
   down. Check against the previews before changing native code.
+- The widget ignores the ride in progress (CLAUDE.md "UI rules": one answer; the departure once
+  walking). Seen 2026-10-27: walking to the 6:15pm Orange, the walk card said "Orange in 6
+  minutes" while the Lock Screen widgets said "Leave 6:32pm · in 23 min" (the next ride); riding
+  it at 6:22, the ride card said "Orange · 5 stops · 10 minutes" while they said "Leave 6:33pm ·
+  in 10 min". Phase 3b chose "ride in progress: no change to the widget"; the rules now say
+  otherwise. Proposal: the widget request carries the en-route / ride state (kind, the row's key,
+  the at-stop time; while riding the tracked legs), rewritten by the app as it changes; the server
+  answers walk entries ("Orange in 6 min" / "At the stop ~6:15pm", circle "6m" over "Orange") and
+  ride entries ("Orange · 5 stops" / "arrive 6:53pm", next step "Then Bus 132 6:38pm"), with the
+  next rides below on the medium size; back to leave times once boarded-and-arrived, cancelled or
+  gone. Server and web only (no build). Grill the ride entries' content first.
 - Drop the headsign from the app card's leg strip ("Orange → Oak Grove — Bus 132" is too busy, and
   the expanded row already says "toward Oak Grove"): back to "Orange — Bus 132". Update the
   CLAUDE.md wording rule and the DESIGN.md "Surface wording" table (the strip loses its headsign;
