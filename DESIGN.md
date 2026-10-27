@@ -1349,13 +1349,13 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   card (as its alerts) while it has its update token; otherwise they are sent as before.
 - **Content** (`leaveActivityState`, `core.js`; mockup accepted 2026-10-20): more than 60 min
   before the leave-by (`'early'`), "Leave at 7:39am" with no countdown, the first vehicle, "Arrive
-  ~8:25am"; moved then: amber "Leave at 7:36am" with "Moved (was 7:39am) · arrive ~8:25am", a
+  8:25am"; moved then: amber "Leave at 7:36am" with "Moved (was 7:39am) · arrive 8:25am", a
   quiet update; at 60 min a quiet update to the countdown. Then "Leave in 9 minutes"
   (counting down to the leave-by, "<1 minute" at the end), the first vehicle ("Bus 132 toward
   Malden"; its departure time only from the leave-by on, 2026-10-27), "Leave by 7:39am · arrive
-  ~8:25am"; a moved leave-by in amber with "Leave by 7:36am (was 7:39am)"; "Leave now · departs in
+  8:25am"; a moved leave-by in amber with "Leave by 7:36am (was 7:39am)"; "Leave now · departs in
   7 minutes" (amber, to the departure) with "Bus 132 toward Malden at 7:48am" and "Arrive
-  ~8:25am"; "Departs in 2 minutes" (amber, to the departure), the same two lines;
+  8:25am"; "Departs in 2 minutes" (amber, to the departure), the same two lines;
   at the departure "Did you get on?" / "Bus 132 toward Malden left at 7:48am" / "Tap to answer"
   (island "Got on?"; tap opens the app), ended when answered or after 30 min. "Ride cancelled"
   / "Open the app for the next one.", dismissed after 2 min. The legs bar shows the trip, empty.
@@ -1366,7 +1366,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 - **Walk card:** "Leaving now" / "At the stop" with the bell mark its reminder `started` (without
   the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Bus 132 in 6
   minutes", "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once there; "2 min late" in
-  amber), "Arrive ~8:25am" (`walkActivityState`), updated by the app while open, no alerts.
+  amber), "Arrive 8:25am" (`walkActivityState`; on both cards "~" only when a leg is a headway estimate), updated by the app while open, no alerts.
   A missed departure turns it into the boarding question (app and server). Boarding ends it just before the ride card starts; Cancel or the vehicle leaving end it. Known
   limit: with the app closed it isn't updated (stale 2 min after its countdown; ended at the next
   open).

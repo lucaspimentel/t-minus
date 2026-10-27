@@ -2468,6 +2468,8 @@ function leaveCardBase(row, nowMs) {
     island: '', join: ' ',
   };
 }
+// A ride's arrival on the leave and walk cards: "~" only when a leg is a headway estimate.
+const etaTime = (row, nowMs) => `${row.legs.some(l => l.every) ? '~' : ''}${formatTime(row.eta, nowMs)}`;
 const withSoon = (out, nowMs) => Object.assign(out, { soon: out.until > 0 && out.until * 1000 - nowMs <= LIVE_SOON_MS });
 // `was`: the leave-by last notified before it moved (amber until the next change).
 export function leaveActivityState(row, nowMs, { was = null } = {}) {
@@ -2479,24 +2481,24 @@ export function leaveActivityState(row, nowMs, { was = null } = {}) {
       if (leaveCardEarly(row.leaveBy, nowMs)) {
         Object.assign(out, {
           phase: 'early', title: `Leave at ${t(row.leaveBy)}`, until: 0, warn: was != null, island: `Leave ${t(row.leaveBy)}`,
-          next: was == null ? `Arrive ~${t(row.eta)}` : `Moved (was ${t(was)}) · arrive ~${t(row.eta)}`,
+          next: was == null ? `Arrive ${etaTime(row, nowMs)}` : `Moved (was ${t(was)}) · arrive ${etaTime(row, nowMs)}`,
         });
         break;
       }
       Object.assign(out, {
         phase: 'leave', title: 'Leave in', until: sec(row.leaveBy), warn: was != null, island: 'Leave',
-        next: was == null ? `Leave by ${t(row.leaveBy)} · arrive ~${t(row.eta)}` : `Leave by ${t(row.leaveBy)} (was ${t(was)})`,
+        next: was == null ? `Leave by ${t(row.leaveBy)} · arrive ${etaTime(row, nowMs)}` : `Leave by ${t(row.leaveBy)} (was ${t(was)})`,
       });
       break;
     // Past the leave-by: the vehicle's departure, counted down to (CLAUDE.md "UI rules").
     case 'now':
       Object.assign(out, {
         phase: 'now', title: 'Leave now · departs in', until: sec(row.firstDep), warn: true, island: 'Leave now',
-        sub: firstVehicleLine(row, nowMs), next: `Arrive ~${t(row.eta)}`,
+        sub: firstVehicleLine(row, nowMs), next: `Arrive ${etaTime(row, nowMs)}`,
       });
       break;
     case 'departs':
-      Object.assign(out, { phase: 'departs', title: 'Departs in', until: sec(row.firstDep), warn: true, island: 'Departs', sub: firstVehicleLine(row, nowMs), next: `Arrive ~${t(row.eta)}` });
+      Object.assign(out, { phase: 'departs', title: 'Departs in', until: sec(row.firstDep), warn: true, island: 'Departs', sub: firstVehicleLine(row, nowMs), next: `Arrive ${etaTime(row, nowMs)}` });
       break;
     default: {
       const first = row.legs[0];
@@ -2519,7 +2521,7 @@ export function walkActivityState(row, enRoute, nowMs) {
   const spare = Math.round((row.firstDep - enRoute.atStop) / MIN);
   const margin = spare < 0 ? `${-spare} min late` : `${spare} min to spare`;
   const sub = enRoute.kind === 'leaving' && nowMs < enRoute.atStop ? `At the stop ~${t(enRoute.atStop)} · ${margin}` : `At the stop since ${t(enRoute.atStop)} · ${margin}`;
-  Object.assign(out, { phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, island: 'Departs', sub, next: `Arrive ~${t(row.eta)}` });
+  Object.assign(out, { phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, island: 'Departs', sub, next: `Arrive ${etaTime(row, nowMs)}` });
   return withSoon(out, nowMs);
 }
 // The leave (or walk) card at the departure of a belled ride: the boarding question, until it's

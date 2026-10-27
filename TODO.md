@@ -48,9 +48,6 @@ from the server's daily network) and phase 3 (addresses and places) are done.
 - Widget medium rows cut the headsign ("Orange →…": no room for "Orange → Oak Grove" between the
   time and the arrival). Options: let the text scale down before truncating (Swift, a build);
   drop the headsign from the medium rows (server); the headsign on the first row only (server).
-- The leave and walk cards put "~" on every arrival ("arrive ~6:52pm" while the widget and the
-  app card say "arrive 6:52pm"); CLAUDE.md "UI rules" keep "~" for headway estimates
-  (`leaveActivityState`, `walkActivityState`).
 - The Dynamic Island said "Leave 40 minutes" while the widget, the leave card and the app said 39:
   possibly the screenshots' timing, possibly iOS's offset format rounding instead of rounding
   down. Check against the previews before changing native code.
