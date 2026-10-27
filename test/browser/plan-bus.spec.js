@@ -90,7 +90,7 @@ test('main screen: a one-off trip from a bus stop has the bus and the train', as
   await pickOption(page);
   await tick(page, 1000);
   await expect(page.locator('#oneoff')).toBeVisible();
-  await expect(page.locator('.row .strip').first()).toHaveText(/Bus 132( → Malden)?\s*Orange/);
+  await expect(page.locator('.row .strip').first()).toHaveText(/Bus 132\s*Orange/);
   await expect(page.locator('.row:not(.missed) .big').first()).toContainText('7:02am'); // the 7:08 bus
 });
 

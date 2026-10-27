@@ -59,7 +59,7 @@ ones):
 | Notifications (reminders, ride alerts) | "Orange Line" | "toward Malden" |
 | Leave and walk cards (Lock Screen lines) | "Orange Line" | "toward Malden" |
 | Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
-| App card leg strip | "Orange" | "→ Malden" |
+| App card leg strip | "Orange" | none (the expanded row has it) |
 | Widget medium rows, small vehicle line | "Orange" | "→ Malden" (long names shrink) |
 | Widget rectangular, inline, circular; Dynamic Island | "Orange" | none |
 

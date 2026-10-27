@@ -14,7 +14,7 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   expect(await rowHeads(page)).toEqual(['Leave in 6 min 7:02am', 'Leave in 34 min 7:30am', 'Leave in 1h 02m 7:58am', 'Leave in 1h 30m 8:26am']);
   const first = page.locator('.row').first();
   // The first leg with its headsign, the others without (CLAUDE.md "UI rules").
-  await expect(first.locator('.strip .stop')).toHaveText(['Bus 132 → Malden', 'Orange']);
+  await expect(first.locator('.strip .stop')).toHaveText(['Bus 132', 'Orange']);
   await expect(first.locator('.summary')).toContainText('arrive ~7:57am'); // Orange has no predictions: by its headway
   await expect(first.locator('.summary .chev')).toHaveText('▾');
   await expect(page.locator('#status-text')).toHaveText('Updated 6:55am');

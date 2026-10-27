@@ -100,7 +100,7 @@ test('main screen: Go somewhere else… makes a one-off trip, kept across reload
   expect(tops).toEqual([...tops].sort((x, y) => x - y));
   await expect(page.locator('#toggle select')).toHaveValue('2');
   await expect(page.locator('#toggle select option:checked')).toHaveText('Oak Grove → State (one-off)');
-  await expect(page.locator('.row .strip').first()).toHaveText(/^\s*Orange( → [\w ]+)?\s*$/);
+  await expect(page.locator('.row .strip').first()).toHaveText(/^\s*Orange\s*$/);
   await expect(page.locator('.row:not(.missed) .big').first()).toContainText('7:02am'); // the 7:08 train, 5-min walk + 1 min early
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips.length)).toBe(2); // not saved
   // Kept across a reload, and shown first.

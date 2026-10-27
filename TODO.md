@@ -79,11 +79,6 @@ from the server's daily network) and phase 3 (addresses and places) are done.
   ride entries ("Orange · 5 stops" / "arrive 6:53pm", next step "Then Bus 132 6:38pm"), with the
   next rides below on the medium size; back to leave times once boarded-and-arrived, cancelled or
   gone. Server and web only (no build). Grill the ride entries' content first.
-- Drop the headsign from the app card's leg strip ("Orange → Oak Grove — Bus 132" is too busy, and
-  the expanded row already says "toward Oak Grove"): back to "Orange — Bus 132". Update the
-  CLAUDE.md wording rule and the DESIGN.md "Surface wording" table (the strip loses its headsign;
-  revisit the widget's at the same time, see the medium-row item above).
-
 ## Deferred
 
 - Default times to/from the stops and transfer times estimated from stop coordinates

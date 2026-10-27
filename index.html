@@ -409,7 +409,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-27 · b9e01bfb28</footer>
+    <footer class="version">Version 2026-10-27 · f21dadbd00</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -430,7 +430,7 @@ import {
   validateConfig, tripShape, commuteEntities, shownTrip, widgetRequest, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
-  unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, vehicleArrow, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
+  unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
 } from './core.js?v=6a53b947c1';
 import { openSetup } from './setup.js?v=0c1a9747ed';
@@ -899,8 +899,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   const lastLeg = r.legs[r.legs.length - 1];
   // The collapsed row's badge: the timing leg's (the first leg's on missed and en-route rows).
   const shown = r.legs[firstLeg ? 0 : r.timingIdx];
-  const stripText = r.legs.map((l, i) => (i === 0 ? vehicleArrow(l, l.label) : l.label)); // the leg strip's (and the name's)
-  const details = [...stripText, sourceText(shown)];
+  const details = [...r.legs.map(l => l.label), sourceText(shown)];
   toggle.setAttribute('aria-label', rowAriaLabel(label, formatTime(target, now), legTime(lastLeg, r.eta, now), !!reminder, details));
   toggle.append(head, ' ');
   li.append(toggle);
@@ -913,10 +912,9 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
     // time. Tap to expand for the legs.
     // Leg strip: the timeline's rail and dots, laid out horizontally.
     const strip = el('div', 'strip');
-    // The first leg with its headsign ("Bus 132 → Malden"; CLAUDE.md "UI rules").
-    for (const [i, leg] of r.legs.entries()) {
+    for (const leg of r.legs) {
       const stop = el('span', 'stop');
-      stop.append(dot(leg.color), stripText[i]);
+      stop.append(dot(leg.color), leg.label);
       strip.append(el('span', 'seg'), stop, ' ');
     }
     strip.append(el('span', 'seg'));
