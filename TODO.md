@@ -40,6 +40,15 @@ from the server's daily network) and phase 3 (addresses and places) are done.
   which suits a ride that left, not the one being caught. Keep the full size for the en-route
   row (and for "Departs in", amber, while the vehicle hasn't left); shrink only once it's gone.
 
+- Riding, "Different train?" (`otherVehicles`) offers trains that couldn't have been caught:
+  on the Orange after the 9:37 bus arrival + 8 min transfer, it listed 9:32, 9:37, 9:41. Start
+  the window at the previous leg's arrival + transfer (first leg: the leave-by / boarding
+  question), not just the last 15 min; hide the button when nothing is left.
+- "Keep this train" means two things: in the transfer it closes the next-leg picker
+  (`connectionChoices`, later trains); while riding it closes the current-leg correction
+  (`otherVehicles`, trains that already left). Word the riding one differently (e.g.
+  "On a different train?" / "I'm on this one").
+
 ## Surface wording follow-ups (seen on the phone 2026-10-27, build 26)
 
 - Widget medium rows cut the headsign ("Orange →…": no room for "Orange → Oak Grove" between the
