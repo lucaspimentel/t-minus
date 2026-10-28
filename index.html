@@ -338,13 +338,18 @@
   .field .item .change { margin-left: auto; color: var(--accent-text); font-size: 14px; }
   .check { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 14px; }
   .setup .check input { width: auto; margin: 0; }
-  /* minmax(0, …) and min-width: 0: iOS Safari's time inputs are wider than half a phone. */
   .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-  .row2 input { min-width: 0; display: block; }
   .setup input, .setup textarea, .setup select {
     width: 100%; font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text);
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px;
   }
+  /* iOS draws time inputs natively at their own width, ignoring width: 100%; without the native
+     appearance they fit the column (the wheel picker still opens). */
+  .setup input[type=time] {
+    -webkit-appearance: none; appearance: none; min-width: 0; display: block;
+    min-height: calc(1.4em + 18px); /* an empty time input collapses without its appearance */
+  }
+  .setup input[type=time]::-webkit-date-and-time-value { text-align: left; }
   .setup textarea { height: 240px; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; margin-top: 8px; }
   .leg-row { display: flex; gap: 6px; margin-top: 12px; }
   .setup .leg-row .leg-item {
@@ -410,7 +415,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-27 · a0bfaa15cd</footer>
+    <footer class="version">Version 2026-10-27 · b19f58a94c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>

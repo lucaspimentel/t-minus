@@ -39,11 +39,6 @@ from the server's daily network) and phase 3 (addresses and places) are done.
   (`otherVehicles`, trains that already left). Word the riding one differently (e.g.
   "On a different train?" / "I'm on this one").
 
-- Setup on iOS (seen 2026-10-28 on a6cb875+, after d015045's fix): the "Shown from" / "until"
-  time inputs still overlap and the "until" input runs past the card. `minmax(0, 1fr)` and
-  `min-width: 0` weren't enough: iOS sizes `input[type=time]` itself, ignoring `width: 100%`.
-  Try `-webkit-appearance: none; appearance: none` on the time inputs (keeps the native picker),
-  or `max-width: 100%`; verify on the phone (Chromium doesn't reproduce it).
 - Setup's sticky header ("Cancel · Edit trip · Save") leaves the status-bar strip above it
   transparent on iOS: scrolled content ("Trip name", the walk minutes) shows behind the clock.
   It sticks at `top: env(safe-area-inset-top)`; cover the inset with the page background (e.g. a
