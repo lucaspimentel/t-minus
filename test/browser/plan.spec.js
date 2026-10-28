@@ -1,8 +1,10 @@
-// Auto-route (station to station on rail): setup's "+ Add trip (auto-route)" opens the pick in the
-// trip editor; the main screen's "Go somewhere else…" makes a one-off trip (a banner: Save, ✕,
-// removed once its ride is over). Stations from the recorded rail network.
+// "Plan a trip" (station to station on rail): setup's "+ Plan a trip" and the main screen's
+// "Plan a trip…" open the same planner; "Save trip" opens the pick in the trip editor, "See
+// departures" (timed options only) makes a one-off trip (a banner: Save, ✕, removed once its ride
+// is over). Stations from the recorded rail network; without the server (unreachable here) the
+// options are untimed.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
+import { openApp, tick, tickTo, at, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -25,7 +27,7 @@ async function pickStation(page, field, query, name) {
 test('setup: auto-route lists the ways between two stations and opens the pick in the trip editor', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await page.locator('#open-setup').click();
-  await button(page, '+ Add trip (auto-route)').click();
+  await button(page, '+ Plan a trip').click();
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'kendall', 'Kendall/MIT');
   await expect(options(page)).toHaveCount(3);
@@ -38,7 +40,9 @@ test('setup: auto-route lists the ways between two stations and opens the pick i
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min', 'Transfer', 'Transfer', 'Walk 5 min']);
   await expect(tl.locator('.step.stop .t, .step.end .t')).toHaveText(['', '', '', '', '', '', '', '']);
   await expect(tl.locator('.badge')).toHaveCount(0);
-  await expect(options(page).nth(1).locator('.row-foot button')).toHaveText('Review and save');
+  // Untimed: "Save trip" only; the request asked for times.
+  await expect(options(page).nth(1).locator('.row-foot button')).toHaveText(['Save trip']);
+  await expect(setup(page)).toContainText('Pick one to save it');
   await options(page).nth(1).locator('.row-toggle').click(); // collapses
   await expect(options(page).nth(1).locator('.timeline')).toHaveCount(0);
   // Change a station: the search comes back for it.
@@ -61,41 +65,50 @@ test('setup: auto-route lists the ways between two stations and opens the pick i
     ['transit', 'Red', 'place-dwnxg', 'place-knncl'], ['walk', 7, undefined, undefined]]);
 });
 
-test('setup: no way within 2 transfers says so; the manual button still builds a trip by hand', async ({ page }) => {
+test('setup: no way within 2 transfers says so; "Build it by hand" opens an empty trip', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await page.locator('#open-setup').click();
-  await button(page, '+ Add trip (auto-route)').click();
+  await button(page, '+ Plan a trip').click();
   await pickStation(page, 'from', 'mattapan', 'Mattapan');
   await pickStation(page, 'to', 'wonderland', 'Wonderland');
   await expect(setup(page)).toContainText('No way on the subway with 2 transfers or fewer.');
-  await button(page, 'Cancel').click();
-  await button(page, '+ Add trip (manual)').click();
+  await button(page, 'Build it by hand').click();
   await expect(setup(page).locator('.legs-empty')).toContainText('No legs yet.');
+  await button(page, 'Cancel').click(); // back to the setup list
+  await expect(button(page, '+ Plan a trip')).toBeVisible();
 });
 
 // The one-off: Oak Grove → State on the Orange Line (the commute's Orange runs every 6 min from
-// 5:20, 15 min to State); 5-min walks.
+// 5:20, 15 min to State); 5-min walks. The server's timed answer is stubbed ("See departures" needs
+// times).
+const TIMED_OAK_STATE = () => ({ from: 'Oak Grove', to: 'State', timed: true, options: [{
+  legs: [{ route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state', stopName: 'Oak Grove', alightName: 'State', stops: 8 }],
+  transfers: [], minutes: 15, walkBefore: 0, walkAfter: 0, leave: at('07:02'), arrive: at('07:28'),
+  deps: [{ dep: at('07:08'), arr: at('07:23'), source: 'scheduled' }],
+}] });
 async function goSomewhere(page) {
-  await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+  await page.route(/\/api\/plan\?/, route => route.fulfill({ json: TIMED_OAK_STATE() }));
+  await page.getByRole('button', { name: 'Plan a trip…' }).click();
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
-  await pickOption(page);
+  await expect(setup(page)).toContainText('Pick one to see its departures or save it');
+  await pickOption(page, 0, 'See departures');
   await tick(page, 1000);
 }
 
-test('main screen: Go somewhere else… makes a one-off trip, kept across reloads, removed with Undo, then saved', async ({ page }) => {
+test('main screen: Plan a trip… and See departures make a one-off trip, kept across reloads, removed with Undo, then saved', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   // Under the trip buttons, above the rows; the status line at the bottom, above the version.
-  const order = await page.evaluate(() => ['header', '#go-elsewhere', '#rows', '#status', 'footer.version']
+  const order = await page.evaluate(() => ['header', '#plan-trip', '#rows', '#status', 'footer.version']
     .map(sel => document.querySelector(sel).getBoundingClientRect().top));
   expect(order).toEqual([...order].sort((x, y) => x - y));
   await expect(page.locator('#status-text')).toHaveText('Updated 7:00am');
   await goSomewhere(page);
   const bar = page.locator('#oneoff');
   await expect(bar).toBeVisible();
-  // A banner under the trip buttons, above "Go somewhere else…" and the trip's own bar.
+  // A banner under the trip buttons, above "Plan a trip…" and the trip's own bar.
   await expect(bar).toHaveText(/^One-off trip: not saved\s*Save\s*✕$/);
-  const tops = await page.evaluate(() => ['header', '#oneoff', '#go-elsewhere', '#enroute']
+  const tops = await page.evaluate(() => ['header', '#oneoff', '#plan-trip', '#enroute']
     .map(sel => document.querySelector(sel).getBoundingClientRect().top));
   expect(tops).toEqual([...tops].sort((x, y) => x - y));
   await expect(page.locator('#toggle select')).toHaveValue('2');

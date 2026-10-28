@@ -113,7 +113,8 @@ export async function expandOption(page, i = 0) {
   if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
   return planOptions(page).nth(i).locator('.timeline');
 }
-export async function pickOption(page, i = 0) {
+// `action`: an option's 'Save trip' (the trip editor) or 'See departures' (a one-off).
+export async function pickOption(page, i = 0, action = 'Save trip') {
   await expandOption(page, i);
-  await planOptions(page).nth(i).locator('.row-foot button').click();
+  await planOptions(page).nth(i).locator('.row-foot').getByRole('button', { name: action, exact: true }).click();
 }

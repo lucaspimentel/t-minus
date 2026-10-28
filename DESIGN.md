@@ -184,16 +184,16 @@ arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:05`
 A one-off trip (below) comes before all of these while it exists, unless another trip was
 picked by hand after it was made (`shownTrip`; the iOS widget uses it without step 2).
 
-### One-off trip ("Go somewhere else…")
+### One-off trip ("Plan a trip…" → "See departures")
 
-- "Go somewhere else…" sits under the trip buttons (moved there from the end of the list,
-  2026-10-12), shown with the rows (not during a ride, nor without trips). It opens the
-  auto-route planner (see Setup view); picking a way makes a one-off trip (`t-minus:one-off`,
+- "Plan a trip…" (named "Go somewhere else…" until 2026-10-28) sits under the trip buttons (moved
+  there from the end of the list, 2026-10-12), shown with the rows (not during a ride, nor without
+  trips). It opens the planner (see Setup view); a timed option's "See departures" makes a one-off trip (`t-minus:one-off`,
   `{ trip, at }`), labeled from the route list like a saved trip but never written into the saved
   config. It is shown after the saved trips (`withOneOff`), so saved trips keep their indices,
   and works like any trip: rows, tracking, reminders, stop alerts.
 - The trip dropdown names it "Oak Grove → State (one-off)" (with one saved trip the two side-by-side
-  buttons stay). While it is shown, a banner under the trip buttons, above "Go somewhere else…" (a
+  buttons stay). While it is shown, a banner under the trip buttons, above "Plan a trip…" (a
   bordered card, 2026-10-13, chosen from three mockups: the old plain line and the "Leaving
   now" bar below it didn't line up), reads "One-off trip: not saved" with Save and "✕" (Remove).
 - Save: it becomes the last saved trip at once (same name, no time window; same index, so its
@@ -525,12 +525,23 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Opened from the gear button, and automatically on first run (no valid config). Polling
   pauses while it is open.
 - List screen: one row per saved trip (name, time window, route chain like
-  "● Bus 132 → ● Orange") with ↑/↓ to reorder, "+ Add trip (auto-route)" and "+ Add trip
-  (manual)", then a Settings card (departures
+  "● Bus 132 → ● Orange") with ↑/↓ to reorder, "+ Plan a trip", then a Settings card (departures
   shown, minutes early at the stop, minutes to keep the screen on before leave-by, API key), Export/Import, and "Reload app" (reloads the
   page, e.g. to pick up a new version in the installed PWA). Done saves changed app-wide
   fields and closes setup; it is disabled until a trip has been saved.
-- Auto-route ("+ Add trip (auto-route)", and the main screen's "Go somewhere else…"): From and
+- One planner for every new trip (2026-10-28; before: "+ Add trip (auto-route)" and "+ Add trip
+  (manual)" in setup, "Set up a trip" opening the manual editor on first run, and "Go somewhere
+  else…" as a second, timed mode): titled "Plan a trip", opened from setup's "+ Plan a trip"
+  (`origin: 'setup'`), the main screen's "Plan a trip…" and the empty main screen's "Plan a trip"
+  (`origin: 'main'`). It always asks for live times (`now=1`, see "Live times"). A timed option
+  has "See departures" (a one-off trip on the main screen, from either origin) and "Save trip"
+  (the trip editor, prefilled); an untimed one (the rail-only fallback, or the server's `none` /
+  `timedError` under "Nothing runs in the next 2 hours." / "Times unavailable.") only "Save trip".
+  The prompt reads "Pick one to see its departures or save it" (any timed option) or "Pick one to
+  save it". Under the options (or the no-way message), "No good way? Build it by hand" opens an
+  empty trip editor. Cancel, and Save or Cancel in a trip it started, go back to where it was
+  opened: the setup list, or the main screen (closed; a saved trip is shown there, as if picked).
+- The planner's search: From and
   To (each picked in the leg picker: a station, or a route then its stop, see "Auto-route with buses"),
   minutes to the first and from the last stop (5 and 5), then up to 3 ways. Rail only, in the
   browser (phase 1, and the fallback without the server; `planRoutes`): "● Orange → ● Red",
@@ -540,27 +551,26 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   within one station, no station passed twice (no riding past a change and back). Ranked by
   transfers, then stops, then the change stations' names; an option with more transfers is shown
   only if it rides fewer stops than every option with fewer. None: "No way on the subway with 2
-  transfers or fewer." (e.g. Mattapan to Wonderland needs 3). In setup the pick opens the trip
+  transfers or fewer." (e.g. Mattapan to Wonderland needs 3). "Save trip" opens the trip
   editor (`planToForm`: "Oak Grove → Kendall/MIT", 3 min to change within a station, no time
-  window) to review and save; from the main screen it becomes the one-off trip. Addresses are a
-  later phase (`TODO.md`).
-- Trip screen (tap a row, or "Add trip (manual)"): name, "Show automatically" (During a time window,
+  window) to review and save.
+- Trip screen (tap a row, "Save trip" in the planner, or "Build it by hand"): name, "Show automatically" (During a time window,
   with from/until fields / When I'm near its first stop / Never (only when chosen)), time to the first stop
   and from the last stop, transit legs with a transfer time between them, "Add return trip",
   "Delete trip" (also for the only trip: the config keeps `trips: []` and the settings). Cancel
   discards the edits; Save checks and stores the whole config right away, then returns to the
-  list.
+  list (a new trip from a planner opened on the main screen: to the main screen).
 - No trips (none saved, or the last one deleted): one home base, the main screen's empty state:
-  "No trips set up yet", the help line (`NO_TRIPS_HELP`: "Add the bus and train legs you take,
-  and T-Minus tells you when to leave."), a full-width "Set up a trip" (44 px) and "Import trips";
+  "No trips set up yet", the help line (`NO_TRIPS_HELP`: "Plan your commute, and T-Minus tells
+  you when to leave."), a full-width "Plan a trip" (44 px) and "Import trips";
   no en-route bar, ↻ or pull-to-refresh.
 
   | Path | Lands on |
   |---|---|
   | First launch; launch with `trips: []`; Reset | the empty main screen |
-  | "Set up a trip" | a new trip; its Cancel returns to the empty main screen |
+  | "Plan a trip" | the planner; its Cancel returns to the empty main screen |
   | "Import trips" | the setup list with the import box open |
-  | Deleting the last trip (in setup) | the setup list: "No trips yet. " + the help line, an orange "+ Add trip (auto-route)" and "+ Add trip (manual)" |
+  | Deleting the last trip (in setup) | the setup list: "No trips yet. " + the help line, an orange "+ Plan a trip" |
   | Done with no trips | the empty main screen (settings alone are saved as `trips: []`) |
 - Reordering and deleting trips also save right away.
 - Reset (last section of setup): "Delete all trips and settings" asks to confirm ("Delete all
@@ -803,7 +813,7 @@ still holds, to stay well inside it either way:
   picker does (setup's `/routes` and `/stops` copies, "Show nearby"). Without the server,
   the rail network only (above). Place search (`/api/places`) costs no MBTA requests: one per
   paused query to the server, which asks Photon (or Nominatim) unless cached. Timed options
-  ("Go somewhere else…", `now=1`): `/predictions` and a 2-hour `/schedules` per distinct leg of
+  (the planner, `now=1`): `/predictions` and a 2-hour `/schedules` per distinct leg of
   up to 8 candidates under the server's key and cache (~20-40 requests, fewer when shared or
   cached), answers cached 30 s; the phone refreshes once a minute while the list is open.
 
@@ -1409,7 +1419,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   now" / "departs in 5 min" (amber) until the last chance; "Departs" / "in 2 min" (amber) until
   the departure; then the next row. Past the leave-by the vehicle line gets the departure ("Bus
   132 → Malden at 7:48am") and the medium's first row shows it in amber. Entries run 2 h ahead at most;
-  past the last one (`end`), "Open T-Minus" / "for new times". No trips: "Set up a trip in
+  past the last one (`end`), "Open T-Minus" / "for new times". No trips: "Plan a trip in
   T-Minus"; no rows: "No more today".
 - **Sizes:** small: the trip name, the title and countdown, the first vehicle ("Bus 132 → Malden") and
   the arrival; medium: the countdown only (`head`: "Leave in 9 min", "Leave in 1h 06m" an hour+
@@ -1536,8 +1546,8 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
     ● Orange"). A tap expands it to the timeline the rows use (`optionSteps` → `renderTimeline`,
     passed to setup as `timeline`): Leave, the walk, each ride's bar from its boarding stop to its
     drop-off, "Walk 3 min to transfer" ("Transfer" in a station), the walk, Arrive; untimed, no
-    times, durations or badges. The card's button picks it ("Review and save" in setup, "See
-    departures" for a one-off trip). The total includes the walks (a point end's from the
+    times, durations or badges. The card's buttons pick it ("See departures" when timed, "Save
+    trip"). The total includes the walks (a point end's from the
     option, else the field's). The rail-only fallback's options show their stop count instead of
     minutes. Legs carry `stopName` / `alightName` and `stops` (ridden, from the pattern: "Orange
     Line · 13 stops" on the timeline; no extra requests).
@@ -1563,19 +1573,19 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   side the route needs; the saved leg names that side. The manual leg picker keeps per-direction
   lists (the side you board decides the direction there).
   "Show nearby stops and stations" (renamed from "Show nearby" in phase 3, in both pickers) works as on a first leg (stations, then routes, with
-  distances; a route's stops nearest first). The rest is phase 1's: setup opens
-  the pick in the trip editor (`optionToForm`: the walk's minutes as the transfer), "Go somewhere
-  else…" makes a one-off trip. The walk fields read "Minutes to first stop" / "from last stop".
+  distances; a route's stops nearest first). The rest is phase 1's: "Save trip" opens
+  the pick in the trip editor (`optionToForm`: the walk's minutes as the transfer), "See
+  departures" makes a one-off trip. The walk fields read "Minutes to first stop" / "from last stop".
 - **Without the server** (unreachable, an error, or no push server configured): phase 1's
   rail-only search plans between two stations, and a bus stop says "Needs the T-Minus server.".
 - Not in phase 2: addresses (phase 3, below), commuter rail and ferry, time-aware search (a route not
   running now is still offered; the trip's rows then show no departures).
 
-## Live times for "Go somewhere else…"
+## Live times in the planner
 
 Built 2026-10-12 (grilled with mockups: layout C chosen of three). The route-only search can't
 see that the 132 runs hourly at midday or that the 171 runs only early mornings; a one-off trip
-is for now, so its options are timed.
+is for now, so its options are timed (since 2026-10-28 in setup's planner too: one planner).
 
 - **Server:** `GET /api/plan?…&now=1&wb=&wa=&slack=` (the walk fields at a stop or station end,
   the stop slack setting). Up to 8 candidates from `planTrips`, each made a trip
@@ -1589,13 +1599,13 @@ is for now, so its options are timed.
   (leave-by), `arrive` and `deps` ([{ dep, arr, source, headsign? }] per leg); `timed: true`. All dropped: the
   untimed 3 with `none`; the MBTA failing: the untimed 3 with `timedError` (not cached).
   Answers are cached 30 s per pair, walks and slack.
-- **App:** only "Go somewhere else…" asks (setup's "+ Add trip (auto-route)" stays untimed: a
-  saved trip is used at many times of day; the rail-only fallback too). "Finding ways…" until
+- **App:** the planner always asks (before 2026-10-28 setup's planner stayed untimed; a saved
+  trip keeps only the route; the rail-only fallback stays untimed). "Finding ways…" until
   the timed answer; the best 3 as cards (2026-10-13, from mockups: arrival first, collapsible
   like the rows): "Arrive 2:31pm · ~39 min", "Leave 1:52pm (in 4 min)" ("Leave now" once due),
   the route strip and the first ride's LIVE / SCHEDULED badge. Expanded: the main list's
   timeline with each stop's time, "Orange Line · 8 stops · 18 min LIVE / toward Forest Hills", "7 min to
-  transfer" (the wait between vehicles, as on the rows), then "See departures". The times are as of
+  transfer" (the wait between vehicles, as on the rows), then "See departures" and "Save trip". The times are as of
   the answer, not refreshed (2026-10-13: a 60 s refresh was removed after a closed search's timer
   redrew it over a later one; the list is for picking, and the picked trip's rows stay live).
   Changing From or To, or reopening, asks again. "Nothing runs

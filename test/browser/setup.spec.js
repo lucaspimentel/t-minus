@@ -20,9 +20,12 @@ const tripNames = page => setup(page).locator('.trip-row .item b').allInnerTexts
 const storedNames = page => page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips.map(t => t.name));
 const button = (page, name) => setup(page).getByRole('button', { name, exact: true });
 
-// No trips: the main screen's empty state; "Set up a trip" opens a new trip.
+// No trips: a trip built by hand from setup (⚙ → "+ Plan a trip" → "Build it by hand"), so Save
+// returns to the setup list.
 async function startFirstTrip(page) {
-  await page.locator('.empty .big-btn', { hasText: 'Set up a trip' }).click();
+  await page.locator('#open-setup').click();
+  await button(page, '+ Plan a trip').click();
+  await button(page, 'Build it by hand').click();
 }
 
 async function openSetup(page) {
@@ -33,9 +36,15 @@ async function openSetup(page) {
 
 test('first run: build a trip with the pickers, save it, and see its rows', async ({ page }) => {
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
-  // No trips: the main screen's empty state, with Set up a trip and Import trips.
-  await expect(page.locator('.empty-help')).toHaveText('Add the bus and train legs you take, and T-Minus tells you when to leave.');
+  // No trips: the main screen's empty state, with Plan a trip and Import trips.
+  await expect(page.locator('.empty-help')).toHaveText('Plan your commute, and T-Minus tells you when to leave.');
   await expect(page.locator('.empty .secondary-btn')).toHaveText('Import trips');
+  // "Plan a trip" opens the planner; its Cancel goes back to the empty state.
+  await page.locator('.empty .big-btn', { hasText: 'Plan a trip' }).click();
+  await expect(setup(page).locator('.setup-head b')).toHaveText('Plan a trip');
+  await expect(button(page, 'Build it by hand')).toBeVisible();
+  await button(page, 'Cancel').click();
+  await expect(page.locator('.empty .big-btn')).toBeVisible();
   await startFirstTrip(page);
   await expect(button(page, 'Cancel')).toBeVisible();
   // An empty trip says what to do first; Save waits for a leg; the settings sit under "More".
@@ -413,29 +422,29 @@ test('the last trip can be deleted: settings stay, Done shows the empty main scr
   await setup(page).locator('.trip-row .item').first().click();
   await button(page, 'Delete trip').click();
   await expect(setup(page).locator('.trip-row')).toHaveCount(0);
-  await expect(button(page, '+ Add trip (auto-route)')).toHaveClass(/primary/); // stands out with no trips
+  await expect(button(page, '+ Plan a trip')).toHaveClass(/primary/); // stands out with no trips
   await expect(setup(page).locator('.legs-empty')).toContainText('No trips yet.');
   await expect(toast(page)).toContainText('Trip deleted');
   const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')));
   expect(await stored()).toMatchObject({ trips: [], departureCount: 3, apiKey: 'k1' });
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(setup(page).locator('.trip-row')).toHaveCount(1);
-  await expect(button(page, '+ Add trip (auto-route)')).not.toHaveClass(/primary/);
+  await expect(button(page, '+ Plan a trip')).not.toHaveClass(/primary/);
   await setup(page).locator('.trip-row .item').first().click();
   await button(page, 'Delete trip').click();
   await expect(page.locator('#setup-done')).toBeEnabled();
   await page.locator('#setup-done').click();
   await expect(page.locator('#status-text')).toHaveText('No trips set up yet.');
-  // The empty screen: a line of help and a large "Set up a trip"; no en-route bar or ↻.
+  // The empty screen: a line of help and a large "Plan a trip"; no en-route bar or ↻.
   await expect(page.locator('#enroute')).toBeHidden();
   await expect(page.locator('#refresh')).toBeHidden();
-  await expect(page.locator('.empty-help')).toHaveText('Add the bus and train legs you take, and T-Minus tells you when to leave.');
+  await expect(page.locator('.empty-help')).toHaveText('Plan your commute, and T-Minus tells you when to leave.');
   const setUp = page.locator('.empty .big-btn');
-  await expect(setUp).toHaveText('Set up a trip');
+  await expect(setUp).toHaveText('Plan a trip');
   expect((await setUp.boundingBox()).height).toBeGreaterThanOrEqual(44);
   await setUp.click();
-  await expect(button(page, '+ Add transit leg')).toBeVisible(); // a new trip
-  // Cancel on that new trip: back to the empty state. Reopened with no trips: the same; the
+  await expect(button(page, 'Build it by hand')).toBeVisible(); // the planner
+  // Cancel in the planner: back to the empty state. Reopened with no trips: the same; the
   // settings are kept.
   await button(page, 'Cancel').click();
   await expect(page.locator('.empty .big-btn')).toBeVisible();
@@ -470,7 +479,7 @@ test('no trips: Import trips opens setup with the import box; the empty list sha
   await openApp(page, { time: '07:00', config: null, waitForRows: false });
   await page.locator('.empty .secondary-btn').click();
   await expect(page.locator('#setup-io')).toBeVisible();
-  await expect(setup(page).locator('.legs-empty')).toHaveText(/^No trips yet\. Add the bus and train legs you take, and T-Minus tells you when to leave\./);
+  await expect(setup(page).locator('.legs-empty')).toHaveText(/^No trips yet\. Plan your commute, and T-Minus tells you when to leave\./);
   // Done with nothing set up: back to the empty state.
   await page.locator('#setup-done').click();
   await expect(page.locator('.empty .big-btn')).toBeVisible();

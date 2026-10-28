@@ -39,7 +39,7 @@ const MBTA_TIMEOUT_MS = 10_000;
 const NETWORK_TIMEOUT_MS = 60_000; // the network's large requests (patterns ~3 MB, schedules ~12 MB)
 const NETWORK_RETRY_MS = 10 * MIN; // after a failed daily rebuild (the old network stays)
 const MAX_PLANS = 500; // cached plans (from > to), cleared with each new network
-const TIMED_CANDIDATES = 8; // "Go somewhere else…": candidates timed from now
+const TIMED_CANDIDATES = 8; // "Plan a trip": candidates timed from now
 const TIMED_TTL = 30_000; // timed answers, shared by the phones' 60 s refreshes
 const MAX_TIMED = 200;
 // Auto-route's place search (addresses and named places): Photon, else Nominatim (1 request a
@@ -418,7 +418,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
         const options = plans.get(key) ?? remember(plans, key, planTrips(net, from.ends, to.ends), MAX_PLANS);
         return reply(res, 200, { from: from.name, to: to.name, options });
       }
-      // Timed from now ("Go somewhere else…"): the walks at a stop or station end and the stop
+      // Timed from now (the app's planner): the walks at a stop or station end and the stop
       // slack come from the app (a point's walks come with each option).
       const minutes = (name, dflt) => { const v = q.has(name) ? Number(q.get(name)) : NaN; return Number.isInteger(v) && v >= 0 && v <= 60 ? v : dflt; };
       const walks = { wb: minutes('wb', 5), wa: minutes('wa', 5), slack: minutes('slack', 1) };

@@ -117,8 +117,9 @@ for (const scheme of ['light', 'dark']) {
     await context.setGeolocation({ latitude: 42.4385, longitude: -71.0711 });
     await page.emulateMedia({ colorScheme: scheme });
     await openApp(page, { time: '07:00', config: null, waitForRows: false });
-    await page.locator('.empty .big-btn').click();
+    await page.locator('.empty .big-btn').click(); // the planner
     const setup = page.locator('#setup');
+    await setup.getByRole('button', { name: 'Build it by hand', exact: true }).click();
     await setup.getByRole('button', { name: '+ Add transit leg', exact: true }).click();
     await setup.getByRole('button', { name: 'Show nearby stops and stations' }).click();
     await expect(setup.getByText('Near you · within 800 m')).toBeVisible();
@@ -136,10 +137,10 @@ for (const scheme of ['light', 'dark']) {
     await page.route(/\/api\/plan\?/, route => route.fulfill({ json: { from: 'Main St @ South St', to: 'State', options: [{
       legs: [{ route: '132', also: [], direction_id: 1, stop: '25996', alight: '5991' }, { route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state' }],
       transfers: [{ name: 'Washington St @ Oak Grove Sta → Oak Grove', meters: 32, min: 3 }], minutes: 32,
-      // Timed from now (the one-off planner's rows).
+      // Timed from now.
       leave: at('07:04'), arrive: at('07:55'), deps: [{ dep: at('07:10'), live: false }, { dep: at('07:33'), live: true }] }], timed: true } }));
     await page.route(/\/api\/places\?/, route => route.fulfill({ json: { places: [{ name: 'Fenway Park', detail: '4 Jersey Street, Boston', lat: 42.34646, lon: -71.0971 }] } }));
-    await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+    await page.getByRole('button', { name: 'Plan a trip…' }).click();
     expect(await violations(page)).toEqual([]);
     await page.locator('#plan-from').click();
     await expect(page.locator('#plan-here')).toBeVisible(); // Current location
@@ -161,7 +162,7 @@ for (const scheme of ['light', 'dark']) {
     expect(await violations(page)).toEqual([]);
     await expect((await expandOption(page)).locator('.step.ride')).toHaveCount(2); // the option's timeline
     expect(await violations(page)).toEqual([]);
-    await pickOption(page);
+    await pickOption(page, 0, 'See departures');
     await expect(page.locator('#oneoff')).toBeVisible();
     await tick(page, 1000);
     expect(await violations(page)).toEqual([]);

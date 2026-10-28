@@ -2,7 +2,7 @@
 // server's /api/places, stubbed), "Current location", plans from a point (@lat,lon) with each
 // option's own walks, and the itinerary rows.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
+import { openApp, tick, at, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -28,7 +28,8 @@ const PLAN = {
   }],
 };
 
-async function stub(page, { places = [FENWAY], placesStatus = 200 } = {}) {
+// `timed`: the server's live times ("See departures" needs them).
+async function stub(page, { places = [FENWAY], placesStatus = 200, timed = false } = {}) {
   const calls = { places: [], plan: [] };
   await page.route(/\/api\/places\?/, route => {
     calls.places.push(new URL(route.request().url()).searchParams.get('q'));
@@ -36,7 +37,8 @@ async function stub(page, { places = [FENWAY], placesStatus = 200 } = {}) {
   });
   await page.route(/\/api\/plan\?/, route => {
     calls.plan.push(new URL(route.request().url()).search);
-    return route.fulfill({ json: PLAN });
+    return route.fulfill({ json: !timed ? PLAN : { ...PLAN, timed: true, options: PLAN.options.map(o => ({ ...o, leave: at('07:02'), arrive: at('07:50'),
+      deps: [{ dep: at('07:08'), arr: at('07:18'), source: 'scheduled' }] })) } });
   });
   return calls;
 }
@@ -51,7 +53,7 @@ test('setup: an address or place from the search; the plan walks from it; the pi
   await openApp(page, { time: '07:00' });
   const calls = await stub(page);
   await page.locator('#open-setup').click();
-  await button(page, '+ Add trip (auto-route)').click();
+  await button(page, '+ Plan a trip').click();
   await setup(page).locator('#plan-from').click();
   await expect(setup(page).locator('#picker-search')).toHaveAttribute('placeholder', 'Search stations, routes, places');
   await expect(list(page)).toContainText('Type a station (e.g. Oak Grove), a route (e.g. 132), an address or a place.');
@@ -70,7 +72,7 @@ test('setup: an address or place from the search; the plan walks from it; the pi
   await expect(setup(page).getByLabel('Minutes to first stop')).toHaveCount(0);
   await expect(setup(page).getByLabel('Minutes from last stop')).toHaveValue('5');
   await pickStation(page, 'to', 'state', 'State');
-  expect(calls.plan).toEqual(['?from=%4042.34646%2C-71.0971&to=place-state']);
+  expect(calls.plan).toEqual(['?from=%4042.34646%2C-71.0971&to=place-state&now=1&wb=5&wa=5&slack=1']);
   await expect(lines(page, 0)).toHaveText(['~40 min', /^Bus 132\s*Orange$/]);
   // The option's own walk from the place; the field's at the station.
   const tl = await expandOption(page);
@@ -85,7 +87,7 @@ test('place search down or empty says so; stations and routes still list', async
   await openApp(page, { time: '07:00' });
   await stub(page, { placesStatus: 502 });
   await page.locator('#open-setup').click();
-  await button(page, '+ Add trip (auto-route)').click();
+  await button(page, '+ Plan a trip').click();
   await setup(page).locator('#plan-to').click();
   await setup(page).locator('#picker-search').fill('state');
   await tick(page, 400);
@@ -105,15 +107,15 @@ test('main screen: Current location as From makes a one-off trip named from its 
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ latitude: 42.450312, longitude: -71.070288 });
   await openApp(page, { time: '07:00' });
-  const calls = await stub(page);
-  await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+  const calls = await stub(page, { timed: true });
+  await page.getByRole('button', { name: 'Plan a trip…' }).click();
   await setup(page).locator('#plan-from').click();
   await expect(setup(page).locator('#plan-here')).toHaveText('Current location · plan from where you are');
   await setup(page).locator('#plan-here').click();
   await expect(setup(page).locator('#plan-from')).toHaveText(/^Current location\s*Change$/);
   await pickStation(page, 'to', 'state', 'State');
   expect(calls.plan).toEqual([expect.stringMatching(/^\?from=%4042\.45031%2C-71\.07029&to=place-state&now=1&/)]); // timed from now
-  await pickOption(page);
+  await pickOption(page, 0, 'See departures');
   await expect(page.locator('#oneoff')).toBeVisible();
   const oneOff = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:one-off')).trip);
   expect(oneOff.name).toBe('Main St @ South St → State');
@@ -126,13 +128,13 @@ test('setup: Current location as To; the trip is named for its last stop', async
   await openApp(page, { time: '07:00' });
   const calls = await stub(page);
   await page.locator('#open-setup').click();
-  await button(page, '+ Add trip (auto-route)').click();
+  await button(page, '+ Plan a trip').click();
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await setup(page).locator('#plan-to').click();
   await setup(page).locator('#plan-here').click();
   await expect(setup(page).locator('#plan-to')).toHaveText(/^Current location\s*Change$/);
   await expect(setup(page).getByLabel('Minutes from last stop')).toHaveCount(0);
-  expect(calls.plan).toEqual(['?from=place-ogmnl&to=%4042.358%2C-71.0577']);
+  expect(calls.plan).toEqual(['?from=place-ogmnl&to=%4042.358%2C-71.0577&now=1&wb=5&wa=5&slack=1']);
   await pickOption(page);
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove → State');
 });
@@ -143,7 +145,7 @@ test('Current location without permission says so and keeps the list', async ({ 
   };
   await openApp(page, { time: '07:00', init });
   await stub(page);
-  await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+  await page.getByRole('button', { name: 'Plan a trip…' }).click();
   await setup(page).locator('#plan-from').click();
   await setup(page).locator('#plan-here').click();
   await tick(page, 100);

@@ -146,7 +146,7 @@ private let widgetSamples: [(String, LeaveContent)] = [
         lockSub: "Orange Line", inline: "OL Leave 5:12pm", circle: "5:12", circleSub: "Orange", ring: -1, head: "Leave in 1h 06m"),
         rows: [wrow("5:12pm", "6:01pm", vehicle: "Orange Line", color: orange, label: "OL")])),
     ("No more today", LeaveContent(name: "Home → Work", entry: went("No more today", "", next: "First 5:12am", lockSub: "First 5:12am", inline: "No more today", circle: "–", row: -1), rows: [])),
-    ("Set up", LeaveContent(name: "", entry: went("Set up a trip in T-Minus", "", next: "", lockSub: "", inline: "Set up a trip in T-Minus", circle: "–", row: -1), rows: [])),
+    ("Set up", LeaveContent(name: "", entry: went("Plan a trip in T-Minus", "", next: "", lockSub: "", inline: "Set up a trip in T-Minus", circle: "–", row: -1), rows: [])),
     ("Stale", .stale("Home → Work")),
 ]
 

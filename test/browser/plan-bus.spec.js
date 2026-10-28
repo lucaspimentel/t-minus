@@ -1,8 +1,8 @@
-// Auto-route with buses: From/To in the leg picker's plan mode (stations, a route then its stop,
+// The planner with buses: From/To in the leg picker's plan mode (stations, a route then its stop,
 // Show nearby), the T-Minus server's /api/plan (stubbed here; the server's own tests cover the
 // search), and the fallback when the server fails.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
+import { openApp, tick, at, planOptions, optionLines, expandOption, pickOption } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -26,11 +26,15 @@ const PLAN = {
   }],
 };
 
-async function stubPlan(page) {
+// Timed (the server's live times): "See departures" needs them.
+const TIMED = () => ({ ...PLAN, timed: true, options: [{ ...PLAN.options[0], leave: at('07:02'), arrive: at('07:50'),
+  deps: [{ dep: at('07:08'), arr: at('07:18'), source: 'scheduled' }] }] });
+
+async function stubPlan(page, answer = () => PLAN) {
   const calls = [];
   await page.route(/\/api\/plan\?/, route => {
     calls.push(new URL(route.request().url()).search);
-    return route.fulfill({ json: PLAN });
+    return route.fulfill({ json: answer() });
   });
   return calls;
 }
@@ -52,7 +56,7 @@ test('setup: a route\'s stop to a station; the pick opens in the editor with the
   await openApp(page, { time: '07:00' });
   const calls = await stubPlan(page);
   await page.locator('#open-setup').click();
-  await button(page, '+ Add trip (auto-route)').click();
+  await button(page, '+ Plan a trip').click();
   // From: the leg picker, titled for the field; stations and routes, no bus stop names.
   await setup(page).locator('#plan-from').click();
   await expect(title(page)).toHaveText('From');
@@ -72,7 +76,7 @@ test('setup: a route\'s stop to a station; the pick opens in the editor with the
   await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St @ Oak Grove Sta', 'Oak Grove', 'State']);
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min', 'Walk 3 min to transfer', 'Walk 5 min']);
   await expect(tl.locator('.step.ride')).toHaveText(['Bus 132 · 9 stops', 'Orange Line · 8 stops']); // the plan's stop counts
-  expect(calls).toEqual(['?from=15982%2C25996&to=place-state']); // both sides: the server picks
+  expect(calls).toEqual(['?from=15982%2C25996&to=place-state&now=1&wb=5&wa=5&slack=1']); // both sides: the server picks
   await pickOption(page);
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Main St @ South St → State');
   await expect(setup(page).getByLabel('Minutes to transfer')).toHaveValue('3');
@@ -83,11 +87,11 @@ test('setup: a route\'s stop to a station; the pick opens in the editor with the
 
 test('main screen: a one-off trip from a bus stop has the bus and the train', async ({ page }) => {
   await openApp(page, { time: '07:00' });
-  await stubPlan(page);
-  await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+  await stubPlan(page, TIMED);
+  await page.getByRole('button', { name: 'Plan a trip…' }).click();
   await pickStop(page, 'from', '132', 'Main St @ South St');
   await pickStation(page, 'to', 'state', 'State');
-  await pickOption(page);
+  await pickOption(page, 0, 'See departures');
   await tick(page, 1000);
   await expect(page.locator('#oneoff')).toBeVisible();
   await expect(page.locator('.row .strip').first()).toHaveText(/Bus 132\s*Orange/);
@@ -99,7 +103,7 @@ test('Show nearby in the picker; To by route lists the stops you can get off at;
   await page.context().setGeolocation({ latitude: 42.4367, longitude: -71.0711 });
   await openApp(page, { time: '07:00' });
   await stubPlan(page);
-  await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+  await page.getByRole('button', { name: 'Plan a trip…' }).click();
   await setup(page).locator('#plan-from').click();
   await button(page, 'Show nearby stops and stations').click();
   await setup(page).locator('.list .item.station', { hasText: 'Oak Grove' }).click();
@@ -119,7 +123,7 @@ test('Show nearby in the picker; To by route lists the stops you can get off at;
 test('without the server: stations still plan in the browser (rail only); a bus stop needs the server', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await page.route(/\/api\/plan\?/, route => route.fulfill({ status: 503, json: { error: 'Network unavailable' } }));
-  await page.getByRole('button', { name: 'Go somewhere else…' }).click();
+  await page.getByRole('button', { name: 'Plan a trip…' }).click();
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   await expect(lines(page, 0)).toHaveText(['8 stops', /^Orange$/]);

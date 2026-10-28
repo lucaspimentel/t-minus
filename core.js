@@ -805,7 +805,7 @@ export function planTrips(net, from, to, maxTransfers = 2, limit = 3) {
     .map(({ chain: _c, stationWalk: _w, ...o }) => o);
 }
 
-// "Go somewhere else…" with live times: `rows[i]` is option i's first catchable row (rowsFromDocs;
+// The planner's live times: `rows[i]` is option i's first catchable row (rowsFromDocs;
 // null: nothing within the window). Ranked by arrival, then fewer transfers, then the search's
 // order (which already favors rail); options without a row are dropped. Each: the option with
 // `leave` (leave-by), `arrive` (eta) and `deps` ([{ dep, arr, source, headsign?, every? }] per
@@ -937,7 +937,7 @@ export function alightGroups(doc0, doc1, boardId) {
 }
 
 // The no-trips help line, on the main screen and in setup's empty trip list.
-export const NO_TRIPS_HELP = 'Add the bus and train legs you take, and T-Minus tells you when to leave.';
+export const NO_TRIPS_HELP = 'Plan your commute, and T-Minus tells you when to leave.';
 
 export const CONNECTION_METERS = 200;
 
@@ -2619,7 +2619,7 @@ export function widgetView(tripName, rows, nowMs) {
   });
   const view = { name: tripName ?? '', rows: lines, entries: [], end: null, refresh: sec(nowMs + WIDGET_REFRESH_MIN * MIN) };
   const empty = (title, next = '') => ({ row: -1, title, count: '', warn: false, next, lock: title, lockSub: next, inline: title, circle: '–', circleSub: '', ring: -1 });
-  if (tripName == null) { view.entries.push({ at: sec(nowMs), ...empty('Set up a trip in T-Minus') }); return view; }
+  if (tripName == null) { view.entries.push({ at: sec(nowMs), ...empty('Plan a trip in T-Minus') }); return view; }
   const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, circleSub: lines[i].short, ring: 0, ...e });
   // One entry a minute from `from` until `until`, counting down to `to`.
   const countdown = (from, until, to, i, make) => {

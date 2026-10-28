@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=956ff52c22';
+} from './core.js?v=d6fff18ea9';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -75,10 +75,11 @@ const NEARBY_RADIUS = 0.003;
 // iOS app also `token` (its APNs device token, or null) and `appLog` ([{ at, source, message }]).
 // `startImport`: open on the list with the import box (the main screen's "Import trips").
 // `onReset(apiKey)`: "Delete all trips and settings" (after a confirm); the app reloads.
-// `onPlan(trip)`: open on the auto-route planner ("Go somewhere else…"); the picked option is
-// handed back as a one-off trip (labeled, not saved) and Cancel closes setup.
+// `plan`: open on the planner ("Plan a trip" on the main screen); its Cancel, and Save or Cancel in
+// a trip it starts, close setup. `onOneOff(trip)`: an option's "See departures", handed back as a
+// one-off trip (labeled, not saved). `onClose({ show })`: `show` is a just-saved trip's index.
 // `planApi(path, params)`: the T-Minus server's /stops and /plan (buses); null: rail only, in the browser.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, onPlan = null, planApi = null, timeline = null }) {
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -92,13 +93,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // The trip being edited: `idx` is its saved index (null for a new trip, inserted at `insertAt`).
   // `initial`: the form as opened (JSON), to tell whether Cancel discards edits (null: always).
   const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
-  // "Set up a trip" with no trips opens a new trip; "Import trips" the list with the import box.
-  let editing = savedTrips().length || startImport || onPlan ? null : editor(null, 0, emptyTrip(0));
-  // Auto-route: { from, to ({ id, name, routes: [{ id, label, color }] }, picked in the leg picker's
-  // plan mode), plan ({ key, loading, options, error, local }), walkBefore, walkAfter, oneOff (from
-  // the main screen) }.
-  const newPlanner = oneOff => ({ from: null, to: null, walkBefore: 5, walkAfter: 5, oneOff });
-  let planner = onPlan ? newPlanner(true) : null;
+  // `editing.origin`: where a new trip's Save and Cancel go back to ('main': close setup).
+  let editing = null;
+  // The planner: { from, to ({ id, name, routes: [{ id, label, color }] }, picked in the leg picker's
+  // plan mode), plan ({ key, loading, options, error, local }), walkBefore, walkAfter, origin
+  // ('main': opened from the main screen, else 'setup') }.
+  const newPlanner = origin => ({ from: null, to: null, walkBefore: 5, walkAfter: 5, origin });
+  let planner = plan ? newPlanner('main') : null;
   let routes = null;
   // { legIdx (null = new leg), step, query, near, ... }. Steps: 'search' (stations and routes);
   // station-first 'to' { from }; route-first 'board' → 'alight' → 'also' { route, board, alight,
@@ -240,15 +241,17 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   }
 
   function planTrip() {
-    planner = newPlanner(false);
+    planner = newPlanner('setup');
     listMessages = [];
     loadRailNetwork().then(render).catch(() => {});
     render();
   }
 
-  function addTrip() {
+  // "Build it by hand" (in the planner): an empty trip, back to where the planner was opened.
+  function addTrip(origin) {
     const n = savedTrips().length;
-    editing = editor(null, n, emptyTrip(n));
+    planner = null;
+    editing = { ...editor(null, n, emptyTrip(n)), origin };
     listMessages = [];
     render();
   }
@@ -448,11 +451,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('div', { class: 'list trips' }, trips.map((t, i) => tripRow(t, i, trips.length))),
       // No trips (the last one deleted): the add button stands out, as in an empty trip's legs.
       trips.length
-        ? [h('button', { type: 'button', class: 'add', onclick: planTrip }, '+ Add trip (auto-route)'),
-          h('button', { type: 'button', class: 'add', onclick: addTrip }, '+ Add trip (manual)')]
+        ? h('button', { type: 'button', class: 'add', onclick: planTrip }, '+ Plan a trip')
         : h('div', { class: 'legs-empty' }, `No trips yet. ${NO_TRIPS_HELP}`,
-          h('button', { type: 'button', class: 'primary add', onclick: planTrip }, '+ Add trip (auto-route)'),
-          h('button', { type: 'button', class: 'add', onclick: addTrip }, '+ Add trip (manual)')),
+          h('button', { type: 'button', class: 'primary add', onclick: planTrip }, '+ Plan a trip')),
       h('div', { class: 'muted section' }, 'Settings'),
       h('div', { class: 'card' },
         numberField('Departures shown (1-8)', app.departureCount, v => { app.departureCount = v; }, { min: '1', max: '8' }),
@@ -551,16 +552,16 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       });
   }
 
-  // "Go somewhere else…" asks for live times from now (the server times up to 8 candidates);
-  // setup's planner doesn't (a saved trip is used at many times of day).
-  const planQuery = p => ({ from: p.from.id, to: p.to.id, ...(p.oneOff && { now: 1, wb: p.walkBefore, wa: p.walkAfter, slack: app.stopSlackMinutes }) });
+  // Live times from now (the server times up to 8 candidates), for "See departures"; a saved trip
+  // keeps only the route.
+  const planQuery = p => ({ from: p.from.id, to: p.to.id, now: 1, wb: p.walkBefore, wa: p.walkAfter, slack: app.stopSlackMinutes });
   const timedFields = r => ({ ...(r.timed && { timed: true }), ...(r.none && { none: true }), ...(r.timedError && { timedError: true }) });
 
   function plannerScreen() {
     const p = planner;
     const head = h('div', { class: 'setup-head' },
-      h('button', { type: 'button', onclick: () => { if (p.oneOff) onClose(); else { planner = null; render(); } } }, 'Cancel'),
-      h('b', {}, p.oneOff ? 'Go somewhere else' : 'Add trip (auto-route)'), h('span'));
+      h('button', { type: 'button', onclick: () => { if (p.origin === 'main') onClose(); else { planner = null; render(); } } }, 'Cancel'),
+      h('b', {}, 'Plan a trip'), h('span'));
     if (!railNet) {
       loadRailNetwork().then(render).catch(e => { listMessages = errs([`Couldn't load stations: ${e.message || e}`]); render(); });
       return [head, ...listMessages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)), h('div', { class: 'muted' }, 'Loading stations…')];
@@ -571,21 +572,22 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         ...(p[key] ? [h('span', { class: 'main' }, p[key].name, ' '), ...placeTags(p[key]), h('span', { class: 'change' }, 'Change')] : ['Choose a stop or station'])));
     // A point end's walk is the option's own; otherwise the field's.
     const walks = o => [p.from.point ? o.walkBefore ?? 0 : p.walkBefore, p.to.point ? o.walkAfter ?? 0 : p.walkAfter];
-    const pick = o => {
+    // `action`: 'departures' (a one-off on the main screen) or 'save' (the trip editor, prefilled).
+    const pick = (o, action) => {
       const plan = p.plan;
       const [wb, wa] = walks(o);
       // Your location has no name of its own: the trip is named from the first (or last) stop.
       const fromName = p.from.current ? o.legs[0].stopName ?? p.from.name : p.from.name;
       const toName = p.to.current ? o.legs.at(-1).alightName ?? p.to.name : p.to.name;
       const form = plan.local ? planToForm(railNet, o, wb, wa) : optionToForm(o, fromName, toName, wb, wa);
-      if (p.oneOff) {
+      if (action === 'departures') {
         const cfg = { trips: [formToTrip(form)] };
-        loadRoutes().then(rs => { routes = rs; }).catch(() => {}).finally(() => onPlan((routes ? labelLegs(cfg, routes) : cfg).trips[0]));
+        loadRoutes().then(rs => { routes = rs; }).catch(() => {}).finally(() => onOneOff((routes ? labelLegs(cfg, routes) : cfg).trips[0]));
         return;
       }
       planner = null;
       const n = savedTrips().length;
-      editing = editor(null, n, form);
+      editing = { ...editor(null, n, form), origin: p.origin };
       editing.initial = null; // Cancel asks before dropping a planned trip
       render();
     };
@@ -593,7 +595,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const stationName = id => networkStation(railNet, id)?.name ?? id;
     // An option as a card like a main-list row. Head: "Arrive 8:48pm · ~44 min" and "Leave 8:03pm
     // (in 44 min)", or "~40 min" untimed. Collapsed: its routes and the first ride's badge;
-    // expanded (a tap): its timeline (Leave, walks, rides, transfers, Arrive) and the pick button.
+    // expanded (a tap): its timeline (Leave, walks, rides, transfers, Arrive), "See departures"
+    // (timed only) and "Save trip".
     const optionCard = (o, local) => {
       const [wb, wa] = walks(o);
       const board = l => (local ? stationName(l.stop) : l.stopName ?? l.stop);
@@ -616,7 +619,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         const legs = o.legs.map((l, i) => ({ ...tags[i], from: board(l), to: alight(l) }));
         card.append(timeline?.(optionSteps(o, { walkBefore: wb, walkAfter: wa, slack: app.stopSlackMinutes, legs }), `option:${k}`) ?? '',
           h('div', { class: 'row-foot' },
-            h('button', { type: 'button', class: 'track-btn', 'data-focus': `pick:${k}`, onclick: e => { e.stopPropagation(); pick(o); } }, p.oneOff ? 'See departures' : 'Review and save'),
+            o.arrive != null && h('button', { type: 'button', class: 'track-btn', 'data-focus': `pick:${k}:departures`, onclick: e => { e.stopPropagation(); pick(o, 'departures'); } }, 'See departures'),
+            h('button', { type: 'button', class: 'track-btn', 'data-focus': `pick:${k}:save`, onclick: e => { e.stopPropagation(); pick(o, 'save'); } }, 'Save trip'),
             h('span', { class: 'chev' }, '▴')));
       }
       return card;
@@ -628,7 +632,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
           : plan.options.length
             ? [plan.none && h('div', { class: 'msg' }, 'Nothing runs in the next 2 hours.'),
               plan.timedError && h('div', { class: 'msg' }, 'Times unavailable.'),
-              h('div', { class: 'muted section' }, p.oneOff ? 'Pick one to see its departures' : 'Pick one to review and save'),
+              h('div', { class: 'muted section' }, plan.options.some(o => o.arrive != null) ? 'Pick one to see its departures or save it' : 'Pick one to save it'),
               h('ul', { class: 'rows', id: 'plan-options' }, ...plan.options.map(o => optionCard(o, plan.local)))]
             : [h('div', { class: 'msg' }, plan.local ? 'No way on the subway with 2 transfers or fewer.' : 'No way with 2 transfers or fewer.')];
     return [head,
@@ -639,7 +643,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         (!p.from?.point || !p.to?.point) && h('div', { class: 'field-pair' },
           !p.from?.point && numberField('Minutes to first stop', p.walkBefore, v => { p.walkBefore = v; }),
           !p.to?.point && numberField('Minutes from last stop', p.walkAfter, v => { p.walkAfter = v; }))),
-      ...optionList];
+      ...optionList,
+      h('div', { class: 'muted section by-hand' }, 'No good way? ',
+        h('button', { type: 'button', class: 'link', onclick: () => addTrip(p.origin) }, 'Build it by hand'))];
   }
 
   // ---------- trip screen ----------
@@ -663,7 +669,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       editing.messages = errs(errors.map(m => (m.startsWith(own) ? m.slice(own.length) : m)));
       return render();
     }
+    const fromMain = editing.origin === 'main';
     editing = null;
+    if (fromMain) return onClose({ show: pos }); // the main screen shows the new trip
     render();
   }
 
@@ -678,8 +686,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // Cancel in the editor: edits are discarded, with Undo when there were any.
   function cancelEdit() {
-    // With no trips there is no list to go back to: back to the main screen's empty state.
-    if (!savedTrips().length) { editing = null; return onClose(); }
+    // With no trips there is no list to go back to (back to the main screen's empty state), nor
+    // from a trip planned on the main screen.
+    if (!savedTrips().length || editing.origin === 'main') { editing = null; return onClose(); }
     const { idx, insertAt, form, initial } = editing;
     const changed = JSON.stringify(form) !== initial;
     editing = null;

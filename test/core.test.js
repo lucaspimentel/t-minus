@@ -2356,5 +2356,5 @@ test('widgetView: per-minute countdowns, leave now, departs, the next row; early
   const none = widgetView('Home → Work', [], at('23:30'));
   assert.deepEqual([none.entries.length, none.entries[0].title, none.entries[0].next, none.end], [1, 'No more today', '', null]);
   const noTrips = widgetView(null, [], at('23:30'));
-  assert.deepEqual([noTrips.name, noTrips.entries[0].title, noTrips.end], ['', 'Set up a trip in T-Minus', null]);
+  assert.deepEqual([noTrips.name, noTrips.entries[0].title, noTrips.end], ['', 'Plan a trip in T-Minus', null]);
 });

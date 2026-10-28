@@ -289,7 +289,7 @@ test('/api/widget: the shown trip\'s timeline; no trips; bad requests; the MBTA 
     assert.equal((await (await s.call('POST', '/api/widget', body({ trips: [trip, other], oneOffAt: at('06:00') }))).json()).name, 'One-off');
     assert.equal((await (await s.call('POST', '/api/widget', body({ trips: [trip, other], oneOffAt: at('06:00'), override: { index: 0, setAt: at('06:30') } }))).json()).name, trip.name);
     const none = await (await s.call('POST', '/api/widget', body({ trips: [] }))).json();
-    assert.equal(none.entries[0].title, 'Set up a trip in T-Minus');
+    assert.equal(none.entries[0].title, 'Plan a trip in T-Minus');
     assert.equal((await s.call('POST', '/api/widget', body({ trips: [{ name: 'x' }] }))).status, 400);
     assert.equal((await s.call('POST', '/api/widget', body({ stopSlackMinutes: -1 }))).status, 400);
     s.world.clock = at('07:20'); // past the cached copies

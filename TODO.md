@@ -17,8 +17,8 @@ The planner builds a trip (walk, legs, transfers, walk); the existing engine tim
 predictions and schedules. Open questions: a setup aid that saves a trip, a one-off "how do I get
 there now" screen, or both; ranking (fewest transfers, total time, least walking; one result or
 several); route-only or time-aware (skip routes not running now). Phase 1 (station to station on
-rail: "+ Add trip (auto-route)" in setup, "Go somewhere else…" one-off trips), phase 2 (buses,
-from the server's daily network) and phase 3 (addresses and places) are done.
+rail), phase 2 (buses, from the server's daily network), phase 3 (addresses and places) and one
+planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
 
 - Later, if timed options prove wrong: a full time-dependent search (every departure) instead of
   timing the route-only search's candidates.
