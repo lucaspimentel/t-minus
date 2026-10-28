@@ -39,6 +39,10 @@ from the server's daily network) and phase 3 (addresses and places) are done.
   (`otherVehicles`, trains that already left). Word the riding one differently (e.g.
   "On a different train?" / "I'm on this one").
 
+- First run (no trips), dark theme: "Import trips" draws as a gray block (`.empty .secondary-btn`
+  in `index.html`, the empty state's second button), unlike the other secondary buttons. Give it
+  the card background and border of the setup buttons in both themes.
+
 ## Surface wording follow-ups (seen on the phone 2026-10-27, build 26)
 
 - Widget medium rows cut the headsign ("Orange →…": no room for "Orange → Oak Grove" between the
