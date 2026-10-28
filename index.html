@@ -324,6 +324,12 @@
     padding: 22px 0 8px; margin-top: -22px;
   }
   .picker-top .setup-head { position: static; padding: 0 0 10px; margin: 0; }
+  /* In the iOS app the inset is the status bar's height: cover it, or scrolled content shows behind the clock. */
+  .setup-head::before, .picker-top::before {
+    content: ''; position: absolute; left: -16px; right: -16px; bottom: 100%;
+    height: env(safe-area-inset-top, 0px); background: var(--bg);
+  }
+  .picker-top .setup-head::before { content: none; } /* the wrapper covers it */
   .picker-top .muted { margin-top: 0; }
   .setup .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 12px;
@@ -415,7 +421,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-27 · b19f58a94c</footer>
+    <footer class="version">Version 2026-10-27 · 31331d53ca</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>

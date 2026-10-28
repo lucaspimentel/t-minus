@@ -39,11 +39,6 @@ from the server's daily network) and phase 3 (addresses and places) are done.
   (`otherVehicles`, trains that already left). Word the riding one differently (e.g.
   "On a different train?" / "I'm on this one").
 
-- Setup's sticky header ("Cancel · Edit trip · Save") leaves the status-bar strip above it
-  transparent on iOS: scrolled content ("Trip name", the walk minutes) shows behind the clock.
-  It sticks at `top: env(safe-area-inset-top)`; cover the inset with the page background (e.g. a
-  `::before` of that height above it, or a box-shadow).
-
 ## Surface wording follow-ups (seen on the phone 2026-10-27, build 26)
 
 - Widget medium rows cut the headsign ("Orange →…": no room for "Orange → Oak Grove" between the
