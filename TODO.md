@@ -48,10 +48,6 @@ from the server's daily network) and phase 3 (addresses and places) are done.
   transparent on iOS: scrolled content ("Trip name", the walk minutes) shows behind the clock.
   It sticks at `top: env(safe-area-inset-top)`; cover the inset with the page background (e.g. a
   `::before` of that height above it, or a box-shadow).
-- Auto-route option cards (setup "Review and save", "Go somewhere else…" "See departures"): on
-  iOS the footer button overlaps the timeline's last line ("Arrive"); Chromium at 390 px lays it
-  out with the 10 px gap (`.row-foot`). Find the iOS cause (the card is a grid item in
-  `#plan-options`; check its height / the `.step.end` line box) and verify on the phone.
 
 ## Surface wording follow-ups (seen on the phone 2026-10-27, build 26)
 
