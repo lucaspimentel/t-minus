@@ -28,12 +28,13 @@ struct RouteDot: View {
 }
 
 // The countdown: whole minutes, ticking down on the phone without updates ("12 minutes", rounded
-// down like the app's "12 min"; iOS 18's date offset format), then "<1 minute" once the app or the
-// server marks the last 80 s (`soon`; the times aren't accurate to the second).
+// down like the app's "12 min"), then "<1 minute" once the app or the server marks the last 80 s
+// (`soon`; the times aren't accurate to the second). A date range from now: a date formatted
+// against `Date()` is drawn once and doesn't tick.
 func countdownText(_ state: RideState) -> Text? {
     if state.soon == true { return Text("<1 minute") }
     guard let until = state.untilDate, until > Date() else { return nil }
-    return Text(until, format: .offset(to: Date(), allowedFields: [.minute], maxFieldCount: 1))
+    return Text(.dateRange(endingAt: until), format: .components(style: .wide, fields: [.minute]))
 }
 
 // The compact island's short form: "28 min" (rounded down, ticking on its own), "<1 min".
@@ -41,6 +42,17 @@ func shortCountdown(_ state: RideState) -> Text? {
     if state.soon == true { return Text("<1 min") }
     guard let until = state.untilDate, until > Date() else { return nil }
     // now..<until as whole minutes: `durationOffset` counts from the date, so it reads "-28 min".
+    return Text(.dateRange(endingAt: until), format: .components(style: .abbreviated, fields: [.minute]))
+}
+
+// The leave card's countdown (to `countTo`): "28 min", "1h 14m" an hour or more ahead (as the
+// widget's), "<1 min". Ticks on its own.
+func headCountdown(_ state: RideState) -> Text? {
+    if state.soon == true { return Text("<1 min") }
+    guard let to = state.countTo, to > 0 else { return nil }
+    let until = Date(timeIntervalSince1970: to)
+    guard until > Date() else { return nil }
+    if state.phase == "early" { return Text(.dateRange(endingAt: until), format: .components(style: .narrow, fields: [.hour, .minute])) }
     return Text(.dateRange(endingAt: until), format: .components(style: .abbreviated, fields: [.minute]))
 }
 
@@ -108,6 +120,39 @@ struct LegsBar: View {
     }
 }
 
+// The leave and walk cards (2026-10-29), like the medium Home Screen widget: "Leave in 28 min ·
+// 7:39am", "● Bus 132 toward Malden   arrive 8:25am", a note ("Moved (was 7:36am)"), the legs.
+// The Lock Screen card under its header; the expanded island under the island's top row.
+struct LeaveBody: View {
+    let state: RideState
+    let text, muted, amber, track: Color
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            headline.font(.title3.weight(.bold)).foregroundStyle(state.warn ? amber : text).lineLimit(1).minimumScaleFactor(0.7)
+            if let long = state.long, !long.isEmpty {
+                HStack(spacing: 6) {
+                    RouteDot(hex: state.color, size: 10)
+                    LineToward(line: long, headsign: state.headsign ?? "", muted: muted).foregroundStyle(text)
+                    Spacer(minLength: 8)
+                    if let right = state.right, !right.isEmpty { Text(right).foregroundStyle(muted).lineLimit(1).fixedSize() }
+                }
+                .font(.subheadline)
+            }
+            if let note = state.note, !note.isEmpty {
+                Text(note).font(.subheadline).foregroundStyle(state.warn ? amber : text).lineLimit(2)
+            }
+            LegsBar(legs: state.legs, track: track).padding(.top, 6)
+        }
+    }
+
+    private var headline: Text {
+        var t = Text(state.head ?? "")
+        if let countdown = headCountdown(state) { t = t + Text(" ") + countdown }
+        if let time = state.headTime, !time.isEmpty { t = t + Text(" · \(time)").font(.subheadline.weight(.semibold)) }
+        return t
+    }
+}
+
 struct RideCardView: View {
     let tripName: String
     let state: RideState
@@ -121,14 +166,18 @@ struct RideCardView: View {
                 Text("T-Minus")
             }
             .font(.caption).foregroundStyle(th.muted)
-            HStack(spacing: 8) {
-                RouteDot(hex: state.color)
-                Headline(state: state).lineLimit(1).minimumScaleFactor(0.8)
+            if state.head != nil {
+                LeaveBody(state: state, text: th.text, muted: th.muted, amber: th.amber, track: th.track)
+            } else {
+                HStack(spacing: 8) {
+                    RouteDot(hex: state.color)
+                    Headline(state: state).lineLimit(1).minimumScaleFactor(0.8)
+                }
+                .font(.title3.weight(.bold)).foregroundStyle(state.warn ? th.amber : th.text)
+                if !state.sub.isEmpty { Text(state.sub).font(.subheadline).foregroundStyle(th.muted).lineLimit(1) }
+                if !state.next.isEmpty { Text(state.next).font(.subheadline).foregroundStyle(th.text).lineLimit(2) }
+                LegsBar(legs: state.legs, track: th.track).padding(.top, 6)
             }
-            .font(.title3.weight(.bold)).foregroundStyle(state.warn ? th.amber : th.text)
-            if !state.sub.isEmpty { Text(state.sub).font(.subheadline).foregroundStyle(th.muted).lineLimit(1) }
-            if !state.next.isEmpty { Text(state.next).font(.subheadline).foregroundStyle(th.text).lineLimit(2) }
-            LegsBar(legs: state.legs, track: th.track).padding(.top, 6)
         }
         .padding(16)
     }
@@ -146,11 +195,43 @@ struct IslandLeading: View {
     }
 }
 
-// A leave or walk card: "Leave 9 minutes", "Leave now", "Departs 2 minutes" (the walk card's, or
-// amber when too late; scaled to fit: iOS has no live "9m" format).
+// A leave or walk card: "🚶 28 min" to the leave-by ("🚶 7:39am" an hour or more ahead), the
+// vehicle's emoji past it ("🚌 7 min", amber), "Got on?" at the departure; older servers: the
+// word ("Leave 7:39am", "Leave now") or the countdown alone. The ride card: the stops left, or the
+// countdown when stops don't apply (no stop data, a transfer, the final walk).
 struct IslandTrailing: View {
     let state: RideState
     var body: some View {
+        if let emoji = state.emoji, state.head != nil {
+            if emoji.isEmpty && state.phase != "ask" {
+                EmptyView() // missed, cancelled
+            } else {
+                trailing(emoji)
+            }
+        } else {
+            legacy
+        }
+    }
+
+    private func trailing(_ emoji: String) -> some View {
+        Group {
+            if state.phase == "ask" {
+                Text(state.island ?? "")
+            } else if state.phase == "early" {
+                Text("\(emoji) \(state.headTime ?? "")")
+            } else if let countdown = headCountdown(state) {
+                Text("\(emoji) ") + countdown
+            } else {
+                Text(emoji)
+            }
+        }
+        // Fixed (sized for "🚌 59 min") so the island doesn't resize as it counts down.
+        .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6)
+        .frame(width: 88, alignment: .trailing)
+        .foregroundStyle(state.warn ? Color(hex: "F0A830") : .white)
+    }
+
+    @ViewBuilder private var legacy: some View {
         // A leave or walk card: the countdown alone ("28 min"; the word is in the expanded view), or
         // the word without one ("Leave 7:39am", "Leave now", "Got on?"). The countdown's width is
         // fixed (sized for "59 min") so the island doesn't resize as it counts down.
@@ -174,10 +255,24 @@ struct IslandTrailing: View {
     }
 }
 
-// Expanded (long press): the card's content on black.
+// Expanded (long press): the card's content on black; a leave or walk card's top row is the
+// trip name and "T-Minus" (`IslandTop`), nothing that repeats the headline.
+struct IslandTop: View {
+    let text: String
+    var body: some View { Text(text).font(.caption).foregroundStyle(.gray).lineLimit(1) }
+}
+
 struct IslandExpanded: View {
     let state: RideState
     var body: some View {
+        if state.head != nil {
+            LeaveBody(state: state, text: .white, muted: .gray, amber: Color(hex: "F0A830"), track: Color(hex: "333333"))
+        } else {
+            rideBody
+        }
+    }
+
+    private var rideBody: some View {
         VStack(alignment: .leading, spacing: 3) {
             Headline(state: state).font(.headline).foregroundStyle(state.warn ? Color(hex: "F0A830") : .white).lineLimit(1)
             if !state.sub.isEmpty { Text(state.sub).font(.subheadline).foregroundStyle(.gray).lineLimit(1) }

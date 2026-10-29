@@ -24,6 +24,18 @@ struct RideState: Codable, Hashable {
     var soon: Bool? = nil // the countdown's last 80 s: "<1 minute" (absent from older servers)
     var island: String? = nil // a leave or walk card: the Dynamic Island's word ("Leave", "Leave now", "Departs", "" walking)
     var join: String? = nil   // between the title and the countdown: " · " (default), " " ("Leave in 9 minutes")
+    // The leave and walk cards' layout (2026-10-29, build 32; absent: the ride card, or an older
+    // server): `head` ("Leave in") with a live countdown to `countTo` (0: none), then `headTime`;
+    // the line `long` "toward `headsign`" with `right` ("arrive 8:25am") at its end ("" long: no
+    // line); `note` below; `emoji` before the compact island's countdown (🚶, 🚌, 🚇, 🚊).
+    var head: String? = nil
+    var countTo: Double? = nil
+    var headTime: String? = nil
+    var long: String? = nil
+    var headsign: String? = nil
+    var right: String? = nil
+    var note: String? = nil
+    var emoji: String? = nil
 
     var untilDate: Date? { until > 0 ? Date(timeIntervalSince1970: until) : nil }
     // Dimmed by iOS 2 min after the countdown ends without a newer update (as the server's pushes).

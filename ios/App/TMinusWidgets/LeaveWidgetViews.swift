@@ -105,7 +105,7 @@ private struct MediumLeave: View {
 
 // "Orange Line toward Forest Hills", or "Orange Line → Forest Hills" where "toward" doesn't fit
 // (then truncated); the direction muted. No headsign: the line alone.
-private struct LineToward: View {
+struct LineToward: View {
     let line: String
     let headsign: String
     let muted: Color

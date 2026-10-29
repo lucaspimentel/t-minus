@@ -9,8 +9,14 @@ struct RideActivityWidget: Widget {
             LockScreen(tripName: context.attributes.tripName, state: context.state)
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) { IslandLeading(state: context.state) }
-                DynamicIslandExpandedRegion(.trailing) { IslandTrailing(state: context.state) }
+                // A leave or walk card: the trip name and "T-Minus" (the route and the countdown are in
+                // its body); the ride card: the compact parts.
+                DynamicIslandExpandedRegion(.leading) {
+                    if context.state.head != nil { IslandTop(text: context.attributes.tripName) } else { IslandLeading(state: context.state) }
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    if context.state.head != nil { IslandTop(text: "T-Minus") } else { IslandTrailing(state: context.state) }
+                }
                 DynamicIslandExpandedRegion(.bottom) { IslandExpanded(state: context.state) }
             } compactLeading: {
                 IslandLeading(state: context.state)

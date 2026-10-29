@@ -30,29 +30,30 @@ private let samples: [(String, RideState)] = [
                           sub: "", next: "", legs: legs((orange, -30, -16), (bus, -12, -4)))),
 ]
 
-// Leave cards (Phase 3a): Home to office, the 7:48 bus 132.
+// Leave cards (Phase 3a; the layout of 2026-10-29): Home to office, the 7:48 bus 132.
 private let ahead = legs((bus, 9, 23), (orange, 27, 36))
-private func leave(_ phase: String, _ title: String, until: Double, warn: Bool = false, island: String, sub: String = "Bus 132 toward Malden",
-                   next: String, soon: Bool = false) -> RideState {
-    RideState(phase: phase, warn: warn, color: bus, label: "132", title: title, until: until, stops: -1, sub: sub, next: next, legs: ahead,
-              soon: soon, island: island, join: " ")
+private func leave(_ phase: String, _ head: String, countTo: Double = 0, time: String = "", warn: Bool = false, right: String = "arrive 8:25am",
+                   note: String = "", emoji: String = "🚶", island: String = "", long: String = "Bus 132", soon: Bool = false) -> RideState {
+    var st = RideState(phase: phase, warn: warn, color: bus, label: "132", title: head, until: countTo, stops: -1, sub: "", next: "", legs: ahead,
+                       soon: soon, island: island, join: " ")
+    st.head = head; st.countTo = countTo; st.headTime = time; st.long = long; st.headsign = long.isEmpty ? "" : "Malden"
+    st.right = right; st.note = note; st.emoji = emoji
+    return st
 }
 private let leaveSamples: [(String, RideState)] = [
-    ("Leave at (an hour+ ahead)", leave("early", "Leave at 7:39am", until: 0, island: "Leave 7:39am", next: "Arrive ~8:25am")),
-    ("Leave at, moved", leave("early", "Leave at 7:42am", until: 0, warn: true, island: "Leave 7:42am", next: "Moved (was 7:39am) · arrive ~8:28am")),
-    ("Leave in (10-min heads-up)", leave("leave", "Leave in", until: now + 540, island: "Leave", next: "Leave by 7:39am · arrive ~8:25am")),
-    ("Leave in 28 min (widest island)", leave("leave", "Leave in", until: now + 28 * 60 + 30, island: "Leave", next: "Leave by 7:58am · arrive ~8:44am")),
-    ("Leave-by moved", leave("leave", "Leave in", until: now + 360, warn: true, island: "Leave", next: "Leave by 7:36am (was 7:39am)")),
-    ("Leave in <1 minute", leave("leave", "Leave in", until: now + 50, island: "Leave", next: "Leave by 7:39am · arrive ~8:25am", soon: true)),
-    ("Leave now", leave("now", "Leave now · departs in", until: now + 420, warn: true, island: "Leave now", sub: "Bus 132 toward Malden at 7:48am", next: "Arrive ~8:25am")),
-    ("Departs in", leave("departs", "Departs in", until: now + 120, warn: true, island: "Departs", sub: "Bus 132 toward Malden at 7:48am", next: "Arrive ~8:25am")),
-    ("Missed (the end)", RideState(phase: "gone", warn: true, color: bus, label: "132", title: "Missed · left 7:48am", until: 0, stops: -1,
-                                   sub: "Bus 132 toward Malden", next: "", legs: ahead, island: "", join: " · ")),
-    ("Ride cancelled", RideState(phase: "cancelled", warn: false, color: bus, label: "132", title: "Ride cancelled", until: 0, stops: -1,
-                                 sub: "", next: "Open the app for the next one.", legs: ahead, island: "", join: " · ")),
-    ("Did you get on? (at the departure)", leave("ask", "Did you get on?", until: 0, island: "Got on?", sub: "Bus 132 toward Malden left at 7:48am", next: "Tap to answer")),
-    ("Walk card", leave("walk", "Bus 132 in", until: now + 360, island: "Departs", sub: "At the stop ~7:45am · 3 min to spare", next: "Arrive ~8:25am")),
-    ("Walk card, late", leave("walk", "Bus 132 in", until: now + 120, warn: true, island: "Departs", sub: "At the stop ~7:50am · 2 min late", next: "Arrive ~8:25am")),
+    ("An hour+ ahead", leave("early", "Leave in", countTo: now + 74 * 60 + 30, time: "7:39am")),
+    ("Moved", leave("leave", "Leave in", countTo: now + 25 * 60 + 30, time: "7:42am", warn: true, right: "arrive 8:28am", note: "Moved (was 7:39am)")),
+    ("Leave in (10-min heads-up)", leave("leave", "Leave in", countTo: now + 540, time: "7:39am")),
+    ("Leave in 28 min", leave("leave", "Leave in", countTo: now + 28 * 60 + 30, time: "7:58am", right: "arrive 8:44am")),
+    ("Leave in <1 minute", leave("leave", "Leave in", countTo: now + 50, time: "7:39am", soon: true)),
+    ("Past the leave-by", leave("now", "Departs in", countTo: now + 420, time: "7:48am", warn: true, emoji: "🚌")),
+    ("Departs in (subway)", { var st = leave("departs", "Departs in", countTo: now + 120, time: "7:48am", warn: true, emoji: "🚇", long: "Orange Line")
+        st.color = orange; st.label = "OL"; st.headsign = "Forest Hills"; return st }()),
+    ("Walk card", leave("walk", "Departs in", countTo: now + 360, time: "7:48am", note: "At the stop ~7:45am · 3 min to spare", emoji: "🚌")),
+    ("Walk card, late", leave("walk", "Departs in", countTo: now + 120, time: "7:48am", warn: true, note: "At the stop ~7:50am · 2 min late", emoji: "🚌")),
+    ("Did you get on? (at the departure)", leave("ask", "Did you get on?", right: "left 7:48am", emoji: "", island: "Got on?")),
+    ("Missed (the end)", leave("gone", "Missed · left 7:48am", warn: true, right: "", emoji: "")),
+    ("Ride cancelled", leave("cancelled", "Ride cancelled", right: "", note: "Open the app for the next one.", emoji: "", long: "")),
 ]
 
 private struct Compact: View {
@@ -63,6 +64,21 @@ private struct Compact: View {
             .background(.black).clipShape(Capsule()).foregroundStyle(.white)
             .environment(\.colorScheme, .dark)
             .frame(maxWidth: .infinity)
+    }
+}
+
+// The expanded island of a leave card: the trip name and "T-Minus" by the camera, then the body.
+private struct Expanded: View {
+    let tripName: String
+    let state: RideState
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack { IslandTop(text: tripName); Spacer(); IslandTop(text: "T-Minus") }
+            IslandExpanded(state: state)
+        }
+        .padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 18)
+        .background(.black).clipShape(RoundedRectangle(cornerRadius: 40))
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -77,14 +93,12 @@ private struct LeaveSheet: View {
                     .background(Theme.of(scheme).card)
                     .clipShape(RoundedRectangle(cornerRadius: 22))
             }
-            Text("Dynamic Island: compact (leave at, leave at moved, leave 9, leave 28, <1 min, leave now, departs, got on?, walk, walk late), expanded").font(.caption).foregroundStyle(.white)
-            // By name, so a new sample doesn't shift which ones are drawn.
-            ForEach(["Leave at (an hour+ ahead)", "Leave at, moved", "Leave in (10-min heads-up)", "Leave in 28 min (widest island)", "Leave in <1 minute", "Leave now", "Departs in", "Did you get on? (at the departure)", "Walk card", "Walk card, late"], id: \.self) { name in
-                Compact(state: leaveSamples.first { $0.0 == name }!.1)
+            Text("Dynamic Island: compact, then expanded (top row and body), per card").font(.caption).foregroundStyle(.white)
+            ForEach(leaveSamples, id: \.0) { name, state in
+                Text(name).font(.caption).foregroundStyle(.white)
+                Compact(state: state)
+                Expanded(tripName: "Home to office", state: state)
             }
-            IslandExpanded(state: leaveSamples.first { $0.0 == "Leave in (10-min heads-up)" }!.1)
-                .padding(18).background(.black).clipShape(RoundedRectangle(cornerRadius: 36))
-                .environment(\.colorScheme, .dark)
         }
         .padding(16)
         .frame(width: 400)
