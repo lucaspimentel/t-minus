@@ -292,7 +292,8 @@
   .update-card .big-btn { width: 100%; }
   .empty .big-btn { width: 100%; }
   .empty-help { margin: 0 0 12px; }
-  .empty .secondary-btn { width: 100%; min-height: 44px; margin-top: 10px; }
+  .empty .secondary-btn { width: 100%; min-height: 44px; margin-top: 10px; border-radius: 12px; cursor: pointer;
+    background: var(--card); border: 1px solid var(--border); color: var(--text); font: inherit; font-size: 17px; font-weight: 600; }
   /* Setup view (setup.js) */
   .setup button {
     padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
@@ -425,7 +426,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-28 · 74598c2405</footer>
+    <footer class="version">Version 2026-10-28 · e406b8932a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>

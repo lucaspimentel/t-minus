@@ -39,6 +39,11 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   // No trips: the main screen's empty state, with Plan a trip and Import trips.
   await expect(page.locator('.empty-help')).toHaveText('Plan your commute, and T-Minus tells you when to leave.');
   await expect(page.locator('.empty .secondary-btn')).toHaveText('Import trips');
+  // In dark, Import trips has the card background and border, like setup's buttons.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('.empty .secondary-btn')).toHaveCSS('background-color', 'rgb(28, 31, 36)');
+  await expect(page.locator('.empty .secondary-btn')).toHaveCSS('border-top-color', 'rgb(46, 51, 58)');
+  await page.emulateMedia({ colorScheme: 'light' });
   // "Plan a trip" opens the planner; its Cancel goes back to the empty state.
   await page.locator('.empty .big-btn', { hasText: 'Plan a trip' }).click();
   await expect(setup(page).locator('.setup-head b')).toHaveText('Plan a trip');

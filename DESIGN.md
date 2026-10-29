@@ -562,7 +562,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   list (a new trip from a planner opened on the main screen: to the main screen).
 - No trips (none saved, or the last one deleted): one home base, the main screen's empty state:
   "No trips set up yet", the help line (`NO_TRIPS_HELP`: "Plan your commute, and T-Minus tells
-  you when to leave."), a full-width "Plan a trip" (44 px) and "Import trips";
+  you when to leave."), a full-width "Plan a trip" (44 px) and "Import trips" (a secondary button: the card
+  background and border, like setup's buttons, in both themes);
   no en-route bar, ↻ or pull-to-refresh.
 
   | Path | Lands on |
