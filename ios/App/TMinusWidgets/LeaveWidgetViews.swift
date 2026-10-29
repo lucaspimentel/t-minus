@@ -13,6 +13,8 @@ private extension LeaveContent {
     var warn: Bool { entry?.warn ?? false }
     var firstRow: WidgetView.Row? { rows.first }
     var headCount: String? { entry?.head == nil ? entry?.count : entry?.headCount }
+    // Answers from 2026-10-29 on carry the Home Screen layouts' fields (older ones: the layouts before).
+    var isHome: Bool { (entry?.row ?? -1) >= 0 && !(entry?.headTime ?? "").isEmpty && entry?.head != nil && firstRow?.long != nil }
 }
 
 struct LeaveWidgetView: View {
@@ -20,8 +22,8 @@ struct LeaveWidgetView: View {
     let size: LeaveSize
     var body: some View {
         switch size {
-        case .small: SmallLeave(content: content)
-        case .medium: MediumLeave(content: content)
+        case .small: if content.isHome { SmallHome(content: content) } else { SmallLeave(content: content) }
+        case .medium: if content.isHome { MediumHome(content: content) } else { MediumLeave(content: content) }
         case .rectangular: RectangularLeave(content: content)
         case .inline: Text(content.entry?.inline ?? "Open T-Minus")
         case .circular: CircularLeave(content: content)
@@ -93,6 +95,102 @@ private struct MediumLeave: View {
                                 .gridColumnAlignment(.trailing)
                         }
                         .foregroundStyle(th.text)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+// "Orange Line toward Forest Hills", or "Orange Line → Forest Hills" where "toward" doesn't fit
+// (then truncated); the direction muted. No headsign: the line alone.
+private struct LineToward: View {
+    let line: String
+    let headsign: String
+    let muted: Color
+    var body: some View {
+        if headsign.isEmpty {
+            Text(line).lineLimit(1).truncationMode(.tail)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                (Text(line + " ") + Text("toward \(headsign)").foregroundStyle(muted)).lineLimit(1).fixedSize()
+                (Text(line + " ") + Text("→ \(headsign)").foregroundStyle(muted)).lineLimit(1).truncationMode(.tail)
+            }
+        }
+    }
+}
+
+// Home Screen small (2026-10-29): the countdown ("Leave in 5 min"), its time ("12:17am", the
+// leave-by; "departs 12:20am" past it), the line in long form and its direction on up to two lines.
+// No arrival (the medium size and the app have it).
+private struct SmallHome: View {
+    let content: LeaveContent
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        let th = Theme.of(scheme)
+        let tint = content.warn ? th.amber : th.text
+        let row = content.firstRow!
+        VStack(alignment: .leading, spacing: 2) {
+            Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
+            Text(content.entry?.head ?? "").font(.title3.weight(.bold)).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7)
+            Text(content.entry?.headTime ?? "").font(.subheadline.weight(.semibold)).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7)
+            Spacer(minLength: 0)
+            HStack(spacing: 5) {
+                RouteDot(hex: row.color, size: 8)
+                Text(row.long ?? row.vehicle).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .font(.caption).foregroundStyle(th.text)
+            if let h = row.headsign, !h.isEmpty {
+                Text("toward \(h)").font(.caption).foregroundStyle(th.muted).lineLimit(2).padding(.leading, row.color.isEmpty ? 0 : 13)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+// Home Screen medium (2026-10-29): "Leave in 5 min · 12:17am", the first ride's line and direction
+// with its arrival, then the next two rides (leave-by, arrival), naming their vehicle only where it
+// differs from the first's ("Red → Braintree"). Only the route text gives way.
+private struct MediumHome: View {
+    let content: LeaveContent
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        let th = Theme.of(scheme)
+        let tint = content.warn ? th.amber : th.text
+        let first = content.firstRow!
+        VStack(alignment: .leading, spacing: 2) {
+            Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
+            (Text(content.entry?.head ?? "").font(.title2.weight(.bold)) + Text(" · \(content.entry?.headTime ?? "")").font(.subheadline.weight(.semibold)))
+                .foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(spacing: 5) {
+                    RouteDot(hex: first.color, size: 8)
+                    LineToward(line: first.long ?? first.vehicle, headsign: first.headsign ?? "", muted: th.muted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(first.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize()
+            }
+            .font(.subheadline).foregroundStyle(th.text)
+            Spacer(minLength: 0)
+            let later = Array(content.rows.dropFirst().prefix(2))
+            if !later.isEmpty {
+                Rectangle().fill(th.track).frame(height: 1).padding(.bottom, 4)
+                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
+                    ForEach(Array(later.enumerated()), id: \.offset) { _, row in
+                        let differs = (row.short ?? row.vehicle) != (first.short ?? first.vehicle) || (row.headsign ?? "") != (first.headsign ?? "")
+                        GridRow {
+                            Text(row.time).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
+                            HStack(spacing: 6) {
+                                if differs {
+                                    RouteDot(hex: row.color, size: 8)
+                                    LineToward(line: row.short ?? row.vehicle, headsign: row.headsign ?? "", muted: th.muted)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(row.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize().gridColumnAlignment(.trailing)
+                        }
+                        .font(.subheadline).foregroundStyle(th.text)
                     }
                 }
             }

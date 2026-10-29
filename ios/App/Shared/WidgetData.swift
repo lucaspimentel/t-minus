@@ -47,6 +47,9 @@ struct WidgetView: Codable, Hashable {
         var line: String        // "Bus 132" (answers before the leave-by rule: "Bus 132 at 7:48am")
         var arrive: String      // "arrive 8:25am"
         var arriveTitle: String // "Arrive 8:25am"
+        // The Home Screen layouts (2026-10-29; absent from older answers):
+        var long: String? = nil     // "Orange Line", "Bus 132"
+        var headsign: String? = nil // "Forest Hills", "" for none
     }
     struct Entry: Codable, Hashable {
         var at: Double          // shown from (Unix seconds)
@@ -66,6 +69,7 @@ struct WidgetView: Codable, Hashable {
         var headCount: String? = nil // beside it: "departs in 8 min"
         var line: String? = nil      // the vehicle line, for the row's: "Bus 132 at 7:48am" past the leave-by
         var rowTime: String? = nil   // the first row's time, amber: the departure past the leave-by
+        var headTime: String? = nil  // beside `head` on the Home Screen: "12:17am", "departs 12:20am" (2026-10-29)
     }
     var name: String
     var rows: [Row]

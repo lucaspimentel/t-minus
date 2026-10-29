@@ -157,6 +157,36 @@ private let widgetSamples: [(String, LeaveContent)] = [
     ("Stale", .stale("Home → Work")),
 ]
 
+// The Home Screen layouts of 2026-10-29: the answer's `long`, `headsign` and `headTime`.
+private func hrow(_ time: String, _ arrive: String, long: String, short: String, headsign: String, color: String, label: String) -> WidgetView.Row {
+    WidgetView.Row(time: time, vehicle: short, short: short, color: color, label: label, line: short, arrive: "arrive \(arrive)", arriveTitle: "Arrive \(arrive)",
+                   long: long, headsign: headsign)
+}
+private func hent(_ head: String, _ headTime: String, warn: Bool = false) -> WidgetView.Entry {
+    var e = went(head, "", warn: warn, lockSub: "", inline: "", circle: "", head: head)
+    e.headTime = headTime
+    return e
+}
+private let ol = { (t: String, a: String) in hrow(t, a, long: "Orange Line", short: "Orange", headsign: "Forest Hills", color: orange, label: "OL") }
+private let rl = { (t: String, a: String, h: String) in hrow(t, a, long: "Red Line", short: "Red", headsign: h, color: "DA291C", label: "RL") }
+private let gl = { (t: String, a: String, b: String, h: String) in hrow(t, a, long: "Green Line \(b)", short: "Green \(b)", headsign: h, color: "00843D", label: "GL·\(b)") }
+private let orangeRows = [ol("12:17am", "12:42am"), ol("12:23am", "12:48am"), ol("12:26am", "12:50am")]
+private let homeSamples: [(String, LeaveContent)] = [
+    ("Leave in", LeaveContent(name: "Oak Grove → State", entry: hent("Leave in 5 min", "12:17am"), rows: orangeRows)),
+    ("Leave now", LeaveContent(name: "Oak Grove → State", entry: hent("Leave now", "departs 12:20am", warn: true), rows: orangeRows)),
+    ("Departs", LeaveContent(name: "Oak Grove → State", entry: hent("Departs in 2 min", "12:20am", warn: true), rows: orangeRows)),
+    ("Widest countdown", LeaveContent(name: "Oak Grove → State", entry: hent("Leave in 59 min", "12:17am"), rows: orangeRows)),
+    ("An hour+ ahead", LeaveContent(name: "Work → Home", entry: hent("Leave in 1h 06m", "5:12pm"),
+        rows: [hrow("5:12pm", "6:01pm", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
+               hrow("5:42pm", "6:31pm", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132")])),
+    ("Long headsign", LeaveContent(name: "Home → Work", entry: hent("Leave in 9 min", "7:42am"),
+        rows: [hrow("7:42am", "8:25am", long: "Bus 111", short: "Bus 111", headsign: "Haymarket Station", color: bus, label: "111")])),
+    ("Red branches", LeaveContent(name: "Downtown → Home", entry: hent("Leave in 9 min", "7:42am"),
+        rows: [rl("7:42am", "8:05am", "Ashmont"), rl("7:47am", "8:10am", "Braintree"), rl("7:54am", "8:17am", "Ashmont")])),
+    ("Green C or D", LeaveContent(name: "Downtown → Home", entry: hent("Leave in 4 min", "8:03am"),
+        rows: [gl("8:03am", "8:21am", "C", "Cleveland Circle"), gl("8:06am", "8:24am", "D", "Riverside"), gl("8:11am", "8:29am", "C", "Cleveland Circle")])),
+]
+
 private struct WidgetSheet: View {
     @Environment(\.colorScheme) private var scheme
     private func home(_ c: LeaveContent, _ size: LeaveSize, width: CGFloat) -> some View {
@@ -165,7 +195,18 @@ private struct WidgetSheet: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Home small: leave in, leave now, departs, an hour+ ahead, no more today, set up, stale").font(.caption).foregroundStyle(.white)
+            Text("Home Screen (2026-10-29) small: leave in, leave now, departs, widest, an hour+ ahead, long headsign, Red branches, Green C or D").font(.caption).foregroundStyle(.white)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+                ForEach(Array(stride(from: 0, to: homeSamples.count, by: 2)), id: \.self) { i in
+                    GridRow {
+                        home(homeSamples[i].1, .small, width: 170)
+                        if i + 1 < homeSamples.count { home(homeSamples[i + 1].1, .small, width: 170) }
+                    }
+                }
+            }
+            Text("Home Screen (2026-10-29) medium, 6.1\" width: the same samples").font(.caption).foregroundStyle(.white)
+            ForEach(homeSamples.indices, id: \.self) { i in home(homeSamples[i].1, .medium, width: 338) }
+            Text("Answers before 2026-10-29 (builds' old layout): small").font(.caption).foregroundStyle(.white)
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
                 ForEach(Array(stride(from: 0, to: widgetSamples.count, by: 2)), id: \.self) { i in
                     GridRow {
