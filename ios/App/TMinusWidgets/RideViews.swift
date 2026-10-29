@@ -128,9 +128,10 @@ struct LeaveBody: View {
     let text, muted, amber, track: Color
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            // Its full height first: with a note below, the stack shrank it to its minimum scale.
+            // Its full height: with a note below, the stack squeezed it to its minimum scale (only
+            // the width may shrink it).
             headline.font(.title3.weight(.bold)).foregroundStyle(state.warn ? amber : text).lineLimit(1).minimumScaleFactor(0.7)
-                .layoutPriority(1)
+                .fixedSize(horizontal: false, vertical: true)
             if let long = state.long, !long.isEmpty {
                 HStack(spacing: 6) {
                     RouteDot(hex: state.color, size: 10)
