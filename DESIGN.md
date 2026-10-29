@@ -60,9 +60,8 @@ ones):
 | Leave and walk cards (Lock Screen lines) | "Orange Line" | "toward Malden" |
 | Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
 | App card leg strip | "Orange" | none (the expanded row has it) |
-| Widget small vehicle line | "Orange" | "→ Malden" (long names shrink) |
-| Widget medium rows | "Orange" | none (2026-10-29: it cut the rows) |
-| Widget rectangular, inline, circular; Dynamic Island | "Orange" | none |
+| Widget Home Screen (small, medium; 2026-10-29) | "Orange Line" | "toward Forest Hills" ("→" where it doesn't fit) |
+| Widget Lock Screen (rectangular, inline, circular); Dynamic Island | "Orange" | none |
 
 Later legs keep their headsign in the expanded row only; no headsign: the vehicle alone ("Bus
 132"). Red, Blue and Green follow Orange ("Green Line B" / "Green B"). The Dynamic Island's
@@ -1459,6 +1458,15 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   app or the extension). Keychain sharing, not an App Group: the CI's API key can't register App
   Groups (401 on `/appGroups`); profiles already allow the team's keychain groups. Builds without
   `widgetSave`: nothing written, nothing logged.
+- **Home Screen layouts (2026-10-29, build 31 on; the phone cut "Orange → Forest H…"):** small:
+  the trip name, the countdown ("Leave in 5 min"; "Leave now", "Departs in 2 min" amber), its
+  time under it ("12:17am", the leave-by; "departs 12:20am", "12:20am"), then ● "Orange Line" and
+  "toward Forest Hills" on up to two lines; no arrival. Medium: "Leave in 5 min · 12:17am", ●
+  "Orange Line toward Forest Hills" ("→" where it doesn't fit) with the first ride's arrival, then
+  the next two rides (leave-by, arrival), naming their vehicle in short form only where it differs
+  from the first's ("● Red → Braintree", a several-route leg's "Green D"). The answer adds per row
+  `long` and `headsign` and per entry `headTime`; answers without them (and older builds, which
+  ignore them) keep the layouts above.
 - **Previews:** the `ios` workflow also renders `widget-<theme>.png` (every small state, five
   medium, the Lock Screen sizes).
 

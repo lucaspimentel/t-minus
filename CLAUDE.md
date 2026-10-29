@@ -51,9 +51,10 @@ ride, and against these rules:
 - A countdown and the time beside it name the same moment.
 - One wording and format: "2:18pm", "in 6 min" (rounded down), "~" for a headway estimate,
   "arrive 3:03pm". Vehicles in two forms: full text lines (notifications, the leave card, the ride
-  bar, the expanded row) say "Bus 132 toward Malden" / "Orange Line"; tight ones (the card's leg
-  strip, every widget size, the Dynamic Island) say "Bus 132" / "Orange", with "→ Malden" only on
-  the small Home Screen widget. The headsign goes with the first leg only.
+  bar, the expanded row, both Home Screen widgets) say "Bus 132 toward Malden" / "Orange Line"
+  (on the widgets "→ Malden" where "toward" doesn't fit); tight ones (the card's leg strip, the Lock
+  Screen widgets, the Dynamic Island) say "Bus 132" / "Orange", with no headsign. The headsign
+  goes with the first leg only.
   DESIGN.md "Surface wording" lists each surface.
 - Color carries state: amber/red mean late or at risk, at the same thresholds on every surface;
   the color and the time say it, without a separate warning line.
