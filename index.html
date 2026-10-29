@@ -426,7 +426,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-28 · e406b8932a</footer>
+    <footer class="version">Version 2026-10-28 · bd00c39ab3</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -449,8 +449,8 @@ import {
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=d6fff18ea9';
-import { openSetup } from './setup.js?v=327cc36278';
+} from './core.js?v=36d2d08f8c';
+import { openSetup } from './setup.js?v=0d5ef1d6b1';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1941,12 +1941,12 @@ function renderRideCard(s, now) {
     btns.append(b);
   }
   if (canUndoBoarding(ride, phase, now)) btns.append(btn('Missed it', () => missedIt(phase)));
-  // "Different train?": vehicles of this leg that left in the last 15 min, earlier or later, and
+  // "On a different train?": vehicles of this leg that left in the last 15 min, earlier or later, and
   // after the previous leg's arrival.
   const later = phase.kind === 'riding' ? otherVehicles(rideVehicles()[phase.leg] ?? [], ride.legs[phase.leg], now, ride.legs[phase.leg - 1]?.arr) : [];
   if (later.length) {
     const noun = vehicleNoun(ride.legs[phase.leg]);
-    btns.append(btn(laterOpen ? `Keep this ${noun}` : `Different ${noun}?`, () => { laterOpen = !laterOpen; render(); }));
+    btns.append(btn(laterOpen ? "I'm on this one" : `On a different ${noun}?`, () => { laterOpen = !laterOpen; render(); }));
   }
   // The next leg ("Different connection?" while riding, from the arrival; in the transfer "I'm at
   // the stop" = the first departure from now, and "Different bus?"): the rider's pick sticks.

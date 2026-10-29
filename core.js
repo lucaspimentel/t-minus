@@ -2174,11 +2174,11 @@ export function outlookText(outlook, ride, nowMs, { transfer = false } = {}) {
   return { text: `${head} · ${formatCountdown(outlook.margin)} to spare`, warn: false };
 }
 
-// How far back "Show previous rides" and "Different train?" look.
+// How far back "Show previous rides" and "On a different train?" look.
 export const PREVIOUS_MINUTES = 15;
 
 // Vehicles of a leg other than the assumed one that left in the last PREVIOUS_MINUTES (up to 4,
-// the most recent): "Different train?", earlier or later. `afterMs`: the previous leg's arrival on
+// the most recent): "On a different train?", earlier or later. `afterMs`: the previous leg's arrival on
 // a later leg (a vehicle leaving by then couldn't have been caught; one leaving after it, even
 // under the transfer time, could, as in transferOutlook).
 export function otherVehicles(vehicles, leg, nowMs, afterMs = -Infinity) {
@@ -2192,7 +2192,8 @@ export function connectionChoices(vehicles, planned, fromMs) {
   return vehicles.filter(v => v.dep >= fromMs && v.tripId !== planned.tripId).slice(0, 4);
 }
 
-// "Different train?" / "Different bus?": buses and the Silver Line are buses; the rest trains.
+// "train" or "bus" in "On a different train?" (riding) and "Different bus?" (the transfer): buses
+// and the Silver Line are buses; the rest trains.
 export const vehicleNoun = leg => (/^(Bus|Silver)\b/.test(vehicleLabel(leg) ?? '') ? 'bus' : 'train');
 
 // "Show previous rides": one ride per first-leg vehicle that left in the last PREVIOUS_MINUTES

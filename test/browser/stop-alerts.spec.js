@@ -63,7 +63,7 @@ test('with notifications allowed, the ride is posted, updated on a vehicle chang
   await expect(card(page).getByRole('button', { name: 'Turn on stop alerts' })).toHaveCount(0);
   // On the Orange Line, a different train: the server's copy is updated.
   await tickTo(page, '07:39');
-  await card(page).getByRole('button', { name: 'Different train?' }).click();
+  await card(page).getByRole('button', { name: 'On a different train?' }).click();
   await card(page).getByRole('button', { name: 'Orange ~7:38am' }).click();
   await tick(page, 1000);
   await expect.poll(() => rideCalls(calls).at(-1)).toMatchObject({ method: 'PUT', path: '/rides/ride1' });

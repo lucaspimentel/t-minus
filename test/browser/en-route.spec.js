@@ -1,5 +1,5 @@
 // En route and trip tracking: Leaving now / At the stop, the bell (pin, boarding question), the ride card
-// through its phases, Missed it, Different train?, transfer re-plan, Cancel + Undo, wake lock.
+// through its phases, Missed it, On a different train?, transfer re-plan, Cancel + Undo, wake lock.
 // Timeline used below (home to office): bus 132 7:08 → 7:22 (via Pond St 7:12), 5-min
 // transfer, Orange 7:32 → 7:47 (every 6 min), 10-min walk → arrive 7:57.
 import { test, expect } from '@playwright/test';
@@ -285,20 +285,24 @@ test('with only the drop-off left, the headline says to get off; the timeline na
   await expect(card(page).getByText('Washington St opp Oak Grove Sta')).toHaveCount(1);
 });
 
-test('Different train? moves the ride to a later or an earlier vehicle that left in the last 15 min', async ({ page }) => {
+test('On a different train? moves the ride to a later or an earlier vehicle that left in the last 15 min', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await atTheStop(page);
   await tickTo(page, '07:39');
   await expect(head(page)).toHaveText(riding('Orange'));
   await offAt(page, '7:47am');
-  await card(page).getByRole('button', { name: 'Different train?' }).click();
+  await card(page).getByRole('button', { name: 'On a different train?' }).click();
   await expect(card(page).getByRole('button', { name: /^Orange / })).toHaveText(['Orange ~7:26am', 'Orange ~7:38am']);
+  // Open, it reads "I'm on this one" (not the transfer's "Keep this train"), which closes it.
+  await card(page).getByRole('button', { name: "I'm on this one" }).click();
+  await expect(card(page).getByRole('button', { name: 'Orange ~7:26am' })).toHaveCount(0);
+  await card(page).getByRole('button', { name: 'On a different train?' }).click();
   await card(page).getByRole('button', { name: 'Orange ~7:38am' }).click();
   await tick(page, 500);
   await expect(head(page)).toHaveText(riding('Orange'));
   await offAt(page, '7:53am');
   // Back to an earlier one.
-  await card(page).getByRole('button', { name: 'Different train?' }).click();
+  await card(page).getByRole('button', { name: 'On a different train?' }).click();
   await card(page).getByRole('button', { name: 'Orange ~7:32am' }).click();
   await tick(page, 500);
   await expect(head(page)).toHaveText(riding('Orange'));

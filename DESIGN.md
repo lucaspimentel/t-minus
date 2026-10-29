@@ -339,7 +339,8 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
     before the planned one) takes the first. Picking re-plans the later legs (`switchLeg`);
     the new trip ids reach the server's stop alerts (`PUT /rides/:id`), which keep the pick
     the same way.
-  - "Different train?" ("Different bus?" on a bus or Silver Line leg; riding): the leg's other
+  - "On a different train?" ("On a different bus?" on a bus or Silver Line leg; riding; open:
+    "I'm on this one", apart from the transfer's "Keep this train"): the leg's other
     vehicles that left in the last 15 min (`otherVehicles`, up to 4, earlier or later than the
     assumed one; on a later leg only those leaving after the previous leg's arrival, even under
     the transfer time, as a tight connection is kept; none: no button); picking one moves the leg to it and re-plans the later legs (`switchLeg`).
@@ -1026,7 +1027,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 - **Stop alerts (a tracked ride, followed by the server):**
   - **App:** every tracked ride (boarding detected, "I got on", a "Did you get on?" Yes) is posted
     (`POST /rides` with the trip, its legs and `boardedAt`) once notifications are allowed;
-    the en-route state keeps `alert: { id, tripIds }`. New trip ids ("Different train?",
+    the en-route state keeps `alert: { id, tripIds }`. New trip ids ("On a different train?",
     "Missed it", the app's own re-plan) send `PUT /rides/:id` (404: posted again); Cancel,
     Done, a replaced ride or the ride ending sends `DELETE`; Undo posts it again. Until
     permission is granted, the ride card shows "Turn on stop alerts" (hidden when denied,
