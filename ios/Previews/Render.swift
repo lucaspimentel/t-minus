@@ -41,6 +41,7 @@ private let leaveSamples: [(String, RideState)] = [
     ("Leave at (an hour+ ahead)", leave("early", "Leave at 7:39am", until: 0, island: "Leave 7:39am", next: "Arrive ~8:25am")),
     ("Leave at, moved", leave("early", "Leave at 7:42am", until: 0, warn: true, island: "Leave 7:42am", next: "Moved (was 7:39am) · arrive ~8:28am")),
     ("Leave in (10-min heads-up)", leave("leave", "Leave in", until: now + 540, island: "Leave", next: "Leave by 7:39am · arrive ~8:25am")),
+    ("Leave in 28 min (widest island)", leave("leave", "Leave in", until: now + 28 * 60 + 30, island: "Leave", next: "Leave by 7:58am · arrive ~8:44am")),
     ("Leave-by moved", leave("leave", "Leave in", until: now + 360, warn: true, island: "Leave", next: "Leave by 7:36am (was 7:39am)")),
     ("Leave in <1 minute", leave("leave", "Leave in", until: now + 50, island: "Leave", next: "Leave by 7:39am · arrive ~8:25am", soon: true)),
     ("Leave now", leave("now", "Leave now · departs in", until: now + 420, warn: true, island: "Leave now", sub: "Bus 132 toward Malden at 7:48am", next: "Arrive ~8:25am")),
@@ -76,9 +77,9 @@ private struct LeaveSheet: View {
                     .background(Theme.of(scheme).card)
                     .clipShape(RoundedRectangle(cornerRadius: 22))
             }
-            Text("Dynamic Island: compact (leave at, leave at moved, leave, <1 min, leave now, departs, got on?, walk, walk late), expanded").font(.caption).foregroundStyle(.white)
+            Text("Dynamic Island: compact (leave at, leave at moved, leave 9, leave 28, <1 min, leave now, departs, got on?, walk, walk late), expanded").font(.caption).foregroundStyle(.white)
             // By name, so a new sample doesn't shift which ones are drawn.
-            ForEach(["Leave at (an hour+ ahead)", "Leave at, moved", "Leave in (10-min heads-up)", "Leave in <1 minute", "Leave now", "Departs in", "Did you get on? (at the departure)", "Walk card", "Walk card, late"], id: \.self) { name in
+            ForEach(["Leave at (an hour+ ahead)", "Leave at, moved", "Leave in (10-min heads-up)", "Leave in 28 min (widest island)", "Leave in <1 minute", "Leave now", "Departs in", "Did you get on? (at the departure)", "Walk card", "Walk card, late"], id: \.self) { name in
                 Compact(state: leaveSamples.first { $0.0 == name }!.1)
             }
             IslandExpanded(state: leaveSamples.first { $0.0 == "Leave in (10-min heads-up)" }!.1)
@@ -130,6 +131,12 @@ private func wrow(_ time: String, _ arrive: String, vehicle: String = "Bus 132",
 private let wrows = [wrow("7:42am", "8:25am"), wrow("7:48am", "8:37am"), wrow("8:00am", "8:49am")]
 // Wide times (the phone cut "10:22am" to "10:2…" in a fixed-width column).
 private let lateRows = [wrow("10:22am", "11:08am"), wrow("11:22am", "12:04pm"), wrow("12:22pm", "1:04pm")]
+// Late at night (the phone, 2026-10-28: "Thu" times overflowed both sides), and a long route name
+// in the phone's 6.1" width: only the route column gives way.
+private let nightRows = [wrow("11:26pm", "12:08am"), wrow("5:57am", "6:45am"), wrow("6:27am", "7:15am")]
+private let longRows = [wrow("12:22pm", "~12:58pm", vehicle: "Silver SL4 → South Station via Essex", color: "7C878E", label: "SL4"),
+                        wrow("10:22am", "~11:08am", vehicle: "Green Line E → Heath Street", color: "00843D", label: "GL·E"),
+                        wrow("12:22pm", "~1:04pm")]
 private func went(_ title: String, _ count: String, warn: Bool = false, next: String = "Arrive 8:25am", lock: String? = nil, lockSub: String, inline: String, circle: String,
                   ring: Double = 0, row: Int = 0, head: String? = nil, headCount: String? = nil, line: String? = nil, rowTime: String? = nil) -> WidgetView.Entry {
     WidgetView.Entry(at: 0, row: row, title: title, count: count, warn: warn, next: next, lock: lock ?? title, lockSub: lockSub, inline: inline, circle: circle,
@@ -167,9 +174,11 @@ private struct WidgetSheet: View {
                     }
                 }
             }
-            Text("Home medium: leave in, leave now, departs, an hour+ ahead, no more today, wide times").font(.caption).foregroundStyle(.white)
+            Text("Home medium: leave in, leave now, departs, an hour+ ahead, no more today, wide times; 6.1\" width: late night, long routes").font(.caption).foregroundStyle(.white)
             ForEach([0, 1, 2, 3, 4], id: \.self) { i in home(widgetSamples[i].1, .medium, width: 364) }
             home(LeaveContent(name: "Home → Office", entry: widgetSamples[0].1.entry, rows: lateRows), .medium, width: 364)
+            home(LeaveContent(name: "Home → Office", entry: widgetSamples[0].1.entry.map { var e = $0; e.head = "Leave in 24 min"; return e }, rows: nightRows), .medium, width: 338)
+            home(LeaveContent(name: "Home → Office", entry: widgetSamples[1].1.entry, rows: longRows), .medium, width: 338)
             Text("Lock Screen: inline, rectangular, circular (iOS tints them)").font(.caption).foregroundStyle(.white)
             ForEach([0, 1, 2, 3, 6], id: \.self) { i in
                 let c = widgetSamples[i].1

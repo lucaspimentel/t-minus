@@ -1379,9 +1379,14 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   at the departure "Did you get on?" / "Bus 132 toward Malden left at 7:48am" / "Tap to answer"
   (island "Got on?"; tap opens the app), ended when answered or after 30 min. "Ride cancelled"
   / "Open the app for the next one.", dismissed after 2 min. The legs bar shows the trip, empty.
-- **Dynamic Island:** compact: the route's dot and label, then "Leave 7:39am" (early), "Leave 9 minutes", "Leave now" or
-  "Departs 2 minutes" (amber when too late; the walk card's in white, amber when late: it counts
-  down to the departure, not a walk), scaled to fit (iOS has no live "9m"); expanded: the card.
+- **Dynamic Island:** compact: the route's dot and label, then the countdown alone, "9 min"
+  ("<1 min" in the last 80 s; amber when too late; the walk card's in white, amber when late: it
+  counts down to the departure, not a walk), or the word when there's none ("Leave 7:39am" early,
+  "Leave now", "Got on?"); expanded: the card. 2026-10-29: "Leave 28 minutes" stretched the
+  island across the screen, hiding the clock, so the word moved to the expanded view and the
+  countdown got a fixed width (sized for "59 min") so the island doesn't resize as it counts
+  down. It ticks on its own (iOS 18's duration offset, abbreviated, rounded down); it may differ
+  by a minute from the other surfaces' (seen once: 40 vs 39), accepted.
   (Before 2026-10-24 the walk card showed a walking figure, which read as "walk 10 minutes".)
 - **Walk card:** "Leaving now" / "At the stop" with the bell mark its reminder `started` (without
   the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Bus 132 in 6
@@ -1435,7 +1440,9 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   out, "Leave now · departs in 5 min", "Departs in 2 min"; the leave-by isn't repeated), then the
   entry's row and the next two in one format (leave-by, "Bus 132", "arrive 8:37am"; no headsign or
   weekday, 2026-10-29; "~" on a headway
-  estimate; build 25 shows the small's title and count instead); rectangular: the name, "Leave
+  estimate; build 25 shows the small's title and count instead; only the route column gives way,
+  shrinking then truncating, so long text can't widen the view and clip both sides, as late-night
+  "Thu" times did on build 26); rectangular: the name, "Leave
   7:42am", "in 9 min · Bus 132" (past the leave-by: "Bus 132 at 7:48am"; no headsign); inline: "132 Leave 7:42am" (the time, not the
   countdown); circular (2026-10-26, after the phone showed a bare "38 / 132"): "38m" over "Bus
   132" ("Orange" for the Orange Line) in a ring, open at the bottom like the system's gauge, full

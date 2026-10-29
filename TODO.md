@@ -37,17 +37,6 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
 
 ## Surface wording follow-ups (seen on the phone 2026-10-27, build 26)
 
-- The Dynamic Island said "Leave 40 minutes" while the widget, the leave card and the app said 39:
-  possibly the screenshots' timing, possibly iOS's offset format rounding instead of rounding
-  down. Check against the previews before changing native code.
-- The compact Dynamic Island can span the whole screen width, hiding the clock (seen
-  2026-10-27: "● 132 … Leave 28 minutes"). `IslandTrailing` (`RideViews.swift`) shows the word
-  plus a self-updating countdown with the full unit ("28 minutes"), capped at `maxWidth: 110`;
-  the self-updating text may also be sized for its widest value. Narrow only in phases without
-  the word + countdown (riding "4 stops", "Leave now"). Fix (a build): the countdown alone in
-  short form ("28 min", per the UI rules' "in N min"; color carries the state, the word stays in
-  the expanded view), cap ~60 pt or a fixed width so the island doesn't resize as it counts
-  down; check in the `live-activity-previews` artifact.
 - The widget ignores the ride in progress (CLAUDE.md "UI rules": one answer; the departure once
   walking). Seen 2026-10-27: walking to the 6:15pm Orange, the walk card said "Orange in 6
   minutes" while the Lock Screen widgets said "Leave 6:32pm · in 23 min" (the next ride); riding

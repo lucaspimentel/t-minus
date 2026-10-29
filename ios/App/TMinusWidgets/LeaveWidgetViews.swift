@@ -57,7 +57,8 @@ private struct SmallLeave: View {
 
 // The countdown ("Leave in 9 min"), then the entry's row and the next two in one format: leave-by
 // (the first row's departure, amber, past it), route, arrival. Answers without `head`: the
-// small size's title and count.
+// small size's title and count. Only the route column gives way (shrinks, then truncates), so
+// long text can't widen the view past the widget and clip it on both sides (seen 2026-10-28).
 private struct MediumLeave: View {
     let content: LeaveContent
     @Environment(\.colorScheme) private var scheme
@@ -68,9 +69,9 @@ private struct MediumLeave: View {
             Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(content.entry?.head ?? content.title).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
-                if let count = content.headCount, !count.isEmpty { Text(count).font(.subheadline.weight(.semibold)).lineLimit(1) }
+                if let count = content.headCount, !count.isEmpty { Text(count).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8) }
             }
-            .foregroundStyle(tint)
+            .foregroundStyle(tint).frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
             if content.rows.isEmpty {
                 if !content.next.isEmpty { Text(content.next).font(.subheadline).foregroundStyle(th.muted) }
@@ -85,10 +86,11 @@ private struct MediumLeave: View {
                                 .foregroundStyle(late == nil ? th.text : th.amber)
                             HStack(spacing: 6) {
                                 RouteDot(hex: row.color, size: 8)
-                                Text(row.vehicle).font(.subheadline).lineLimit(1)
+                                Text(row.vehicle).font(.subheadline).lineLimit(1).minimumScaleFactor(0.7).truncationMode(.tail)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             Text(row.arrive).font(.subheadline).foregroundStyle(th.muted).lineLimit(1).fixedSize()
-                                .gridColumnAlignment(.trailing).frame(maxWidth: .infinity, alignment: .trailing)
+                                .gridColumnAlignment(.trailing)
                         }
                         .foregroundStyle(th.text)
                     }

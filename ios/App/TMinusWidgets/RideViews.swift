@@ -36,6 +36,13 @@ func countdownText(_ state: RideState) -> Text? {
     return Text(until, format: .offset(to: Date(), allowedFields: [.minute], maxFieldCount: 1))
 }
 
+// The compact island's short form: "28 min" (rounded down, ticking on its own), "<1 min".
+func shortCountdown(_ state: RideState) -> Text? {
+    if state.soon == true { return Text("<1 min") }
+    guard let until = state.untilDate, until > Date() else { return nil }
+    return Text(.durationOffset(to: until), format: .units(allowed: [.minutes], width: .abbreviated, fractionalPart: .hide(rounded: .towardZero)))
+}
+
 // "Orange · 4 stops · 12 minutes" (or "Leave in 9 minutes": `join`): the title, then the countdown.
 struct Headline: View {
     let state: RideState
@@ -143,17 +150,23 @@ struct IslandLeading: View {
 struct IslandTrailing: View {
     let state: RideState
     var body: some View {
+        // A leave or walk card: the countdown alone ("28 min"; the word is in the expanded view), or
+        // the word without one ("Leave 7:39am", "Leave now", "Got on?"). The countdown's width is
+        // fixed (sized for "59 min") so the island doesn't resize as it counts down.
         if let word = state.island {
-            HStack(spacing: 4) {
-                Text(word)
-                if state.phase != "now", let countdown = countdownText(state) { countdown }
+            Group {
+                if state.phase != "now", let countdown = shortCountdown(state) {
+                    countdown.frame(width: 60, alignment: .trailing)
+                } else {
+                    Text(word).frame(maxWidth: 110)
+                }
             }
-            .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6).frame(maxWidth: 110)
+            .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6)
             .foregroundStyle(state.warn ? Color(hex: "F0A830") : .white)
         } else if state.phase == "riding" && state.stops > 0 {
             Text("\(state.stops) stop\(state.stops == 1 ? "" : "s")").font(.subheadline.weight(.semibold))
-        } else if let countdown = countdownText(state) {
-            countdown.font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: 90)
+        } else if let countdown = shortCountdown(state) {
+            countdown.font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7).frame(width: 60, alignment: .trailing)
         } else {
             EmptyView()
         }
