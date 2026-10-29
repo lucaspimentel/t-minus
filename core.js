@@ -2599,7 +2599,9 @@ export const WIDGET_REFRESH_MIN = 10; // the reload asked of iOS (sooner at the 
 // chance, "Departs in" until the departure, then the next row. Times follow CLAUDE.md "UI rules":
 // the leave-by, then from the leave-by on the departure (`line` "Bus 132 → Malden at 7:48am", `rowTime`
 // the first row's time, amber), counted down to. `head`/`headCount`: the medium size's header,
-// the countdown only ("Leave in 9 min"; the rows carry the times). The circular size: "38m" (or
+// the countdown only ("Leave in 9 min"; the rows carry the times). Times carry no weekday ("Leave
+// 5:57am" late at night, "arrive 12:08am"), and the medium rows' `vehicle` no headsign ("Bus 132";
+// the small size's `line` keeps "→ Malden"), so the medium rows fit. The circular size: "38m" (or
 // the time, "now") over the vehicle ("Bus 132") in a ring, `ring` full an hour before the
 // leave-by and empty at it (-1: none).
 // `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`: when to ask again
@@ -2607,14 +2609,14 @@ export const WIDGET_REFRESH_MIN = 10; // the reload asked of iOS (sooner at the 
 // no trips.
 export function widgetView(tripName, rows, nowMs) {
   const sec = ms => Math.round(ms / 1000);
-  const t = ms => formatTime(ms, nowMs);
+  const t = ms => formatTime(ms); // no weekday: the widget's rides are its next ones
   const horizon = nowMs + WIDGET_HORIZON_MIN * MIN;
-  const deps = rows.map(r => legTime(r.legs[0], r.firstDep, nowMs));
+  const deps = rows.map(r => legTime(r.legs[0], r.firstDep));
   const lines = rows.map(r => {
     const first = r.legs[0];
     const approx = r.legs.some(l => l.every) ? '~' : '';
     return {
-      time: t(r.leaveBy), vehicle: vehicleArrow(first), short: vehicleLabel(first), color: first.color ?? '', label: islandLabel(first),
+      time: t(r.leaveBy), vehicle: vehicleLabel(first) ?? '', short: vehicleLabel(first), color: first.color ?? '', label: islandLabel(first),
       line: vehicleArrow(first), arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
     };
   });

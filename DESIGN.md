@@ -60,12 +60,15 @@ ones):
 | Leave and walk cards (Lock Screen lines) | "Orange Line" | "toward Malden" |
 | Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
 | App card leg strip | "Orange" | none (the expanded row has it) |
-| Widget medium rows, small vehicle line | "Orange" | "→ Malden" (long names shrink) |
+| Widget small vehicle line | "Orange" | "→ Malden" (long names shrink) |
+| Widget medium rows | "Orange" | none (2026-10-29: it cut the rows) |
 | Widget rectangular, inline, circular; Dynamic Island | "Orange" | none |
 
 Later legs keep their headsign in the expanded row only; no headsign: the vehicle alone ("Bus
 132"). Red, Blue and Green follow Orange ("Green Line B" / "Green B"). The Dynamic Island's
-compact badge stays the route's short label ("132", "OL").
+compact badge stays the route's short label ("132", "OL"). Widget times carry no weekday
+("Leave 5:57am", "arrive 12:08am" late at night; 2026-10-29: "Thu" overflowed the medium rows);
+the app's keep it.
 
 Reminder notifications: the heads-ups (10 and 5 min) come before the leave-by, so their body is
 the vehicle and the arrival, "Bus 132 toward Malden · arrive ~8:25am" (moved: "Bus 132 toward
@@ -1430,7 +1433,8 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 - **Sizes:** small: the trip name, the title and countdown, the first vehicle ("Bus 132 → Malden") and
   the arrival; medium: the countdown only (`head`: "Leave in 9 min", "Leave in 1h 06m" an hour+
   out, "Leave now · departs in 5 min", "Departs in 2 min"; the leave-by isn't repeated), then the
-  entry's row and the next two in one format (leave-by, "Bus 132 → Malden", "arrive 8:37am"; "~" on a headway
+  entry's row and the next two in one format (leave-by, "Bus 132", "arrive 8:37am"; no headsign or
+  weekday, 2026-10-29; "~" on a headway
   estimate; build 25 shows the small's title and count instead); rectangular: the name, "Leave
   7:42am", "in 9 min · Bus 132" (past the leave-by: "Bus 132 at 7:48am"; no headsign); inline: "132 Leave 7:42am" (the time, not the
   countdown); circular (2026-10-26, after the phone showed a bare "38 / 132"): "38m" over "Bus

@@ -2317,8 +2317,8 @@ test('widgetView: per-minute countdowns, leave now, departs, the next row; early
   const now = at('07:29') + 30_000;
   const v = widgetView('Home → Work', [row('07:39', '07:42', '07:48', '08:25'), row('07:51', '07:54', '08:00', '08:37')], now);
   // Rows: the leave-by (CLAUDE.md "UI rules").
-  // The vehicle with its headsign (the tight form, CLAUDE.md "UI rules").
-  assert.deepEqual(v.rows[0], { time: '7:39am', vehicle: 'Bus 132 → Malden', short: 'Bus 132', color: 'FFC72C', label: '132', line: 'Bus 132 → Malden', arrive: 'arrive 8:25am', arriveTitle: 'Arrive 8:25am' });
+  // The medium rows' vehicle without its headsign; the small size's line with it (CLAUDE.md "UI rules").
+  assert.deepEqual(v.rows[0], { time: '7:39am', vehicle: 'Bus 132', short: 'Bus 132', color: 'FFC72C', label: '132', line: 'Bus 132 → Malden', arrive: 'arrive 8:25am', arriveTitle: 'Arrive 8:25am' });
   const when = (hhmm, s = 0) => (at(hhmm) + s * 1000) / 1000;
   const shown = sec => v.entries.filter(e => e.at <= sec).at(-1);
   const pick = e => [e.row, e.title, e.count, e.warn, e.lockSub, e.inline, e.circle, e.circleSub, e.ring];
@@ -2352,6 +2352,17 @@ test('widgetView: per-minute countdowns, leave now, departs, the next row; early
   const late = widgetView('Home → Work', [row('05:12', '05:15', '05:21', '06:00', { nextDay: true })].map(r => ({ ...r, leaveBy: r.leaveBy + 86400_000, lastChance: r.lastChance + 86400_000, firstDep: r.firstDep + 86400_000, eta: r.eta + 86400_000 })), at('23:30'));
   assert.deepEqual([late.entries[0].title, late.entries[0].next, late.entries[0].lockSub], ['No more today', 'First 5:12am', 'First 5:12am']);
   assert.equal(late.end, at('23:30') / 1000 + WIDGET_HORIZON_MIN * 60); // the horizon comes first
+
+  // Late at night: no weekday on any time, though the next rows and the arrivals are tomorrow.
+  const day = r => ({ ...r, leaveBy: r.leaveBy + 86400_000, lastChance: r.lastChance + 86400_000, firstDep: r.firstDep + 86400_000, eta: r.eta + 86400_000 });
+  const night = widgetView('Home → Office', [
+    row('23:20', '23:23', '23:30', '23:59', { eta: at('23:30') + 38 * 60_000 }),
+    day(row('05:57', '06:00', '06:05', '06:45', { nextDay: true })), day(row('06:27', '06:30', '06:35', '07:15', { nextDay: true })),
+  ], at('23:02'));
+  assert.deepEqual(night.rows.map(r => [r.time, r.vehicle, r.arrive]), [['11:20pm', 'Bus 132', 'arrive 12:08am'], ['5:57am', 'Bus 132', 'arrive 6:45am'], ['6:27am', 'Bus 132', 'arrive 7:15am']]);
+  const weekday = /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/;
+  for (const e of night.entries) for (const k of ['title', 'count', 'head', 'headCount', 'next', 'lock', 'lockSub', 'inline', 'line', 'rowTime']) assert.doesNotMatch(String(e[k] ?? ''), weekday, k);
+  assert.equal(night.entries.find(e => e.title === 'Leave now').line, 'Bus 132 → Malden at 11:30pm');
 
   const none = widgetView('Home → Work', [], at('23:30'));
   assert.deepEqual([none.entries.length, none.entries[0].title, none.entries[0].next, none.end], [1, 'No more today', '', null]);

@@ -53,7 +53,7 @@ ride, and against these rules:
   "arrive 3:03pm". Vehicles in two forms: full text lines (notifications, the leave card, the ride
   bar, the expanded row) say "Bus 132 toward Malden" / "Orange Line"; tight ones (the card's leg
   strip, every widget size, the Dynamic Island) say "Bus 132" / "Orange", with "→ Malden" only on
-  the Home Screen widgets. The headsign goes with the first leg only.
+  the small Home Screen widget. The headsign goes with the first leg only.
   DESIGN.md "Surface wording" lists each surface.
 - Color carries state: amber/red mean late or at risk, at the same thresholds on every surface;
   the color and the time say it, without a separate warning line.

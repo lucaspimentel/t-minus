@@ -281,7 +281,7 @@ test('/api/widget: the shown trip\'s timeline; no trips; bad requests; the MBTA 
     assert.equal(res.status, 200);
     const v = await res.json();
     assert.equal(v.name, trip.name);
-    assert.deepEqual(v.rows.map(r => [r.time, r.vehicle]), [['7:04am', '132 → Malden']]);
+    assert.deepEqual(v.rows.map(r => [r.time, r.vehicle]), [['7:04am', '132']]);
     assert.equal(v.entries[0].at, at('07:00') / 1000);
     assert.equal(v.end, at('07:10') / 1000);
     // The shown trip: the one-off (last) unless another was picked by hand since.
