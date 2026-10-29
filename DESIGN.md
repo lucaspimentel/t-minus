@@ -1340,7 +1340,9 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 - **Dynamic Island:** expanded content margins 24 pt at the sides, 14 top, 18 bottom (the
   defaults let the rounded corners clip the route label and the last line). Compact: the route's dot and label (`islandLabel`: "OL", "GL B", "132",
   "SL1"; 🚶 on the final walk), then the stops left, or the countdown when stops don't apply (no
-  stop data, a transfer, the final walk); expanded: the card's content; minimal: the route's dot.
+  stop data, a transfer, the final walk); expanded: the trip name and "T-Minus" on top, then the
+  card's content with the route's dot before the headline (until build 35 the top row was the
+  compact parts, "● OL … 8 stops", repeating the headline; seen 2026-10-29); minimal: the route's dot.
 - **Content:** `liveActivityState` (`core.js`) builds it for both the app (local updates) and the
   server (pushes), so both show the same; `RideState` (`ios/App/Shared`) decodes it (Unix seconds:
   ActivityKit would read a pushed Date as seconds since 2001; fields added later are optional).

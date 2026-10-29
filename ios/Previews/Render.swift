@@ -67,7 +67,7 @@ private struct Compact: View {
     }
 }
 
-// The expanded island of a leave card: the trip name and "T-Minus" by the camera, then the body.
+// The expanded island: the trip name and "T-Minus" by the camera, then the body.
 private struct Expanded: View {
     let tripName: String
     let state: RideState
@@ -125,9 +125,8 @@ private struct Sheet: View {
                     .environment(\.colorScheme, .dark)
                     .frame(maxWidth: .infinity)
             }
-            IslandExpanded(state: samples[0].1)
-                .padding(18).background(.black).clipShape(RoundedRectangle(cornerRadius: 36))
-                .environment(\.colorScheme, .dark)
+            Expanded(tripName: "Home to office", state: samples[0].1)
+            Expanded(tripName: "Home to office", state: samples[2].1)
             RouteDot(hex: orange, size: 10).frame(width: 37, height: 37).background(.black).clipShape(Circle()).frame(maxWidth: .infinity)
         }
         .padding(16)

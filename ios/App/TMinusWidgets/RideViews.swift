@@ -258,8 +258,9 @@ struct IslandTrailing: View {
     }
 }
 
-// Expanded (long press): the card's content on black; a leave or walk card's top row is the
-// trip name and "T-Minus" (`IslandTop`), nothing that repeats the headline.
+// Expanded (long press): the card's content on black under a top row of the trip name and
+// "T-Minus" (`IslandTop`), nothing that repeats the headline; the ride card's route dot before its
+// headline, as on the Lock Screen.
 struct IslandTop: View {
     let text: String
     var body: some View { Text(text).font(.caption).foregroundStyle(.gray).lineLimit(1) }
@@ -277,7 +278,11 @@ struct IslandExpanded: View {
 
     private var rideBody: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Headline(state: state).font(.headline).foregroundStyle(state.warn ? Color(hex: "F0A830") : .white).lineLimit(1)
+            HStack(spacing: 7) {
+                RouteDot(hex: state.color, size: 10)
+                Headline(state: state).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .font(.headline).foregroundStyle(state.warn ? Color(hex: "F0A830") : .white)
             if !state.sub.isEmpty { Text(state.sub).font(.subheadline).foregroundStyle(.gray).lineLimit(1) }
             if !state.next.isEmpty { Text(state.next).font(.subheadline).foregroundStyle(.white).lineLimit(2) }
             LegsBar(legs: state.legs, track: Color(hex: "333333")).padding(.top, 4)
