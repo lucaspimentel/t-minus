@@ -573,6 +573,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   | Deleting the last trip (in setup) | the setup list: "No trips yet. " + the help line, an orange "+ Plan a trip" |
   | Done with no trips | the empty main screen (settings alone are saved as `trips: []`) |
 - Reordering and deleting trips also save right away.
+- Waiting lines (2026-10-29): setup's "…ing" status lines ("Finding ways…", "Loading stations…",
+  "Searching places…", "Checking stops…" while saving, …) show the pull-to-refresh ring before the
+  text (`waitLine`; hidden from screen readers; still and faded with reduced motion). Button labels
+  ("Deleting…", "Finding your location…") and the main screen's status line stay plain.
 - Reset (last section of setup): "Delete all trips and settings" asks to confirm ("Delete all
   trips and settings?", no Undo), cancels pending reminders on the push server, removes every
   `t-minus:*` key except the API key (kept as `{ trips: [], apiKey }`), and reloads to

@@ -77,11 +77,15 @@
   .ptr-ring { display: none; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--muted); border-radius: 50%; }
   .ptr.busy .ptr-icon { display: none; }
   .ptr.busy .ptr-ring { display: block; animation: spin .8s linear infinite; }
+  /* Setup's waiting lines ("Finding ways…"): the pull-to-refresh ring, at text height, before the text. */
+  .wait { display: flex; align-items: center; gap: 8px; }
+  .wait-ring { flex: none; width: 1em; height: 1em; border: 2px solid var(--border); border-top-color: var(--muted); border-radius: 50%; animation: spin .8s linear infinite; }
   #app.settling { transition: transform 200ms ease-out; }
   #app.settling .ptr { transition: opacity 200ms; }
   @media (prefers-reduced-motion: reduce) {
     .ptr-icon { transition: none; }
     .ptr.busy .ptr-ring { animation: none; opacity: .4; }
+    .wait-ring { animation: none; opacity: .4; }
   }
   /* At the bottom, just above the version. */
   .status { font-size: 13px; color: var(--muted); margin: 16px 0 0; min-height: 18px; text-align: center; }
@@ -421,7 +425,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-28 · 1da48dedcf</footer>
+    <footer class="version">Version 2026-10-28 · 74598c2405</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -445,7 +449,7 @@ import {
   unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
 } from './core.js?v=d6fff18ea9';
-import { openSetup } from './setup.js?v=42ccf9d21e';
+import { openSetup } from './setup.js?v=327cc36278';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';

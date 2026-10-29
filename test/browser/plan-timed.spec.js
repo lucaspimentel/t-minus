@@ -147,3 +147,19 @@ test('Save trip from the main screen: Save shows the new trip there; Cancel goes
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips.map(t => t.name)))
     .toEqual(['Home to office', 'Office to home', 'Oak Grove → State']);
 });
+
+test('while the server times the ways, "Finding ways…" shows a loading ring', async ({ page }) => {
+  await openApp(page, { time: '07:00' });
+  let release;
+  const held = new Promise(r => { release = r; });
+  await page.route(/\/api\/plan\?/, async route => { await held; await route.fulfill({ json: FIRST }); });
+  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await pickStation(page, 'from', 'oak gr', 'Oak Grove');
+  await pickStation(page, 'to', 'state', 'State');
+  const wait = setup(page).locator('.wait');
+  await expect(wait).toHaveText('Finding ways…');
+  await expect(wait.locator('.wait-ring')).toHaveAttribute('aria-hidden', 'true');
+  release();
+  await expect(options(page)).toHaveCount(3);
+  await expect(wait).toHaveCount(0);
+});

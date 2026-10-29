@@ -59,8 +59,12 @@ function h(tag, props = {}, ...children) {
 // A new trip has no name until its legs suggest one (tripScreen); Save falls back to "Trip N".
 const emptyTrip = () => ({ name: '', window: null, near: false, timingLeg: null, walkBefore: 5, walkAfter: 5, transit: [] });
 const numberValue = v => (v === '' ? NaN : Number(v));
-const info = text => ({ text, err: false });
+// `wait`: a message shown while something runs ("Checking stops…"), drawn as a waiting line.
+const info = (text, wait = false) => ({ text, err: false, wait });
 const errs = list => list.map(text => ({ text, err: true }));
+// A waiting line: the loading ring (hidden from screen readers), then the text.
+const waitLine = (text, cls = 'muted') => h('div', { class: `${cls} wait` }, h('span', { class: 'wait-ring', 'aria-hidden': 'true' }), text);
+const message = m => (m.wait ? waitLine(m.text, 'msg') : h('div', { class: m.err ? 'msg err' : 'msg' }, m.text));
 
 // Radius for next-leg suggestions, in degrees (~300 m).
 const NEARBY_RADIUS = 0.003;
@@ -295,7 +299,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     if (cfg && typeof cfg === 'object' && !cfg.apiKey && app.apiKey.trim()) cfg = { ...cfg, apiKey: app.apiKey.trim() };
     const prev = savedTrips().length ? saved : null; // first run: nothing to undo
     busy = true;
-    listMessages = [info('Checking stops…')];
+    listMessages = [info('Checking stops…', true)];
     render();
     const errors = await checkAndPersist(cfg);
     busy = false;
@@ -380,7 +384,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     if (!p.data) {
       return [head, p.error
         ? [h('div', { class: 'msg err' }, `Couldn't load: ${p.error}`), h('div', { class: 'btns' }, h('button', { type: 'button', onclick: loadPending }, 'Retry'))]
-        : h('div', { class: 'muted' }, 'Loading…')];
+        : waitLine('Loading…')];
     }
     const { now, entries, log = [], local = [], token, appLog } = p.data;
     const t = ms => formatTime(ms, now ?? Date.now());
@@ -447,7 +451,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         h('span'),
         h('b', {}, 'Setup'),
         h('button', { type: 'button', class: 'primary', id: 'setup-done', disabled: busy, onclick: done }, 'Done')),
-      ...listMessages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)),
+      ...listMessages.map(message),
       h('div', { class: 'list trips' }, trips.map((t, i) => tripRow(t, i, trips.length))),
       // No trips (the last one deleted): the add button stands out, as in an empty trip's legs.
       trips.length
@@ -564,7 +568,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('b', {}, 'Plan a trip'), h('span'));
     if (!railNet) {
       loadRailNetwork().then(render).catch(e => { listMessages = errs([`Couldn't load stations: ${e.message || e}`]); render(); });
-      return [head, ...listMessages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)), h('div', { class: 'muted' }, 'Loading stations…')];
+      return [head, ...listMessages.map(message), waitLine('Loading stations…')];
     }
     if (!routes) loadRoutes().then(rs => { routes = rs; render(); }).catch(() => {});
     const field = (key, label) => h('div', { class: 'field' }, label,
@@ -627,7 +631,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     };
     const plan = p.plan;
     const optionList = !plan ? []
-      : plan.loading ? [h('div', { class: 'muted section' }, 'Finding ways…')]
+      : plan.loading ? [waitLine('Finding ways…', 'muted section')]
         : plan.error ? [h('div', { class: 'msg' }, plan.error)]
           : plan.options.length
             ? [plan.none && h('div', { class: 'msg' }, 'Nothing runs in the next 2 hours.'),
@@ -658,7 +662,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     if (editing.idx != null) trips[pos] = trip; else trips.splice(pos, 0, trip);
     const base = saved ?? { ...app, apiKey: app.apiKey.trim() };
     busy = true;
-    editing.messages = [info('Checking stops…')];
+    editing.messages = [info('Checking stops…', true)];
     render();
     // Only this trip's stops are checked; the others were checked when saved.
     const errors = await checkAndPersist({ ...base, trips }, [pos]);
@@ -826,7 +830,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         h('button', { type: 'button', onclick: cancelEdit }, 'Cancel'),
         h('b', {}, isSaved ? 'Edit trip' : 'New trip'),
         h('button', { type: 'button', class: 'primary', id: 'setup-save', disabled: busy || !t.transit.length, onclick: saveTrip }, 'Save')),
-      ...editing.messages.map(m => h('div', { class: m.err ? 'msg err' : 'msg' }, m.text)),
+      ...editing.messages.map(message),
       // Order: name, walk, legs (or what to do first), walk, then the less-used settings.
       h('div', { class: 'card' },
         h('label', { class: 'field' }, 'Trip name',
@@ -1046,9 +1050,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
           if (picker.query.trim().replace(/\s+/g, ' ') === q) pickerListEl?.replaceChildren(...pickerList());
         });
       }, PLACE_DEBOUNCE_MS);
-      return [heading, h('div', { class: 'muted' }, 'Searching places…')];
+      return [heading, waitLine('Searching places…')];
     }
-    if (got.loading) return [heading, h('div', { class: 'muted' }, 'Searching places…')];
+    if (got.loading) return [heading, waitLine('Searching places…')];
     if (got.error) return [heading, h('div', { class: 'muted' }, 'Place search is unavailable right now.')];
     if (!got.list.length) return [heading, h('div', { class: 'muted' }, 'No places found.')];
     return [heading, ...got.list.map(pl => h('button', { type: 'button', class: 'item place', onclick: () => pickPlace(pointPlace(pl.lat, pl.lon, pl.name, pl.detail)) },
@@ -1074,7 +1078,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const q = picker.query;
     const heading = text => h('div', { class: 'muted section-head' }, text);
     if (picker.step === 'search') {
-      if (!routes) return [h('div', { class: 'muted' }, picker.error ?? 'Loading routes…')];
+      if (!routes) return [picker.error ? h('div', { class: 'muted' }, picker.error) : waitLine('Loading routes…')];
       const found = searchRoutes(routes, q);
       const routeButton = r => h('button', { type: 'button', class: 'item', onclick: () => chooseRoute(r) }, dot(r.attributes.color), h('b', {}, shortRouteLabel(r)), routeEnds(r) && h('span', { class: 'muted' }, ` ${routeEnds(r)}`));
       const stationButton = st => h('button', { type: 'button', class: 'item station', onclick: () => {
@@ -1098,7 +1102,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       }
       if (!picker.allRoutes) {
         // A next leg: the stations and routes near the previous drop-off (you transfer there).
-        if (picker.nearLoading) return [h('div', { class: 'muted' }, 'Finding routes nearby…')];
+        if (picker.nearLoading) return [waitLine('Finding routes nearby…')];
         if (picker.near) {
           const here = { lat: picker.near.lat, lon: picker.near.lon };
           // Not a station whose only lines are the one just ridden (it would list nothing).
@@ -1157,7 +1161,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     if (picker.step === 'to') {
       // Station-first drop-off: stations reachable without a transfer, per line and direction;
       // on a line with branches, which ones stop ("Green B/C/D", or "Green (any)" for all).
-      if (!railNet) return [h('div', { class: 'muted' }, 'Loading stations…')];
+      if (!railNet) return [waitLine('Loading stations…')];
       const all = reachableFrom(railNet, picker.from);
       const { shown, hidden } = q.trim() || picker.showArrived ? { shown: all, hidden: [] } : withoutArrived(all, picker.arrived);
       const label = id => railNet.lines.find(l => l.id === id)?.label ?? id;
@@ -1179,8 +1183,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       }), ...showArrived, ...busesNear];
     }
     const docs = bothDocs(picker.route.id);
-    if (picker.loading && picker.alight) return [h('div', { class: 'muted' }, 'Checking other routes…')];
-    if (picker.loading || !docs[0] || !docs[1]) return [h('div', { class: 'muted' }, picker.error ?? 'Loading stops…')];
+    if (picker.loading && picker.alight) return [waitLine('Checking other routes…')];
+    if (picker.loading || !docs[0] || !docs[1]) return [picker.error ? h('div', { class: 'muted' }, picker.error) : waitLine('Loading stops…')];
     const toward = d => `toward ${destination(picker.route.id, d)}`;
     if (picker.step === 'board') {
       // Stops served both ways first, then each direction's own (the two sides of a street).
