@@ -2472,7 +2472,7 @@ export function modeEmoji(leg) {
   return /^(Bus|Silver) /.test(l) ? '🚌' : '';
 }
 export const WALK_EMOJI = '🚶';
-// The card's layout from 2026-10-29 (build 32; older builds read title / sub / next / island):
+// The card's layout from 2026-10-29 (build 35; older builds read title / sub / next / island):
 // `head` ("Leave in", "Departs in", "Did you get on?") with a live countdown to `countTo` (0: none),
 // then `headTime` ("7:39am"); the line `long` "toward `headsign`" with `right` ("arrive 8:25am",
 // "left 7:48am") at its end ('' long: no line); `note` below ("Moved (was 7:36am)", '' none); the

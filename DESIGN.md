@@ -1331,7 +1331,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   connection or "Arrive ~…"; a progress bar with one segment per leg, sized by its riding time (at
   least 8%), filling on its own while ridden.
 - **Countdown:** whole minutes, counted down by iOS without updates ("12 minutes", rounded down;
-  a live date range from now in wide minutes; iOS has no "12 mins". Until build 32 a date
+  a live date range from now in wide minutes; iOS has no "12 mins". Until build 35 a date
   formatted against the draw time, which didn't tick: seen 2026-10-29 as "Leave in 59 minutes"
   beside the compact island's live "55 min"), then "<1 minute" from the last 80 s (`soon`
   in the content: iOS can't say "<1 minute" itself, and the times aren't accurate to the second;
@@ -1390,7 +1390,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   down. It ticks on its own (iOS 18's live date range in abbreviated minutes); it may differ
   by a minute from the other surfaces' (seen once: 40 vs 39), accepted.
   (Before 2026-10-24 the walk card showed a walking figure, which read as "walk 10 minutes".)
-- **Layout (2026-10-29, build 32; the phone showed three surfaces disagreeing, mockups accepted):**
+- **Layout (2026-10-29, build 35; the phone showed three surfaces disagreeing, mockups accepted):**
   the leave and walk cards follow the medium Home Screen widget, on the Lock Screen and in the
   expanded island alike: the trip name and "T-Minus" (muted); "Leave in 28 min · 7:39am" (a live
   countdown, "1h 14m" an hour+ ahead instead of "Leave at", "<1 min" at the end; the time
@@ -1405,7 +1405,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   ("🚌 7 min" amber; `modeEmoji`: 🚌 bus and Silver Line, 🚇 Red / Orange / Blue, 🚊 Green and
   Mattapan; the walk card too), "Got on?", nothing once missed or cancelled; fixed width (sized
   for "🚌 59 min"). Emoji only there. The state adds `head`, `countTo`, `headTime`, `long`,
-  `headsign`, `right`, `note`, `emoji`; builds before 32 ignore them and keep the layout above.
+  `headsign`, `right`, `note`, `emoji`; builds before 35 ignore them and keep the layout above.
 - **Walk card:** "Leaving now" / "At the stop" with the bell mark its reminder `started` (without
   the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Bus 132 in 6
   minutes", "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once there; "2 min late" in
