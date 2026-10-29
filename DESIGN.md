@@ -1385,7 +1385,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   "Leave now", "Got on?"); expanded: the card. 2026-10-29: "Leave 28 minutes" stretched the
   island across the screen, hiding the clock, so the word moved to the expanded view and the
   countdown got a fixed width (sized for "59 min") so the island doesn't resize as it counts
-  down. It ticks on its own (iOS 18's duration offset, abbreviated, rounded down); it may differ
+  down. It ticks on its own (iOS 18's live date range in abbreviated minutes); it may differ
   by a minute from the other surfaces' (seen once: 40 vs 39), accepted.
   (Before 2026-10-24 the walk card showed a walking figure, which read as "walk 10 minutes".)
 - **Walk card:** "Leaving now" / "At the stop" with the bell mark its reminder `started` (without

@@ -40,7 +40,8 @@ func countdownText(_ state: RideState) -> Text? {
 func shortCountdown(_ state: RideState) -> Text? {
     if state.soon == true { return Text("<1 min") }
     guard let until = state.untilDate, until > Date() else { return nil }
-    return Text(.durationOffset(to: until), format: .units(allowed: [.minutes], width: .abbreviated, fractionalPart: .hide(rounded: .towardZero)))
+    // now..<until as whole minutes: `durationOffset` counts from the date, so it reads "-28 min".
+    return Text(.dateRange(endingAt: until), format: .components(style: .abbreviated, fields: [.minute]))
 }
 
 // "Orange · 4 stops · 12 minutes" (or "Leave in 9 minutes": `join`): the title, then the countdown.
