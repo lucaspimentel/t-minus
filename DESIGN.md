@@ -48,8 +48,9 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 
 The same ride on every surface follows CLAUDE.md "UI rules". Which time each phase shows (done,
 2026-10-27): the leave-by while there's time to walk; from the leave-by on, or once walking, the
-first vehicle's departure, counted down to (the red row, the widget's "Leave now", the leave
-card's "Leave now · departs in").
+first vehicle's departure, counted down to (the red row; the widget's and the leave card's
+"Departs in 7 min · 7:48am", 2026-10-29: they no longer say "Leave now"; the app row and the
+push still do).
 
 Vehicle names and headsigns (`lineLabel` + `toward` on full text lines, `vehicleArrow` on tight
 ones):
@@ -57,7 +58,7 @@ ones):
 | Surface | Vehicle | Headsign (first leg) |
 |---|---|---|
 | Notifications (reminders, ride alerts) | "Orange Line" | "toward Malden" |
-| Leave and walk cards (Lock Screen lines) | "Orange Line" | "toward Malden" |
+| Leave and walk cards (Lock Screen, expanded island; 2026-10-29 the widget's layout) | "Orange Line" | "toward Malden" ("→" where it doesn't fit) |
 | Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
 | App card leg strip | "Orange" | none (the expanded row has it) |
 | Widget Home Screen (small, medium; 2026-10-29) | "Orange Line" | "toward Forest Hills" ("→" where it doesn't fit) |
@@ -1330,7 +1331,9 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   connection or "Arrive ~…"; a progress bar with one segment per leg, sized by its riding time (at
   least 8%), filling on its own while ridden.
 - **Countdown:** whole minutes, counted down by iOS without updates ("12 minutes", rounded down;
-  iOS 18's date offset format; iOS has no "12 mins"), then "<1 minute" from the last 80 s (`soon`
+  a live date range from now in wide minutes; iOS has no "12 mins". Until build 32 a date
+  formatted against the draw time, which didn't tick: seen 2026-10-29 as "Leave in 59 minutes"
+  beside the compact island's live "55 min"), then "<1 minute" from the last 80 s (`soon`
   in the content: iOS can't say "<1 minute" itself, and the times aren't accurate to the second;
   80 s leaves the server's 20-s poll time to deliver it before "0 minutes"; also shown past the
   time instead of "−1 minute").
@@ -1387,6 +1390,22 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   down. It ticks on its own (iOS 18's live date range in abbreviated minutes); it may differ
   by a minute from the other surfaces' (seen once: 40 vs 39), accepted.
   (Before 2026-10-24 the walk card showed a walking figure, which read as "walk 10 minutes".)
+- **Layout (2026-10-29, build 32; the phone showed three surfaces disagreeing, mockups accepted):**
+  the leave and walk cards follow the medium Home Screen widget, on the Lock Screen and in the
+  expanded island alike: the trip name and "T-Minus" (muted); "Leave in 28 min · 7:39am" (a live
+  countdown, "1h 14m" an hour+ ahead instead of "Leave at", "<1 min" at the end; the time
+  smaller); "● Bus 132 toward Malden   arrive 8:25am" ("→" where "toward" doesn't fit; the
+  arrival never cut); a note only for extra state ("Moved (was 7:36am)" amber, the walk card's
+  "At the stop ~7:45am · 3 min to spare", "Open the app for the next one."); the legs bar. Past
+  the leave-by: "Departs in 7 min · 7:48am" (amber), no "Leave now"; the walk card the same.
+  "Did you get on?" / "● Bus 132 toward Malden   left 7:48am"; "Missed · left 7:48am";
+  "Ride cancelled" (no vehicle line). The expanded island's top row is the trip name and
+  "T-Minus" (it repeated the route and the countdown or time beside the headline). Compact
+  island: "🚶 28 min" to the leave-by ("🚶 7:39am" an hour+ ahead), the vehicle's emoji past it
+  ("🚌 7 min" amber; `modeEmoji`: 🚌 bus and Silver Line, 🚇 Red / Orange / Blue, 🚊 Green and
+  Mattapan; the walk card too), "Got on?", nothing once missed or cancelled; fixed width (sized
+  for "🚌 59 min"). Emoji only there. The state adds `head`, `countTo`, `headTime`, `long`,
+  `headsign`, `right`, `note`, `emoji`; builds before 32 ignore them and keep the layout above.
 - **Walk card:** "Leaving now" / "At the stop" with the bell mark its reminder `started` (without
   the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Bus 132 in 6
   minutes", "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once there; "2 min late" in
@@ -1428,15 +1447,15 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 - **Entries** (2026-10-27: the leave-by, then the departure, as everywhere; CLAUDE.md "UI
   rules"): per row, more than 60 min before the leave-by "Leave 5:12pm" with no countdown (a
   next-day row: "No more today" / "First 5:12am"); then "Leave 7:42am" / "in 9 min", one entry a
-  minute (rounded down like the page's; iOS's own countdown formats can't say "9 min"); "Leave
-  now" / "departs in 5 min" (amber) until the last chance; "Departs" / "in 2 min" (amber) until
-  the departure; then the next row. Past the leave-by the vehicle line gets the departure ("Bus
+  minute (rounded down like the page's; iOS's own countdown formats can't say "9 min"); from the
+  leave-by "Departs" / "in 7 min" (amber) until the departure (2026-10-29: no "Leave now" until
+  the last chance, as the leave card; the circular size shows "7m", not "now"); then the next row. Past the leave-by the vehicle line gets the departure ("Bus
   132 → Malden at 7:48am") and the medium's first row shows it in amber. Entries run 2 h ahead at most;
   past the last one (`end`), "Open T-Minus" / "for new times". No trips: "Plan a trip in
   T-Minus"; no rows: "No more today".
 - **Sizes:** small: the trip name, the title and countdown, the first vehicle ("Bus 132 → Malden") and
   the arrival; medium: the countdown only (`head`: "Leave in 9 min", "Leave in 1h 06m" an hour+
-  out, "Leave now · departs in 5 min", "Departs in 2 min"; the leave-by isn't repeated), then the
+  out, "Departs in 2 min"; the leave-by isn't repeated), then the
   entry's row and the next two in one format (leave-by, "Bus 132", "arrive 8:37am"; no headsign or
   weekday, 2026-10-29; "~" on a headway
   estimate; build 25 shows the small's title and count instead; only the route column gives way,
@@ -1446,7 +1465,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   countdown); circular (2026-10-26, after the phone showed a bare "38 / 132"): "38m" over "Bus
   132" ("Orange" for the Orange Line) in a ring, open at the bottom like the system's gauge, full
   an hour before the leave-by and empty at it (drawn by hand so the previews show it); the time
-  with no ring more than an hour out; "now", then the minutes to the departure ("2m").
+  with no ring more than an hour out; past the leave-by the minutes to the departure ("7m").
 - **Reloads:** at the answer's `refresh` (10 min, or the next leave-by or last chance if sooner;
   iOS's budget is roughly 40-70 a day), and from the app: when it rewrites the request, when its
   shown next ride's leave-by, departure or arrival changes (to the minute), and on each return to
@@ -1459,8 +1478,8 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   Groups (401 on `/appGroups`); profiles already allow the team's keychain groups. Builds without
   `widgetSave`: nothing written, nothing logged.
 - **Home Screen layouts (2026-10-29, build 31 on; the phone cut "Orange → Forest H…"):** small:
-  the trip name, the countdown ("Leave in 5 min"; "Leave now", "Departs in 2 min" amber), its
-  time under it ("12:17am", the leave-by; "departs 12:20am", "12:20am"), then ● "Orange Line" and
+  the trip name, the countdown ("Leave in 5 min"; "Departs in 2 min" amber past the leave-by), its
+  time under it ("12:17am", the leave-by; "12:20am", the departure), then ● "Orange Line" and
   "toward Forest Hills" on up to two lines; no arrival. Medium: "Leave in 5 min · 12:17am", ●
   "Orange Line toward Forest Hills" ("→" where it doesn't fit) with the first ride's arrival, then
   the next two rides (leave-by, arrival), naming their vehicle in short form only where it differs
