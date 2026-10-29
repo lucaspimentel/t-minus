@@ -2463,17 +2463,42 @@ export function leavePhase(row, nowMs) {
   if (nowMs < row.firstDep) return 'departs';
   return 'gone';
 }
+// The compact island's emoji past the leave-by, by mode: 🚌 bus (and the Silver Line), 🚇 subway,
+// 🚊 light rail (the Green Line, the Mattapan Trolley).
+export function modeEmoji(leg) {
+  const l = vehicleLabel(leg) ?? '';
+  if (/^(Red|Orange|Blue)\b/.test(l)) return '🚇';
+  if (/^Green\b/.test(l) || l === 'Mattapan') return '🚊';
+  return /^(Bus|Silver) /.test(l) ? '🚌' : '';
+}
+export const WALK_EMOJI = '🚶';
+// The card's layout from 2026-10-29 (build 32; older builds read title / sub / next / island):
+// `head` ("Leave in", "Departs in", "Did you get on?") with a live countdown to `countTo` (0: none),
+// then `headTime` ("7:39am"); the line `long` "toward `headsign`" with `right` ("arrive 8:25am",
+// "left 7:48am") at its end ('' long: no line); `note` below ("Moved (was 7:36am)", '' none); the
+// compact island's `emoji` (🚶 to the leave-by, the vehicle's past it).
 function leaveCardBase(row, nowMs) {
   const first = row.legs[0];
   return {
     phase: '', warn: false, color: first.color ?? '', label: islandLabel(first), title: '', until: 0, stops: -1,
     sub: lineToward(first), next: '', legs: row.legs.map(l => ({ color: l.color ?? '', dep: Math.round(l.dep / 1000), arr: Math.round(l.arr / 1000) })),
     island: '', join: ' ',
+    head: '', countTo: 0, headTime: '', long: lineLabel(first), headsign: first.headsign ?? '', right: '', note: '', emoji: '',
   };
 }
 // A ride's arrival on the leave and walk cards: "~" only when a leg is a headway estimate.
 const etaTime = (row, nowMs) => `${row.legs.some(l => l.every) ? '~' : ''}${formatTime(row.eta, nowMs)}`;
 const withSoon = (out, nowMs) => Object.assign(out, { soon: out.until > 0 && out.until * 1000 - nowMs <= LIVE_SOON_MS });
+// The new layout's fields to the leave-by ("Leave in 28 min · 7:39am"), and past it ("Departs in
+// 7 min · 7:48am").
+const leaveHead = (row, nowMs, was) => ({
+  head: 'Leave in', countTo: Math.round(row.leaveBy / 1000), headTime: formatTime(row.leaveBy, nowMs), right: `arrive ${etaTime(row, nowMs)}`,
+  note: was == null ? '' : `Moved (was ${formatTime(was, nowMs)})`, emoji: WALK_EMOJI,
+});
+const departsHead = (row, nowMs) => ({
+  head: 'Departs in', countTo: Math.round(row.firstDep / 1000), headTime: legTime(row.legs[0], row.firstDep, nowMs),
+  right: `arrive ${etaTime(row, nowMs)}`, emoji: modeEmoji(row.legs[0]),
+});
 // `was`: the leave-by last notified before it moved (amber until the next change).
 export function leaveActivityState(row, nowMs, { was = null } = {}) {
   const t = ms => formatTime(ms, nowMs);
@@ -2485,27 +2510,31 @@ export function leaveActivityState(row, nowMs, { was = null } = {}) {
         Object.assign(out, {
           phase: 'early', title: `Leave at ${t(row.leaveBy)}`, until: 0, warn: was != null, island: `Leave ${t(row.leaveBy)}`,
           next: was == null ? `Arrive ${etaTime(row, nowMs)}` : `Moved (was ${t(was)}) · arrive ${etaTime(row, nowMs)}`,
+          ...leaveHead(row, nowMs, was),
         });
         break;
       }
       Object.assign(out, {
         phase: 'leave', title: 'Leave in', until: sec(row.leaveBy), warn: was != null, island: 'Leave',
         next: was == null ? `Leave by ${t(row.leaveBy)} · arrive ${etaTime(row, nowMs)}` : `Leave by ${t(row.leaveBy)} (was ${t(was)})`,
+        ...leaveHead(row, nowMs, was),
       });
       break;
-    // Past the leave-by: the vehicle's departure, counted down to (CLAUDE.md "UI rules").
+    // Past the leave-by: the vehicle's departure, counted down to (CLAUDE.md "UI rules"); "Leave
+    // now" only in older builds' fields.
     case 'now':
       Object.assign(out, {
         phase: 'now', title: 'Leave now · departs in', until: sec(row.firstDep), warn: true, island: 'Leave now',
-        sub: firstVehicleLine(row, nowMs), next: `Arrive ${etaTime(row, nowMs)}`,
+        sub: firstVehicleLine(row, nowMs), next: `Arrive ${etaTime(row, nowMs)}`, ...departsHead(row, nowMs),
       });
       break;
     case 'departs':
-      Object.assign(out, { phase: 'departs', title: 'Departs in', until: sec(row.firstDep), warn: true, island: 'Departs', sub: firstVehicleLine(row, nowMs), next: `Arrive ${etaTime(row, nowMs)}` });
+      Object.assign(out, { phase: 'departs', title: 'Departs in', until: sec(row.firstDep), warn: true, island: 'Departs', sub: firstVehicleLine(row, nowMs), next: `Arrive ${etaTime(row, nowMs)}`, ...departsHead(row, nowMs) });
       break;
     default: {
       const first = row.legs[0];
-      Object.assign(out, { phase: 'gone', title: `Missed · left ${legTime(first, first.dep, nowMs)}`, warn: true, join: ' · ' });
+      const title = `Missed · left ${legTime(first, first.dep, nowMs)}`;
+      Object.assign(out, { phase: 'gone', title, warn: true, join: ' · ', head: title });
     }
   }
   return withSoon(out, nowMs);
@@ -2513,7 +2542,10 @@ export function leaveActivityState(row, nowMs, { was = null } = {}) {
 // "Ride cancelled" on the leave card (its last content, or neutral defaults).
 export function leaveCancelledState(last) {
   const base = last ?? { color: '', label: '', stops: -1, legs: [] };
-  return { ...base, phase: 'cancelled', title: 'Ride cancelled', sub: '', next: 'Open the app for the next one.', until: 0, warn: false, soon: false, island: '', join: ' · ' };
+  return {
+    ...base, phase: 'cancelled', title: 'Ride cancelled', sub: '', next: 'Open the app for the next one.', until: 0, warn: false, soon: false, island: '', join: ' · ',
+    head: 'Ride cancelled', countTo: 0, headTime: '', long: '', headsign: '', right: '', note: 'Open the app for the next one.', emoji: '',
+  };
 }
 // The walk card: the leave card after "Leaving now" / "At the stop" (`enRoute`), updated by the
 // app until boarding. `row`: the en-route row headed for.
@@ -2524,7 +2556,10 @@ export function walkActivityState(row, enRoute, nowMs) {
   const spare = Math.round((row.firstDep - enRoute.atStop) / MIN);
   const margin = spare < 0 ? `${-spare} min late` : `${spare} min to spare`;
   const sub = enRoute.kind === 'leaving' && nowMs < enRoute.atStop ? `At the stop ~${t(enRoute.atStop)} · ${margin}` : `At the stop since ${t(enRoute.atStop)} · ${margin}`;
-  Object.assign(out, { phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, island: 'Departs', sub, next: `Arrive ${etaTime(row, nowMs)}` });
+  Object.assign(out, {
+    phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, island: 'Departs', sub, next: `Arrive ${etaTime(row, nowMs)}`,
+    ...departsHead(row, nowMs), note: sub,
+  });
   return withSoon(out, nowMs);
 }
 // The leave (or walk) card at the departure of a belled ride: the boarding question, until it's
@@ -2533,7 +2568,7 @@ export function askActivityState(row, nowMs) {
   const first = row.legs[0];
   return Object.assign(leaveCardBase(row, nowMs), {
     phase: 'ask', title: 'Did you get on?', sub: `${lineToward(first)} left at ${legTime(first, first.dep, nowMs)}`,
-    next: 'Tap to answer', island: 'Got on?', soon: false,
+    next: 'Tap to answer', island: 'Got on?', soon: false, head: 'Did you get on?', right: `left ${legTime(first, first.dep, nowMs)}`,
   });
 }
 // Whether this check starts the leave card: a push-to-start token, no card yet, the leave-by ahead.
@@ -2595,17 +2630,17 @@ export const WIDGET_REFRESH_MIN = 10; // the reload asked of iOS (sooner at the 
 // `rows`: one line per row, its leave-by time (the medium size lists the entry's row and the next
 // two). `entries`: what each size shows from `at` (Unix seconds) on, `row` its row (-1: none); the
 // countdowns ("in 9 min", rounded down like the page's) change by entry, one a minute. Per row:
-// "Leave 7:42am" (with "in 9 min" from LEAVE_CARD_EARLY_MIN before), "Leave now" until the last
-// chance, "Departs in" until the departure, then the next row. Times follow CLAUDE.md "UI rules":
+// "Leave 7:42am" (with "in 9 min" from LEAVE_CARD_EARLY_MIN before), then "Departs in" until the
+// departure (no "Leave now": the leave card's wording; the app row and the push keep it), then
+// the next row. Times follow CLAUDE.md "UI rules":
 // the leave-by, then from the leave-by on the departure (`line` "Bus 132 → Malden at 7:48am", `rowTime`
 // the first row's time, amber), counted down to. `head`/`headCount`: the medium size's header,
 // the countdown only ("Leave in 9 min"; the rows carry the times). Times carry no weekday ("Leave
 // 5:57am" late at night, "arrive 12:08am"), and the medium rows' `vehicle` no headsign ("Bus 132";
 // the small size's `line` keeps "→ Malden"), so the medium rows fit. For the Home Screen layouts of
 // 2026-10-29 (builds before them ignore these): per row `long` ("Orange Line") and `headsign`
-// ("Forest Hills"), per entry `headTime`, the time beside `head` ("12:17am" the leave-by; "departs
-// 12:20am" in Leave now, "12:20am" in Departs; '' with no row). The circular size: "38m" (or
-// the time, "now") over the vehicle ("Bus 132") in a ring, `ring` full an hour before the
+// ("Forest Hills"), per entry `headTime`, the time beside `head` ("12:17am" the leave-by, "12:20am" the
+// departure past it; '' with no row). The circular size: "38m" (or the time) over the vehicle ("Bus 132") in a ring, `ring` full an hour before the
 // leave-by and empty at it (-1: none).
 // `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`: when to ask again
 // (also at each leave-by and last chance, so the late phases get fresh times). `tripName` null:
@@ -2654,10 +2689,7 @@ export function widgetView(tripName, rows, nowMs) {
     countdown(Math.max(start, countFrom), r.leaveBy, r.leaveBy, i, (count, n, ring) => ({
       title: leave, count, head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle, lock: leave, lockSub: `${count} · ${L.short}`, inline: `${label} ${leave}`, circle: n, ring,
     }));
-    countdown(Math.max(start, r.leaveBy), r.lastChance, r.firstDep, i, count => ({
-      ...late, title: 'Leave now', count: `departs ${count}`, head: 'Leave now', headCount: `departs ${count}`, headTime: `departs ${deps[i]}`, lock: 'Leave now', inline: `${label} Leave now`, circle: 'now',
-    }));
-    countdown(Math.max(start, r.lastChance), r.firstDep, r.firstDep, i, (count, n) => ({
+    countdown(Math.max(start, r.leaveBy), r.firstDep, r.firstDep, i, (count, n) => ({
       ...late, title: 'Departs', count, head: `Departs ${count}`, headTime: deps[i], lock: `Departs ${count}`, inline: `${label} Departs ${count}`, circle: n,
     }));
     start = Math.max(start, r.firstDep);
