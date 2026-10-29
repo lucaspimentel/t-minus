@@ -2601,7 +2601,10 @@ export const WIDGET_REFRESH_MIN = 10; // the reload asked of iOS (sooner at the 
 // the first row's time, amber), counted down to. `head`/`headCount`: the medium size's header,
 // the countdown only ("Leave in 9 min"; the rows carry the times). Times carry no weekday ("Leave
 // 5:57am" late at night, "arrive 12:08am"), and the medium rows' `vehicle` no headsign ("Bus 132";
-// the small size's `line` keeps "→ Malden"), so the medium rows fit. The circular size: "38m" (or
+// the small size's `line` keeps "→ Malden"), so the medium rows fit. For the Home Screen layouts of
+// 2026-10-29 (builds before them ignore these): per row `long` ("Orange Line") and `headsign`
+// ("Forest Hills"), per entry `headTime`, the time beside `head` ("12:17am" the leave-by; "departs
+// 12:20am" in Leave now, "12:20am" in Departs; '' with no row). The circular size: "38m" (or
 // the time, "now") over the vehicle ("Bus 132") in a ring, `ring` full an hour before the
 // leave-by and empty at it (-1: none).
 // `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`: when to ask again
@@ -2617,11 +2620,11 @@ export function widgetView(tripName, rows, nowMs) {
     const approx = r.legs.some(l => l.every) ? '~' : '';
     return {
       time: t(r.leaveBy), vehicle: vehicleLabel(first) ?? '', short: vehicleLabel(first), color: first.color ?? '', label: islandLabel(first),
-      line: vehicleArrow(first), arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
+      line: vehicleArrow(first), long: lineLabel(first), headsign: first.headsign ?? '', arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
     };
   });
   const view = { name: tripName ?? '', rows: lines, entries: [], end: null, refresh: sec(nowMs + WIDGET_REFRESH_MIN * MIN) };
-  const empty = (title, next = '') => ({ row: -1, title, count: '', warn: false, next, lock: title, lockSub: next, inline: title, circle: '–', circleSub: '', ring: -1 });
+  const empty = (title, next = '') => ({ row: -1, title, count: '', headTime: '', warn: false, next, lock: title, lockSub: next, inline: title, circle: '–', circleSub: '', ring: -1 });
   if (tripName == null) { view.entries.push({ at: sec(nowMs), ...empty('Plan a trip in T-Minus') }); return view; }
   const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, circleSub: lines[i].short, ring: 0, ...e });
   // One entry a minute from `from` until `until`, counting down to `to`.
@@ -2644,18 +2647,18 @@ export function widgetView(tripName, rows, nowMs) {
     if (r.nextDay && start < countFrom) add(start, i, { ...empty('No more today', `First ${formatTime(r.leaveBy)}`), row: -1 });
     else {
       countdown(start, countFrom, r.leaveBy, i, count => ({
-        title: leave, count: '', head: `Leave ${count}`, next: L.arriveTitle, lock: leave, lockSub: L.short, inline: `${label} ${leave}`,
+        title: leave, count: '', head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle, lock: leave, lockSub: L.short, inline: `${label} ${leave}`,
         circle: formatTime(r.leaveBy).replace(/[ap]m$/, ''), ring: -1,
       }));
     }
     countdown(Math.max(start, countFrom), r.leaveBy, r.leaveBy, i, (count, n, ring) => ({
-      title: leave, count, head: `Leave ${count}`, next: L.arriveTitle, lock: leave, lockSub: `${count} · ${L.short}`, inline: `${label} ${leave}`, circle: n, ring,
+      title: leave, count, head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle, lock: leave, lockSub: `${count} · ${L.short}`, inline: `${label} ${leave}`, circle: n, ring,
     }));
     countdown(Math.max(start, r.leaveBy), r.lastChance, r.firstDep, i, count => ({
-      ...late, title: 'Leave now', count: `departs ${count}`, head: 'Leave now', headCount: `departs ${count}`, lock: 'Leave now', inline: `${label} Leave now`, circle: 'now',
+      ...late, title: 'Leave now', count: `departs ${count}`, head: 'Leave now', headCount: `departs ${count}`, headTime: `departs ${deps[i]}`, lock: 'Leave now', inline: `${label} Leave now`, circle: 'now',
     }));
     countdown(Math.max(start, r.lastChance), r.firstDep, r.firstDep, i, (count, n) => ({
-      ...late, title: 'Departs', count, head: `Departs ${count}`, lock: `Departs ${count}`, inline: `${label} Departs ${count}`, circle: n,
+      ...late, title: 'Departs', count, head: `Departs ${count}`, headTime: deps[i], lock: `Departs ${count}`, inline: `${label} Departs ${count}`, circle: n,
     }));
     start = Math.max(start, r.firstDep);
     end = start;
