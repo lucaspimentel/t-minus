@@ -172,17 +172,31 @@ struct RideCardView: View {
             if state.head != nil {
                 LeaveBody(state: state, text: th.text, muted: th.muted, amber: th.amber, track: th.track)
             } else {
-                HStack(spacing: 8) {
-                    RouteDot(hex: state.color)
-                    Headline(state: state).lineLimit(1).minimumScaleFactor(0.8)
-                }
-                .font(.title3.weight(.bold)).foregroundStyle(state.warn ? th.amber : th.text)
-                if !state.sub.isEmpty { Text(state.sub).font(.subheadline).foregroundStyle(th.muted).lineLimit(1) }
-                if !state.next.isEmpty { Text(state.next).font(.subheadline).foregroundStyle(th.text).lineLimit(2) }
-                LegsBar(legs: state.legs, track: th.track).padding(.top, 6)
+                RideBody(state: state, text: th.text, muted: th.muted, amber: th.amber, track: th.track)
             }
         }
         .padding(16)
+    }
+}
+
+// The ride card's body (riding, transfer, walking, arrived): the route's dot and the headline,
+// the drop-off line, the next connection or arrival, the legs. The Lock Screen card and the
+// expanded island alike.
+struct RideBody: View {
+    let state: RideState
+    let text, muted, amber, track: Color
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                RouteDot(hex: state.color)
+                Headline(state: state).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .font(.title3.weight(.bold)).foregroundStyle(state.warn ? amber : text)
+            .fixedSize(horizontal: false, vertical: true)
+            if !state.sub.isEmpty { Text(state.sub).font(.subheadline).foregroundStyle(muted).lineLimit(1) }
+            if !state.next.isEmpty { Text(state.next).font(.subheadline).foregroundStyle(text).lineLimit(2) }
+            LegsBar(legs: state.legs, track: track).padding(.top, 6)
+        }
     }
 }
 
@@ -269,23 +283,11 @@ struct IslandTop: View {
 struct IslandExpanded: View {
     let state: RideState
     var body: some View {
+        let amber = Color(hex: "F0A830"), track = Color(hex: "333333")
         if state.head != nil {
-            LeaveBody(state: state, text: .white, muted: .gray, amber: Color(hex: "F0A830"), track: Color(hex: "333333"))
+            LeaveBody(state: state, text: .white, muted: .gray, amber: amber, track: track)
         } else {
-            rideBody
-        }
-    }
-
-    private var rideBody: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 7) {
-                RouteDot(hex: state.color, size: 10)
-                Headline(state: state).lineLimit(1).minimumScaleFactor(0.8)
-            }
-            .font(.headline).foregroundStyle(state.warn ? Color(hex: "F0A830") : .white)
-            if !state.sub.isEmpty { Text(state.sub).font(.subheadline).foregroundStyle(.gray).lineLimit(1) }
-            if !state.next.isEmpty { Text(state.next).font(.subheadline).foregroundStyle(.white).lineLimit(2) }
-            LegsBar(legs: state.legs, track: Color(hex: "333333")).padding(.top, 4)
+            RideBody(state: state, text: .white, muted: .gray, amber: amber, track: track)
         }
     }
 }

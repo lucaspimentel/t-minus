@@ -1341,7 +1341,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   defaults let the rounded corners clip the route label and the last line). Compact: the route's dot and label (`islandLabel`: "OL", "GL B", "132",
   "SL1"; 🚶 on the final walk), then the stops left, or the countdown when stops don't apply (no
   stop data, a transfer, the final walk); expanded: the trip name and "T-Minus" on top, then the
-  card's content with the route's dot before the headline (until build 35 the top row was the
+  Lock Screen card's body, same fonts (until build 35 the top row was the
   compact parts, "● OL … 8 stops", repeating the headline; seen 2026-10-29); minimal: the route's dot.
 - **Content:** `liveActivityState` (`core.js`) builds it for both the app (local updates) and the
   server (pushes), so both show the same; `RideState` (`ios/App/Shared`) decodes it (Unix seconds:
