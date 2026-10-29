@@ -39,6 +39,14 @@ names and bundle ID) are in `DESIGN.md` ("iOS app").
     shown next to setup's "Pending notifications") so failures are visible without Xcode.
   - Push and Live Activity updates: the server's push log already records each send and its
     APNs response.
+- **SwiftUI traps (seen in the previews and on the phone):**
+  - A countdown that ticks on its own: `Text(.dateRange(endingAt: until), format:
+    .components(style:fields:))`. `Text(until, format: .offset(to: Date()))` is drawn once and
+    doesn't tick (the card showed "59 minutes" beside the island's live "55 min");
+    `.durationOffset(to:)` reads negative ("-28 min").
+  - A `Text` with `minimumScaleFactor` in a `VStack` is squeezed vertically when a line follows
+    it (the headline shrank above a note); `.fixedSize(horizontal: false, vertical: true)` keeps
+    its height (`.layoutPriority(1)` didn't).
 - **Round trip:** a native change is a CI build, TestFlight processing, and an install
   (~15-30 min). Web and server changes still ship by pushing to `main`.
 - **Cost:** none (public repo; see `DESIGN.md`). Workflow logs are public too (secrets are

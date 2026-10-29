@@ -48,6 +48,8 @@ ride, and against these rules:
 - One time per phase: the leave-by while there's time to walk; the vehicle's departure once past
   the leave-by or walking. Every surface switches at the same moment.
 - Each fact once per surface: a time, vehicle or arrival appears once in a given card or widget.
+  The expanded Dynamic Island is one surface: its top row and body don't repeat each other (the
+  compact island's parts reused as its top row doubled "Leave 9:17am", 2026-10-29).
 - A countdown and the time beside it name the same moment.
 - One wording and format: "2:18pm", "in 6 min" (rounded down), "~" for a headway estimate,
   "arrive 3:03pm". Vehicles in two forms: full text lines (notifications, the leave card, the ride
@@ -97,7 +99,13 @@ ride, and against these rules:
   `npx cap sync ios` (generated files are gitignored), and add new files to the Xcode project with
   the `xcodeproj` gem (no Mac here). Builds: the `ios` workflow (manual) uploads to TestFlight;
   every run renders the Live Activity views to PNGs (`live-activity-previews` artifact; `upload`
-  off: previews only), the way to check native UI.
+  off: previews only), the way to check native UI and the only Swift compile check (no `swiftc`
+  in the cloud sandbox; a run takes ~10 min): look at every changed state in the PNGs before an
+  upload. Every run takes a run number, preview runs too, so the TestFlight build number is known
+  only once the upload run starts: write "build N" in docs and comments after it, not before.
+  Server answers read by native views (`/api/widget`, the cards' `RideState`) also reach builds
+  that stay installed: add optional fields and keep the old ones with their meaning (giving an
+  old field a new value changes what old builds show).
   APNs variables are in `server/README.md`.
 
 ## Local testing with an MBTA API key
