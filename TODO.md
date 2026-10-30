@@ -51,10 +51,30 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
   next rides below on the medium size; back to leave times once boarded-and-arrived, cancelled or
   gone. Server and web only (no build). Grill the ride entries' content first.
   Also a belled ride (seen 2026-10-29): with the 9:16 ride belled, the widget showed the next
-  ride (8:39) while the leave card showed the belled one.
+  ride (8:39) while the leave card showed the belled one. Again 2026-10-29 (build 38): riding the
+  Orange to Oak Grove (get off 6:31pm), both Home Screen widgets said "Leave in 17 min · 6:33pm".
 - Restyle the ride card (riding, transfer, walking to the destination, arrived) to the leave
   card's structure (2026-10-29: trip name, headline with its time, the line with its value at the
   end, a note). The widget has no riding layout to copy; grill its lines first. Needs a build.
+  Include the final arrival: while riding it shows the drop-off and the connection but not when
+  the trip ends ("arrive ~7:2x pm"), seen 2026-10-29.
+- "· tight" on the ride card's connection line ("Then Bus 132 toward Redstone 6:38pm · tight",
+  seen 2026-10-29) is a separate warning word in white; CLAUDE.md "UI rules": color carries
+  state, no extra word. DESIGN.md says it's amber. Decide: the line in amber, or drop the word
+  and let amber say it (`liveActivityState` in `core.js` builds `next`; `RideBody` in
+  `ios/App/TMinusWidgets/RideViews.swift` colors it). Needs a build if the color changes.
+- The medium Home Screen widget still cuts the headsign: "Orange Line → Oak Gr…" beside
+  "arrive 7:21pm" (seen 2026-10-29, build 38). `MediumHome` in
+  `ios/App/TMinusWidgets/LeaveWidgetViews.swift` (`LineToward` + `first.arrive`, `fixedSize`).
+  Options: the arrival on its own line, a shorter arrival on that row, or accept it. Needs a build.
+- Late bell: a bell set past the leave-by (before the departure) registers nothing: `bellOn` in
+  `index.html` posts only while `r.leaveBy > now` and the server's `checkReminder` rejects a past
+  leave-by, so no leave card, no pending entry, no "Did you get on?" (seen 2026-10-29: belled
+  12:18 for a 12:16 leave-by, 12:27 Orange). Decided: accept it until the departure (`dep` in the
+  POST, `late` on the reminder), no "Leave now" push, a quiet card start at "Departs in 8 min ·
+  12:27pm" (`leaveStartText` past the leave-by), then the question at the departure; and with
+  the bell, "Leaving now" / "At the stop" start the walk card from the app when no leave card
+  exists to adopt (`adoptLeaveCards`). Plan written 2026-10-29; web and server only, no build.
 ## Deferred
 
 - Default times to/from the stops and transfer times estimated from stop coordinates
