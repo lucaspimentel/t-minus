@@ -73,7 +73,7 @@ private struct Expanded: View {
     let state: RideState
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack { IslandTop(text: tripName); Spacer(); IslandTop(text: "T-Minus") }
+            HStack { IslandTop(text: tripName, edge: .leading); Spacer(); IslandTop(text: "T-Minus", edge: .trailing) }
             IslandExpanded(state: state)
         }
         .padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 18)

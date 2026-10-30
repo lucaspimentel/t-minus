@@ -1330,10 +1330,11 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   time first ("Get off 8:24am at …", so a long stop name is cut, not the time); the next
   connection or "Arrive ~…"; a progress bar with one segment per leg, sized by its riding time (at
   least 8%), filling on its own while ridden.
-- **Countdown:** whole minutes, counted down by iOS without updates ("12 minutes", rounded down;
-  a live date range from now in wide minutes; iOS has no "12 mins". Until build 35 a date
+- **Countdown:** whole minutes, counted down by iOS without updates ("12 min", rounded down;
+  a live date range from now in abbreviated minutes, as the leave card and the widgets; "12
+  minutes" until the build after 38, committed 2026-10-30, not yet uploaded. Until build 35 a date
   formatted against the draw time, which didn't tick: seen 2026-10-29 as "Leave in 59 minutes"
-  beside the compact island's live "55 min"), then "<1 minute" from the last 80 s (`soon`
+  beside the compact island's live "55 min"), then "<1 min" from the last 80 s (`soon`
   in the content: iOS can't say "<1 minute" itself, and the times aren't accurate to the second;
   80 s leaves the server's 20-s poll time to deliver it before "0 minutes"; also shown past the
   time instead of "−1 minute").
@@ -1342,7 +1343,10 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   "SL1"; 🚶 on the final walk), then the stops left, or the countdown when stops don't apply (no
   stop data, a transfer, the final walk); expanded: the trip name and "T-Minus" on top, then the
   Lock Screen card's body, same fonts (until build 35 the top row was the
-  compact parts, "● OL … 8 stops", repeating the headline; seen 2026-10-29); minimal: the route's dot.
+  compact parts, "● OL … 8 stops", repeating the headline; seen 2026-10-29). The top row is inset
+  10 pt more than the body on its outer sides: the corners beside the camera are rounder and
+  clipped the "O" of "Office → Home" on build 38 (fix committed 2026-10-30, not yet uploaded);
+  minimal: the route's dot.
 - **Content:** `liveActivityState` (`core.js`) builds it for both the app (local updates) and the
   server (pushes), so both show the same; `RideState` (`ios/App/Shared`) decodes it (Unix seconds:
   ActivityKit would read a pushed Date as seconds since 2001; fields added later are optional).

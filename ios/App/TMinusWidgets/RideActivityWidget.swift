@@ -11,8 +11,8 @@ struct RideActivityWidget: Widget {
             DynamicIsland {
                 // The trip name and "T-Minus", as on the Lock Screen: the route, the countdown and the
                 // stops are in the body (the compact parts here repeated them).
-                DynamicIslandExpandedRegion(.leading) { IslandTop(text: context.attributes.tripName) }
-                DynamicIslandExpandedRegion(.trailing) { IslandTop(text: "T-Minus") }
+                DynamicIslandExpandedRegion(.leading) { IslandTop(text: context.attributes.tripName, edge: .leading) }
+                DynamicIslandExpandedRegion(.trailing) { IslandTop(text: "T-Minus", edge: .trailing) }
                 DynamicIslandExpandedRegion(.bottom) { IslandExpanded(state: context.state) }
             } compactLeading: {
                 IslandLeading(state: context.state)

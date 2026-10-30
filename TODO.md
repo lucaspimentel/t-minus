@@ -25,6 +25,8 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
 
 ## iOS app (see `IOS.md`)
 
+- Committed, not yet in a build (upload with the next native change): the expanded island's top
+  row inset (build 38 clips "Office"), and the ride card's countdown in "min" ("15 min", "<1 min").
 - Yes / Missed it buttons on the leave card's "Did you get on?" (App Intents, iOS 17+); today it
   only opens the app.
 

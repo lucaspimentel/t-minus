@@ -27,14 +27,14 @@ struct RouteDot: View {
     }
 }
 
-// The countdown: whole minutes, ticking down on the phone without updates ("12 minutes", rounded
-// down like the app's "12 min"), then "<1 minute" once the app or the server marks the last 80 s
+// The countdown: whole minutes, ticking down on the phone without updates ("12 min", rounded
+// down like the app's), then "<1 min" once the app or the server marks the last 80 s
 // (`soon`; the times aren't accurate to the second). A date range from now: a date formatted
 // against `Date()` is drawn once and doesn't tick.
 func countdownText(_ state: RideState) -> Text? {
-    if state.soon == true { return Text("<1 minute") }
+    if state.soon == true { return Text("<1 min") }
     guard let until = state.untilDate, until > Date() else { return nil }
-    return Text(.dateRange(endingAt: until), format: .components(style: .wide, fields: [.minute]))
+    return Text(.dateRange(endingAt: until), format: .components(style: .abbreviated, fields: [.minute]))
 }
 
 // The compact island's short form: "28 min" (rounded down, ticking on its own), "<1 min".
@@ -56,7 +56,7 @@ func headCountdown(_ state: RideState) -> Text? {
     return Text(.dateRange(endingAt: until), format: .components(style: .abbreviated, fields: [.minute]))
 }
 
-// "Orange · 4 stops · 12 minutes" (or "Leave in 9 minutes": `join`): the title, then the countdown.
+// "Orange · 4 stops · 12 min" (or "Leave in 9 min": `join`): the title, then the countdown.
 struct Headline: View {
     let state: RideState
     var body: some View {
@@ -277,7 +277,10 @@ struct IslandTrailing: View {
 // headline, as on the Lock Screen.
 struct IslandTop: View {
     let text: String
-    var body: some View { Text(text).font(.caption).foregroundStyle(.gray).lineLimit(1) }
+    // The island's outer side (.leading for the trip name, .trailing for "T-Minus"): inset past the
+    // body's margins, as the corners beside the camera are rounder (the phone clipped "Office").
+    let edge: Edge.Set
+    var body: some View { Text(text).font(.caption).foregroundStyle(.gray).lineLimit(1).padding(edge, 10) }
 }
 
 struct IslandExpanded: View {
