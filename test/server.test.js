@@ -1195,6 +1195,48 @@ test('leave card: started quietly when the bell is set, then heads-ups alert on 
   } finally { await s.close(); }
 });
 
+test('a late bell (past the leave-by): accepted until the departure; a quiet "Departs in" card, no "Leave now", the question at the departure', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:06'); // leave by 7:04, bus at 7:10
+    assert.equal((await s.call('POST', '/api/reminders', leaveReminder())).status, 400); // no `dep`
+    assert.equal((await s.call('POST', '/api/reminders', leaveReminder({ dep: at('07:05') }))).status, 400); // gone
+    const { id } = await (await s.call('POST', '/api/reminders', leaveReminder({ dep: at('07:10') }))).json();
+    assert.equal(s.store.get(id).late, true);
+    await s.app.tick();
+    assert.deepEqual(s.sent, []); // no "Leave now"
+    assert.deepEqual(s.activity.map(a => [a.event, a.alert, a.sound, a.state.phase, a.state.head, a.state.headTime]),
+      [['start', 'Departs in 4 min · Home to office', null, 'departs', 'Departs in', '7:10am']]);
+    assert.equal((await s.call('PUT', `/api/reminders/${id}`, { activity: { token: CARD } })).status, 204);
+    // Later changes go to the card's own token, quietly ("<1 min" in the last 80 s).
+    s.world.clock = at('07:08') + 45_000;
+    await s.app.tick();
+    assert.deepEqual([s.activity.at(-1).token, s.activity.at(-1).state.phase, s.activity.at(-1).alert], [CARD, 'departs', undefined]);
+    assert.deepEqual(s.sent, []);
+    // At the departure: the question.
+    s.world.clock = at('07:10');
+    await s.app.tick();
+    assert.deepEqual(s.sent.map(p => p.kind), ['board']);
+    assert.equal(s.activity.at(-1).state.phase, 'ask');
+  } finally { await s.close(); }
+});
+
+test('a late bell without a start token, or in the departure\'s last 80 s: no card, only the question', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:06');
+    await s.call('POST', '/api/reminders', reminder({ dep: at('07:10') }));
+    s.world.clock = at('07:08') + 50_000; // 70 s before the bus
+    await s.call('POST', '/api/reminders', leaveReminder({ key: 'o1', dep: at('07:10') }));
+    await s.app.tick();
+    assert.deepEqual([s.sent, s.activity], [[], []]);
+    s.world.clock = at('07:10');
+    await s.app.tick();
+    assert.deepEqual(s.sent.map(p => p.kind), ['board', 'board']);
+    assert.deepEqual(s.activity, []);
+  } finally { await s.close(); }
+});
+
 test('leave card: set within 10 min starts at once, quietly; no start token or a card without its token: notifications', async () => {
   const s = await setup();
   try {

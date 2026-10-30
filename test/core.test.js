@@ -2217,6 +2217,8 @@ test('leaveActivityState: early (an hour or more ahead): "Leave at", no countdow
   assert.deepEqual([moved.title, moved.warn, moved.island, moved.next, moved.until], ['Leave at 7:36am', true, 'Leave 7:36am', 'Moved (was 7:39am) · arrive 8:25am', 0]);
   assert.deepEqual([moved.countTo, moved.headTime, moved.note], [sec('07:36'), '7:36am', 'Moved (was 7:39am)']);
   assert.deepEqual(leaveStartText('Home to office', row, at('06:30')), { title: 'Leave at 7:39am · Home to office', body: 'Bus 132 toward Malden at 7:48am' });
+  // A late bell (past the leave-by): the departure.
+  assert.deepEqual(leaveStartText('Home to office', row, at('07:40')), { title: 'Departs in 8 min · Home to office', body: 'Bus 132 toward Malden at 7:48am' });
   assert.deepEqual(leaveStartText('Home to office', row, at('07:30')), reminderText('headsUp', 'Home to office', row, at('07:30')));
 });
 

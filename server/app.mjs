@@ -9,7 +9,7 @@ import {
   validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpsDue, remHeadsUps, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep, liveActivityState,
-  leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES,
+  leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES, LIVE_SOON_MS,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
   shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, WIDGET_ROWS, fillRows, nextServiceWindow,
@@ -337,7 +337,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     const n = tripShape(b.trip).transit.length;
     if (!Number.isInteger(b.timingIdx) || b.timingIdx < 0 || b.timingIdx >= n) return 'timingIdx is invalid';
     if (typeof b.key !== 'string' || !b.key || b.key.length > 200) return 'key is invalid';
-    if (!Number.isFinite(b.leaveBy) || b.leaveBy <= t || b.leaveBy - t > MAX_AHEAD) return 'leaveBy must be in the next 12 hours';
+    // `dep`: the ride's departure; past the leave-by (a late bell) the reminder is accepted until it.
+    if (b.dep != null && !(Number.isFinite(b.dep) && b.dep > t && b.dep - t <= MAX_AHEAD)) return 'dep must be in the next 12 hours';
+    if (!Number.isFinite(b.leaveBy) || b.leaveBy - t > MAX_AHEAD || (b.leaveBy <= t && b.dep == null)) return 'leaveBy must be in the next 12 hours';
     if (b.stopSlackMinutes != null && !(Number.isFinite(b.stopSlackMinutes) && b.stopSlackMinutes >= 0 && b.stopSlackMinutes <= 60)) return 'stopSlackMinutes is invalid';
     if (b.tripName != null && (typeof b.tripName !== 'string' || b.tripName.length > 100)) return 'tripName is invalid';
     if (b.startToken != null && !validToken(b.startToken)) return 'startToken is invalid';
@@ -521,7 +523,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
         id: randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
         stopSlackMinutes: body.stopSlackMinutes ?? 1, timingIdx: body.timingIdx, key: body.key,
         leaveBy: body.leaveBy, headsUps: headsUpsDue(body.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
-        ...(body.startToken && { startToken: body.startToken }),
+        ...(body.startToken && { startToken: body.startToken }), ...(body.leaveBy <= t && { late: true }),
       };
       store.add(rem);
       log(`reminder ${rem.id} for ${rem.key}, leave by ${new Date(rem.leaveBy).toISOString()}`);
@@ -871,6 +873,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (row) rem.seen = { firstDep: row.firstDep, legs: row.legs };
     if (rem.asked) return checkAsked(rem, t);
     if (rem.started) return checkStarted(rem, row, t);
+    if (rem.late && !rem.left) return startLate(rem, row, t);
     // Past the leave-by, a leave card counts down to the departure; without one, the departure
     // still asks.
     if (rem.card?.left && rem.card.token) return checkLeftCard(rem, row, t);
@@ -1046,6 +1049,18 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       const urgent = state.phase === 'departs' && card.last?.phase !== 'departs';
       if (!(await cardPush(rem, { event: 'update', state, urgent }, t)) && !rem.card.token) return drop(rem);
     }
+    rem.nextPollAt = t + 20_000;
+    return false;
+  }
+
+  // A bell set past the leave-by (`late`): no "Leave now"; the leave card starts quietly at "Departs
+  // in" (not in the departure's last LIVE_SOON_MS), then the departure asks, as after "Leave now".
+  async function startLate(rem, row, t) {
+    if (row && rem.startToken && !rem.card && row.firstDep - t >= LIVE_SOON_MS
+      && await startCard(rem, { action: 'leave', leaveBy: row.leaveBy, headsUps: [] }, row, t)) {
+      rem.card = { ...rem.card, left: true, firstDep: row.firstDep };
+    }
+    rem.left = true;
     rem.nextPollAt = t + 20_000;
     return false;
   }

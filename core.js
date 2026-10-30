@@ -2580,7 +2580,9 @@ export function leaveCardStarts(rem, step, nowMs) {
   return !step.headsUps.includes(LEAVE_CARD_MIN);
 }
 // The leave card's start alert: early, "Leave at 7:39am · Home to office"; else the heads-up's text.
+// Past the leave-by (a late bell): "Departs in 8 min · Office → Home", the departure counted down to.
 export function leaveStartText(tripName, row, nowMs) {
+  if (nowMs >= row.leaveBy) return { title: `Departs in ${formatCountdown(row.firstDep - nowMs)} · ${tripName}`, body: firstVehicleLine(row, nowMs) };
   return leaveCardEarly(row.leaveBy, nowMs)
     ? { title: `Leave at ${formatTime(row.leaveBy, nowMs)} · ${tripName}`, body: firstVehicleLine(row, nowMs) }
     : reminderText('headsUp', tripName, row, nowMs);
