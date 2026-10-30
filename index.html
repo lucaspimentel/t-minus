@@ -426,7 +426,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-29 · de1063775c</footer>
+    <footer class="version">Version 2026-10-29 · c09a817219</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -1282,7 +1282,7 @@ async function adoptLeaveCards(idx, removed) {
   const rems = Object.values(removed).sort((a, b) => a.leaveBy - b.leaveBy);
   const ids = new Set(rems.map(r => r.id));
   const cards = (await leaveActivities()).filter(a => ids.has(a.reminderId));
-  if (!cards.length) return;
+  if (!cards.length) return startWalkCard(idx, rems[0]);
   const s = (store.get(KEY_EN_ROUTE) ?? {})[idx];
   const keep = s && !s.ride && s.kind !== 'track' ? rems.map(r => cards.find(a => a.reminderId === r.id)).find(Boolean) : null;
   if (keep) {
@@ -1291,6 +1291,24 @@ async function adoptLeaveCards(idx, removed) {
   }
   for (const a of cards) if (a !== keep) endActivity(a.id, 'end leave card');
   render();
+}
+// No leave card to keep (the server's start failed or never came): the app starts the walk card
+// itself for the earliest cancelled reminder's ride. Without a reminder id: the ride card's start
+// (which ends those) replaces it at boarding.
+async function startWalkCard(idx, rem) {
+  const s = (store.get(KEY_EN_ROUTE) ?? {})[idx];
+  if (!rem || leaveCard || idx !== tripIdx || !s || s.ride || !['leaving', 'stop'].includes(s.kind)) return;
+  const now = Date.now();
+  const row = currentRows(now, s).find(r => r.key === rem.key);
+  if (!row || now >= row.firstDep) return;
+  const state = walkActivityState(row, s, now);
+  try {
+    const { id } = await plugins.TMinus.liveActivityStart({ tripName: config.trips[idx].name, state });
+    saveLeaveCard({ id, idx, reminderId: null, key: rem.key, last: JSON.stringify(state) });
+    render();
+  } catch (e) {
+    if (!unimplemented(e)) nativeLog('liveActivity', `walk card: ${e.message}`);
+  }
 }
 // The walk card: updated while its trip is en route before boarding; ended otherwise.
 function syncLeaveCard(now) {
@@ -1322,7 +1340,7 @@ if (native) {
     if (store.get(KEY_START_TOKEN) === token) return;
     store.set(KEY_START_TOKEN, token);
     for (const rem of Object.values(reminders)) {
-      if (rem.leaveBy > Date.now()) pushApi('PUT', `/reminders/${rem.id}`, { startToken: token }).catch(e => nativeLog('liveActivity', `start token: ${e.message}`));
+      if ((rem.dep ?? rem.leaveBy) > Date.now()) pushApi('PUT', `/reminders/${rem.id}`, { startToken: token }).catch(e => nativeLog('liveActivity', `start token: ${e.message}`));
     }
   })).catch(e => nativeLog('liveActivity', `start token listener: ${e.message}`));
   // Cards left from reminders that are gone (their token never reached the server).
@@ -1357,7 +1375,7 @@ async function notify(r) {
     const startToken = await liveStartToken();
     const { id, headsUps } = await pushApi('POST', '/reminders', {
       subscription: await subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
-      timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy, ...(startToken && { startToken }),
+      timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy, dep: r.firstDep, ...(startToken && { startToken }),
     });
     const s = enRouteState();
     if (s?.bell && !s.ride && s.target?.key === r.key) {
@@ -1440,10 +1458,11 @@ function cancelTripReminders(idx) {
   return removed;
 }
 
-// Undo of a start: posts the cancelled reminders again (those still ahead; older entries have no key).
+// Undo of a start: posts the cancelled reminders again (those whose ride hasn't left; older
+// entries have no key).
 async function restoreReminders(idx, removed) {
   const trip = config.trips[idx];
-  const due = Object.entries(removed ?? {}).filter(([, rem]) => rem.key != null && rem.leaveBy > Date.now());
+  const due = Object.entries(removed ?? {}).filter(([, rem]) => rem.key != null && (rem.dep ?? rem.leaveBy) > Date.now());
   if (!trip || !due.length) return;
   try {
     const subscription = await pushSubscription();
@@ -1451,7 +1470,7 @@ async function restoreReminders(idx, removed) {
     for (const [remKey, rem] of due) {
       const { id, headsUps } = await pushApi('POST', '/reminders', {
         subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
-        timingIdx: rem.timingIdx, key: rem.key, leaveBy: rem.leaveBy, ...(startToken && { startToken }),
+        timingIdx: rem.timingIdx, key: rem.key, leaveBy: rem.leaveBy, ...(rem.dep != null && { dep: rem.dep }), ...(startToken && { startToken }),
       });
       reminders[remKey] = { ...rem, id, headsUps };
       saveReminders();
@@ -1495,7 +1514,8 @@ function bellOn(r) {
   setEnRoute(pinTarget(enRouteState(), r, Date.now()));
   render();
   schedulePoll();
-  if (canNotify() && r.leaveBy > Date.now()) notify(r);
+  // Past the leave-by too (a late bell): the server starts the card at "Departs in" and asks.
+  if (canNotify() && r.firstDep > Date.now()) notify(r);
 }
 function bellOff() {
   setEnRoute(unpinTarget(enRouteState()));

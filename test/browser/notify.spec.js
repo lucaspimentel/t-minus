@@ -42,6 +42,20 @@ const firstRow = page => page.locator('.row').first();
 // The bell ("🔔 Track"): pins the ride and sets its reminders where notifications work.
 const bell = (row, name = 'Track') => row.getByRole('button', { name, exact: true });
 
+// A late bell (past the leave-by, before the departure): the reminder is still set, with the
+// departure, so the server starts the card at "Departs in" and asks at the departure.
+test('a bell past the leave-by still sets the reminder, with the departure', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(pushStub(), { supported: true, server: PUSH });
+  await openApp(page, { time: '07:04' }); // leave by 7:02, bus at 7:08
+  await firstRow(page).click();
+  await bell(firstRow(page)).click();
+  await expect(firstRow(page).locator('.track-btn.on')).toHaveText('Tracking');
+  await expect.poll(() => calls.find(c => c.method === 'POST')?.body).toMatchObject({
+    key: '132in-0708', leaveBy: Date.parse('2026-10-05T07:02:00-04:00'), dep: Date.parse('2026-10-05T07:08:00-04:00'),
+  });
+});
+
 test('the bell sets a reminder: Tracking on the button, a bell on the collapsed row; tap again to cancel', async ({ page }) => {
   const calls = await fakeServer(page);
   await page.addInitScript(pushStub(), { supported: true, server: PUSH });

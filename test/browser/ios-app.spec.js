@@ -311,15 +311,19 @@ test('bell off: a plain DELETE (the server ends the card), and the app ends it t
   await expect.poll(async () => (await leaveCalls(page)).at(-1)?.call).toBe('end');
 });
 
-test('no card from the server: Leaving now makes no Live Activity calls', async ({ page }) => {
+test('no card from the server: Leaving now starts the walk card from the app; Cancel ends it', async ({ page }) => {
   await fakeServer(page);
   await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
   await openApp(page, { time: '06:50' });
   await notifyMe(page);
   await tickTo(page, '07:00');
   await page.locator('#enroute').getByRole('button', { name: 'Leaving now' }).click();
-  await tick(page, 2000);
-  expect(await activityCalls(page)).toEqual([]);
+  await expect.poll(async () => (await activityCalls(page))[0]?.call).toBe('start');
+  const [start] = await activityCalls(page);
+  expect(start.tripName).toBe('Home to office');
+  expect(start.state).toMatchObject({ phase: 'walk', head: 'Departs in', headTime: '7:08am' });
+  await page.locator('#enroute').getByRole('button', { name: 'Cancel' }).click();
+  await expect.poll(async () => (await activityCalls(page)).at(-1)).toMatchObject({ call: 'end', id: 'act1' });
 });
 
 test('Leaving now misses the belled bus: at its departure the walk card asks "Did you get on?"; Missed it ends it', async ({ page }) => {
