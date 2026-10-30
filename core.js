@@ -2400,7 +2400,8 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
   const nextLine = () => {
     const o = outlookText(outlook, ride, nowMs);
     const missed = outlook?.missedDep != null || (outlook && ride.missed?.leg === outlook.leg);
-    if (o) { out.next = o.text; out.warn = !!(outlook.none || missed); } else out.next = `Arrive ~${t(eta)}`;
+    // `nextWarn`: the line itself amber ("· tight", missed, none; builds before it: white).
+    if (o) { out.next = o.text; out.nextWarn = o.warn; out.warn = !!(outlook.none || missed); } else out.next = `Arrive ~${t(eta)}`;
   };
   switch (phase.kind) {
     case 'riding': {
@@ -2642,8 +2643,10 @@ export const WIDGET_REFRESH_MIN = 10; // the reload asked of iOS (sooner at the 
 // the small size's `line` keeps "→ Malden"), so the medium rows fit. For the Home Screen layouts of
 // 2026-10-29 (builds before them ignore these): per row `long` ("Orange Line") and `headsign`
 // ("Forest Hills"), per entry `headTime`, the time beside `head` ("12:17am" the leave-by, "12:20am" the
-// departure past it; '' with no row). The circular size: "38m" (or the time) over the vehicle ("Bus 132") in a ring, `ring` full an hour before the
-// leave-by and empty at it (-1: none).
+// departure past it; '' with no row). Per row `then` (2026-10-30): the later legs in short form
+// with their colors (the medium size's "then ● Bus 132"). The circular size: "38m" (or the time)
+// over the vehicle ("Bus 132") in a ring, `ring` full an hour before the leave-by and empty at it
+// (-1: none).
 // `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`: when to ask again
 // (also at each leave-by and last chance, so the late phases get fresh times). `tripName` null:
 // no trips.
@@ -2658,6 +2661,7 @@ export function widgetView(tripName, rows, nowMs) {
     return {
       time: t(r.leaveBy), vehicle: vehicleLabel(first) ?? '', short: vehicleLabel(first), color: first.color ?? '', label: islandLabel(first),
       line: vehicleArrow(first), long: lineLabel(first), headsign: first.headsign ?? '', arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
+      then: r.legs.slice(1).map(l => ({ label: vehicleLabel(l) ?? '', color: l.color ?? '' })),
     };
   });
   const view = { name: tripName ?? '', rows: lines, entries: [], end: null, refresh: sec(nowMs + WIDGET_REFRESH_MIN * MIN) };

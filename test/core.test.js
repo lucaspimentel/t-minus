@@ -1978,9 +1978,12 @@ test('liveActivityState: riding, get off, transfer, missed and no connection, wa
   const riding = liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(4), outlook, 5, at('17:50'));
   assert.deepEqual(riding, {
     phase: 'riding', warn: false, color: 'ED8B00', label: 'OL', title: 'Orange · 4 stops', until: sec('17:56'), stops: 4,
-    sub: 'Get off 5:56pm at Oak Grove', next: 'Then Bus 132 toward Redstone 6:06pm · 5 min to spare',
+    sub: 'Get off 5:56pm at Oak Grove', next: 'Then Bus 132 toward Redstone 6:06pm · 5 min to spare', nextWarn: false,
     legs: [{ color: 'ED8B00', dep: sec('17:41'), arr: sec('17:56') }, { color: 'FFC72C', dep: sec('18:06'), arr: sec('18:18') }], soon: false,
   });
+  // A tight connection: the line amber (`nextWarn`), the headline not (`warn`).
+  const tight = liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(4), { ...outlook, margin: MIN }, 5, at('17:50'));
+  assert.deepEqual([tight.next, tight.nextWarn, tight.warn], ['Then Bus 132 toward Redstone 6:06pm · tight', true, false]);
   // The last 80 s: "<1 minute" on the card.
   assert.equal(liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(1), outlook, 5, at('17:56') - 81_000).soon, false);
   assert.equal(liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(1), outlook, 5, at('17:56') - 80_000).soon, true);
@@ -2339,7 +2342,7 @@ test('widgetView: per-minute countdowns, leave now, departs, the next row; early
   const v = widgetView('Home → Work', [row('07:39', '07:42', '07:48', '08:25'), row('07:51', '07:54', '08:00', '08:37')], now);
   // Rows: the leave-by (CLAUDE.md "UI rules").
   // The medium rows' vehicle without its headsign; the small size's line with it (CLAUDE.md "UI rules").
-  assert.deepEqual(v.rows[0], { time: '7:39am', vehicle: 'Bus 132', short: 'Bus 132', color: 'FFC72C', label: '132', line: 'Bus 132 → Malden', long: 'Bus 132', headsign: 'Malden', arrive: 'arrive 8:25am', arriveTitle: 'Arrive 8:25am' });
+  assert.deepEqual(v.rows[0], { time: '7:39am', vehicle: 'Bus 132', short: 'Bus 132', color: 'FFC72C', label: '132', line: 'Bus 132 → Malden', long: 'Bus 132', headsign: 'Malden', arrive: 'arrive 8:25am', arriveTitle: 'Arrive 8:25am', then: [{ label: 'Orange', color: 'ED8B00' }] });
   const when = (hhmm, s = 0) => (at(hhmm) + s * 1000) / 1000;
   const shown = sec => v.entries.filter(e => e.at <= sec).at(-1);
   const pick = e => [e.row, e.title, e.count, e.warn, e.lockSub, e.inline, e.circle, e.circleSub, e.ring];
@@ -2366,6 +2369,7 @@ test('widgetView: per-minute countdowns, leave now, departs, the next row; early
   const far = widgetView('Work → Home', [row('17:12', '17:15', '17:20', '18:01', { legs: [{ ...leaveRow().legs[1], dep: at('17:20') }] })], at('15:58'));
   assert.deepEqual(pick(far.entries[0]), [0, 'Leave 5:12pm', '', false, 'Orange', 'OL Leave 5:12pm', '5:12', 'Orange', -1]);
   assert.deepEqual([far.entries[0].head, far.entries[0].headTime, far.rows[0].long, far.rows[0].short], ['Leave in 1h 14m', '5:12pm', 'Orange Line', 'Orange']);
+  assert.deepEqual(far.rows[0].then, []); // one leg: nothing after it
   const farAt = sec => far.entries.filter(e => e.at <= sec).at(-1);
   assert.deepEqual([farAt(when('16:00', 30)).head, farAt(when('16:00', 30)).count], ['Leave in 1h 11m', '']);
   assert.deepEqual([farAt(when('16:12', 1)).at, farAt(when('16:12', 1)).count], [when('16:12', 1), 'in 59 min']);
