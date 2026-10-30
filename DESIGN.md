@@ -1328,7 +1328,9 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   spare", "· tight" in amber), "Missed the 8:02am · next 8:14am" in amber, "No
   connection after …", "Walking", "Arrived ~8:25am") with a countdown; the drop-off line with the
   time first ("Get off 8:24am at …", so a long stop name is cut, not the time); the next
-  connection or "Arrive ~…"; a progress bar with one segment per leg, sized by its riding time (at
+  connection or "Arrive ~…" (amber when it warns, "· tight" / missed / none, via `nextWarn`; the
+  headline stays white while riding a tight connection; until build 38 the line was always white,
+  seen 2026-10-29); a progress bar with one segment per leg, sized by its riding time (at
   least 8%), filling on its own while ridden.
 - **Countdown:** whole minutes, counted down by iOS without updates ("12 min", rounded down;
   a live date range from now in abbreviated minutes, as the leave card and the widgets; "12
@@ -1504,7 +1506,11 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   the next two rides (leave-by, arrival), naming their vehicle in short form only where it differs
   from the first's ("● Red → Braintree", a several-route leg's "Green D"). The answer adds per row
   `long` and `headsign` and per entry `headTime`; answers without them (and older builds, which
-  ignore them) keep the layouts above.
+  ignore them) keep the layouts above. 2026-10-30 (the build after 38; the phone still cut "→ Oak
+  Gr…" beside the arrival, and a differing next ride cut its own headsign): the medium shows one
+  ride: the countdown with its time, ● "Orange Line toward Oak Grove" full width, and at the bottom
+  its later legs in short form ("then ● Bus 132 · ● Red", cut at the end; none for a one-leg
+  trip) with "arrive 7:21pm" (never cut). The answer adds per row `then` ([{ label, color }]).
 - **Previews:** the `ios` workflow also renders `widget-<theme>.png` (every small state, five
   medium, the Lock Screen sizes).
 
