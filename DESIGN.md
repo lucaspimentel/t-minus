@@ -1419,6 +1419,19 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   A missed departure turns it into the boarding question (app and server). Boarding ends it just before the ride card starts; Cancel or the vehicle leaving end it. Known
   limit: with the app closed it isn't updated (stale 2 min after its countdown; ended at the next
   open).
+- **Late bell (2026-10-30; seen 2026-10-29: belled at 12:18 for a 12:16 leave-by, nothing
+  came):** the bell is offered until the departure, and so is its reminder: past the leave-by the
+  app posts it with the ride's departure (`dep`), accepted until then and marked `late`. A late
+  reminder never sends "Leave now"; with a start token and 80 s or more left (`LIVE_SOON_MS`) the
+  server starts the leave card quietly at "Departs in 8 min · 12:27pm" (start alert "Departs in 8
+  min · <trip>", no sound), then the card follows the row as after "Leave now" (back to "Leave
+  in" if a delay puts the leave-by ahead again) and the departure asks "Did you get on?". Under
+  80 s, or without a start token: only the question. Undo of a start and new start tokens also
+  count until the departure. Web and server only (build 38 has everything).
+- **Walk card without a leave card (2026-10-30):** "Leaving now" / "At the stop" with the bell
+  and no card to keep (the server's start failed or never came): the app starts the walk card
+  itself (`liveActivityStart`, no reminder id), updated and ended as the adopted one; the ride
+  card's start replaces it at boarding.
 - **Bell off** ends the card (the app and the server); cards whose reminder is gone are ended
   when the app opens (their token may never have reached the server).
 - **Native pieces:** `RideAttributes.reminderId` (set on server-started cards; app-started ride
