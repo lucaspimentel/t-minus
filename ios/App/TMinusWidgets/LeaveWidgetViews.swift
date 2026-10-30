@@ -149,9 +149,9 @@ private struct SmallHome: View {
     }
 }
 
-// Home Screen medium (2026-10-29): "Leave in 5 min · 12:17am", the first ride's line and direction
-// with its arrival, then the next two rides (leave-by, arrival), naming their vehicle only where it
-// differs from the first's ("Red → Braintree"). Only the route text gives way.
+// Home Screen medium (2026-10-29; one ride, 2026-10-30): "Leave in 5 min · 12:17am", the first
+// ride's line and direction in full ("→" only where "toward" doesn't fit), and at the bottom its
+// later legs ("then ● Bus 132") with the arrival. No next rides: their rows cut the headsign.
 private struct MediumHome: View {
     let content: LeaveContent
     @Environment(\.colorScheme) private var scheme
@@ -163,37 +163,29 @@ private struct MediumHome: View {
             Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
             (Text(content.entry?.head ?? "").font(.title2.weight(.bold)) + Text(" · \(content.entry?.headTime ?? "")").font(.subheadline.weight(.semibold)))
                 .foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 5) {
+                RouteDot(hex: first.color, size: 8)
+                LineToward(line: first.long ?? first.vehicle, headsign: first.headsign ?? "", muted: th.muted)
+            }
+            .font(.subheadline).foregroundStyle(th.text)
+            Spacer(minLength: 0)
+            // The later legs ("then ● Bus 132 · ● Red", cut at the end) and the arrival (never cut).
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 HStack(spacing: 5) {
-                    RouteDot(hex: first.color, size: 8)
-                    LineToward(line: first.long ?? first.vehicle, headsign: first.headsign ?? "", muted: th.muted)
+                    if let then = first.then, !then.isEmpty {
+                        Text("then")
+                        ForEach(Array(then.enumerated()), id: \.offset) { i, leg in
+                            if i > 0 { Text("·").foregroundStyle(th.muted) }
+                            RouteDot(hex: leg.color, size: 8)
+                            Text(leg.label)
+                        }
+                    }
                 }
+                .lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Text(first.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize()
             }
             .font(.subheadline).foregroundStyle(th.text)
-            Spacer(minLength: 0)
-            let later = Array(content.rows.dropFirst().prefix(2))
-            if !later.isEmpty {
-                Rectangle().fill(th.track).frame(height: 1).padding(.bottom, 4)
-                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
-                    ForEach(Array(later.enumerated()), id: \.offset) { _, row in
-                        let differs = (row.short ?? row.vehicle) != (first.short ?? first.vehicle) || (row.headsign ?? "") != (first.headsign ?? "")
-                        GridRow {
-                            Text(row.time).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
-                            HStack(spacing: 6) {
-                                if differs {
-                                    RouteDot(hex: row.color, size: 8)
-                                    LineToward(line: row.short ?? row.vehicle, headsign: row.headsign ?? "", muted: th.muted)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(row.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize().gridColumnAlignment(.trailing)
-                        }
-                        .font(.subheadline).foregroundStyle(th.text)
-                    }
-                }
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }

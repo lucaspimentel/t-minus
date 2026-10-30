@@ -16,6 +16,8 @@ private let trip = legs((orange, -8, 6), (bus, 14, 44)) // 14 and 30 min: propor
 private let samples: [(String, RideState)] = [
     ("Riding", RideState(phase: "riding", warn: false, color: orange, label: "OL", title: "Orange · 4 stops", until: now + 360, stops: 4,
                          sub: "Get off 7:54am at Sullivan Square", next: "Then Bus 132 toward Malden 8:02am · 3 min to spare", legs: trip)),
+    ("Riding, tight connection", { var st = RideState(phase: "riding", warn: false, color: orange, label: "OL", title: "Orange · 7 stops", until: now + 900, stops: 7,
+                         sub: "Get off 6:31pm at Oak Grove", next: "Then Bus 132 toward Redstone 6:38pm · tight", legs: trip); st.nextWarn = true; return st }()),
     ("Get off", RideState(phase: "riding", warn: false, color: orange, label: "OL", title: "Next stop: get off", until: now + 60, stops: 1,
                           sub: "Get off 7:54am at Sullivan Square", next: "Then Bus 132 toward Malden 8:02am · 3 min to spare", legs: trip, soon: true)),
     ("Transfer", RideState(phase: "transfer", warn: false, color: bus, label: "132", title: "Bus 132", until: now + 300, stops: -1,
@@ -118,7 +120,7 @@ private struct Sheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 22))
             }
             Text("Dynamic Island: compact (riding, transfer, walking), expanded, minimal").font(.caption).foregroundStyle(.white)
-            ForEach([samples[0].1, samples[2].1, samples[5].1], id: \.self) { state in
+            ForEach([samples[0].1, samples[3].1, samples[6].1], id: \.self) { state in
                 HStack { IslandLeading(state: state); Spacer(); IslandTrailing(state: state) }
                     .padding(.horizontal, 14).frame(width: 250, height: 37)
                     .background(.black).clipShape(Capsule()).foregroundStyle(.white)
@@ -126,7 +128,8 @@ private struct Sheet: View {
                     .frame(maxWidth: .infinity)
             }
             Expanded(tripName: "Home to office", state: samples[0].1)
-            Expanded(tripName: "Home to office", state: samples[2].1)
+            Expanded(tripName: "Office → Home", state: samples[1].1)
+            Expanded(tripName: "Home to office", state: samples[3].1)
             RouteDot(hex: orange, size: 10).frame(width: 37, height: 37).background(.black).clipShape(Circle()).frame(maxWidth: .infinity)
         }
         .padding(16)
@@ -171,9 +174,10 @@ private let widgetSamples: [(String, LeaveContent)] = [
 ]
 
 // The Home Screen layouts of 2026-10-29: the answer's `long`, `headsign` and `headTime`.
-private func hrow(_ time: String, _ arrive: String, long: String, short: String, headsign: String, color: String, label: String) -> WidgetView.Row {
+private func hrow(_ time: String, _ arrive: String, long: String, short: String, headsign: String, color: String, label: String,
+                  then: [(String, String)] = []) -> WidgetView.Row {
     WidgetView.Row(time: time, vehicle: short, short: short, color: color, label: label, line: short, arrive: "arrive \(arrive)", arriveTitle: "Arrive \(arrive)",
-                   long: long, headsign: headsign)
+                   long: long, headsign: headsign, then: then.map { WidgetView.Row.Leg(label: $0.0, color: $0.1) })
 }
 private func hent(_ head: String, _ headTime: String, warn: Bool = false) -> WidgetView.Entry {
     var e = went(head, "", warn: warn, lockSub: "", inline: "", circle: "", head: head)
@@ -183,12 +187,15 @@ private func hent(_ head: String, _ headTime: String, warn: Bool = false) -> Wid
 private let ol = { (t: String, a: String) in hrow(t, a, long: "Orange Line", short: "Orange", headsign: "Forest Hills", color: orange, label: "OL") }
 private let rl = { (t: String, a: String, h: String) in hrow(t, a, long: "Red Line", short: "Red", headsign: h, color: "DA291C", label: "RL") }
 private let gl = { (t: String, a: String, b: String, h: String) in hrow(t, a, long: "Green Line \(b)", short: "Green \(b)", headsign: h, color: "00843D", label: "GL·\(b)") }
-private let orangeRows = [ol("12:17am", "12:42am"), ol("12:23am", "12:48am"), ol("12:26am", "12:50am")]
+private let orangeRows = [hrow("6:33pm", "7:21pm", long: "Orange Line", short: "Orange", headsign: "Oak Grove", color: orange, label: "OL", then: [("Bus 132", bus)]),
+                          ol("7:31pm", "8:17pm"), ol("8:32pm", "9:17pm")]
 private let homeSamples: [(String, LeaveContent)] = [
-    ("Leave in", LeaveContent(name: "Oak Grove → State", entry: hent("Leave in 5 min", "12:17am"), rows: orangeRows)),
-    ("Leave now", LeaveContent(name: "Oak Grove → State", entry: hent("Leave now", "departs 12:20am", warn: true), rows: orangeRows)),
-    ("Departs", LeaveContent(name: "Oak Grove → State", entry: hent("Departs in 2 min", "12:20am", warn: true), rows: orangeRows)),
-    ("Widest countdown", LeaveContent(name: "Oak Grove → State", entry: hent("Leave in 59 min", "12:17am"), rows: orangeRows)),
+    ("Leave in (two legs)", LeaveContent(name: "Office → Home", entry: hent("Leave in 17 min", "6:33pm"), rows: orangeRows)),
+    ("Departs", LeaveContent(name: "Office → Home", entry: hent("Departs in 7 min", "6:43pm", warn: true), rows: orangeRows)),
+    ("Widest countdown", LeaveContent(name: "Office → Home", entry: hent("Leave in 59 min", "6:33pm"), rows: orangeRows)),
+    ("Three legs", LeaveContent(name: "Home → Airport", entry: hent("Leave in 9 min", "7:42am"),
+        rows: [hrow("7:42am", "8:51am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132",
+                    then: [("Orange", orange), ("Silver SL1", "7C878E")])])),
     ("An hour+ ahead", LeaveContent(name: "Work → Home", entry: hent("Leave in 1h 06m", "5:12pm"),
         rows: [hrow("5:12pm", "6:01pm", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
                hrow("5:42pm", "6:31pm", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132")])),

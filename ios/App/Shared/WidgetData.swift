@@ -50,6 +50,12 @@ struct WidgetView: Codable, Hashable {
         // The Home Screen layouts (2026-10-29; absent from older answers):
         var long: String? = nil     // "Orange Line", "Bus 132"
         var headsign: String? = nil // "Forest Hills", "" for none
+        // The later legs in short form (2026-10-30; absent from older answers): "then ● Bus 132".
+        struct Leg: Codable, Hashable {
+            var label: String
+            var color: String
+        }
+        var then: [Leg]? = nil
     }
     struct Entry: Codable, Hashable {
         var at: Double          // shown from (Unix seconds)

@@ -194,7 +194,7 @@ struct RideBody: View {
             .font(.title3.weight(.bold)).foregroundStyle(state.warn ? amber : text)
             .fixedSize(horizontal: false, vertical: true)
             if !state.sub.isEmpty { Text(state.sub).font(.subheadline).foregroundStyle(muted).lineLimit(1) }
-            if !state.next.isEmpty { Text(state.next).font(.subheadline).foregroundStyle(text).lineLimit(2) }
+            if !state.next.isEmpty { Text(state.next).font(.subheadline).foregroundStyle(state.nextWarn == true ? amber : text).lineLimit(2) }
             LegsBar(legs: state.legs, track: track).padding(.top, 6)
         }
     }
