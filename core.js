@@ -2403,6 +2403,8 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
     // `nextWarn`: the line itself amber ("· tight", missed, none; builds before it: white).
     if (o) { out.next = o.text; out.nextWarn = o.warn; out.warn = !!(outlook.none || missed); } else out.next = `Arrive ~${t(eta)}`;
   };
+  // The leave card's layout (2026-10-31; CLAUDE.md "UI rules"): see rideCardFields.
+  const fields = rideCardFields(ride, legs, phase, stops, outlook, eta, nowMs);
   switch (phase.kind) {
     case 'riding': {
       const leg = legs[phase.leg];
@@ -2442,7 +2444,68 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
     default:
       Object.assign(out, { title: `Arrived ~${t(eta)}` });
   }
-  out.soon = out.until > 0 && out.until * 1000 - nowMs <= LIVE_SOON_MS;
+  Object.assign(out, fields);
+  const to = out.countTo > 0 ? out.countTo : out.until;
+  out.soon = to > 0 && to * 1000 - nowMs <= LIVE_SOON_MS;
+  return out;
+}
+
+// The ride card in the leave card's layout (2026-10-31), shared with the widget (widgetView):
+// `head` with a countdown to `countTo` after it ("Get off in 5 stops · 9 min": `countAfter`, the
+// countdown in `headTime`'s place; else "Get off in 9 min"), `headTime`; the line (`long`,
+// `headsign`) with the trip's arrival (`right`); `note` (the transfer's spare); the connection
+// (`then`, `thenText`, amber with `nextWarn`): "then ● Bus 132 6:38pm · 4 min to spare"; the
+// compact island's `emoji` and `islandText` ("5 stops", "next", "here"; '' for the countdown).
+function rideCardFields(ride, legs, phase, stops, outlook, eta, nowMs) {
+  const t = ms => formatTime(ms, nowMs);
+  const arrive = `arrive ${legs.some(l => l.every) ? '~' : ''}${t(eta)}`;
+  const out = {
+    head: '', countTo: 0, countAfter: false, headTime: '', long: '', headsign: '', right: '', note: '', emoji: '', islandText: '',
+    then: [], thenText: '', nextWarn: false,
+  };
+  const line = leg => Object.assign(out, { long: lineLabel(leg), headsign: leg.headsign ?? '', right: arrive, emoji: modeEmoji(leg) });
+  const missedDep = outlook && (outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null));
+  switch (phase.kind) {
+    case 'riding': {
+      const leg = legs[phase.leg];
+      line(leg);
+      const n = stops?.stops.length ?? 0;
+      const cue = n ? getOffText(stops) : null;
+      if (cue === 'Get off here') Object.assign(out, { head: cue, islandText: 'here' });
+      else if (cue) Object.assign(out, { head: 'Get off next stop', countTo: Math.round(leg.arr / 1000), countAfter: true, islandText: 'next' });
+      else if (n) Object.assign(out, { head: `Get off in ${stopCountText(n)}`, countTo: Math.round(leg.arr / 1000), countAfter: true, islandText: stopCountText(n) });
+      else Object.assign(out, { head: 'Get off in', countTo: Math.round(leg.arr / 1000) });
+      if (outlook?.none) Object.assign(out, { thenText: `No connection after ${t(outlook.needed)}`, nextWarn: true });
+      else if (outlook) {
+        const next = outlook.legs[outlook.leg];
+        const at = legTime(next, next.dep, nowMs);
+        const tight = missedDep == null && outlook.margin < 2 * MIN;
+        Object.assign(out, {
+          then: [{ label: vehicleLabel(next) ?? '', color: next.color ?? '' }],
+          thenText: missedDep != null ? `${at} (missed ${t(missedDep)})` : tight ? `${at} · tight` : `${at} · ${formatCountdown(outlook.margin)} to spare`,
+          nextWarn: missedDep != null || tight,
+        });
+      }
+      break;
+    }
+    case 'transfer': {
+      const leg = legs[phase.leg];
+      if (outlook?.none) {
+        Object.assign(out, { head: `No connection after ${t(outlook.needed)}`, note: 'Open the app for another way.' });
+        break;
+      }
+      line(leg);
+      Object.assign(out, { head: `${vehicleLabel(leg)} in`, countTo: Math.round(leg.dep / 1000), headTime: legTime(leg, leg.dep, nowMs) });
+      if (missedDep != null) out.note = `Missed the ${t(missedDep)}`;
+      else if (outlook) out.note = outlook.margin < 2 * MIN ? 'tight' : `${formatCountdown(outlook.margin)} to spare`;
+      break;
+    }
+    case 'walking':
+      Object.assign(out, { head: 'Arrive in', countTo: Math.round(eta / 1000), headTime: t(eta), emoji: WALK_EMOJI });
+      break;
+    default:
+      Object.assign(out, { head: 'Arrived', headTime: t(eta) });
+  }
   return out;
 }
 
@@ -2485,6 +2548,8 @@ function leaveCardBase(row, nowMs) {
     sub: lineToward(first), next: '', legs: row.legs.map(l => ({ color: l.color ?? '', dep: Math.round(l.dep / 1000), arr: Math.round(l.arr / 1000) })),
     island: '', join: ' ',
     head: '', countTo: 0, headTime: '', long: lineLabel(first), headsign: first.headsign ?? '', right: '', note: '', emoji: '',
+    // The later legs (2026-10-31): "then ● Bus 132", as the medium widget.
+    then: row.legs.slice(1).map(l => ({ label: vehicleLabel(l) ?? '', color: l.color ?? '' })), thenText: '',
   };
 }
 // A ride's arrival on the leave and walk cards: "~" only when a leg is a headway estimate.
@@ -2569,7 +2634,8 @@ export function askActivityState(row, nowMs) {
   const first = row.legs[0];
   return Object.assign(leaveCardBase(row, nowMs), {
     phase: 'ask', title: 'Did you get on?', sub: `${lineToward(first)} left at ${legTime(first, first.dep, nowMs)}`,
-    next: 'Tap to answer', island: 'Got on?', soon: false, head: 'Did you get on?', right: `left ${legTime(first, first.dep, nowMs)}`,
+    next: 'Tap to answer', island: 'Got on?', soon: false, head: 'Did you get on?', headTime: `left ${legTime(first, first.dep, nowMs)}`,
+    ...(row.eta != null && { right: `arrive ${etaTime(row, nowMs)}` }),
   });
 }
 // Whether this check starts the leave card: a push-to-start token, no card yet, the leave-by ahead.
@@ -2601,12 +2667,48 @@ export function shownTrip(nowMs, cfg, oneOffAt, override, lastUsed, located = -1
 }
 
 // The widget's request (`POST /api/widget`; the app writes it to the shared keychain): the trips as on
-// the main screen (the one-off last), the stop slack and the trip choice's inputs.
-export function widgetRequest(cfg, oneOffAt, override, lastUsed) {
+// the main screen (the one-off last), the stop slack and the trip choice's inputs, and the ride
+// state the widget follows (`state`, widgetState; null: leave times).
+export function widgetRequest(cfg, oneOffAt, override, lastUsed, state = null) {
   return {
     trips: cfg?.trips ?? [], stopSlackMinutes: cfg ? stopSlackMinutes(cfg) : DEFAULT_STOP_SLACK_MINUTES,
-    oneOffAt: oneOffAt ?? null, override: override ?? null, lastUsed: Number.isInteger(lastUsed) ? lastUsed : null,
+    oneOffAt: oneOffAt ?? null, override: override ?? null, lastUsed: Number.isInteger(lastUsed) ? lastUsed : null, state,
   };
+}
+
+// The leg fields the widget's server needs to name and time a ride's legs. Times to the minute:
+// the server refreshes them by trip id, and the request (rewritten when it changes, reloading the
+// widget) shouldn't change with every poll.
+const WIDGET_LEG_KEYS = ['route', 'label', 'routeLabels', 'vehicleRoute', 'color', 'headsign', 'tripId', 'dep', 'arr', 'source', 'arrSource', 'every', 'picked'];
+const toMinute = ms => Math.floor(ms / MIN) * MIN;
+const widgetLegs = legs => legs.map(l => Object.fromEntries(WIDGET_LEG_KEYS.filter(k => l[k] != null).map(k => [k, k === 'dep' || k === 'arr' ? toMinute(l[k]) : l[k]])));
+
+// The one en-route state the widget follows (2026-10-31; KEY_EN_ROUTE's { [tripIdx]: state }): a
+// ride first, then the boarding question, "Leaving now" / "At the stop", the bell. Null: none
+// (leave times). Only what the server needs: `trip` (its index) and `name`, `kind`, `at`, `atStop`,
+// `pinned`, `target` ({ key, legs }), `asking`, `ride` ({ legs, boardedAt, missed }).
+export function widgetState(all, trips) {
+  const live = Object.entries(all ?? {}).filter(([i, s]) => s && trips?.[i]?.name === s.name);
+  const rank = s => (s.ride ? 0 : s.asking ? 1 : s.kind !== 'track' ? 2 : s.bell ? 3 : 4);
+  const [idx, s] = live.sort((x, y) => rank(x[1]) - rank(y[1]))[0] ?? [];
+  if (!s || rank(s) === 4 || (rank(s) === 3 && !s.target)) return null;
+  const out = { trip: Number(idx), name: s.name, kind: s.kind, at: s.at, atStop: s.atStop ?? null, pinned: !!s.pinned };
+  if (s.target) out.target = { key: s.target.key, legs: widgetLegs(s.target.legs) };
+  if (s.asking) out.asking = { dep: s.asking.dep };
+  if (s.ride) out.ride = { legs: widgetLegs(s.ride.legs), boardedAt: s.ride.boardedAt, ...(s.ride.missed && { missed: s.ride.missed }) };
+  return out;
+}
+function widgetStateError(st, trips) {
+  const trip = trips[st.trip];
+  if (!Number.isInteger(st.trip) || !trip || trip.name !== st.name) return 'state.trip is invalid';
+  if (!['track', 'leaving', 'stop'].includes(st.kind) || !Number.isFinite(st.at)) return 'state is invalid';
+  const n = tripShape(trip).transit.length;
+  const legsOk = legs => Array.isArray(legs) && legs.length === n && legs.every(l => typeof l?.tripId === 'string' && Number.isFinite(l.dep) && Number.isFinite(l.arr));
+  if (st.target != null && !(typeof st.target.key === 'string' && legsOk(st.target.legs))) return 'state.target is invalid';
+  if (st.asking != null && !(st.target && Number.isFinite(st.asking.dep))) return 'state.asking is invalid';
+  if (st.ride != null && !(legsOk(st.ride.legs) && Number.isFinite(st.ride.boardedAt))) return 'state.ride is invalid';
+  if (!st.ride && !st.target) return 'state is invalid';
+  return null;
 }
 // The request's error message, or null.
 export function widgetRequestError(b) {
@@ -2616,7 +2718,40 @@ export function widgetRequestError(b) {
   if (b.oneOffAt != null && !Number.isFinite(b.oneOffAt)) return 'oneOffAt is invalid';
   if (b.override != null && !(Number.isInteger(b.override.index) && Number.isFinite(b.override.setAt))) return 'override is invalid';
   if (b.lastUsed != null && !Number.isInteger(b.lastUsed)) return 'lastUsed is invalid';
+  if (b.state != null) return typeof b.state === 'object' ? widgetStateError(b.state, b.trips) : 'state is invalid';
   return null;
+}
+
+// What the widget follows now from the request's state, as the app would see it (advanceEnRoute,
+// enRouteActive): { kind: 'ride', ride } (boarded, until 5 min after the arrival), { kind: 'ask',
+// row } (the bell's ride left without "Leaving now" / "At the stop" in time; ASK_MINUTES),
+// { kind: 'walk', row, enRoute } (to the departure; 30 min after the tap), { kind: 'bell', row }
+// (the belled row's leave-by), or null: leave times. `rows`: the trip's rows now, missed ones too
+// (the target is found by its key; departed, it falls back to the saved legs).
+export function widgetFollow(st, rows, walkAfter, nowMs) {
+  if (!st) return null;
+  const done = ride => ridePhase(ride, walkAfter, nowMs).kind === 'done';
+  if (st.ride) return done(st.ride) ? null : { kind: 'ride', ride: st.ride };
+  const t = st.target;
+  const row = rows.find(r => r.key === t.key);
+  const legs = row?.legs ?? t.legs;
+  const dep = st.asking?.dep ?? row?.firstDep ?? legs[0].dep;
+  const eta = legs[legs.length - 1].arr + walkAfter * MIN;
+  const ask = () => (nowMs < dep + ASK_MINUTES * MIN ? { kind: 'ask', row: { legs, firstDep: dep, eta } } : null);
+  if (st.asking) return ask();
+  if (st.kind === 'track') {
+    if (nowMs >= dep) return ask();
+    return row ? { kind: 'bell', row } : null;
+  }
+  if (nowMs >= dep) {
+    if (st.atStop <= dep) {
+      const ride = { legs, boardedAt: dep };
+      return done(ride) ? null : { kind: 'ride', ride };
+    }
+    return st.pinned ? ask() : null;
+  }
+  if (!st.pinned && nowMs >= st.at + 30 * MIN) return null;
+  return { kind: 'walk', row: row ?? { legs, firstDep: dep, eta }, enRoute: st };
 }
 
 // The timing leg from schedules alone (as the page does, without its hysteresis).
@@ -2628,29 +2763,28 @@ export function scheduleTimingLeg(trip, scheduleDocs) {
 export const WIDGET_ROWS = 6; // rows the server times
 export const WIDGET_HORIZON_MIN = 120; // entries this far ahead; past them: "Open T-Minus"
 export const WIDGET_REFRESH_MIN = 10; // the reload asked of iOS (sooner at the next leave-by)
+export const WIDGET_RIDE_REFRESH_MIN = 5; // while following a ride (at each stop for the last 3)
 
 // The widget's timeline from the shown trip's rows (upcoming; next-day ones marked `nextDay`).
-// `rows`: one line per row, its leave-by time (the medium size lists the entry's row and the next
-// two). `entries`: what each size shows from `at` (Unix seconds) on, `row` its row (-1: none); the
-// countdowns ("in 9 min", rounded down like the page's) change by entry, one a minute. Per row:
-// "Leave 7:42am" (with "in 9 min" from LEAVE_CARD_EARLY_MIN before), then "Departs in" until the
-// departure (no "Leave now": the leave card's wording; the app row and the push keep it), then
-// the next row. Times follow CLAUDE.md "UI rules":
-// the leave-by, then from the leave-by on the departure (`line` "Bus 132 → Malden at 7:48am", `rowTime`
-// the first row's time, amber), counted down to. `head`/`headCount`: the medium size's header,
-// the countdown only ("Leave in 9 min"; the rows carry the times). Times carry no weekday ("Leave
-// 5:57am" late at night, "arrive 12:08am"), and the medium rows' `vehicle` no headsign ("Bus 132";
-// the small size's `line` keeps "→ Malden"), so the medium rows fit. For the Home Screen layouts of
-// 2026-10-29 (builds before them ignore these): per row `long` ("Orange Line") and `headsign`
-// ("Forest Hills"), per entry `headTime`, the time beside `head` ("12:17am" the leave-by, "12:20am" the
-// departure past it; '' with no row). Per row `then` (2026-10-30): the later legs in short form
-// with their colors (the medium size's "then ● Bus 132"). The circular size: "38m" (or the time)
-// over the vehicle ("Bus 132") in a ring, `ring` full an hour before the leave-by and empty at it
-// (-1: none).
-// `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`: when to ask again
-// (also at each leave-by and last chance, so the late phases get fresh times). `tripName` null:
-// no trips.
-export function widgetView(tripName, rows, nowMs) {
+// `rows`: one line per row, its leave-by time. `entries`: what each size shows from `at` (Unix
+// seconds) on, `row` its row (-1: none); the countdowns ("in 9 min", rounded down like the page's)
+// change by entry, one a minute. Per row: "Leave 7:42am" (with "in 9 min" from
+// LEAVE_CARD_EARLY_MIN before), then "Departs in" until the departure (no "Leave now": the leave
+// card's wording; the app row and the push keep it), then the next row. Times follow CLAUDE.md
+// "UI rules": the leave-by, then from the leave-by on the departure (`line` "Bus 132 → Malden at
+// 7:48am", `rowTime` the first row's time, amber), counted down to. `head`: the countdown ("Leave
+// in 9 min", "Leave in 1h 06m" an hour+ out, "Departs in 4 min"), `headTime` the time beside it
+// ("12:17am" the leave-by, "12:20am" the departure past it; '' with no row). Times carry no
+// weekday ("Leave 5:57am" late at night, "arrive 12:08am"). Per row `long` ("Orange Line"),
+// `headsign` ("Forest Hills"), `then` (the later legs in short form with their colors: "then ●
+// Bus 132"), `arrive`.
+// `follow` (widgetFollow; 2026-10-31): the ride the app follows instead, in the cards' words
+// (widgetFollowView). `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`:
+// when to ask again (also at each leave-by and last chance, so the late phases get fresh times).
+// `tripName` null: no trips.
+export function widgetView(tripName, rows, nowMs, follow = null) {
+  if (follow && follow.kind !== 'bell') return widgetFollowView(tripName, follow, nowMs);
+  if (follow) rows = [follow.row];
   const sec = ms => Math.round(ms / 1000);
   const t = ms => formatTime(ms); // no weekday: the widget's rides are its next ones
   const horizon = nowMs + WIDGET_HORIZON_MIN * MIN;
@@ -2665,14 +2799,14 @@ export function widgetView(tripName, rows, nowMs) {
     };
   });
   const view = { name: tripName ?? '', rows: lines, entries: [], end: null, refresh: sec(nowMs + WIDGET_REFRESH_MIN * MIN) };
-  const empty = (title, next = '') => ({ row: -1, title, count: '', headTime: '', warn: false, next, lock: title, lockSub: next, inline: title, circle: '–', circleSub: '', ring: -1 });
+  const empty = (title, next = '') => ({ row: -1, title, count: '', headTime: '', warn: false, next });
   if (tripName == null) { view.entries.push({ at: sec(nowMs), ...empty('Plan a trip in T-Minus') }); return view; }
-  const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, circleSub: lines[i].short, ring: 0, ...e });
+  const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, ...e });
   // One entry a minute from `from` until `until`, counting down to `to`.
   const countdown = (from, until, to, i, make) => {
     for (let at = from; at < until && at < horizon;) {
       const n = Math.floor((to - at) / MIN);
-      add(at, i, make(`in ${formatCountdown(to - at)}`, `${n || '<1'}m`, Math.min(1, (to - at) / (LEAVE_CARD_EARLY_MIN * MIN))));
+      make && add(at, i, make(`in ${formatCountdown(to - at)}`));
       at = to - n * MIN + 1000; // a second after it drops (the widget's times are whole seconds)
     }
   };
@@ -2681,23 +2815,13 @@ export function widgetView(tripName, rows, nowMs) {
   rows.forEach((r, i) => {
     if (start >= horizon) return;
     const L = lines[i];
-    const label = L.label;
     const leave = `Leave ${t(r.leaveBy)}`;
-    const late = { warn: true, next: L.arriveTitle, lockSub: `${L.short} at ${deps[i]}`, line: `${L.line} at ${deps[i]}`, rowTime: deps[i] };
+    const late = { warn: true, next: L.arriveTitle, line: `${L.line} at ${deps[i]}`, rowTime: deps[i] };
     const countFrom = r.leaveBy - LEAVE_CARD_EARLY_MIN * MIN + 1000; // from "in 59 min"
     if (r.nextDay && start < countFrom) add(start, i, { ...empty('No more today', `First ${formatTime(r.leaveBy)}`), row: -1 });
-    else {
-      countdown(start, countFrom, r.leaveBy, i, count => ({
-        title: leave, count: '', head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle, lock: leave, lockSub: L.short, inline: `${label} ${leave}`,
-        circle: formatTime(r.leaveBy).replace(/[ap]m$/, ''), ring: -1,
-      }));
-    }
-    countdown(Math.max(start, countFrom), r.leaveBy, r.leaveBy, i, (count, n, ring) => ({
-      title: leave, count, head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle, lock: leave, lockSub: `${count} · ${L.short}`, inline: `${label} ${leave}`, circle: n, ring,
-    }));
-    countdown(Math.max(start, r.leaveBy), r.firstDep, r.firstDep, i, (count, n) => ({
-      ...late, title: 'Departs', count, head: `Departs ${count}`, headTime: deps[i], lock: `Departs ${count}`, inline: `${label} Departs ${count}`, circle: n,
-    }));
+    else countdown(start, countFrom, r.leaveBy, i, count => ({ title: leave, count: '', head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle }));
+    countdown(Math.max(start, countFrom), r.leaveBy, r.leaveBy, i, count => ({ title: leave, count, head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle }));
+    countdown(Math.max(start, r.leaveBy), r.firstDep, r.firstDep, i, count => ({ ...late, title: 'Departs', count, head: `Departs ${count}`, headTime: deps[i] }));
     start = Math.max(start, r.firstDep);
     end = start;
   });
@@ -2705,6 +2829,88 @@ export function widgetView(tripName, rows, nowMs) {
   else view.end = sec(Math.min(end ?? horizon, horizon));
   const nextChange = rows.flatMap(r => [r.leaveBy, r.lastChance]).filter(x => x > nowMs).sort((a, b) => a - b)[0];
   if (nextChange != null) view.refresh = sec(Math.min(nowMs + WIDGET_REFRESH_MIN * MIN, nextChange));
+  if (follow && view.entries.length) {
+    // The belled ride: then the boarding question at its departure.
+    const r = rows[0];
+    const asked = widgetFollowView(tripName, { kind: 'ask', row: r }, Math.max(nowMs, r.firstDep));
+    view.entries.push(...asked.entries);
+    view.end = asked.end;
+  }
+  return view;
+}
+
+// The widget following a ride (widgetFollow; 2026-10-31): the leave, walk and ride cards' content
+// (walkActivityState, askActivityState, liveActivityState), one entry each time it changes: a
+// countdown's minute, a phase, a stop passed (`follow.stops`, rideStops from the reload, for the
+// leg ridden then). Each entry: `head` (with the countdown: "Departs in 6 min", "Get off in 5
+// stops"), `headTime` ("6:15pm", or the countdown after a stop count: "9 min"), `long`,
+// `headsign`, `color`, `arrive` (the trip's), `note` (amber with `warn`), `then` / `thenText`
+// (amber with `thenWarn`; the small size's arrival too). The headline is amber with `warn` (late,
+// a tight or missed transfer; not while riding: the connection line says it). `end`: the ride's
+// end (5 min after the arrival), the question's or the departure; `refresh`: every
+// WIDGET_RIDE_REFRESH_MIN, at each stop once 3 are left, and at each phase.
+function widgetFollowView(tripName, follow, nowMs) {
+  const sec = ms => Math.round(ms / 1000);
+  const horizon = nowMs + WIDGET_HORIZON_MIN * MIN;
+  const view = { name: tripName ?? '', rows: [], entries: [], end: null, refresh: sec(nowMs + WIDGET_RIDE_REFRESH_MIN * MIN) };
+  let stateAt;
+  let until;
+  const events = [];
+  if (follow.kind === 'ask') {
+    until = follow.row.firstDep + ASK_MINUTES * MIN;
+    stateAt = t => askActivityState(follow.row, t);
+  } else if (follow.kind === 'walk') {
+    until = follow.row.firstDep;
+    events.push(follow.enRoute.atStop);
+    stateAt = t => walkActivityState(follow.row, follow.enRoute, t);
+  } else {
+    const { ride, walkAfter, stops, stopsLeg, outlook } = follow;
+    const eta = ride.legs[ride.legs.length - 1].arr + walkAfter * MIN;
+    until = eta + 5 * MIN;
+    events.push(...ride.legs.flatMap(l => [l.dep, l.arr]), eta);
+    const left = t => stops.stops.filter(s => s.time == null || s.time > t);
+    if (stops) events.push(...stops.stops.map(s => s.time).filter(x => x != null));
+    stateAt = t => {
+      const phase = ridePhase(ride, walkAfter, t);
+      let st = null;
+      if (stops && phase.kind === 'riding' && phase.leg === stopsLeg) {
+        const l = left(t);
+        st = l.length ? { vehicle: l.length === 1 ? stops.vehicle : null, stops: l } : { vehicle: null, stops: stops.stops.slice(-1) };
+      }
+      const o = outlook && ((phase.kind === 'riding' && outlook.leg === phase.leg + 1) || (phase.kind === 'transfer' && outlook.leg === phase.leg)) ? outlook : null;
+      return { ...liveActivityState(ride, phase, st, o, walkAfter, t), ...(phase.kind === 'riding' && { warn: false }) };
+    };
+    // Every stop once 3 are left (the count matters most at the end).
+    const n = stops ? left(nowMs).length : 0;
+    const times = stops ? left(nowMs).map(s => s.time).filter(x => x != null) : [];
+    const soon = n > 3 ? times[n - 4] : times[0];
+    const next = [soon, ...ride.legs.flatMap(l => [l.dep, l.arr]), eta, until].filter(x => x != null && x > nowMs);
+    if (next.length) view.refresh = sec(Math.min(nowMs + WIDGET_RIDE_REFRESH_MIN * MIN, Math.min(...next) + 5000));
+  }
+  const entry = (st, t) => {
+    const left = st.countTo > 0 && st.countTo * 1000 > t ? formatCountdown(st.countTo * 1000 - t) : '';
+    const head = st.countAfter ? st.head : [st.head, left].filter(Boolean).join(' ');
+    return {
+      at: sec(t), row: -1, title: head, count: '', next: '', warn: !!st.warn, head, headTime: st.countAfter ? left : st.headTime ?? '',
+      long: st.long ?? '', headsign: st.headsign ?? '', color: st.color ?? '', arrive: st.right ?? '', note: st.note ?? '',
+      then: st.then ?? [], thenText: st.thenText ?? '', thenWarn: !!st.nextWarn,
+    };
+  };
+  for (let t = nowMs; t < until && t < horizon;) {
+    const st = stateAt(t);
+    const e = entry(st, t);
+    const prev = view.entries[view.entries.length - 1];
+    const same = prev && JSON.stringify({ ...prev, at: 0 }) === JSON.stringify({ ...e, at: 0 });
+    if (!same) view.entries.push(e);
+    let next = until;
+    const to = st.countTo * 1000;
+    if (to > t) next = Math.min(next, to - Math.floor((to - t) / MIN) * MIN + 1000);
+    const ev = events.filter(x => x > t).sort((a, b) => a - b)[0];
+    if (ev != null) next = Math.min(next, ev);
+    t = Math.max(next, t + 1000);
+  }
+  view.end = sec(Math.min(until, horizon));
+  if (follow.kind !== 'ride') view.refresh = sec(Math.min(nowMs + WIDGET_REFRESH_MIN * MIN, until));
   return view;
 }
 

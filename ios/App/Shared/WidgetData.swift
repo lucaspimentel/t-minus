@@ -60,22 +60,24 @@ struct WidgetView: Codable, Hashable {
     struct Entry: Codable, Hashable {
         var at: Double          // shown from (Unix seconds)
         var row: Int            // its row, -1 for none
-        var title: String       // "Leave 7:42am", "Leave now", "Departs", "No more today"
-        var count: String       // "in 9 min", "departs in 8 min", ""
-        var warn: Bool          // amber
+        var title: String       // "Leave 7:42am", "Departs", "No more today"
+        var count: String       // "in 9 min", ""
+        var warn: Bool          // the headline amber (and a walking or transfer note)
         var next: String        // "Arrive 8:25am", "First 5:12am"
-        var lock: String        // Lock Screen rectangular: the bold line
-        var lockSub: String     // and the one under it
-        var inline: String      // "132 Leave 7:42am"
-        var circle: String      // "38m", "now", "5:12"
-        var circleSub: String   // "Bus 132", "Orange"
-        var ring: Double? = nil // the circular ring: 1 an hour before the leave-by, 0 at it; nil or -1: none
-        // Absent from answers before the leave-by rule (CLAUDE.md "UI rules"):
-        var head: String? = nil      // the medium header: "Leave in 9 min", "Leave now", "Departs in 4 min"
-        var headCount: String? = nil // beside it: "departs in 8 min"
-        var line: String? = nil      // the vehicle line, for the row's: "Bus 132 at 7:48am" past the leave-by
-        var rowTime: String? = nil   // the first row's time, amber: the departure past the leave-by
-        var headTime: String? = nil  // beside `head` on the Home Screen: "12:17am", "departs 12:20am" (2026-10-29)
+        var head: String? = nil      // the countdown: "Leave in 9 min", "Departs in 4 min", "Get off in 5 stops"
+        var headTime: String? = nil  // beside it: "12:17am", "9 min" (after a stop count)
+        var line: String? = nil      // the vehicle line past the leave-by: "Bus 132 → Malden at 7:48am"
+        var rowTime: String? = nil   // the departure past the leave-by
+        // A followed ride (2026-10-31; row -1): the entry's own line, arrival, note and connection
+        // in place of its row's (the cards' content: walking, the question, riding, the transfer).
+        var long: String? = nil      // "Orange Line"; "" for none (walking to the destination, arrived)
+        var headsign: String? = nil
+        var color: String? = nil
+        var arrive: String? = nil    // "arrive 7:21pm"
+        var note: String? = nil      // "At the stop ~6:13pm · 2 min to spare", "4 min to spare" (amber with `warn`)
+        var then: [RideState.ThenLeg]? = nil // the connection: "then ● Bus 132" …
+        var thenText: String? = nil  // … "6:38pm · 4 min to spare"
+        var thenWarn: Bool? = nil    // amber (and the small size's arrival)
     }
     var name: String
     var rows: [Row]

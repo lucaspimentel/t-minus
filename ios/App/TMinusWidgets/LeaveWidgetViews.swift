@@ -1,10 +1,11 @@
 import SwiftUI
 
-// The leave-times widget's views (LeaveWidget): Home Screen small and medium in the app's colors,
-// Lock Screen rectangular, inline and circular in the system's (iOS tints them). SwiftUI only, so
-// ios/Previews can render them on macOS (the WidgetKit wrappers are in LeaveWidget.swift).
+// The leave-times widget's views (LeaveWidget): Home Screen small and medium in the app's colors
+// (the Lock Screen sizes were removed 2026-10-31: the leave and ride cards are the Lock Screen's).
+// SwiftUI only, so ios/Previews can render them on macOS (the WidgetKit wrappers are in
+// LeaveWidget.swift).
 
-enum LeaveSize { case small, medium, rectangular, inline, circular }
+enum LeaveSize { case small, medium }
 
 private extension LeaveContent {
     var shownName: String { name.isEmpty ? "T-Minus" : name }
@@ -12,9 +13,17 @@ private extension LeaveContent {
     var next: String { entry == nil ? "for new times" : entry!.next }
     var warn: Bool { entry?.warn ?? false }
     var firstRow: WidgetView.Row? { rows.first }
-    var headCount: String? { entry?.head == nil ? entry?.count : entry?.headCount }
-    // Answers from 2026-10-29 on carry the Home Screen layouts' fields (older ones: the layouts before).
-    var isHome: Bool { (entry?.row ?? -1) >= 0 && !(entry?.headTime ?? "").isEmpty && entry?.head != nil && firstRow?.long != nil }
+    // A followed ride's entry carries its own line, arrival and connection; else its row's.
+    var long: String { entry?.long ?? firstRow?.long ?? firstRow?.vehicle ?? "" }
+    var headsign: String { entry?.headsign ?? firstRow?.headsign ?? "" }
+    var color: String { entry?.color ?? firstRow?.color ?? "" }
+    var arrive: String { entry?.arrive ?? firstRow?.arrive ?? "" }
+    var note: String { entry?.note ?? "" }
+    var thenLegs: [RideState.ThenLeg] { entry?.then ?? (firstRow?.then ?? []).map { RideState.ThenLeg(label: $0.label, color: $0.color) } }
+    var thenText: String { entry?.thenText ?? "" }
+    var thenWarn: Bool { entry?.thenWarn ?? false }
+    // A countdown to show (else "No more today", "Plan a trip", "Open T-Minus").
+    var isHome: Bool { entry?.head != nil }
 }
 
 struct LeaveWidgetView: View {
@@ -22,82 +31,24 @@ struct LeaveWidgetView: View {
     let size: LeaveSize
     var body: some View {
         switch size {
-        case .small: if content.isHome { SmallHome(content: content) } else { SmallLeave(content: content) }
-        case .medium: if content.isHome { MediumHome(content: content) } else { MediumLeave(content: content) }
-        case .rectangular: RectangularLeave(content: content)
-        case .inline: Text(content.entry?.inline ?? "Open T-Minus")
-        case .circular: CircularLeave(content: content)
+        case .small: if content.isHome { SmallHome(content: content) } else { Plain(content: content, size: size) }
+        case .medium: if content.isHome { MediumHome(content: content) } else { Plain(content: content, size: size) }
         }
     }
 }
 
-private struct SmallLeave: View {
+// No countdown: the trip name, "No more today" / "First 5:12am", "Open T-Minus" / "for new times".
+private struct Plain: View {
     let content: LeaveContent
+    let size: LeaveSize
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         let th = Theme.of(scheme)
-        let tint = content.warn ? th.amber : th.text
         VStack(alignment: .leading, spacing: 2) {
             Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
-            Text(content.title).font(.title3.weight(.bold)).foregroundStyle(tint).lineLimit(2).minimumScaleFactor(0.7)
-            if let count = content.entry?.count, !count.isEmpty {
-                Text(count).font(.subheadline.weight(.semibold)).foregroundStyle(tint).lineLimit(2).minimumScaleFactor(0.8)
-            }
+            Text(content.title).font((size == .small ? Font.title3 : .title2).weight(.bold)).foregroundStyle(th.text).lineLimit(2).minimumScaleFactor(0.7)
             Spacer(minLength: 0)
-            if let row = content.firstRow {
-                HStack(spacing: 5) {
-                    RouteDot(hex: row.color, size: 8)
-                    Text(content.entry?.line ?? row.line).lineLimit(1).minimumScaleFactor(0.8)
-                }
-                .font(.caption).foregroundStyle(th.text)
-            }
-            if !content.next.isEmpty { Text(content.next).font(.caption).foregroundStyle(th.muted).lineLimit(1).minimumScaleFactor(0.8) }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-// The countdown ("Leave in 9 min"), then the entry's row and the next two in one format: leave-by
-// (the first row's departure, amber, past it), route, arrival. Answers without `head`: the
-// small size's title and count. Only the route column gives way (shrinks, then truncates), so
-// long text can't widen the view past the widget and clip it on both sides (seen 2026-10-28).
-private struct MediumLeave: View {
-    let content: LeaveContent
-    @Environment(\.colorScheme) private var scheme
-    var body: some View {
-        let th = Theme.of(scheme)
-        let tint = content.warn ? th.amber : th.text
-        VStack(alignment: .leading, spacing: 2) {
-            Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(content.entry?.head ?? content.title).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
-                if let count = content.headCount, !count.isEmpty { Text(count).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8) }
-            }
-            .foregroundStyle(tint).frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 0)
-            if content.rows.isEmpty {
-                if !content.next.isEmpty { Text(content.next).font(.subheadline).foregroundStyle(th.muted) }
-            } else {
-                Rectangle().fill(th.track).frame(height: 1).padding(.bottom, 4)
-                // A grid: the time column as wide as its widest time ("10:22am"; a fixed width cut it).
-                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
-                    ForEach(Array(content.rows.enumerated()), id: \.offset) { i, row in
-                        let late = i == 0 ? content.entry?.rowTime : nil
-                        GridRow {
-                            Text(late ?? row.time).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
-                                .foregroundStyle(late == nil ? th.text : th.amber)
-                            HStack(spacing: 6) {
-                                RouteDot(hex: row.color, size: 8)
-                                Text(row.vehicle).font(.subheadline).lineLimit(1).minimumScaleFactor(0.7).truncationMode(.tail)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(row.arrive).font(.subheadline).foregroundStyle(th.muted).lineLimit(1).fixedSize()
-                                .gridColumnAlignment(.trailing)
-                        }
-                        .foregroundStyle(th.text)
-                    }
-                }
-            }
+            if !content.next.isEmpty { Text(content.next).font(.subheadline).foregroundStyle(th.muted).lineLimit(1) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -121,109 +72,76 @@ struct LineToward: View {
     }
 }
 
-// Home Screen small (2026-10-29): the countdown ("Leave in 5 min"), its time ("12:17am", the
-// leave-by; "departs 12:20am" past it), the line in long form and its direction on up to two lines.
-// No arrival (the medium size and the app have it).
+// Home Screen small (2026-10-29; 2026-10-31 the arrival): the countdown on two lines ("Leave in 5
+// min" / "12:17am", "Get off in 5 stops" / "9 min"), then the line, its direction and the
+// trip's arrival (amber when the connection is tight or missed: no room for its line).
 private struct SmallHome: View {
     let content: LeaveContent
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         let th = Theme.of(scheme)
         let tint = content.warn ? th.amber : th.text
-        let row = content.firstRow!
         VStack(alignment: .leading, spacing: 2) {
             Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
-            Text(content.entry?.head ?? "").font(.title3.weight(.bold)).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7)
-            Text(content.entry?.headTime ?? "").font(.subheadline.weight(.semibold)).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7)
+            Text(content.entry?.head ?? "").font(.title3.weight(.bold)).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.6)
+            if let time = content.entry?.headTime, !time.isEmpty {
+                Text(time).font(.subheadline.weight(.semibold)).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7)
+            }
             Spacer(minLength: 0)
-            HStack(spacing: 5) {
-                RouteDot(hex: row.color, size: 8)
-                Text(row.long ?? row.vehicle).lineLimit(1).minimumScaleFactor(0.8)
+            if !content.long.isEmpty {
+                HStack(spacing: 5) {
+                    RouteDot(hex: content.color, size: 8)
+                    Text(content.long).lineLimit(1).minimumScaleFactor(0.8)
+                }
+                .foregroundStyle(th.text)
+                if !content.headsign.isEmpty {
+                    Text("toward \(content.headsign)").foregroundStyle(th.muted).lineLimit(1).minimumScaleFactor(0.8).padding(.leading, content.color.isEmpty ? 0 : 13)
+                }
             }
-            .font(.caption).foregroundStyle(th.text)
-            if let h = row.headsign, !h.isEmpty {
-                Text("toward \(h)").font(.caption).foregroundStyle(th.muted).lineLimit(2).padding(.leading, row.color.isEmpty ? 0 : 13)
-            }
+            if !content.arrive.isEmpty { Text(content.arrive).foregroundStyle(content.thenWarn ? th.amber : th.muted).lineLimit(1) }
         }
+        .font(.caption)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
-// Home Screen medium (2026-10-29; one ride, 2026-10-30): "Leave in 5 min · 12:17am", the first
-// ride's line and direction in full ("→" only where "toward" doesn't fit), and at the bottom its
-// later legs ("then ● Bus 132") with the arrival. No next rides: their rows cut the headsign.
+// Home Screen medium (2026-10-29; one ride 2026-10-30; followed rides 2026-10-31): "Leave in 5 min
+// · 12:17am" (or "Get off in 5 stops · 9 min"), the line and direction in full ("→" only where
+// "toward" doesn't fit), then at the bottom the note (amber with `warn`), the connection on its
+// own line ("then ● Bus 132 6:38pm · 4 min to spare", amber when tight or missed), and the later
+// legs ("then ● Bus 132", when there's no connection line) with the arrival (never cut).
 private struct MediumHome: View {
     let content: LeaveContent
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         let th = Theme.of(scheme)
         let tint = content.warn ? th.amber : th.text
-        let first = content.firstRow!
+        let time = content.entry?.headTime ?? ""
         VStack(alignment: .leading, spacing: 2) {
             Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
-            (Text(content.entry?.head ?? "").font(.title2.weight(.bold)) + Text(" · \(content.entry?.headTime ?? "")").font(.subheadline.weight(.semibold)))
+            (Text(content.entry?.head ?? "").font(.title2.weight(.bold)) + Text(time.isEmpty ? "" : " · \(time)").font(.subheadline.weight(.semibold)))
                 .foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 5) {
-                RouteDot(hex: first.color, size: 8)
-                LineToward(line: first.long ?? first.vehicle, headsign: first.headsign ?? "", muted: th.muted)
-            }
-            .font(.subheadline).foregroundStyle(th.text)
-            Spacer(minLength: 0)
-            // The later legs ("then ● Bus 132 · ● Red", cut at the end) and the arrival (never cut).
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if !content.long.isEmpty {
                 HStack(spacing: 5) {
-                    if let then = first.then, !then.isEmpty {
-                        Text("then")
-                        ForEach(Array(then.enumerated()), id: \.offset) { i, leg in
-                            if i > 0 { Text("·").foregroundStyle(th.muted) }
-                            RouteDot(hex: leg.color, size: 8)
-                            Text(leg.label)
-                        }
-                    }
+                    RouteDot(hex: content.color, size: 8)
+                    LineToward(line: content.long, headsign: content.headsign, muted: th.muted)
                 }
-                .lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Text(first.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize()
+                .foregroundStyle(th.text)
             }
-            .font(.subheadline).foregroundStyle(th.text)
+            Spacer(minLength: 0)
+            if !content.note.isEmpty { Text(content.note).foregroundStyle(tint).lineLimit(1) }
+            if !content.thenText.isEmpty {
+                ThenLine(legs: content.thenLegs, text: content.thenText, muted: th.muted).foregroundStyle(content.thenWarn ? th.amber : th.text)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Group {
+                    if content.thenText.isEmpty && !content.thenLegs.isEmpty { ThenLine(legs: content.thenLegs, text: "", muted: th.muted) } else { Text("") }
+                }
+                .foregroundStyle(th.text).frame(maxWidth: .infinity, alignment: .leading)
+                Text(content.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize()
+            }
         }
+        .font(.subheadline)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-private struct RectangularLeave: View {
-    let content: LeaveContent
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(content.shownName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Text(content.entry?.lock ?? content.title).font(.headline).lineLimit(1).minimumScaleFactor(0.7)
-            Text(content.entry?.lockSub ?? content.next).font(.caption).lineLimit(1).minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-// "38m" over "Bus 132" in a ring like the system's circular gauge (open at the bottom), draining
-// over the hour before the leave-by. Drawn by hand, not Gauge, so the macOS previews show it.
-private struct CircularLeave: View {
-    let content: LeaveContent
-    private let sweep = 0.75 // of the circle; the gap is the rest, centered at the bottom
-    var body: some View {
-        ZStack {
-            if let ring = content.entry?.ring, ring >= 0 {
-                Circle().trim(from: 0, to: sweep).stroke(.primary.opacity(0.3), style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                    .rotationEffect(.degrees(135))
-                if ring > 0 {
-                    Circle().trim(from: 0, to: sweep * min(ring, 1)).stroke(.primary, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                        .rotationEffect(.degrees(135))
-                }
-            }
-            VStack(spacing: 0) {
-                Text(content.entry?.circle ?? "–").font(.title3.weight(.bold)).lineLimit(1).minimumScaleFactor(0.5)
-                if let sub = content.entry?.circleSub, !sub.isEmpty { Text(sub).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.6) }
-            }
-            .padding(.horizontal, 9)
-        }
-        .padding(3)
     }
 }

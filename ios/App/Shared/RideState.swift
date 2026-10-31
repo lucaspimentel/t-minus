@@ -37,6 +37,19 @@ struct RideState: Codable, Hashable {
     var right: String? = nil
     var note: String? = nil
     var emoji: String? = nil
+    // The ride card in the same layout (2026-10-31; all cards from then on carry `head`):
+    // `countAfter` puts the countdown after " · " in `headTime`'s place ("Get off in 5 stops · 9
+    // min"); the connection line: "then" with `then` (the later legs in short form) and
+    // `thenText` ("6:38pm · 4 min to spare"; alone: "No connection after 6:31pm"), amber with
+    // `nextWarn`; `islandText` beside the compact island's emoji ("5 stops", "next", "here").
+    struct ThenLeg: Codable, Hashable {
+        var label: String
+        var color: String
+    }
+    var countAfter: Bool? = nil
+    var then: [ThenLeg]? = nil
+    var thenText: String? = nil
+    var islandText: String? = nil
 
     var untilDate: Date? { until > 0 ? Date(timeIntervalSince1970: until) : nil }
     // Dimmed by iOS 2 min after the countdown ends without a newer update (as the server's pushes).

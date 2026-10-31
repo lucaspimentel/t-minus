@@ -12,7 +12,7 @@ import {
   leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES, LIVE_SOON_MS,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
-  shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, WIDGET_ROWS, fillRows, nextServiceWindow,
+  shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, WIDGET_ROWS, fillRows, nextServiceWindow,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -473,8 +473,14 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       if (err) return reply(res, 400, { error: err });
       if (!body.trips.length) return reply(res, 200, widgetView(null, [], t));
       const cfg = { trips: body.trips };
-      const trip = cfg.trips[shownTrip(t, cfg, body.oneOffAt, body.override, body.lastUsed)];
       try {
+        // The ride the app follows (widgetFollow), on its own trip; ended or gone: leave times.
+        if (body.state) {
+          const trip = cfg.trips[body.state.trip];
+          const follow = await widgetFollowing(trip, body.state, body.stopSlackMinutes, t);
+          if (follow) return reply(res, 200, widgetView(trip.name, null, t, follow));
+        }
+        const trip = cfg.trips[shownTrip(t, cfg, body.oneOffAt, body.override, body.lastUsed)];
         return reply(res, 200, widgetView(trip.name, await widgetRows(trip, body.stopSlackMinutes, t), t));
       } catch (e) {
         log(`widget: ${e.message}`);
@@ -666,18 +672,48 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
   // ---------- the widget ----------
 
-  // The trip's next WIDGET_ROWS upcoming rows (missed ones left out), timed on the leg the page
-  // would pick from schedules; once today's service runs out, the next service day's first ones.
-  async function widgetRows(trip, slack, t) {
+  const winOf = w => ({ 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime });
+  // Each leg's predictions and today's schedules (the shared cache), and the trip's rows from
+  // them (missed ones too), timed on the leg the page would pick from schedules.
+  async function widgetDocs(trip, slack, t) {
     const { transit } = tripShape(trip);
-    const winOf = w => ({ 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime });
-    const w = scheduleWindow(t);
     const [predictions, scheduleDocs] = await Promise.all([
       Promise.all(transit.map(l => mbta('/predictions', legQuery(l)))),
-      Promise.all(transit.map(l => mbta('/schedules', { ...legQuery(l), ...winOf(w) }))),
+      Promise.all(transit.map(l => mbta('/schedules', { ...legQuery(l), ...winOf(scheduleWindow(t)) }))),
     ]);
     const timing = scheduleTimingLeg(trip, scheduleDocs);
-    const rows = rowsFromDocs(trip, predictions, scheduleDocs, timing, t, slack, WIDGET_ROWS + 1).filter(r => !r.missed).slice(0, WIDGET_ROWS);
+    return { predictions, scheduleDocs, timing, rows: rowsFromDocs(trip, predictions, scheduleDocs, timing, t, slack, WIDGET_ROWS + 1) };
+  }
+
+  // The followed state now (widgetFollow), a ride with its legs refreshed by trip id, a missed
+  // connection re-planned, and the ridden vehicle's stops (as checkFollowed); null: leave times.
+  async function widgetFollowing(trip, state, slack, t) {
+    const { transit, walkAfter, transfers } = tripShape(trip);
+    const docs = await widgetDocs(trip, slack, t);
+    const follow = widgetFollow(state, docs.rows, walkAfter, t);
+    if (follow?.kind !== 'ride') return follow;
+    const maps = transit.map((l, i) => mergeTrips(docs.predictions[i], docs.scheduleDocs[i]));
+    let ride = { ...follow.ride, legs: trackLegs(follow.ride.legs, transit, maps) };
+    const phase = ridePhase(ride, walkAfter, t);
+    const outlook = transferOutlook(ride, phase, tripVehicles(transit, maps, null, t), transfers, t);
+    if (outlook?.missedDep != null) ride = { ...ride, legs: outlook.legs, missed: { leg: outlook.leg, dep: outlook.missedDep } };
+    else if (outlook?.earlier) ride = { ...ride, legs: outlook.legs };
+    let stops = null;
+    if (phase.kind === 'riding') {
+      try { stops = rideStops(await mbta('/predictions', rideStopsQuery(ride.legs[phase.leg].tripId)), transit[phase.leg].alight, t); } catch (e) {
+        log(`widget stops: ${e.message}`); // the minutes fallback applies
+      }
+    }
+    return { kind: 'ride', ride, walkAfter, stops, stopsLeg: phase.leg, outlook };
+  }
+
+  // The trip's next WIDGET_ROWS upcoming rows (missed ones left out); once today's service runs
+  // out, the next service day's first ones.
+  async function widgetRows(trip, slack, t) {
+    const { transit } = tripShape(trip);
+    const w = scheduleWindow(t);
+    const { timing, rows: all } = await widgetDocs(trip, slack, t);
+    const rows = all.filter(r => !r.missed).slice(0, WIDGET_ROWS);
     if (rows.length >= WIDGET_ROWS || !w.coversEndOfService) return rows;
     const nextDay = await Promise.all(transit.map(l => mbta('/schedules', { ...legQuery(l), ...winOf(nextServiceWindow(t)) })));
     return fillRows(rows, rowsFromDocs(trip, null, nextDay, timing, t, slack, WIDGET_ROWS), WIDGET_ROWS);
@@ -870,7 +906,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     rem.lastCheckAt = t;
     const row = rowsFromDocs(rem.trip, docs.predictions, docs.schedules, rem.timingIdx, t, rem.stopSlackMinutes).find(r => r.key === rem.key) ?? null;
     // The ride as last seen (its departure, and its legs for the question once it's gone).
-    if (row) rem.seen = { firstDep: row.firstDep, legs: row.legs };
+    if (row) rem.seen = { firstDep: row.firstDep, legs: row.legs, eta: row.eta };
     if (rem.asked) return checkAsked(rem, t);
     if (rem.started) return checkStarted(rem, row, t);
     if (rem.late && !rem.left) return startLate(rem, row, t);

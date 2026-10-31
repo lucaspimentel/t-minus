@@ -172,6 +172,24 @@ test('the widget\'s request goes to the shared keychain on open, when the trip c
   await expect.poll(async () => (await bodies()).length).toBeGreaterThan(n);
 });
 
+test('the widget\'s request carries the followed state: Leaving now, Cancel, At the stop, the ride', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, widget: true });
+  await openApp(page, { time: '07:00' });
+  const last = async () => (await page.evaluate(() => window.widgetBodies ?? [])).at(-1);
+  await expect.poll(async () => (await last())?.state).toBe(null);
+  await page.locator('#enroute').getByRole('button', { name: 'Leaving now' }).click();
+  await expect.poll(async () => (await last()).state?.kind).toBe('leaving');
+  expect((await last()).state).toMatchObject({ trip: 0, name: 'Home to office', pinned: false, target: { key: expect.any(String) } });
+  await page.locator('#enroute').getByRole('button', { name: 'Cancel' }).click();
+  await expect.poll(async () => (await last()).state).toBe(null);
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await expect.poll(async () => (await last()).state?.kind).toBe('stop');
+  await tickTo(page, '07:12'); // the 7:08 bus left: boarded
+  await expect.poll(async () => (await last()).state?.ride?.legs.length).toBe(2);
+  expect((await last()).state.ride.legs[0]).toMatchObject({ tripId: expect.any(String), label: 'Bus 132' });
+});
+
 test('Pending notifications shows the device token and the app log', async ({ page }) => {
   const calls = await fakeServer(page, { appLog: [{ at: at('06:40'), source: 'keepAwake', message: 'TMinus plugin is not implemented on ios' }] });
   await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN });

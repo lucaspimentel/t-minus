@@ -13,23 +13,38 @@ private let orange = "ED8B00", bus = "FFC72C"
 private func legs(_ a: (String, Double, Double)...) -> [RideState.Leg] { a.map { RideState.Leg(color: $0.0, dep: now + $0.1 * 60, arr: now + $0.2 * 60) } }
 private let trip = legs((orange, -8, 6), (bus, 14, 44)) // 14 and 30 min: proportional segments
 
+// Ride cards in the leave card's layout (2026-10-31): Office → Home, the Orange Line to Oak Grove,
+// then the 6:38pm Bus 132.
+private func ride(_ phase: String, _ head: String, countTo: Double = 0, after: Bool = false, time: String = "", warn: Bool = false,
+                  long: String = "Orange Line", headsign: String = "Oak Grove", color: String = orange, right: String = "arrive 7:21pm", note: String = "",
+                  then: [(String, String)] = [], thenText: String = "", nextWarn: Bool = false, emoji: String = "🚇", island: String = "",
+                  legs: [RideState.Leg] = trip) -> RideState {
+    var st = RideState(phase: phase, warn: warn, color: color, label: color == bus ? "132" : color.isEmpty ? "" : "OL", title: head, until: countTo, stops: -1,
+                       sub: "", next: "", legs: legs, soon: false, nextWarn: nextWarn)
+    st.head = head; st.countTo = countTo; st.countAfter = after; st.headTime = time; st.long = long; st.headsign = headsign; st.right = right
+    st.note = note; st.emoji = emoji; st.islandText = island; st.then = then.map { RideState.ThenLeg(label: $0.0, color: $0.1) }; st.thenText = thenText
+    return st
+}
+private let busNext = [("Bus 132", bus)]
+private let atTransfer = legs((orange, -20, -6), (bus, 6, 30))
 private let samples: [(String, RideState)] = [
-    ("Riding", RideState(phase: "riding", warn: false, color: orange, label: "OL", title: "Orange · 4 stops", until: now + 360, stops: 4,
-                         sub: "Get off 7:54am at Sullivan Square", next: "Then Bus 132 toward Malden 8:02am · 3 min to spare", legs: trip)),
-    ("Riding, tight connection", { var st = RideState(phase: "riding", warn: false, color: orange, label: "OL", title: "Orange · 7 stops", until: now + 900, stops: 7,
-                         sub: "Get off 6:31pm at Oak Grove", next: "Then Bus 132 toward Redstone 6:38pm · tight", legs: trip); st.nextWarn = true; return st }()),
-    ("Get off", RideState(phase: "riding", warn: false, color: orange, label: "OL", title: "Next stop: get off", until: now + 60, stops: 1,
-                          sub: "Get off 7:54am at Sullivan Square", next: "Then Bus 132 toward Malden 8:02am · 3 min to spare", legs: trip, soon: true)),
-    ("Transfer", RideState(phase: "transfer", warn: false, color: bus, label: "132", title: "Bus 132", until: now + 300, stops: -1,
-                           sub: "Toward Malden · 8:02am · 3 min to spare", next: "Arrive ~8:25am", legs: legs((orange, -20, -6), (bus, 5, 17)))),
-    ("Missed connection", RideState(phase: "transfer", warn: true, color: bus, label: "132", title: "Missed the 8:02am · next 8:14am", until: now + 420, stops: -1,
-                                    sub: "Bus 132 · 8:14am", next: "Arrive ~8:37am", legs: legs((orange, -20, -6), (bus, 7, 19)))),
-    ("No connection", RideState(phase: "transfer", warn: true, color: bus, label: "132", title: "No connection after 8:01am", until: 0, stops: -1,
-                                sub: "", next: "Open the app for another way.", legs: legs((orange, -20, -6), (bus, 7, 19)))),
-    ("Walking", RideState(phase: "walking", warn: false, color: "", label: "🚶", title: "Walking", until: now + 240, stops: -1,
-                          sub: "Arrive ~8:25am", next: "", legs: legs((orange, -30, -16), (bus, -12, -1)))),
-    ("Arrived", RideState(phase: "arrived", warn: false, color: "", label: "", title: "Arrived ~8:25am", until: 0, stops: -1,
-                          sub: "", next: "", legs: legs((orange, -30, -16), (bus, -12, -4)))),
+    ("Riding", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, then: busNext, thenText: "6:38pm · 4 min to spare", island: "5 stops")),
+    ("Riding, tight connection", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, then: busNext, thenText: "6:38pm · tight", nextWarn: true, island: "5 stops")),
+    ("Riding, missed connection", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, warn: true, right: "arrive 7:41pm", then: busNext,
+                                       thenText: "6:58pm (missed 6:38pm)", nextWarn: true, island: "5 stops")),
+    ("Next stop", ride("riding", "Get off next stop", countTo: now + 120, after: true, then: busNext, thenText: "6:38pm · 4 min to spare", island: "next")),
+    ("Get off here", ride("riding", "Get off here", then: busNext, thenText: "6:38pm · 4 min to spare", island: "here")),
+    ("No stop list yet", ride("riding", "Get off in", countTo: now + 540, then: busNext, thenText: "6:38pm · 4 min to spare")),
+    ("Transfer", ride("transfer", "Bus 132 in", countTo: now + 360, time: "6:38pm", long: "Bus 132", headsign: "Redstone", color: bus, note: "4 min to spare",
+                      emoji: "🚌", legs: atTransfer)),
+    ("Transfer, tight", ride("transfer", "Bus 132 in", countTo: now + 120, time: "6:38pm", warn: true, long: "Bus 132", headsign: "Redstone", color: bus, note: "tight",
+                             emoji: "🚌", legs: atTransfer)),
+    ("Missed connection", ride("transfer", "Bus 132 in", countTo: now + 420, time: "6:58pm", warn: true, long: "Bus 132", headsign: "Redstone", color: bus,
+                               right: "arrive 7:41pm", note: "Missed the 6:38pm", emoji: "🚌", legs: atTransfer)),
+    ("No connection", ride("transfer", "No connection after 6:31pm", warn: true, long: "", color: bus, right: "", note: "Open the app for another way.", emoji: "",
+                           legs: atTransfer)),
+    ("Walking", ride("walking", "Arrive in", countTo: now + 300, time: "7:21pm", long: "", color: "", right: "", emoji: "🚶", legs: legs((orange, -30, -16), (bus, -12, -1)))),
+    ("Arrived", ride("arrived", "Arrived", time: "7:21pm", long: "", color: "", right: "", emoji: "", legs: legs((orange, -30, -16), (bus, -12, -4)))),
 ]
 
 // Leave cards (Phase 3a; the layout of 2026-10-29): Home to office, the 7:48 bus 132.
@@ -39,7 +54,7 @@ private func leave(_ phase: String, _ head: String, countTo: Double = 0, time: S
     var st = RideState(phase: phase, warn: warn, color: bus, label: "132", title: head, until: countTo, stops: -1, sub: "", next: "", legs: ahead,
                        soon: soon, island: island, join: " ")
     st.head = head; st.countTo = countTo; st.headTime = time; st.long = long; st.headsign = long.isEmpty ? "" : "Malden"
-    st.right = right; st.note = note; st.emoji = emoji
+    st.right = right; st.note = note; st.emoji = emoji; st.then = long.isEmpty ? [] : [RideState.ThenLeg(label: "Orange", color: orange)]
     return st
 }
 private let leaveSamples: [(String, RideState)] = [
@@ -53,7 +68,7 @@ private let leaveSamples: [(String, RideState)] = [
         st.color = orange; st.label = "OL"; st.headsign = "Forest Hills"; return st }()),
     ("Walk card", leave("walk", "Departs in", countTo: now + 360, time: "7:48am", note: "At the stop ~7:45am · 3 min to spare", emoji: "🚌")),
     ("Walk card, late", leave("walk", "Departs in", countTo: now + 120, time: "7:48am", warn: true, note: "At the stop ~7:50am · 2 min late", emoji: "🚌")),
-    ("Did you get on? (at the departure)", leave("ask", "Did you get on?", right: "left 7:48am", emoji: "", island: "Got on?")),
+    ("Did you get on? (at the departure)", leave("ask", "Did you get on?", time: "left 7:48am", emoji: "", island: "Got on?")),
     ("Missed (the end)", leave("gone", "Missed · left 7:48am", warn: true, right: "", emoji: "")),
     ("Ride cancelled", leave("cancelled", "Ride cancelled", right: "", note: "Open the app for the next one.", emoji: "", long: "")),
 ]
@@ -115,21 +130,21 @@ private struct Sheet: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(samples, id: \.0) { name, state in
                 Text(name).font(.caption).foregroundStyle(.white)
-                RideCardView(tripName: "Home to office", state: state)
+                RideCardView(tripName: "Office → Home", state: state)
                     .background(Theme.of(scheme).card)
                     .clipShape(RoundedRectangle(cornerRadius: 22))
             }
-            Text("Dynamic Island: compact (riding, transfer, walking), expanded, minimal").font(.caption).foregroundStyle(.white)
-            ForEach([samples[0].1, samples[3].1, samples[6].1], id: \.self) { state in
+            Text("Dynamic Island: compact (riding, next stop, here, no stop list, transfer, walking), expanded, minimal").font(.caption).foregroundStyle(.white)
+            ForEach([samples[0].1, samples[3].1, samples[4].1, samples[5].1, samples[6].1, samples[10].1], id: \.self) { state in
                 HStack { IslandLeading(state: state); Spacer(); IslandTrailing(state: state) }
                     .padding(.horizontal, 14).frame(width: 250, height: 37)
                     .background(.black).clipShape(Capsule()).foregroundStyle(.white)
                     .environment(\.colorScheme, .dark)
                     .frame(maxWidth: .infinity)
             }
-            Expanded(tripName: "Home to office", state: samples[0].1)
+            Expanded(tripName: "Office → Home", state: samples[0].1)
             Expanded(tripName: "Office → Home", state: samples[1].1)
-            Expanded(tripName: "Home to office", state: samples[3].1)
+            Expanded(tripName: "Office → Home", state: samples[6].1)
             RouteDot(hex: orange, size: 10).frame(width: 37, height: 37).background(.black).clipShape(Circle()).frame(maxWidth: .infinity)
         }
         .padding(16)
@@ -139,37 +154,11 @@ private struct Sheet: View {
     }
 }
 
-// The leave-times widget (Phase 3b): Home to office, buses 132 at 7:48, 7:54 and 8:06; rows show
-// the leave-by (CLAUDE.md "UI rules").
-private func wrow(_ time: String, _ arrive: String, vehicle: String = "Bus 132", color: String = bus, label: String = "132") -> WidgetView.Row {
-    WidgetView.Row(time: time, vehicle: vehicle, color: color, label: label, line: vehicle, arrive: "arrive \(arrive)", arriveTitle: "Arrive \(arrive)")
-}
-private let wrows = [wrow("7:42am", "8:25am"), wrow("7:48am", "8:37am"), wrow("8:00am", "8:49am")]
-// Wide times (the phone cut "10:22am" to "10:2…" in a fixed-width column).
-private let lateRows = [wrow("10:22am", "11:08am"), wrow("11:22am", "12:04pm"), wrow("12:22pm", "1:04pm")]
-// Late at night (the phone, 2026-10-28: "Thu" times overflowed both sides), and a long route name
-// in the phone's 6.1" width: only the route column gives way.
-private let nightRows = [wrow("11:26pm", "12:08am"), wrow("5:57am", "6:45am"), wrow("6:27am", "7:15am")]
-private let longRows = [wrow("12:22pm", "~12:58pm", vehicle: "Silver SL4 → South Station via Essex", color: "7C878E", label: "SL4"),
-                        wrow("10:22am", "~11:08am", vehicle: "Green Line E → Heath Street", color: "00843D", label: "GL·E"),
-                        wrow("12:22pm", "~1:04pm")]
-private func went(_ title: String, _ count: String, warn: Bool = false, next: String = "Arrive 8:25am", lock: String? = nil, lockSub: String, inline: String, circle: String,
-                  ring: Double = 0, row: Int = 0, head: String? = nil, headCount: String? = nil, line: String? = nil, rowTime: String? = nil) -> WidgetView.Entry {
-    WidgetView.Entry(at: 0, row: row, title: title, count: count, warn: warn, next: next, lock: lock ?? title, lockSub: lockSub, inline: inline, circle: circle,
-                     circleSub: row >= 0 ? "Bus 132" : "", ring: row >= 0 ? ring : -1, head: head, headCount: headCount, line: line, rowTime: rowTime)
-}
-private let widgetSamples: [(String, LeaveContent)] = [
-    ("Leave in", LeaveContent(name: "Home → Work", entry: went("Leave 7:42am", "in 9 min", lockSub: "in 9 min · Bus 132", inline: "132 Leave 7:42am", circle: "9m", ring: 9.0 / 60,
-                                                              head: "Leave in 9 min"), rows: wrows)),
-    ("Leave now", LeaveContent(name: "Home → Work", entry: went("Leave now", "departs in 5 min", warn: true, lockSub: "Bus 132 at 7:48am", inline: "132 Leave now", circle: "now",
-                                                               head: "Leave now", headCount: "departs in 5 min", line: "Bus 132 at 7:48am", rowTime: "7:48am"), rows: wrows)),
-    ("Departs", LeaveContent(name: "Home → Work", entry: went("Departs", "in 2 min", warn: true, lock: "Departs in 2 min", lockSub: "Bus 132 at 7:48am", inline: "132 Departs in 2 min", circle: "2m",
-                                                             head: "Departs in 2 min", line: "Bus 132 at 7:48am", rowTime: "7:48am"), rows: wrows)),
-    ("An hour+ ahead", LeaveContent(name: "Work → Home", entry: WidgetView.Entry(at: 0, row: 0, title: "Leave 5:12pm", count: "", warn: false, next: "Arrive 6:01pm", lock: "Leave 5:12pm",
-        lockSub: "Orange Line", inline: "OL Leave 5:12pm", circle: "5:12", circleSub: "Orange", ring: -1, head: "Leave in 1h 06m"),
-        rows: [wrow("5:12pm", "6:01pm", vehicle: "Orange Line", color: orange, label: "OL")])),
-    ("No more today", LeaveContent(name: "Home → Work", entry: went("No more today", "", next: "First 5:12am", lockSub: "First 5:12am", inline: "No more today", circle: "–", row: -1), rows: [])),
-    ("Set up", LeaveContent(name: "", entry: went("Plan a trip in T-Minus", "", next: "", lockSub: "", inline: "Set up a trip in T-Minus", circle: "–", row: -1), rows: [])),
+// The leave-times widget without a countdown (Phase 3b).
+private func plain(_ title: String, next: String) -> WidgetView.Entry { WidgetView.Entry(at: 0, row: -1, title: title, count: "", warn: false, next: next) }
+private let plainSamples: [(String, LeaveContent)] = [
+    ("No more today", LeaveContent(name: "Home → Work", entry: plain("No more today", next: "First 5:12am"), rows: [])),
+    ("Set up", LeaveContent(name: "", entry: plain("Plan a trip in T-Minus", next: ""), rows: [])),
     ("Stale", .stale("Home → Work")),
 ]
 
@@ -180,10 +169,31 @@ private func hrow(_ time: String, _ arrive: String, long: String, short: String,
                    long: long, headsign: headsign, then: then.map { WidgetView.Row.Leg(label: $0.0, color: $0.1) })
 }
 private func hent(_ head: String, _ headTime: String, warn: Bool = false) -> WidgetView.Entry {
-    var e = went(head, "", warn: warn, lockSub: "", inline: "", circle: "", head: head)
-    e.headTime = headTime
-    return e
+    WidgetView.Entry(at: 0, row: 0, title: head, count: "", warn: warn, next: "", head: head, headTime: headTime)
 }
+// A followed ride (2026-10-31): the entry's own line, arrival, note and connection.
+private func fent(_ head: String, _ headTime: String = "", warn: Bool = false, long: String = "Orange Line", headsign: String = "Oak Grove", color: String = orange,
+                  arrive: String = "arrive 7:21pm", note: String = "", then: [(String, String)] = [("Bus 132", bus)], thenText: String = "", thenWarn: Bool = false) -> LeaveContent {
+    var e = WidgetView.Entry(at: 0, row: -1, title: head, count: "", warn: warn, next: "", head: head, headTime: headTime)
+    e.long = long; e.headsign = headsign; e.color = color; e.arrive = arrive; e.note = note
+    e.then = then.map { RideState.ThenLeg(label: $0.0, color: $0.1) }; e.thenText = thenText; e.thenWarn = thenWarn
+    return LeaveContent(name: "Office → Home", entry: e, rows: [])
+}
+private let followSamples: [(String, LeaveContent)] = [
+    ("Walking to the stop", fent("Departs in 6 min", "6:15pm", note: "At the stop ~6:13pm · 2 min to spare")),
+    ("Walking, late", fent("Departs in 3 min", "6:15pm", warn: true, note: "At the stop ~6:17pm · 2 min late")),
+    ("Did you get on?", fent("Did you get on?", "left 6:15pm")),
+    ("Riding", fent("Get off in 5 stops", "9 min", thenText: "6:38pm · 4 min to spare")),
+    ("Riding, tight", fent("Get off in 5 stops", "9 min", thenText: "6:38pm · tight", thenWarn: true)),
+    ("Riding, missed", fent("Get off in 5 stops", "9 min", arrive: "arrive 7:41pm", thenText: "6:58pm (missed 6:38pm)", thenWarn: true)),
+    ("Next stop", fent("Get off next stop", "2 min", thenText: "6:38pm · 4 min to spare")),
+    ("Get off here", fent("Get off here", thenText: "6:38pm · 4 min to spare")),
+    ("No stop list", fent("Get off in 9 min", thenText: "6:38pm · 4 min to spare")),
+    ("Transfer", fent("Bus 132 in 6 min", "6:38pm", long: "Bus 132", headsign: "Redstone", color: bus, note: "4 min to spare", then: [])),
+    ("Transfer, tight", fent("Bus 132 in 2 min", "6:38pm", warn: true, long: "Bus 132", headsign: "Redstone", color: bus, note: "tight", then: [])),
+    ("Walking to the destination", fent("Arrive in 5 min", "7:21pm", long: "", headsign: "", color: "", arrive: "", then: [])),
+    ("Arrived", fent("Arrived", "7:21pm", long: "", headsign: "", color: "", arrive: "", then: [])),
+]
 private let ol = { (t: String, a: String) in hrow(t, a, long: "Orange Line", short: "Orange", headsign: "Forest Hills", color: orange, label: "OL") }
 private let rl = { (t: String, a: String, h: String) in hrow(t, a, long: "Red Line", short: "Red", headsign: h, color: "DA291C", label: "RL") }
 private let gl = { (t: String, a: String, b: String, h: String) in hrow(t, a, long: "Green Line \(b)", short: "Green \(b)", headsign: h, color: "00843D", label: "GL·\(b)") }
@@ -215,7 +225,7 @@ private struct WidgetSheet: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Home Screen (2026-10-29) small: leave in, leave now, departs, widest, an hour+ ahead, long headsign, Red branches, Green C or D").font(.caption).foregroundStyle(.white)
+            Text("Home Screen small: leave in, departs, widest, three legs, an hour+ ahead, long headsign, Red branches, Green C or D").font(.caption).foregroundStyle(.white)
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
                 ForEach(Array(stride(from: 0, to: homeSamples.count, by: 2)), id: \.self) { i in
                     GridRow {
@@ -226,36 +236,22 @@ private struct WidgetSheet: View {
             }
             Text("Home Screen (2026-10-29) medium, 6.1\" width: the same samples").font(.caption).foregroundStyle(.white)
             ForEach(homeSamples.indices, id: \.self) { i in home(homeSamples[i].1, .medium, width: 338) }
-            Text("Answers before 2026-10-29 (builds' old layout): small").font(.caption).foregroundStyle(.white)
+            Text("Following a ride (2026-10-31): small, then medium").font(.caption).foregroundStyle(.white)
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
-                ForEach(Array(stride(from: 0, to: widgetSamples.count, by: 2)), id: \.self) { i in
+                ForEach(Array(stride(from: 0, to: followSamples.count, by: 2)), id: \.self) { i in
                     GridRow {
-                        home(widgetSamples[i].1, .small, width: 170)
-                        if i + 1 < widgetSamples.count { home(widgetSamples[i + 1].1, .small, width: 170) }
+                        home(followSamples[i].1, .small, width: 170)
+                        if i + 1 < followSamples.count { home(followSamples[i + 1].1, .small, width: 170) }
                     }
                 }
             }
-            Text("Home medium: leave in, leave now, departs, an hour+ ahead, no more today, wide times; 6.1\" width: late night, long routes").font(.caption).foregroundStyle(.white)
-            ForEach([0, 1, 2, 3, 4], id: \.self) { i in home(widgetSamples[i].1, .medium, width: 364) }
-            home(LeaveContent(name: "Home → Office", entry: widgetSamples[0].1.entry, rows: lateRows), .medium, width: 364)
-            home(LeaveContent(name: "Home → Office", entry: widgetSamples[0].1.entry.map { var e = $0; e.head = "Leave in 24 min"; return e }, rows: nightRows), .medium, width: 338)
-            home(LeaveContent(name: "Home → Office", entry: widgetSamples[1].1.entry, rows: longRows), .medium, width: 338)
-            Text("Lock Screen: inline, rectangular, circular (iOS tints them)").font(.caption).foregroundStyle(.white)
-            ForEach([0, 1, 2, 3, 6], id: \.self) { i in
-                let c = widgetSamples[i].1
-                VStack(spacing: 8) {
-                    LeaveWidgetView(content: c, size: .inline).font(.subheadline.weight(.semibold))
-                    HStack(spacing: 10) {
-                        LeaveWidgetView(content: c, size: .rectangular).padding(.horizontal, 8).frame(width: 170, height: 72)
-                            .background(.white.opacity(0.15)).clipShape(RoundedRectangle(cornerRadius: 12))
-                        LeaveWidgetView(content: c, size: .circular).frame(width: 72, height: 72).background(.white.opacity(0.15)).clipShape(Circle())
-                        if i == 0 {
-                            LeaveWidgetView(content: LeaveContent(name: c.name, entry: widgetSamples[0].1.entry.map { var e = $0; e.circle = "38m"; e.ring = 38.0 / 60; return e }, rows: c.rows), size: .circular)
-                                .frame(width: 72, height: 72).background(.white.opacity(0.15)).clipShape(Circle())
-                        }
-                    }
-                }
-                .foregroundStyle(.white).environment(\.colorScheme, .dark).frame(maxWidth: .infinity)
+            ForEach(followSamples.indices, id: \.self) { i in
+                Text(followSamples[i].0).font(.caption).foregroundStyle(.white)
+                home(followSamples[i].1, .medium, width: 338)
+            }
+            Text("No countdown: no more today, set up, stale (small, medium)").font(.caption).foregroundStyle(.white)
+            ForEach(plainSamples.indices, id: \.self) { i in
+                HStack(spacing: 12) { home(plainSamples[i].1, .small, width: 170); home(plainSamples[i].1, .medium, width: 200) }
             }
         }
         .padding(16)

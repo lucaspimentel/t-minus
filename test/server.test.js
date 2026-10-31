@@ -558,6 +558,39 @@ const followed = (extra = {}) => ({
   ride: { boardedAt: at('07:10'), legs: [{ tripId: 'b1', label: 'Bus 132', dep: at('07:10'), arr: at('07:25') }, { tripId: 'o1', label: 'Orange', dep: at('07:33'), arr: at('07:50') }] },
   ...extra,
 });
+test('/api/widget following: a ride (stops, connection), the bell, walking; ended: leave times', async () => {
+  const s = await setup();
+  try {
+    const legs = [{ tripId: 'b1', label: 'Bus 132', route: '132', color: 'FFC72C', dep: at('07:10'), arr: at('07:25') }, { tripId: 'o1', label: 'Orange', route: 'Orange', color: 'ED8B00', dep: at('07:33'), arr: at('07:50') }];
+    const body = state => ({ trips: [trip], stopSlackMinutes: 1, oneOffAt: null, override: null, lastUsed: null, state: { trip: 0, name: trip.name, at: at('07:00'), atStop: null, pinned: false, ...state } });
+    const post = async b => (await s.call('POST', '/api/widget', b)).json();
+    // Riding the bus: the stop count from its predictions, the Orange connection.
+    s.world.clock = at('07:15');
+    s.world.rideStops.b1 = busStops(3, '07:18');
+    const ride = await post(body({ kind: 'stop', ride: { legs, boardedAt: at('07:10') } }));
+    const e = ride.entries[0];
+    assert.deepEqual([e.head, e.headTime, e.long, e.arrive, e.then.map(l => l.label), e.thenText, e.thenWarn], ['Get off in 3 stops', '10 min', 'Bus 132', 'arrive 8:00am', ['Orange'], '7:33am · 3 min to spare', false]);
+    assert.equal(ride.end, at('08:05') / 1000);
+    assert.ok(s.world.calls.some(c => c === '/predictions'));
+    // No stop list (the request failed or listed nothing): minutes.
+    s.world.rideStops.b1 = [];
+    s.world.clock = at('07:16'); // past the cached copy
+    assert.equal((await post(body({ kind: 'stop', ride: { legs, boardedAt: at('07:10') } }))).entries[0].head, 'Get off in 9 min');
+    // The bell: its row's leave times, then the question.
+    s.world.clock = at('07:00');
+    const bell = await post(body({ kind: 'track', pinned: true, target: { key: 'b1', legs } }));
+    assert.deepEqual([bell.entries[0].head, bell.entries.at(-1).head, bell.rows.length], ['Leave in 4 min', 'Did you get on?', 1]);
+    // Walking: "Departs in".
+    const walk = await post(body({ kind: 'leaving', atStop: at('07:08'), target: { key: 'b1', legs } }));
+    assert.deepEqual([walk.entries[0].head, walk.entries[0].note], ['Departs in 10 min', 'At the stop ~7:08am · 2 min to spare']);
+    // Over: leave times.
+    s.world.clock = at('08:06');
+    const over = await post(body({ kind: 'stop', ride: { legs, boardedAt: at('07:10') } }));
+    assert.equal(over.entries[0].long, undefined);
+    assert.equal((await s.call('POST', '/api/widget', { ...body({ kind: 'stop' }), state: { trip: 3 } })).status, 400);
+  } finally { await s.close(); }
+});
+
 const busStops = (n, t) => [['s1', 'Pond St', t], ['s2', 'Elm St', t], ['s3', 'Main St', t], ['s4', 'Lynn St', t], ['5991', 'Oak Grove', '07:25']].slice(5 - n);
 
 test('a followed ride: heads-up, get off, a missed connection, get off again, then dropped', async () => {

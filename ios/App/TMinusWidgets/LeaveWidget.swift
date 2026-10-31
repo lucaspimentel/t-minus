@@ -1,8 +1,8 @@
 import SwiftUI
 import WidgetKit
 
-// The leave-times widget (IOS.md Phase 3b): the shown trip's next leave-bys on the Home Screen and
-// the Lock Screen. Each reload posts the app's request (the shared keychain) to /api/widget, which times
+// The leave-times widget (IOS.md Phase 3b): the shown trip's next leave-bys on the Home Screen, or
+// the ride the app follows (2026-10-31; the Lock Screen sizes are gone). Each reload posts the app's request (the shared keychain) to /api/widget, which times
 // the trip (core.js); the answer's entries carry their own countdowns, a minute apart. Reloads:
 // at the answer's `refresh` (10 min, or the next leave-by), and when the app changes the request.
 // Without an answer the last one is kept (and retried in 10 min); past its times, "Open T-Minus".
@@ -15,9 +15,8 @@ struct LeaveProvider: TimelineProvider {
     static let url = URL(string: "https://t-minus.lucasp.net/api/widget")!
     static let sample = LeaveEntry(date: Date(), content: LeaveContent(
         name: "Home → Work",
-        entry: WidgetView.Entry(at: 0, row: 0, title: "Leave 7:42am", count: "in 9 min", warn: false, next: "Arrive 8:25am",
-                                lock: "Leave 7:42am", lockSub: "in 9 min · Bus 132", inline: "132 Leave 7:42am", circle: "9m", circleSub: "Bus 132", ring: 9.0 / 60),
-        rows: [WidgetView.Row(time: "7:48am", vehicle: "Bus 132", color: "FFC72C", label: "132", line: "Bus 132 at 7:48am", arrive: "arrive 8:25am", arriveTitle: "Arrive 8:25am")]))
+        entry: WidgetView.Entry(at: 0, row: 0, title: "Leave 7:42am", count: "in 9 min", warn: false, next: "Arrive 8:25am", head: "Leave in 9 min", headTime: "7:42am"),
+        rows: [WidgetView.Row(time: "7:42am", vehicle: "Bus 132", color: "FFC72C", label: "132", line: "Bus 132 → Malden", arrive: "arrive 8:25am", arriveTitle: "Arrive 8:25am", long: "Bus 132", headsign: "Malden")]))
 
     func placeholder(in context: Context) -> LeaveEntry { Self.sample }
 
@@ -69,7 +68,7 @@ struct LeaveWidget: Widget {
         }
         .configurationDisplayName("Leave times")
         .description("When to leave for the trip T-Minus shows.")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline, .accessoryCircular])
+        .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
 
@@ -81,17 +80,6 @@ private struct LeaveWidgetEntryView: View {
         switch family {
         case .systemMedium:
             LeaveWidgetView(content: entry.content, size: .medium).containerBackground(Theme.of(scheme).card, for: .widget)
-        case .accessoryRectangular:
-            LeaveWidgetView(content: entry.content, size: .rectangular).containerBackground(.clear, for: .widget)
-        case .accessoryInline:
-            LeaveWidgetView(content: entry.content, size: .inline).containerBackground(.clear, for: .widget)
-        case .accessoryCircular:
-            // The round background in the view itself (as a container background it didn't show).
-            ZStack {
-                AccessoryWidgetBackground()
-                LeaveWidgetView(content: entry.content, size: .circular)
-            }
-            .containerBackground(.clear, for: .widget)
         default:
             LeaveWidgetView(content: entry.content, size: .small).containerBackground(Theme.of(scheme).card, for: .widget)
         }

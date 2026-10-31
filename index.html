@@ -426,7 +426,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-29 · 9e52aebb0a</footer>
+    <footer class="version">Version 2026-10-30 · 5735dfefd1</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -444,13 +444,13 @@
 </script>
 <script type="module">
 import {
-  validateConfig, tripShape, commuteEntities, shownTrip, widgetRequest, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
+  validateConfig, tripShape, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=ea6d5b8a09';
-import { openSetup } from './setup.js?v=3bf61cff47';
+} from './core.js?v=795ccc353f';
+import { openSetup } from './setup.js?v=c2da45ef7a';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1323,7 +1323,7 @@ function syncLeaveCard(now) {
     return;
   }
   // Missed at the at-stop time: the boarding question until it's answered.
-  const state = s.asking ? askActivityState({ legs: s.target.legs, firstDep: s.asking.dep }, now) : row && walkActivityState(row, s, now);
+  const state = s.asking ? askActivityState({ legs: s.target.legs, firstDep: s.asking.dep, eta: s.target.legs.at(-1).arr + (config?.trips[leaveCard.idx] ? tripShape(config.trips[leaveCard.idx]).walkAfter : 0) * 60_000 }, now) : row && walkActivityState(row, s, now);
   if (!state) return;
   const json = JSON.stringify(state);
   if (json === leaveCard.last) return;
@@ -2051,7 +2051,8 @@ let wakeLock = null;
 let wakeWanted = false;
 let wakeRequesting = false;
 let nativeAwake = false; // the iOS app: what TMinus.keepAwake was last told
-// The iOS app's widget (IOS.md): its request (the trips and the trip choice's inputs) in the
+// The iOS app's widget (IOS.md): its request (the trips, the trip choice's inputs, and the ride
+// state it follows: widgetState, 2026-10-31) in the
 // shared keychain, rewritten (and the widget reloaded) when it changes, when the shown next ride's
 // times change to the minute (`widgetNext`, from the last render), and on each return to the app,
 // so the widget shows the app's answer (CLAUDE.md "UI rules"); the widget sends it to /api/widget.
@@ -2061,7 +2062,7 @@ let widgetSent = null; // { body, next }; `next` null: not known yet (the baseli
 let widgetNext = null;
 function syncWidget() {
   if (typeof plugins.TMinus?.widgetSave !== 'function') return;
-  const body = JSON.stringify(widgetRequest(config, oneOff?.at ?? null, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP)));
+  const body = JSON.stringify(widgetRequest(config, oneOff?.at ?? null, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP), widgetState(store.get(KEY_EN_ROUTE), config?.trips)));
   const moved = widgetSent?.next != null && widgetNext != null && widgetNext !== widgetSent.next;
   if (body === widgetSent?.body && !moved) {
     widgetSent.next ??= widgetNext;
