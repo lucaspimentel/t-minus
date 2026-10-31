@@ -58,11 +58,11 @@ ones):
 | Surface | Vehicle | Headsign (first leg) |
 |---|---|---|
 | Notifications (reminders, ride alerts) | "Orange Line" | "toward Malden" |
-| Leave and walk cards (Lock Screen, expanded island; 2026-10-29 the widget's layout) | "Orange Line" | "toward Malden" ("→" where it doesn't fit) |
+| Leave, walk and ride cards (Lock Screen, expanded island; 2026-10-29 the widget's layout, the ride card 2026-10-31) | "Orange Line" | "toward Malden" ("→" where it doesn't fit) |
 | Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
 | App card leg strip | "Orange" | none (the expanded row has it) |
 | Widget Home Screen (small, medium; 2026-10-29) | "Orange Line" | "toward Forest Hills" ("→" where it doesn't fit) |
-| Widget Lock Screen (rectangular, inline, circular); Dynamic Island | "Orange" | none |
+| Connection lines ("then ● Bus 132"), Dynamic Island | "Orange" | none |
 
 Later legs keep their headsign in the expanded row only; no headsign: the vehicle alone ("Bus
 132"). Red, Blue and Green follow Orange ("Green Line B" / "Green B"). The Dynamic Island's
@@ -1322,7 +1322,20 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 - **What:** every tracked ride ("I got on", detected boarding, a "Did you get on?" Yes) shows on the Lock
   Screen and in the Dynamic Island while it lasts, stop alerts or not (iOS Settings → T-Minus →
   Live Activities is the only off switch). Notifications are unchanged, "3 stops to …" included.
-- **Card** (`ios/App/TMinusWidgets/RideViews.swift`, in the app's light / dark colors with the
+- **Card, 2026-10-31 (the build after 41; mockups accepted 2026-10-31):** the leave card's
+  layout (`LeaveBody`), the same lines as the widget following the ride (`rideCardFields`,
+  `core.js`): riding, "Get off in 5 stops · 9 min" (the countdown to the drop-off after the stop
+  count), "Get off next stop · 2 min", "Get off here", "Get off in 9 min" without a stop list;
+  the line "● Orange Line toward Oak Grove" with the trip's arrival ("arrive 7:21pm", the item
+  the old card lacked); the connection "then ● Bus 132 6:38pm · 4 min to spare" ("· tight",
+  "(missed 6:38pm)" amber; "No connection after 6:31pm"; the headline stays white while riding).
+  The transfer: "Bus 132 in 6 min · 6:38pm", the line, the note "4 min to spare" / "tight" /
+  "Missed the 6:38pm" (amber, the headline too). The final walk: "Arrive in 5 min · 7:21pm";
+  then "Arrived · 7:21pm". The compact island: the mode emoji and "5 stops", "next", "here", or
+  the countdown (no stop list, the transfer, the walk). The leave and walk cards also show the
+  later legs ("then ● Bus 132"); the question reads "Did you get on? · left 6:15pm" with the
+  arrival on the line. The old fields (`title`, `sub`, `next`) are still sent.
+- **Card before 2026-10-31** (`ios/App/TMinusWidgets/RideViews.swift`, in the app's light / dark colors with the
   route's color as the dot): the trip name; a headline like the ride card's ("Orange · 4 stops",
   "Next stop: get off", "Bus 132" in the transfer (sub line "Toward Malden · 8:02am · 3 min to
   spare", "· tight" in amber), "Missed the 8:02am · next 8:14am" in amber, "No
@@ -1450,9 +1463,31 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 
 ### Widget (Phase 3b, 2026-10-26)
 
-- **What:** "Leave times", the shown trip's next leave-bys on the Home Screen (small, medium) and
-  the Lock Screen (rectangular, inline, circular); mockups accepted 2026-10-26. Tap opens the app.
-  A tracked ride doesn't change it (the Live Activity covers the ride).
+- **What:** "Leave times", the shown trip's next leave-bys on the Home Screen (small, medium);
+  mockups accepted 2026-10-26. Tap opens the app. The Lock Screen sizes (rectangular, inline,
+  circular) were removed 2026-10-31 (the build after 41): the leave, walk and ride cards are the
+  Lock Screen's, kept current by pushes, where the widget lagged them within iOS's reload budget
+  (seen 2026-10-27 and 2026-10-29).
+- **Following the ride (2026-10-31; CLAUDE.md "UI rules": one answer):** the widget shows what
+  the app follows (`widgetState`, the one en-route state: a ride first, then the boarding
+  question, "Leaving now" / "At the stop", the bell), on that state's trip whatever the trip
+  choice: the belled ride only (its leave-by, then "Did you get on? · left 6:15pm" for
+  `ASK_MINUTES`); walking, the walk card's "Departs in 6 min · 6:15pm" with "At the stop ~6:13pm
+  · 2 min to spare" (amber when late); riding, the ride card's lines (Live Activity above): "Get
+  off in 5 stops · 9 min", the line with the arrival, the connection on its own line on the
+  medium size (the arrival amber on the small one when it's tight or missed); the transfer, the
+  final walk, "Arrived" for 5 min; then leave times. The request carries the state (the trip's
+  index and name, the kind, the at-stop time, the target's key and legs, the question, the
+  ride's legs with their trip ids, times to the minute so polls don't rewrite it); the app
+  rewrites it when the state changes. The server applies the app's rules (`widgetFollow`): a
+  walking target that leaves boards it if the at-stop time was in time, else asks (pinned) or
+  drops it; each state ends as in the app (30 min after the tap, `ASK_MINUTES`, 5 min after the
+  arrival). A ride's legs are refreshed by trip id (`trackLegs`), a missed connection re-planned
+  (`transferOutlook`), and the ridden vehicle's stops read (`rideStops`, 1 request); the answer
+  has an entry per minute and per predicted stop (the count drops at each stop's time) and asks
+  again every 5 min, at each stop once 3 are left, and at each leg's departure and arrival.
+  Entries carry their own `long`, `headsign`, `color`, `arrive`, `note`, `then`, `thenText` and
+  `thenWarn` (row -1).
 - **Which trip:** the main screen's choice without the location match (`shownTrip`, `core.js`):
   the one-off trip unless another was picked by hand since, the manual pick until the next window
   start, the trip whose window contains now, else the last used.
@@ -1474,7 +1509,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   132 → Malden at 7:48am") and the medium's first row shows it in amber. Entries run 2 h ahead at most;
   past the last one (`end`), "Open T-Minus" / "for new times". No trips: "Plan a trip in
   T-Minus"; no rows: "No more today".
-- **Sizes:** small: the trip name, the title and countdown, the first vehicle ("Bus 132 → Malden") and
+- **Sizes (before 2026-10-29; Lock Screen sizes until 2026-10-31):** small: the trip name, the title and countdown, the first vehicle ("Bus 132 → Malden") and
   the arrival; medium: the countdown only (`head`: "Leave in 9 min", "Leave in 1h 06m" an hour+
   out, "Departs in 2 min"; the leave-by isn't repeated), then the
   entry's row and the next two in one format (leave-by, "Bus 132", "arrive 8:37am"; no headsign or
@@ -1510,9 +1545,11 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   Gr…" beside the arrival, and a differing next ride cut its own headsign): the medium shows one
   ride: the countdown with its time, ● "Orange Line toward Oak Grove" full width, and at the bottom
   its later legs in short form ("then ● Bus 132 · ● Red", cut at the end; none for a one-leg
-  trip) with "arrive 7:21pm" (never cut). The answer adds per row `then` ([{ label, color }]).
-- **Previews:** the `ios` workflow also renders `widget-<theme>.png` (every small state, five
-  medium, the Lock Screen sizes).
+  trip) with "arrive 7:21pm" (never cut). The answer adds per row `then` ([{ label, color }]). 2026-10-31: the small size adds the
+  arrival under the direction (one line each); the medium size puts a note or the connection on
+  its own line above the bottom row.
+- **Previews:** the `ios` workflow also renders `widget-<theme>.png` (the leave-time samples and
+  every followed state, small and medium).
 
 ## Remaining unknowns
 

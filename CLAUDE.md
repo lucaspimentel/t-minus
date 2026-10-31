@@ -39,8 +39,9 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 
 ## UI rules
 
-Surfaces: the app's cards and rows, the leave and walk cards (Live Activity, Dynamic Island),
-the widget's sizes, notifications. Check a UI change against every surface that shows the same
+Surfaces: the app's cards and rows, the leave, walk and ride cards (Live Activity, Dynamic
+Island), the widget's two Home Screen sizes (it follows the belled ride, walking and the ride,
+like the cards), notifications. Check a UI change against every surface that shows the same
 ride, and against these rules:
 
 - One answer: every surface shows the app's current answer for the ride. A surface that can lag
@@ -54,8 +55,8 @@ ride, and against these rules:
 - One wording and format: "2:18pm", "in 6 min" (rounded down), "~" for a headway estimate,
   "arrive 3:03pm". Vehicles in two forms: full text lines (notifications, the leave card, the ride
   bar, the expanded row, both Home Screen widgets) say "Bus 132 toward Malden" / "Orange Line"
-  (on the widgets "→ Malden" where "toward" doesn't fit); tight ones (the card's leg strip, the Lock
-  Screen widgets, the Dynamic Island) say "Bus 132" / "Orange", with no headsign. The headsign
+  (on the widgets "→ Malden" where "toward" doesn't fit); tight ones (the card's leg strip, the
+  connection lines "then ● Bus 132", the Dynamic Island) say "Bus 132" / "Orange", with no headsign. The headsign
   goes with the first leg only.
   DESIGN.md "Surface wording" lists each surface.
 - Color carries state: amber/red mean late or at risk, at the same thresholds on every surface;
@@ -105,7 +106,8 @@ ride, and against these rules:
   only once the upload run starts: write "build N" in docs and comments after it, not before.
   Server answers read by native views (`/api/widget`, the cards' `RideState`) also reach builds
   that stay installed: add optional fields and keep the old ones with their meaning (giving an
-  old field a new value changes what old builds show).
+  old field a new value changes what old builds show). The author is the only user and installs
+  each build at once (2026-10-31): where keeping an old build working costs real work, skip it.
   APNs variables are in `server/README.md`.
 
 ## Local testing with an MBTA API key
