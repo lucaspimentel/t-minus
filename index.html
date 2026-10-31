@@ -427,7 +427,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-31 · d81383f88f</footer>
+    <footer class="version">Version 2026-10-31 · e9a41b262a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -2310,7 +2310,8 @@ document.addEventListener('touchmove', e => {
   e.preventDefault();
   pull.dy = dy;
   const offset = pullOffset(dy);
-  setPull(offset, offset >= PULL_READY ? 'Release to refresh' : 'Pull down to refresh', false);
+  const verb = updateKnown() ? 'update' : 'refresh';
+  setPull(offset, offset >= PULL_READY ? `Release to ${verb}` : `Pull down to ${verb}`, false);
 }, { passive: false });
 
 document.addEventListener('touchend', () => {
@@ -2319,9 +2320,14 @@ document.addEventListener('touchend', () => {
   if (!p?.active) return;
   if (pullOffset(p.dy) < PULL_READY) { setPull(0, null, true); return; }
   pullHeld = true;
+  // A newer page (known, or found by the check below): reload the app; else refresh the data.
+  const update = () => { setPull(PULL_HOLD, 'Updating…', true); location.reload(); };
+  if (updateKnown()) return update();
   setPull(PULL_HOLD, 'Refreshing…', true);
   refresh({ force: true });
-  whenIdle(() => { pullHeld = false; setPull(0, null, true); });
+  let reloading = false;
+  pageIsNewer().then(newer => { if (newer) { reloading = true; update(); } });
+  whenIdle(() => { if (reloading) return; pullHeld = false; setPull(0, null, true); });
 });
 
 document.addEventListener('touchcancel', () => {
@@ -2381,14 +2387,22 @@ let lastUpdateCheck = Date.now();
 async function checkForUpdate() {
   if (updateFound || document.hidden || Date.now() - lastUpdateCheck < 60_000) return;
   lastUpdateCheck = Date.now();
+  if (await pageIsNewer()) {
+    updateFound = true;
+    $('newversion').hidden = false;
+  }
+}
+// Whether the server has a newer page (false offline or on an error).
+async function pageIsNewer() {
   try {
     const res = await fetch('./', { cache: 'no-store' });
-    if (res.ok && isNewerPage(await res.text(), RUNNING_VERSION)) {
-      updateFound = true;
-      $('newversion').hidden = false;
-    }
-  } catch { /* offline: try again next time */ }
+    return res.ok && isNewerPage(await res.text(), RUNNING_VERSION);
+  } catch {
+    return false;
+  }
 }
+// A newer page is already known: the banner shows (this check, or the service worker's).
+const updateKnown = () => updateFound || !$('newversion').hidden;
 setInterval(checkForUpdate, 30 * 60_000);
 
 // Not in the iOS app: no Web Push there, and the app shows its own page when offline.

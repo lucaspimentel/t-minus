@@ -428,7 +428,12 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   up to 110 px), revealing a thin ↓ arrow and "Pull down to refresh"; past 64 px the arrow turns
   to ↑ (150 ms rotation, instant with reduced motion) and reads "Release to refresh". Released
   there, it runs the same forced refresh as ↻ and holds a 48 px gap with a spinning ring and
-  "Refreshing…" until the header ↻ stops (`whenIdle`; a pull during a refresh joins it). Upward
+  "Refreshing…" until the header ↻ stops (`whenIdle`; a pull during a refresh joins it).
+  Updates (2026-10-31): the release also fetches the page (`pageIsNewer`, as the update check);
+  a newer version reads "Updating…" and reloads the app (`location.reload()`; trips, the bell and
+  rides are stored, only view state resets), else the data refresh is all (also when the check
+  fails). With the update banner already showing: "Pull down to update" / "Release to update" /
+  "Updating…", reloading without the check. ↻ stays a data refresh. Upward
   or sideways drags, drags that start scrolled down, and setup are left as ordinary scrolling.
   `overscroll-behavior-y: none` on `html` turns off iOS's rubber-band bounce everywhere, so the
   two don't move at once.
