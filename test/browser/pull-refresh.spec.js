@@ -97,18 +97,21 @@ test('a long pull with a newer page on the server reloads the app', async ({ pag
 test('with the update banner showing, the pull says update and reloads', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await mode('new');
-  await tick(page, 30 * 60_000);
+  await tick(page, 61_000);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))); // back in the app: the update check
   await expect(page.locator('#newversion')).toBeVisible();
   await mark(page);
-  const release = await drag(page, [200, 300], 100);
+  // One drag: "Pull down to update" halfway, "Release to update" past the threshold. It spans a
+  // redraw (the rows are replaced each second, the touched one too): the pull carries on.
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: y == null ? [] : [{ x: 200, y }] });
+  await touch('touchStart', 300);
+  for (let y = 310; y <= 400; y += 10) await touch('touchMove', y);
+  await tick(page, 1100);
   await expect(ptrText(page)).toHaveText('Pull down to update');
-  await release();
-  await expect.poll(() => offset(page)).toBe('');
-  await tick(page, 1000);
-  expect(await page.evaluate(() => scrollY)).toBe(0); // at the top again
-  const release2 = await drag(page, [200, 300], 200);
+  for (let y = 410; y <= 500; y += 10) await touch('touchMove', y);
   await expect(ptrText(page)).toHaveText('Release to update');
-  await release2();
+  await touch('touchEnd');
   await expect(page.locator('footer.version')).toHaveText('Version NEW');
   expect(await marked(page)).toBe(false);
 });

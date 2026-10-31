@@ -427,7 +427,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-31 · e9a41b262a</footer>
+    <footer class="version">Version 2026-10-31 · e4de9aab82</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -2293,28 +2293,37 @@ function setPull(offset, text, settle) {
   if (text != null) ptr.querySelector('.ptr-text').textContent = text;
 }
 
+// The touch's own element gets the move, end and cancel listeners: the once-a-second redraw can
+// replace it mid-pull, and a removed element's events no longer reach `document`.
+const PULL_EVENTS = [['touchmove', onPullMove, { passive: false }], ['touchend', onPullEnd], ['touchcancel', onPullCancel]];
+function endPullTouch() {
+  for (const [type, fn] of PULL_EVENTS) pull?.target.removeEventListener(type, fn);
+}
 document.addEventListener('touchstart', e => {
+  endPullTouch();
   pull = null;
   if (!config || setupView || pullHeld || e.touches.length !== 1 || scrollY > 0 || $('toast').contains(e.target)) return;
-  pull = { x: e.touches[0].clientX, y: e.touches[0].clientY, dy: 0, active: false };
+  pull = { x: e.touches[0].clientX, y: e.touches[0].clientY, dy: 0, active: false, target: e.target };
+  for (const [type, fn, opts] of PULL_EVENTS) e.target.addEventListener(type, fn, opts);
 }, { passive: true });
 
-document.addEventListener('touchmove', e => {
+function onPullMove(e) {
   if (!pull) return;
   const t = e.touches[0];
   const dx = t.clientX - pull.x;
   const dy = t.clientY - pull.y;
   // The first move decides: upward or sideways is ordinary scrolling, left alone.
-  if (!pull.active && (e.touches.length !== 1 || dy <= 0 || Math.abs(dx) > dy)) { pull = null; return; }
+  if (!pull.active && (e.touches.length !== 1 || dy <= 0 || Math.abs(dx) > dy)) { endPullTouch(); pull = null; return; }
   pull.active = true;
   e.preventDefault();
   pull.dy = dy;
   const offset = pullOffset(dy);
   const verb = updateKnown() ? 'update' : 'refresh';
   setPull(offset, offset >= PULL_READY ? `Release to ${verb}` : `Pull down to ${verb}`, false);
-}, { passive: false });
+}
 
-document.addEventListener('touchend', () => {
+function onPullEnd() {
+  endPullTouch();
   const p = pull;
   pull = null;
   if (!p?.active) return;
@@ -2328,12 +2337,13 @@ document.addEventListener('touchend', () => {
   let reloading = false;
   pageIsNewer().then(newer => { if (newer) { reloading = true; update(); } });
   whenIdle(() => { if (reloading) return; pullHeld = false; setPull(0, null, true); });
-});
+}
 
-document.addEventListener('touchcancel', () => {
+function onPullCancel() {
+  endPullTouch();
   if (pull?.active) setPull(0, null, true);
   pull = null;
-});
+}
 $('retry').onclick = () => { $('retry-wrap').hidden = true; refresh(); };
 
 // Location for "near" trips: the last fix, re-taken on launch and on return to the app.

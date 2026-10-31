@@ -433,7 +433,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   a newer version reads "Updating…" and reloads the app (`location.reload()`; trips, the bell and
   rides are stored, only view state resets), else the data refresh is all (also when the check
   fails). With the update banner already showing: "Pull down to update" / "Release to update" /
-  "Updating…", reloading without the check. ↻ stays a data refresh. Upward
+  "Updating…", reloading without the check. ↻ stays a data refresh. The move, end and cancel
+  listeners go on the touched element, not `document`: the once-a-second redraw can replace it
+  mid-pull, and a removed element's touch events don't bubble (seen 2026-10-31 as a frozen pull in
+  the specs). Upward
   or sideways drags, drags that start scrolled down, and setup are left as ordinary scrolling.
   `overscroll-behavior-y: none` on `html` turns off iOS's rubber-band bounce everywhere, so the
   two don't move at once.
