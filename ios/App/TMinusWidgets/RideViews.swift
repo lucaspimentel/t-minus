@@ -161,11 +161,15 @@ struct AnswerButtons: View {
         .font(.subheadline.weight(.semibold))
     }
 
-    private func button(_ label: String, yes: Bool, fg: Color, bg: Color) -> some View {
-        Link(destination: RideState.answerURL(yes: yes, dep: dep)) {
-            Text(label).foregroundStyle(fg).lineLimit(1).frame(maxWidth: .infinity).padding(.vertical, 7)
-                .background(bg, in: RoundedRectangle(cornerRadius: 12))
-        }
+    @ViewBuilder private func button(_ label: String, yes: Bool, fg: Color, bg: Color) -> some View {
+        let face = Text(label).foregroundStyle(fg).lineLimit(1).frame(maxWidth: .infinity).padding(.vertical, 7)
+            .background(bg, in: RoundedRectangle(cornerRadius: 12))
+        #if os(iOS)
+        Link(destination: RideState.answerURL(yes: yes, dep: dep)) { face }
+        #else
+        // The previews (macOS draws a link as a placeholder in a still image).
+        face
+        #endif
     }
 }
 
