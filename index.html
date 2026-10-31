@@ -134,6 +134,7 @@
     display: block; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
     background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
   }
+  .list-item.pair { display: flex; gap: 8px; } /* "Show more rides" beside "Show fewer rides" */
   .missed .big { color: var(--muted); font-size: 20px; }
   .row.missed.departs { border-left-color: var(--amber); }
   /* Still to leave (often the ride being headed for): full size; smaller once gone. */
@@ -426,7 +427,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-31 · df34da500d</footer>
+    <footer class="version">Version 2026-10-31 · d81383f88f</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -1708,8 +1709,13 @@ function render() {
   widgetNext = next ? [next.leaveBy, next.firstDep, next.eta].map(ms => Math.floor(ms / 60_000)).join('/') : null;
   const top = prev.length ? [listButton(prevOpen ? 'Hide previous rides ▴' : 'Show previous rides ▾', 'prev', () => { prevOpen = !prevOpen; render(); }),
     ...(prevOpen ? prev.map(r => renderRow(r, now, false, null, null, true)) : [])] : [];
-  const more = current.length && currentRows(now, s, extraRows + 4).length > current.length
-    ? [listButton('Show more rides ▾', 'more', () => { extraRows += 4; render(); })] : [];
+  // "Show fewer rides" (once any were added): all the extras at once, back to the top.
+  const canMore = current.length && currentRows(now, s, extraRows + 4).length > current.length;
+  const moreBtns = [
+    ...(canMore ? [listButtonEl('Show more rides ▾', 'more', () => { extraRows += 4; render(); })] : []),
+    ...(extraRows > 0 ? [listButtonEl('Show fewer rides ▴', 'fewer', showFewer)] : []),
+  ];
+  const more = moreBtns.length ? [listItem(moreBtns)] : [];
   $('plan-trip').hidden = false;
   if (rows.length) setRows(...top, ...rows, ...more);
   else setRows(...top, el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''));
@@ -1719,14 +1725,26 @@ function render() {
 let listTrip = null; // the trip the two below apply to
 let extraRows = 0; // rows added by "Show more rides" (4 per tap)
 let prevOpen = false; // previous rides shown
-function listButton(label, key, onclick) {
-  const li = el('li', 'list-item');
+function listButtonEl(label, key, onclick) {
   const b = el('button', 'list-btn', label);
   b.type = 'button';
   b.dataset.focus = `list:${key}`;
   b.onclick = onclick;
-  li.append(b);
+  return b;
+}
+// One list item; two buttons share its row.
+function listItem(buttons) {
+  const li = el('li', buttons.length > 1 ? 'list-item pair' : 'list-item');
+  li.append(...buttons);
   return li;
+}
+const listButton = (label, key, onclick) => listItem([listButtonEl(label, key, onclick)]);
+function showFewer() {
+  extraRows = 0;
+  render();
+  window.scrollTo(0, 0);
+  // The tapped button is gone: focus "Show more rides".
+  $('rows').querySelector('[data-focus="list:more"]')?.focus({ preventScroll: true });
 }
 
 // "I got on" for a previous ride (in its expanded row, or in the expanded missed row).

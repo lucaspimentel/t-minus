@@ -227,7 +227,9 @@ unavailable: fallback, and the status line adds "Location off".
 - "I got on" starts tracking that ride as boarded at its departure (`{ kind: 'track', ride:
   { legs, boardedAt } }`; the card may open past the first leg), with "Tracking started · Undo".
 - "Show more rides ▾" (bottom): 4 more rows per tap (`departureCount` + 4n), hidden when no
-  more rows are in the fetched schedules. Both reset when the shown trip changes or the app
+  more rows are in the fetched schedules. Once any are added, "Show fewer rides ▴" sits beside it
+  (alone when no more can be added): it removes all the extras, scrolls to the top and focuses
+  "Show more rides". Both reset when the shown trip changes or the app
   reopens. Neither makes requests (the per-leg vehicles already polled).
 
 ### Countdown states

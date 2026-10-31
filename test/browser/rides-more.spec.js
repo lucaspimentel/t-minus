@@ -120,6 +120,21 @@ test('Show more rides adds 4 rows per tap', async ({ page }) => {
   await listBtn(page, 'Show more rides ▾').click();
   await expect(rows).toHaveCount(8);
   await expect(rows.nth(7).locator('.big')).toContainText('9:06pm');
+  // "Show fewer rides" beside it: all the extras at once, back at the top, focus on "Show more".
+  await listBtn(page, 'Show more rides ▾').click();
+  await expect(rows).toHaveCount(12);
+  const more = await listBtn(page, 'Show more rides ▾').boundingBox();
+  const fewer = await listBtn(page, 'Show fewer rides ▴').boundingBox();
+  expect(Math.abs(more.y - fewer.y)).toBeLessThan(2);
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await listBtn(page, 'Show fewer rides ▴').click();
+  await expect(rows).toHaveCount(4);
+  await expect(listBtn(page, 'Show fewer rides ▴')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect(listBtn(page, 'Show more rides ▾')).toBeFocused();
+  // No more rides to add: "Show fewer" alone.
+  while (await listBtn(page, 'Show more rides ▾').count()) await listBtn(page, 'Show more rides ▾').click();
+  await expect(listBtn(page, 'Show fewer rides ▴')).toHaveCount(1);
   // Switching trips resets it.
   await page.locator('#toggle').getByRole('button', { name: 'Home to office' }).click();
   await page.locator('#toggle').getByRole('button', { name: 'Office to home' }).click();
