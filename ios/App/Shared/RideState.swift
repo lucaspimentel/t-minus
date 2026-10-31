@@ -50,6 +50,15 @@ struct RideState: Codable, Hashable {
     var then: [ThenLeg]? = nil
     var thenText: String? = nil
     var islandText: String? = nil
+    // "Did you get on?" (2026-10-31): the asked departure (Unix seconds) for the Yes / Missed it
+    // links (answerURL), in place of the legs bar.
+    var askDep: Double? = nil
+
+    // `tminus://answer?a=yes|missed&dep=<s>`: opens the app, which answers the question for that
+    // departure (SceneDelegate → TMinusPlugin's `answer` event → index.html).
+    static func answerURL(yes: Bool, dep: Double) -> URL {
+        URL(string: "tminus://answer?a=\(yes ? "yes" : "missed")&dep=\(Int(dep))")!
+    }
 
     var untilDate: Date? { until > 0 ? Date(timeIntervalSince1970: until) : nil }
     // Dimmed by iOS 2 min after the countdown ends without a newer update (as the server's pushes).

@@ -65,6 +65,7 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token, leav
   window.emitStartToken = t => emit('TMinus.startToken', { token: t });
   // A tap on a notification's action (`actionId`: 'tap', 'yes', 'missed').
   window.emitAction = (actionId, data) => emit('pushNotificationActionPerformed', { actionId, notification: { data } });
+  window.emitAnswer = (answer, dep) => emit('TMinus.answer', { answer, dep });
   window.Capacitor = { isNativePlatform: () => true, Plugins: { PushNotifications, TMinus } };
 }
 
@@ -371,6 +372,40 @@ test('the push\'s Yes action answers the boarding question (the bell\'s trip sho
   await tick(page, 300);
   await expect(page.locator('#enroute')).toContainText('Did you get on the 7:08am Bus 132?');
   await page.evaluate(() => window.emitAction('yes', { kind: 'board', reminderId: 'r1' }));
+  await tick(page, 1000);
+  await expect(page.locator('.row.ride')).toHaveCount(1);
+});
+
+test('the card\'s Yes / Missed it: applied to the open question for its departure; a stale one toasts "Question closed"', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await tickTo(page, '07:08:30');
+  await expect(page.locator('#enroute')).toContainText('Did you get on the 7:08am Bus 132?');
+  const dep = await page.evaluate(() => { const d = new Date(); d.setHours(7, 8, 0, 0); return d.getTime() / 1000; });
+  // Another departure (an older question): nothing answered.
+  await page.evaluate(d => window.emitAnswer('yes', d), dep - 30 * 60);
+  await expect(page.locator('#toast')).toContainText('Question closed');
+  await expect(page.locator('#enroute')).toContainText('Did you get on the 7:08am Bus 132?');
+  await page.evaluate(d => window.emitAnswer('missed', d), dep);
+  await expect(page.locator('#enroute')).not.toContainText('Did you get on');
+  await expect(page.locator('.row.ride')).toHaveCount(0);
+  // Answered: a second tap is stale.
+  await page.evaluate(() => { document.getElementById('toast').hidden = true; });
+  await page.evaluate(d => window.emitAnswer('yes', d), dep);
+  await expect(page.locator('#toast')).toContainText('Question closed');
+  await expect(page.locator('.row.ride')).toHaveCount(0);
+});
+
+test('the card\'s Yes boards the asked ride', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await tickTo(page, '07:08:30');
+  const dep = await page.evaluate(() => { const d = new Date(); d.setHours(7, 8, 0, 0); return d.getTime() / 1000; });
+  await page.evaluate(d => window.emitAnswer('yes', d), dep);
   await tick(page, 1000);
   await expect(page.locator('.row.ride')).toHaveCount(1);
 });

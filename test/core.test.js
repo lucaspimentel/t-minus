@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage, scrubApiKey, rumInitOptions,
+  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage, scrubApiKey, rumInitOptions,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -505,6 +505,12 @@ test('The bell: pinned target, asked at departure', () => {
   assert.deepEqual([yes.ride.boardedAt, yes.ride.legs.map(l => l.tripId), yes.pinned, yes.bell, yes.asking, yes.target], [at('07:40'), ['b2', 'o3'], undefined, undefined, undefined, undefined]);
   assert.equal(answerBoarding(s, false), null);
   assert.equal(answerBoarding(tracked, true), tracked); // nothing asked
+  // The card's Yes / Missed it (`dep` in seconds): only for the open question's departure, within 5 min.
+  const sec = hhmm => at(hhmm) / 1000;
+  assert.deepEqual([sec('07:40'), sec('07:45'), sec('07:35'), sec('07:46'), sec('07:34')].map(d => askAnswerMatches(s, d)), [true, true, true, false, false]);
+  assert.equal(askAnswerMatches(tracked, sec('07:40')), false); // nothing asked (closed or answered)
+  assert.equal(askAnswerMatches(s, NaN), false);
+  assert.equal(askAnswerMatches(null, sec('07:40')), false);
 
   // Keeping an en-route state; "Leaving now" afterwards keeps the pin and the bell.
   const stop = startEnRoute('stop', at('07:05'), 5);
@@ -2167,6 +2173,7 @@ test('leaveActivityState: leave in, moved, leave now, departs, gone', () => {
     ['ask', 'Did you get on?', 'Bus 132 toward Malden left at 7:48am', 'Tap to answer', 0, 'Got on?', false, false, '132']);
   // The departure beside the question, the trip's arrival on the line (2026-10-31).
   assert.deepEqual([ask.head, ask.countTo, ask.headTime, ask.long, ask.headsign, ask.right, ask.note, ask.emoji], ['Did you get on?', 0, 'left 7:48am', 'Bus 132', 'Malden', 'arrive 8:25am', '', '']);
+  assert.equal(ask.askDep, row.firstDep / 1000); // the Yes / Missed it links' departure
   assert.deepEqual(askActivityState({ legs: row.legs, firstDep: row.firstDep, eta: row.eta }, at('07:50')), ask); // the server's saved row
   assert.equal(askActivityState({ legs: row.legs, firstDep: row.firstDep }, at('07:50')).right, ''); // saved before the arrival was
   for (const st of [before, moved, now, departs, gone, cancelled, leaveCancelledState(null), ask]) assert.ok(hasRideStateKeys(st), st.phase);
@@ -2412,6 +2419,8 @@ test('widgetView following: the bell, walking, the question, riding (stops, conn
   assert.deepEqual(bell.rows.map(r => r.time), ['7:39am']);
   assert.deepEqual([shownAt(bell, when('07:30')).head, shownAt(bell, when('07:30')).headTime], ['Leave in 9 min', '7:39am']);
   assert.deepEqual(look(shownAt(bell, when('07:49'))), ['Did you get on?', 'left 7:48am', 'Bus 132', 'Malden', 'arrive 8:25am', '', 'Orange', '', false, false]);
+  assert.equal(shownAt(bell, when('07:49')).dep, row.firstDep / 1000); // the widget's Yes / Missed it
+  assert.equal(shownAt(bell, when('07:30')).dep, undefined);
   assert.equal(bell.end, when('08:18'));
   // Walking: "Departs in", the at-stop note; amber once late.
   const walk = { kind: 'leaving', at: at('07:30'), atStop: at('07:44'), pinned: false };

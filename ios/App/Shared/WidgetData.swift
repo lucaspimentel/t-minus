@@ -78,6 +78,7 @@ struct WidgetView: Codable, Hashable {
         var then: [RideState.ThenLeg]? = nil // the connection: "then ● Bus 132" …
         var thenText: String? = nil  // … "6:38pm · 4 min to spare"
         var thenWarn: Bool? = nil    // amber (and the small size's arrival)
+        var dep: Double? = nil       // "Did you get on?": the asked departure, for Yes / Missed it (medium)
     }
     var name: String
     var rows: [Row]

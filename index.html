@@ -426,7 +426,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-30 · 5735dfefd1</footer>
+    <footer class="version">Version 2026-10-31 · df34da500d</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -447,10 +447,10 @@ import {
   validateConfig, tripShape, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
-  unpinTarget, answerBoarding, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
+  unpinTarget, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=795ccc353f';
-import { openSetup } from './setup.js?v=c2da45ef7a';
+} from './core.js?v=722ce279ca';
+import { openSetup } from './setup.js?v=12abc09c43';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1855,6 +1855,18 @@ if (native) {
     syncEnRoute(Date.now());
     if (actionId === 'yes' || actionId === 'missed') answer(actionId === 'yes');
   })).catch(e => nativeLog('push', `action listener: ${e.message}`));
+  // The card's and the medium widget's Yes / Missed it (`tminus://answer?a=yes&dep=<s>`, opening
+  // the app): applied only to the open question for that departure, else "Question closed".
+  Promise.resolve().then(() => plugins.TMinus.addListener('answer', ({ answer: a, dep }) => {
+    if (!config) return;
+    const idx = Object.entries(store.get(KEY_EN_ROUTE) ?? {}).find(([, st]) => st?.bell && !st.ride)?.[0];
+    if (idx != null) {
+      setTrip(Number(idx), true);
+      syncEnRoute(Date.now());
+    }
+    if (idx != null && askAnswerMatches(enRouteState(), Number(dep))) answer(a === 'yes');
+    else showToast('Question closed');
+  })).catch(e => nativeLog('liveActivity', `answer listener: ${e.message}`));
 }
 
 // Bottom toast with one action (or none); a new one replaces the current one.

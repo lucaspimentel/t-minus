@@ -1335,6 +1335,15 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   the countdown (no stop list, the transfer, the walk). The leave and walk cards also show the
   later legs ("then ● Bus 132"); the question reads "Did you get on? · left 6:15pm" with the
   arrival on the line. The old fields (`title`, `sub`, `next`) are still sent.
+- **Yes / Missed it (2026-10-31):** the question on the Lock Screen card, the expanded island and
+  the medium widget has [Yes] (blue) [Missed it] in place of the legs bar (the widget: in place of
+  its bottom row, the arrival moved to the line's end). Each is a link,
+  `tminus://answer?a=yes|missed&dep=<s>` (the asked departure: the card's `askDep`, the widget
+  entry's `dep`), that opens the app: the scene delegate hands it to `TMinusPlugin` (kept until the
+  plugin loads on a cold start), whose `answer` event switches to the bell's trip and answers as
+  the bar does when the question for that departure is open (`askAnswerMatches`: within
+  `ASK_MATCH_MIN`, 5 min, of it); otherwise (closed, answered, another departure) "Question
+  closed". The compact island and the small widget keep a plain tap (opens the app).
 - **Card before 2026-10-31** (`ios/App/TMinusWidgets/RideViews.swift`, in the app's light / dark colors with the
   route's color as the dot): the trip name; a headline like the ride card's ("Orange · 4 stops",
   "Next stop: get off", "Bus 132" in the transfer (sub line "Toward Malden · 8:02am · 3 min to

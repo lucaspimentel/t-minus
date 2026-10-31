@@ -1776,6 +1776,14 @@ export function advanceEnRoute(state, rows, nowMs) {
 
 // The answer to "Did you get on?": Yes boards the asked ride from its departure; "Missed it"
 // drops the pin (see unpinTarget).
+// Yes / Missed it from the card or the widget (`tminus://answer?dep=`, its departure in seconds)
+// applies only to the question still open for that departure: within ASK_MATCH_MIN of it (the
+// card's and the app's departure times can differ by a late prediction).
+export const ASK_MATCH_MIN = 5;
+export function askAnswerMatches(state, depSec) {
+  return !!state?.asking && Number.isFinite(depSec) && Math.abs(state.asking.dep - depSec * 1000) <= ASK_MATCH_MIN * MIN;
+}
+
 export function answerBoarding(state, yes) {
   if (!state?.asking) return state;
   if (!yes) return unpinTarget(state);
@@ -2636,6 +2644,8 @@ export function askActivityState(row, nowMs) {
     phase: 'ask', title: 'Did you get on?', sub: `${lineToward(first)} left at ${legTime(first, first.dep, nowMs)}`,
     next: 'Tap to answer', island: 'Got on?', soon: false, head: 'Did you get on?', headTime: `left ${legTime(first, first.dep, nowMs)}`,
     ...(row.eta != null && { right: `arrive ${etaTime(row, nowMs)}` }),
+    // The asked departure (Unix seconds) for the card's Yes / Missed it links (askAnswerMatches).
+    askDep: Math.round(row.firstDep / 1000),
   });
 }
 // Whether this check starts the leave card: a push-to-start token, no card yet, the leave-by ahead.
@@ -2893,7 +2903,7 @@ function widgetFollowView(tripName, follow, nowMs) {
     return {
       at: sec(t), row: -1, title: head, count: '', next: '', warn: !!st.warn, head, headTime: st.countAfter ? left : st.headTime ?? '',
       long: st.long ?? '', headsign: st.headsign ?? '', color: st.color ?? '', arrive: st.right ?? '', note: st.note ?? '',
-      then: st.then ?? [], thenText: st.thenText ?? '', thenWarn: !!st.nextWarn,
+      then: st.then ?? [], thenText: st.thenText ?? '', thenWarn: !!st.nextWarn, ...(st.askDep && { dep: st.askDep }),
     };
   };
   for (let t = nowMs; t < until && t < horizon;) {

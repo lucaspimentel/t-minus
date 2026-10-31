@@ -22,6 +22,7 @@ private extension LeaveContent {
     var thenLegs: [RideState.ThenLeg] { entry?.then ?? (firstRow?.then ?? []).map { RideState.ThenLeg(label: $0.label, color: $0.color) } }
     var thenText: String { entry?.thenText ?? "" }
     var thenWarn: Bool { entry?.thenWarn ?? false }
+    var askDep: Double? { entry?.dep }
     // A countdown to show (else "No more today", "Plan a trip", "Open T-Minus").
     var isHome: Bool { entry?.head != nil }
 }
@@ -109,7 +110,8 @@ private struct SmallHome: View {
 // · 12:17am" (or "Get off in 5 stops · 9 min"), the line and direction in full ("→" only where
 // "toward" doesn't fit), then at the bottom the note (amber with `warn`), the connection on its
 // own line ("then ● Bus 132 6:38pm · 4 min to spare", amber when tight or missed), and the later
-// legs ("then ● Bus 132", when there's no connection line) with the arrival (never cut).
+// legs ("then ● Bus 132", when there's no connection line) with the arrival (never cut). "Did you
+// get on?" (2026-10-31): the arrival at the line's end and [Yes] [Missed it] at the bottom.
 private struct MediumHome: View {
     let content: LeaveContent
     @Environment(\.colorScheme) private var scheme
@@ -125,23 +127,36 @@ private struct MediumHome: View {
                 HStack(spacing: 5) {
                     RouteDot(hex: content.color, size: 8)
                     LineToward(line: content.long, headsign: content.headsign, muted: th.muted)
+                    // "Did you get on?": the arrival here, the buttons in the bottom row.
+                    if content.askDep != nil && !content.arrive.isEmpty {
+                        Spacer(minLength: 8)
+                        Text(content.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize()
+                    }
                 }
                 .foregroundStyle(th.text)
             }
             Spacer(minLength: 0)
-            if !content.note.isEmpty { Text(content.note).foregroundStyle(tint).lineLimit(1) }
-            if !content.thenText.isEmpty {
-                ThenLine(legs: content.thenLegs, text: content.thenText, muted: th.muted).foregroundStyle(content.thenWarn ? th.amber : th.text)
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Group {
-                    if content.thenText.isEmpty && !content.thenLegs.isEmpty { ThenLine(legs: content.thenLegs, text: "", muted: th.muted) } else { Text("") }
-                }
-                .foregroundStyle(th.text).frame(maxWidth: .infinity, alignment: .leading)
-                Text(content.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize()
+            if let dep = content.askDep {
+                AnswerButtons(dep: dep, text: th.text, track: th.track)
+            } else {
+                bottom(th, tint: tint)
             }
         }
         .font(.subheadline)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder private func bottom(_ th: Theme, tint: Color) -> some View {
+        if !content.note.isEmpty { Text(content.note).foregroundStyle(tint).lineLimit(1) }
+        if !content.thenText.isEmpty {
+            ThenLine(legs: content.thenLegs, text: content.thenText, muted: th.muted).foregroundStyle(content.thenWarn ? th.amber : th.text)
+        }
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Group {
+                if content.thenText.isEmpty && !content.thenLegs.isEmpty { ThenLine(legs: content.thenLegs, text: "", muted: th.muted) } else { Text("") }
+            }
+            .foregroundStyle(th.text).frame(maxWidth: .infinity, alignment: .leading)
+            Text(content.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize()
+        }
     }
 }

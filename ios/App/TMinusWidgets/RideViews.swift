@@ -129,7 +129,11 @@ struct LeaveBody: View {
                 ThenLine(legs: state.then ?? [], text: state.thenText ?? "", muted: muted)
                     .font(.subheadline).foregroundStyle(state.nextWarn == true ? amber : text)
             }
-            LegsBar(legs: state.legs, track: track).padding(.top, 6)
+            if state.phase == "ask", let dep = state.askDep {
+                AnswerButtons(dep: dep, text: text, track: track).padding(.top, 6)
+            } else {
+                LegsBar(legs: state.legs, track: track).padding(.top, 6)
+            }
         }
     }
 
@@ -142,6 +146,26 @@ struct LeaveBody: View {
         if let countdown = headCountdown(state) { t = t + Text(" ") + countdown }
         if let time = state.headTime, !time.isEmpty { t = t + Text(" · \(time)").font(.subheadline.weight(.semibold)) }
         return t
+    }
+}
+
+// "Did you get on?": [Yes] [Missed it], links that open the app with the answer (RideState.answerURL).
+struct AnswerButtons: View {
+    let dep: Double
+    let text, track: Color
+    var body: some View {
+        HStack(spacing: 8) {
+            button("Yes", yes: true, fg: .white, bg: Color(hex: "2F6FDB"))
+            button("Missed it", yes: false, fg: text, bg: track)
+        }
+        .font(.subheadline.weight(.semibold))
+    }
+
+    private func button(_ label: String, yes: Bool, fg: Color, bg: Color) -> some View {
+        Link(destination: RideState.answerURL(yes: yes, dep: dep)) {
+            Text(label).foregroundStyle(fg).lineLimit(1).frame(maxWidth: .infinity).padding(.vertical, 7)
+                .background(bg, in: RoundedRectangle(cornerRadius: 12))
+        }
     }
 }
 

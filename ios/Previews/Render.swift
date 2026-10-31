@@ -68,7 +68,8 @@ private let leaveSamples: [(String, RideState)] = [
         st.color = orange; st.label = "OL"; st.headsign = "Forest Hills"; return st }()),
     ("Walk card", leave("walk", "Departs in", countTo: now + 360, time: "7:48am", note: "At the stop ~7:45am · 3 min to spare", emoji: "🚌")),
     ("Walk card, late", leave("walk", "Departs in", countTo: now + 120, time: "7:48am", warn: true, note: "At the stop ~7:50am · 2 min late", emoji: "🚌")),
-    ("Did you get on? (at the departure)", leave("ask", "Did you get on?", time: "left 7:48am", emoji: "", island: "Got on?")),
+    ("Did you get on? (at the departure; Yes / Missed it)", { var st = leave("ask", "Did you get on?", time: "left 7:48am", emoji: "", island: "Got on?")
+        st.askDep = now - 60; return st }()),
     ("Missed (the end)", leave("gone", "Missed · left 7:48am", warn: true, right: "", emoji: "")),
     ("Ride cancelled", leave("cancelled", "Ride cancelled", right: "", note: "Open the app for the next one.", emoji: "", long: "")),
 ]
@@ -173,16 +174,17 @@ private func hent(_ head: String, _ headTime: String, warn: Bool = false) -> Wid
 }
 // A followed ride (2026-10-31): the entry's own line, arrival, note and connection.
 private func fent(_ head: String, _ headTime: String = "", warn: Bool = false, long: String = "Orange Line", headsign: String = "Oak Grove", color: String = orange,
-                  arrive: String = "arrive 7:21pm", note: String = "", then: [(String, String)] = [("Bus 132", bus)], thenText: String = "", thenWarn: Bool = false) -> LeaveContent {
+                  arrive: String = "arrive 7:21pm", note: String = "", then: [(String, String)] = [("Bus 132", bus)], thenText: String = "", thenWarn: Bool = false,
+                  dep: Double? = nil) -> LeaveContent {
     var e = WidgetView.Entry(at: 0, row: -1, title: head, count: "", warn: warn, next: "", head: head, headTime: headTime)
     e.long = long; e.headsign = headsign; e.color = color; e.arrive = arrive; e.note = note
-    e.then = then.map { RideState.ThenLeg(label: $0.0, color: $0.1) }; e.thenText = thenText; e.thenWarn = thenWarn
+    e.then = then.map { RideState.ThenLeg(label: $0.0, color: $0.1) }; e.thenText = thenText; e.thenWarn = thenWarn; e.dep = dep
     return LeaveContent(name: "Office → Home", entry: e, rows: [])
 }
 private let followSamples: [(String, LeaveContent)] = [
     ("Walking to the stop", fent("Departs in 6 min", "6:15pm", note: "At the stop ~6:13pm · 2 min to spare")),
     ("Walking, late", fent("Departs in 3 min", "6:15pm", warn: true, note: "At the stop ~6:17pm · 2 min late")),
-    ("Did you get on?", fent("Did you get on?", "left 6:15pm")),
+    ("Did you get on? (Yes / Missed it on medium)", fent("Did you get on?", "left 6:15pm", dep: now - 60)),
     ("Riding", fent("Get off in 5 stops", "9 min", thenText: "6:38pm · 4 min to spare")),
     ("Riding, tight", fent("Get off in 5 stops", "9 min", thenText: "6:38pm · tight", thenWarn: true)),
     ("Riding, missed", fent("Get off in 5 stops", "9 min", arrive: "arrive 7:41pm", thenText: "6:58pm (missed 6:38pm)", thenWarn: true)),

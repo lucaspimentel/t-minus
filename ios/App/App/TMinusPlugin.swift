@@ -19,6 +19,29 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     private var startTokenObserver: NSObjectProtocol?
+    private var answerObserver: NSObjectProtocol?
+
+    // ---------- "Did you get on?" from the card or the widget (RideState.answerURL) ----------
+
+    static let answerOpened = Notification.Name("TMinusAnswerOpened")
+    // An answer opened before the plugin loaded (a cold start), sent once it has.
+    private static var pendingAnswer: [String: Any]?
+
+    // `tminus://answer?a=yes|missed&dep=<s>` (SceneDelegate): the `answer` event { answer, dep }.
+    static func open(_ url: URL) {
+        guard url.scheme == "tminus", url.host == "answer",
+              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+              let a = items.first(where: { $0.name == "a" })?.value,
+              let dep = items.first(where: { $0.name == "dep" })?.value.flatMap(Double.init) else { return }
+        pendingAnswer = ["answer": a, "dep": dep]
+        NotificationCenter.default.post(name: answerOpened, object: nil)
+    }
+
+    private func sendPendingAnswer() {
+        guard let data = Self.pendingAnswer else { return }
+        Self.pendingAnswer = nil
+        notifyListeners("answer", data: data, retainUntilConsumed: true)
+    }
 
     override public func load() {
         // iOS changed the push-to-start token (LiveActivityObserver): the `startToken` event { token }.
@@ -26,6 +49,10 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let token = note.object as? String else { return }
             self?.notifyListeners("startToken", data: ["token": token], retainUntilConsumed: true)
         }
+        answerObserver = NotificationCenter.default.addObserver(forName: Self.answerOpened, object: nil, queue: .main) { [weak self] _ in
+            self?.sendPendingAnswer()
+        }
+        sendPendingAnswer()
     }
 
     // keepAwake({ on }): keeps the screen on while a ride is tracked (the PWA's Wake Lock).
