@@ -1149,7 +1149,7 @@ test('multi-route legs (also): config, labels, queries, vehicles', () => {
 test('rail network: station search, reachable stations per branch, legs between stations', () => {
   const net = railNetwork(JSON.parse(readFileSync('test/browser/fixtures/rail-network.json', 'utf8')),
     JSON.parse(readFileSync('test/browser/fixtures/routes.json', 'utf8')).data);
-  assert.deepEqual(net.lines.map(l => l.label), ['Red', 'Mattapan', 'Orange', 'Green B', 'Green C', 'Green D', 'Green E', 'Blue']);
+  assert.deepEqual(net.lines.map(l => l.label), ['Red', 'Mattapan', 'Orange', 'Green B', 'Green C', 'Green D', 'Green E', 'Blue', 'CR Haverhill']);
   assert.deepEqual(networkStation(net, '70036')?.id, 'place-ogmnl'); // a platform
   assert.equal(networkStation(net, '5991'), null); // a bus stop
   assert.deepEqual(searchStations(net, 'park').map(s => s.name).slice(0, 1), ['Park Street']);
@@ -1157,8 +1157,8 @@ test('rail network: station search, reachable stations per branch, legs between 
   assert.ok(railStopsFrom(net).find(l => l.route === 'Orange').stops.some(s => s.id === 'place-ogmnl'));
 
   const brief = groups => groups.map(g => [g.label, g.direction, g.toward.join('/'), g.stations.length]);
-  // Oak Grove: the end of the line, one way.
-  assert.deepEqual(brief(reachableFrom(net, 'place-ogmnl')), [['Orange', 0, 'Forest Hills', 19]]);
+  // Oak Grove: the end of the Orange Line, one way; the Haverhill Line both ways.
+  assert.deepEqual(brief(reachableFrom(net, 'place-ogmnl')), [['Orange', 0, 'Forest Hills', 19], ['CR Haverhill', 0, 'Haverhill', 12], ['CR Haverhill', 1, 'North Station', 2]]);
   // JFK/UMass southbound: both branches in one group; Ashmont never reaches Quincy.
   const jfk = reachableFrom(net, 'place-jfk');
   assert.deepEqual(brief(jfk)[0], ['Red', 0, 'Braintree/Ashmont', 9]);
