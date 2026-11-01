@@ -6,9 +6,9 @@ import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
-  reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP,
+  reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=722ce279ca';
+} from './core.js?v=ba1c01f69b';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -20,7 +20,10 @@ let routesPromise = null;
 const stopDocs = new Map(); // stopsKey → /stops doc (trip order, with child_stops; trimmed)
 // The subway and light-rail network (railNetwork): station-first legs and the connections shown
 // in the drop-off lists. One request.
-const RAIL_KEY = 't-minus:rail-network';
+// Kept copies' keys: ":2" since commuter rail joined (2026-11-01); the older copies are removed.
+const RAIL_KEY = 't-minus:rail-network:2';
+const ROUTES_KEY = 't-minus:routes:2';
+try { localStorage.removeItem('t-minus:rail-network'); localStorage.removeItem('t-minus:routes'); } catch { /* storage off */ }
 const SAVED_TTL = 7 * 24 * 60 * 60_000;
 
 // Data kept on the phone (localStorage `{ at, data }`): the saved copy at once, and past `ttl`
@@ -115,10 +118,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let listMessages = [];
   let busy = false;
 
-  const loadRoutes = () => (routesPromise ??= keptCopy('t-minus:routes', SAVED_TTL, () => api('/routes', {
-    'filter[type]': '0,1,3',
+  const loadRoutes = () => (routesPromise ??= keptCopy(ROUTES_KEY, SAVED_TTL, () => api('/routes', {
+    'filter[type]': '0,1,2,3',
     'fields[route]': 'short_name,long_name,type,color,direction_names,direction_destinations,sort_order',
-  }).then(doc => doc.data)).catch(e => { routesPromise = null; throw e; }));
+  }).then(doc => doc.data.filter(r => !EXCLUDED_ROUTES.has(r.id)))).catch(e => { routesPromise = null; throw e; }));
 
   async function loadStops(route, direction) {
     const key = stopsKey(route, direction);
@@ -133,14 +136,14 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     return stopDocs.get(key);
   }
 
-  // The rail network (route types 0 and 1), kept on the phone (`keptCopy`): canonical route
+  // The rail network (route types 0, 1 and 2), kept on the phone (`keptCopy`): canonical route
   // patterns with their stations in order.
   function loadRailNetwork() {
     const use = net => { railNet = net; railStops = railStopsFrom(net); return net; };
     if (railNet) return Promise.resolve(railNet);
     return (railPromise ??= keptCopy(RAIL_KEY, SAVED_TTL, () => loadRoutes()
       .then(rs => {
-        const rail = rs.filter(r => r.attributes?.type <= 1);
+        const rail = rs.filter(r => r.attributes?.type <= 2 && !EXCLUDED_ROUTES.has(r.id));
         return api('/route_patterns', {
           'filter[route]': rail.map(r => r.id).join(','), 'filter[canonical]': 'true',
           include: 'representative_trip.stops', 'fields[route_pattern]': 'direction_id', 'fields[trip]': '',
@@ -897,13 +900,13 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     if (lat == null || lon == null) return null;
     const nearby = await api('/stops', {
       'filter[latitude]': lat, 'filter[longitude]': lon, 'filter[radius]': NEARBY_RADIUS,
-      'filter[route_type]': '0,1,3', 'fields[stop]': 'name',
+      'filter[route_type]': '0,1,2,3', 'fields[stop]': 'name',
     });
     if (!nearby.data.length) return null;
     const served = await api('/routes', {
-      'filter[stop]': nearby.data.map(s => s.id).join(','), 'filter[type]': '0,1,3', 'fields[route]': 'short_name',
+      'filter[stop]': nearby.data.map(s => s.id).join(','), 'filter[type]': '0,1,2,3', 'fields[route]': 'short_name',
     });
-    return { name, lat, lon, routeIds: served.data.map(r => r.id) };
+    return { name, lat, lon, routeIds: served.data.map(r => r.id).filter(id => !EXCLUDED_ROUTES.has(id)) };
   }
 
   // "Show nearby" (first leg): the routes at stops within NEARBY_ME_METERS of `here`, with each
@@ -918,11 +921,12 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     }
     const stops = await api('/stops', {
       'filter[latitude]': here.lat, 'filter[longitude]': here.lon, 'filter[radius]': NEARBY_ME_DEGREES,
-      'filter[route_type]': '0,1,3', 'fields[stop]': 'name,latitude,longitude',
+      'filter[route_type]': '0,1,2,3', 'fields[stop]': 'name,latitude,longitude',
     });
     if (!stops.data.length) return { here, routeIds: [], dist: new Map() };
     const ids = stops.data.map(s => s.id).join(',');
-    const served = await api('/routes', { 'filter[stop]': ids, 'filter[type]': '0,1,3', 'fields[route]': 'short_name' });
+    const served = await api('/routes', { 'filter[stop]': ids, 'filter[type]': '0,1,2,3', 'fields[route]': 'short_name' });
+    served.data = served.data.filter(r => !EXCLUDED_ROUTES.has(r.id));
     let dist = new Map();
     try {
       const w = scheduleWindow(Date.now(), 0, 60);
@@ -970,8 +974,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // Line branches between Government Center and Park Street): routes at both stops, whose stop
   // list has them in order. 2 requests plus one per candidate (cached per route/direction).
   async function findAlso(route, direction, board, alight) {
-    const at = id => api('/routes', { 'filter[stop]': id, 'filter[type]': '0,1,3', 'fields[route]': 'short_name' })
-      .then(doc => new Set(doc.data.map(r => r.id)));
+    const at = id => api('/routes', { 'filter[stop]': id, 'filter[type]': '0,1,2,3', 'fields[route]': 'short_name' })
+      .then(doc => new Set(doc.data.map(r => r.id).filter(id => !EXCLUDED_ROUTES.has(id))));
     const [a, b] = await Promise.all([at(board), at(alight)]);
     const candidates = [...a].filter(id => id !== route && b.has(id));
     const ok = await Promise.all(candidates.map(id => loadStops(id, direction).then(doc => servesInOrder(doc, board, alight), () => false)));
@@ -991,8 +995,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   }
 
   // Station-first: from the picked station to `toId`, on every line that makes the ride.
-  function chooseTo(toId) {
-    const leg = legBetween(railNet, picker.from, toId);
+  function chooseTo(toId, routes = null) {
+    const leg = legBetween(railNet, picker.from, toId, routes);
     if (!leg) return;
     picker = { ...picker, route: { id: leg.route }, board: picker.from, also: leg.also.map(route => ({ route, checked: true })) };
     finishLeg(toId, leg.direction);
@@ -1176,7 +1180,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         const found = searchStops(g.stations.map(st => ({ ...st, attributes: { name: st.name } })), q);
         if (!found.length) return [];
         return [h('div', { class: 'muted section-head' }, dot(g.color), `${g.label} toward ${g.toward.join(' / ')}`),
-          ...found.map(st => h('button', { type: 'button', class: 'item', onclick: () => chooseTo(st.id) },
+          ...found.map(st => h('button', { type: 'button', class: 'item', onclick: () => chooseTo(st.id, g.routes) },
             st.name,
             g.routes.length > 1 && h('span', { class: 'muted' }, ` · ${st.routes.length < g.routes.length ? commonLabel(st.routes.map(label)) : `${g.label} (any)`}`),
             ...stationLines(st.id, g.routes)))];

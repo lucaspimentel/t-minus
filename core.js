@@ -195,9 +195,11 @@ export function routeLabel(route) {
 }
 
 // Compact label for rows and setup summaries: "Orange", "Green B", "Mattapan" for rail,
-// "Silver SL1" for the Silver Line, "Bus 132" / "Bus CT3" for other buses.
+// "CR Haverhill" for commuter rail, "Silver SL1" for the Silver Line, "Bus 132" / "Bus CT3" for
+// other buses.
 export function shortRouteLabel(route) {
   const a = route.attributes ?? {};
+  if (a.type === 2) return `CR ${(a.long_name || route.id).replace(/ Line$/, '')}`;
   if (a.type === 3 && a.short_name) return `${a.short_name.startsWith('SL') ? 'Silver' : 'Bus'} ${a.short_name}`;
   return (a.long_name || routeLabel(route)).replace(/ Line\b/, '');
 }
@@ -272,7 +274,7 @@ export function stopsAfter(stops, boardId) {
 
 // ---------- rail network (station-first legs) ----------
 
-// The subway and light-rail network from `/route_patterns?filter[canonical]=true&include=
+// The subway, light-rail and commuter rail network from `/route_patterns?filter[canonical]=true&include=
 // representative_trip.stops`: each canonical pattern's stations in order (per branch, so the Red
 // Line's Ashmont and Braintree branches stay apart), stations with their lines, and the lines'
 // labels and colors from `/routes` resources (sorted by MBTA sort order).
@@ -353,8 +355,9 @@ export function reachableFrom(net, fromId) {
   for (const p of [...net.patterns].sort((a, b) => rank(a.route) - rank(b.route))) {
     const i = p.stations.indexOf(from);
     if (i < 0 || i === p.stations.length - 1) continue;
+    // Commuter rail lines all share one color: grouped per line, not as branches of one.
     const color = line(p.route)?.color ?? p.route;
-    const key = `${color}/${p.direction}`;
+    const key = `${isCommuterRailRoute(p.route) ? p.route : color}/${p.direction}`;
     if (!groups.has(key)) groups.set(key, { key, color: line(p.route)?.color ?? null, direction: p.direction, routes: [], toward: [], stations: new Map() });
     const g = groups.get(key);
     if (!g.routes.includes(p.route)) g.routes.push(p.route);
@@ -372,12 +375,15 @@ export function reachableFrom(net, fromId) {
 }
 
 // The leg for riding from one station to another without a transfer: every route with a pattern
-// passing both in order (primary first by sort order), in that direction; null if none.
-export function legBetween(net, fromId, toId) {
+// passing both in order (primary first by sort order), in that direction; null if none. `only`:
+// the routes of the group picked from (North Station to Malden Center is the Orange Line or the
+// Haverhill Line, whichever list the station was tapped in).
+export function legBetween(net, fromId, toId, only = null) {
   const from = networkStation(net, fromId)?.id ?? fromId;
   const to = networkStation(net, toId)?.id ?? toId;
   const rank = id => net.lines.findIndex(l => l.id === id);
   const ok = net.patterns
+    .filter(p => !only || only.includes(p.route))
     .filter(p => { const i = p.stations.indexOf(from); return i >= 0 && p.stations.indexOf(to) > i; })
     .sort((a, b) => rank(a.route) - rank(b.route));
   if (!ok.length) return null;
@@ -469,8 +475,9 @@ export function optionToForm(option, fromName, toName, walkBefore, walkAfter) {
 
 // ---------- auto-route with buses (the server's network) ----------
 
-// Typical speeds (km/h) for hops with no midday schedule: bus, light rail, subway (route types 3, 0, 1).
-const HOP_KMH = { 3: 13, 0: 18, 1: 30 };
+// Typical speeds (km/h) for hops with no midday schedule: bus, light rail, subway, commuter rail
+// (route types 3, 0, 1, 2).
+const HOP_KMH = { 3: 13, 0: 18, 1: 30, 2: 60 };
 export const WALK_TRANSFER_METERS = 250;
 const WALK_M_PER_MIN = 80;
 const SAME_STOP_TRANSFER_MIN = 3;
@@ -500,7 +507,7 @@ export function nextWeekday(nowMs) {
   }
 }
 
-// The planning network from /routes (types 0,1,3), /route_patterns (include=representative_trip.stops)
+// The planning network from /routes (types 0,1,2,3), /route_patterns (include=representative_trip.stops)
 // and a midday /schedules sample of the same routes:
 // { routes: { id: { label, color, type, dest } }, stops: { id: { id, name, lat, lon, parent } },
 //   stations: { id: { id, name, lat, lon } },
@@ -537,11 +544,15 @@ export function transitNetwork(routesDoc, patternsDoc, schedulesDoc) {
   // Median minutes per consecutive stop pair (by trip, in stop_sequence order).
   const byTrip = new Map();
   const deps = new Map(); // route@stop → departures in the sample
+  const seen = new Set(); // a commuter rail trip on two routes is listed once per route
   for (const s of schedulesDoc?.data ?? []) {
     const trip = s.relationships?.trip?.data?.id;
     const stop = s.relationships?.stop?.data?.id;
     const route = s.relationships?.route?.data?.id;
     if (route && stop && s.attributes?.departure_time) deps.set(`${route}@${stop}`, (deps.get(`${route}@${stop}`) ?? 0) + 1);
+    const once = `${trip}|${stop}|${s.attributes?.stop_sequence}`;
+    if (seen.has(once)) continue;
+    seen.add(once);
     const t = Date.parse(s.attributes?.departure_time ?? s.attributes?.arrival_time ?? '');
     if (!trip || !stop || !Number.isFinite(t)) continue;
     if (!byTrip.has(trip)) byTrip.set(trip, []);
@@ -1335,10 +1346,18 @@ const toMs = s => (s ? Date.parse(s) : null);
 export function mergeTrips(predictionsDoc, schedulesDoc) {
   const parents = parentMapOf(predictionsDoc, schedulesDoc);
   const headsigns = new Map();
+  const names = new Map(); // trip → train number ("2317", commuter rail)
+  const codes = new Map(); // stop → platform code ("5": Track 5)
   for (const doc of [schedulesDoc, predictionsDoc]) {
-    for (const inc of doc?.included ?? []) if (inc.type === 'trip' && inc.attributes?.headsign) headsigns.set(inc.id, inc.attributes.headsign);
+    for (const inc of doc?.included ?? []) {
+      if (inc.type === 'trip' && inc.attributes?.headsign) headsigns.set(inc.id, inc.attributes.headsign);
+      if (inc.type === 'trip' && inc.attributes?.name) names.set(inc.id, inc.attributes.name);
+      if (inc.type === 'stop' && inc.attributes?.platform_code) codes.set(inc.id, inc.attributes.platform_code);
+    }
   }
   const trips = new Map();
+  // A commuter rail trip on two routes (Franklin and Providence) comes once per route: both
+  // records land on the same trip and stop, so the trip is counted once.
   const put = (rec, source) => {
     const tripId = rec.relationships?.trip?.data?.id;
     const stopId = rec.relationships?.stop?.data?.id;
@@ -1346,8 +1365,11 @@ export function mergeTrips(predictionsDoc, schedulesDoc) {
     const a = rec.attributes ?? {};
     let stops = trips.get(tripId);
     if (!stops) trips.set(tripId, (stops = new Map()));
-    stops.route ??= rec.relationships?.route?.data?.id; // the trip's route (legs with `also`)
+    const route = rec.relationships?.route?.data?.id;
+    stops.route ??= route; // the trip's route (legs with `also`)
+    if (route) (stops.routes ??= new Set()).add(route);
     stops.headsign ??= headsigns.get(tripId);
+    stops.train ??= names.get(tripId);
     if (source === 'live' && a.schedule_relationship === 'ADDED') stops.added = true; // not in the schedules
     if (source === 'live' && (a.schedule_relationship === 'SKIPPED' || a.schedule_relationship === 'CANCELLED')) {
       stops.set(stopId, { cancelled: true });
@@ -1358,6 +1380,23 @@ export function mergeTrips(predictionsDoc, schedulesDoc) {
     const dep = toMs(a.departure_time);
     if (arr == null && dep == null) return;
     const entry = { arr, dep, source };
+    if (source === 'scheduled') {
+      // Boarding and getting off (GTFS pickup_type / drop_off_type: 1 none, 3 tell the crew).
+      Object.assign(entry, { stopId, ...(a.pickup_type && { pickup: a.pickup_type }), ...(a.drop_off_type && { dropOff: a.drop_off_type }) });
+    } else {
+      // Predictions don't carry them: from the scheduled entry this one replaces. The track is
+      // a real-time assignment only where the schedule names no platform (North Station's
+      // "BNT-0000" until the train is given "BNT-0000-05"); where the schedule's stop already
+      // is a platform ("Track 1 (All Trains)"), it's no news.
+      const prev = stops.get(parents.get(stopId) ?? stopId);
+      const schedStop = prev?.source === 'scheduled' ? prev.stopId : prev?.schedStop;
+      if (prev?.pickup) entry.pickup = prev.pickup;
+      if (prev?.dropOff) entry.dropOff = prev.dropOff;
+      if (schedStop) {
+        entry.schedStop = schedStop;
+        if (codes.get(stopId) && !codes.get(schedStop)) entry.track = codes.get(stopId);
+      }
+    }
     stops.set(stopId, entry);
     if (parents.has(stopId)) stops.set(parents.get(stopId), entry);
   };
@@ -1367,23 +1406,39 @@ export function mergeTrips(predictionsDoc, schedulesDoc) {
   return trips;
 }
 
+// A commuter rail vehicle's train number, track (assigned at the board stop) and flag stops.
+function trainFacts(route, stops, board, alight) {
+  if (!isCommuterRailRoute(route)) return {};
+  const flag = [board?.pickup === 3 && 'board', alight?.dropOff === 3 && 'alight'].filter(Boolean);
+  return {
+    ...(stops?.train && { train: stops.train }), ...(board?.track && { track: board.track }),
+    ...(flag.length && { flag: flag.length === 2 ? 'both' : flag[0] }),
+  };
+}
+export const FLAGS = ['board', 'alight', 'both'];
+
 const depOf = e => e?.dep ?? e?.arr ?? null;
 const arrOf = e => e?.arr ?? e?.dep ?? null;
 const usable = e => e && !e.cancelled;
 
 // Vehicles for one transit leg, sorted by departure: `{ tripId, dep, arr, source, route? }` where
 // `dep` is at the leg's board stop and `arr` at its alight stop. The source is the board
-// stop's: that's the time the rider has to catch.
+// stop's: that's the time the rider has to catch. A trip that doesn't pick up at the board stop
+// (or let off at the alight stop) is left out. Commuter rail also gets `train` ("2317"),
+// `track` (assigned at the board stop) and `flag` ('board' / 'alight' / 'both': a flag stop).
 export function legVehicles(tripsMap, leg) {
   const out = [];
+  const own = new Set(legRoutes(leg));
   for (const [tripId, stops] of tripsMap) {
     const board = stops.get(leg.stop);
     const alight = stops.get(leg.alight);
     if (!usable(board) || !usable(alight)) continue;
+    if (board.pickup === 1 || alight.dropOff === 1) continue;
     const dep = depOf(board);
     const arr = arrOf(alight);
     if (dep == null || arr == null || arr <= dep) continue;
-    out.push({ tripId, dep, arr, source: board.source, ...(stops.route && { route: stops.route }), ...(stops.headsign && { headsign: stops.headsign }), ...(stops.added && { added: true }) });
+    const route = [...(stops.routes ?? [])].find(r => own.has(r)) ?? stops.route;
+    out.push({ tripId, dep, arr, source: board.source, ...(route && { route }), ...(stops.headsign && { headsign: stops.headsign }), ...(stops.added && { added: true }), ...trainFacts(route ?? leg.route, stops, board, alight) });
   }
   return out.sort((a, b) => a.dep - b.dep);
 }
@@ -1430,6 +1485,11 @@ export function withRemembered(vehiclesByLeg, memory, nowMs) {
 // Subway (heavy and light rail: route types 1 and 0) by the MBTA's fixed route ids.
 export const isSubwayRoute = id => /^(Red|Orange|Blue|Mattapan|Green-[BCDE])$/.test(id);
 const isSubwayLeg = leg => legRoutes(leg).every(isSubwayRoute);
+// Commuter rail (route type 2) by its route ids ("CR-Haverhill").
+export const isCommuterRailRoute = id => /^CR-/.test(id ?? '');
+// Routes left out of every list: Foxboro Event Service runs only for stadium events (fare class
+// "Special"), and its name has no " Line" to label it by.
+export const EXCLUDED_ROUTES = new Set(['CR-Foxboro']);
 
 // Subway countdowns come from predictions, not schedules (the MBTA's real-time display
 // guidelines): a running train the MBTA can't match to its scheduled trip is predicted as an
@@ -1504,6 +1564,7 @@ const rowLeg = (t, c) => ({
   ...(t.routeLabels && { routeLabels: t.routeLabels }),
   dep: c.dep, arr: c.arr, source: c.source, tripId: c.tripId, ...(c.route && { vehicleRoute: c.route }),
   ...(c.headsign && { headsign: c.headsign }), ...(c.every && { every: c.every }),
+  ...(c.train && { train: c.train }), ...(c.track && { track: c.track }), ...(c.flag && { flag: c.flag }),
 });
 
 // Departure rows for a trip. For each timing-leg vehicle, earlier legs take the latest vehicle
@@ -1565,13 +1626,19 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
 // One leg's /predictions and /schedules query (the page and the notification server).
 export const tripFields = {
   'fields[prediction]': 'arrival_time,departure_time,schedule_relationship',
-  'fields[schedule]': 'arrival_time,departure_time',
+  'fields[schedule]': 'arrival_time,departure_time,pickup_type,drop_off_type', // flag stops, no pickup
   include: 'stop,trip',
-  'fields[stop]': 'name,parent_station', // names for the timeline (stopNames)
-  'fields[trip]': 'headsign', // "toward Forest Hills"
+  'fields[stop]': 'name,parent_station,platform_code', // names for the timeline (stopNames), tracks
+  'fields[trip]': 'headsign,name', // "toward Forest Hills", the train number
 };
 export function legQuery(leg) {
   return { 'filter[route]': legRoutes(leg).join(','), 'filter[direction_id]': leg.direction_id, 'filter[stop]': `${leg.stop},${leg.alight}`, ...tripFields };
+}
+// A leg's /predictions query: also the alerts they name (per-train delays); `/schedules` refuses
+// `include=alerts` (400), so it keeps legQuery.
+export const ALERT_FIELDS = 'effect,header,short_header,severity,active_period,informed_entity';
+export function predictionQuery(leg) {
+  return { ...legQuery(leg), include: 'stop,trip,alerts', 'fields[alert]': ALERT_FIELDS };
 }
 
 // Rows straight from each transit leg's predictions and schedules documents (either may be
@@ -1632,6 +1699,24 @@ export function reminderText(kind, tripName, row, nowMs, was) {
     case 'board': return { title: boardingQuestion(row.legs[0], nowMs), body: `${tripName} · tap to answer` };
     default: return { title: `Ride cancelled · ${tripName}`, body: 'Open the app for the next one.' };
   }
+}
+
+// Track pushes for a belled commuter rail ride: per leg, the track last sent (`sent`: { [leg]:
+// track }). A leg not yet left whose assigned track differs from the one sent is the next push:
+// { push: { leg, track, was } | null, sent }. One push per poll (the next poll sends another).
+export function trackStep(sent, row, nowMs) {
+  const prev = sent ?? {};
+  const i = (row?.legs ?? []).findIndex((l, k) => l.track && l.dep > nowMs && prev[k] !== l.track);
+  if (i < 0) return { push: null, sent: prev };
+  const leg = row.legs[i];
+  return { push: { leg: i, track: leg.track, was: prev[i] ?? null }, sent: { ...prev, [i]: leg.track } };
+}
+// "Track 5" / "Now Track 7 (was 5)", with the train: "Haverhill Line toward Haverhill at 5:48pm".
+export function trackText(leg, was, nowMs) {
+  return {
+    title: was ? `Now Track ${leg.track} (was ${was})` : `Track ${leg.track}`,
+    body: `${[lineLabel(leg), toward(leg)].filter(Boolean).join(' ')} at ${legTime(leg, leg.dep, nowMs)}`,
+  };
 }
 
 // "Did you get on the 7:48am Bus 132?" (the bar, the push at departure).
@@ -1822,8 +1907,11 @@ export function trackLegs(legs, transit, tripsMaps, memory = null) {
     };
     const d = pick(board, mem?.dep ?? (leg.source === 'live' ? leg.dep : null), depOf);
     const a = pick(alight, mem?.arr ?? (leg.arrSource === 'live' ? leg.arr : null), arrOf);
+    // A track once assigned stays (predictions end when the train leaves); flags follow the schedule.
+    const facts = stops ? trainFacts(leg.vehicleRoute ?? leg.route, stops, usable(board) ? board : null, usable(alight) ? alight : null) : {};
     return {
       ...leg,
+      ...facts,
       ...(d && { dep: d[0], source: d[1] }),
       ...(a && { arr: a[0], arrSource: a[1] }),
       ...(d?.[1] === 'live' && { every: undefined }), // predicted now: no longer by its headway
@@ -1868,6 +1956,11 @@ export function replanFrom(vehiclesByLeg, from, nowMs, transfers, skipTripId = n
 // Remaining stops of the ridden vehicle from `/predictions?filter[trip]=…&include=stop,vehicle`:
 // `{ vehicle: { status, name, atDropOff } | null, stops: [{ id, name, time, dropOff }] }` up to the drop-off
 // (`alightId`, or a child platform of it), or null if the drop-off isn't listed.
+// A commuter rail trip on two routes lists each stop twice (once per route): keep one.
+function onceEach(p, i, all) {
+  return all.findIndex(q => q.seq === p.seq && q.id === p.id) === i;
+}
+
 export function rideStops(doc, alightId, nowMs) {
   const inc = new Map((doc?.included ?? []).map(x => [`${x.type}/${x.id}`, x]));
   const stopOf = id => inc.get(`stop/${id}`);
@@ -1880,6 +1973,7 @@ export function rideStops(doc, alightId, nowMs) {
       vehicleId: p.relationships?.vehicle?.data?.id,
     }))
     .filter(p => p.id && p.time != null)
+    .filter(onceEach)
     .sort((a, b) => a.seq - b.seq);
   const isDropOff = id => id === alightId || stopOf(id)?.relationships?.parent_station?.data?.id === alightId;
   const end = preds.findIndex(p => isDropOff(p.id));
@@ -1915,6 +2009,7 @@ export function tripStopCount(doc, board, alight) {
   const ids = (doc?.data ?? [])
     .map(r => ({ id: r.relationships?.stop?.data?.id, seq: r.attributes?.stop_sequence }))
     .filter(r => r.id && Number.isFinite(r.seq))
+    .filter(onceEach)
     .sort((a, b) => a.seq - b.seq)
     .map(r => r.id);
   const is = (id, want) => id === want || parents.get(id) === want;
@@ -2083,6 +2178,8 @@ export function checkRide(trip, ride, nowMs) {
     if (!Number.isFinite(l.dep) || !Number.isFinite(l.arr) || l.arr < l.dep) return 'ride leg times are invalid';
     if (l.every != null && (typeof l.every !== 'string' || l.every.length > 10)) return 'ride leg every is invalid';
     for (const k of ['label', 'route', 'headsign', 'vehicleRoute']) if (l[k] != null && (typeof l[k] !== 'string' || l[k].length > 100)) return `ride leg ${k} is invalid`;
+    for (const k of ['track', 'train']) if (l[k] != null && (typeof l[k] !== 'string' || l[k].length > 10)) return `ride leg ${k} is invalid`;
+    if (l.flag != null && !FLAGS.includes(l.flag)) return 'ride leg flag is invalid';
   }
   if (!Number.isFinite(ride.boardedAt)) return 'ride.boardedAt is invalid';
   const end = legs[n - 1].arr;
@@ -2107,7 +2204,7 @@ export function shownStops(stops, expanded = false) {
 
 // Copies a vehicle's trip and times onto a planned leg.
 // A new vehicle on a leg is no longer the one the rider picked (callers that pick set `picked`).
-export const onVehicle = ({ picked: _, ...leg }, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined, vehicleRoute: v.route, headsign: v.headsign, every: v.every });
+export const onVehicle = ({ picked: _, ...leg }, v) => ({ ...leg, tripId: v.tripId, dep: v.dep, arr: v.arr, source: v.source, arrSource: undefined, vehicleRoute: v.route, headsign: v.headsign, every: v.every, train: v.train, track: v.track, flag: v.flag });
 
 // A leg's time for display: "~7:56am" on a subway leg shown by its headway (no predictions).
 export const legTime = (leg, ms, nowMs) => `${leg?.every ? '~' : ''}${formatTime(ms, nowMs)}`;
@@ -2119,9 +2216,13 @@ export const sourceText = leg => (leg.every ? `every ${leg.every} min` : leg.sou
 export const vehicleLabel = leg => leg.routeLabels?.[leg.vehicleRoute] ?? leg.label;
 
 // The vehicle's line in full for the timeline, the ride card and pushes: subway lines get "Line"
-// ("Orange Line", "Green Line B"); buses, the Silver Line and the Mattapan Trolley are as labeled.
+// ("Orange Line", "Green Line B"); commuter rail its line name ("CR Haverhill" → "Haverhill
+// Line"; a leg several lines share, "CR", → "Commuter Rail"); buses, the Silver Line and the
+// Mattapan Trolley are as labeled.
 export function lineLabel(leg) {
   const l = vehicleLabel(leg) ?? '';
+  if (l === 'CR') return 'Commuter Rail';
+  if (/^CR /.test(l)) return `${l.slice(3)} Line`;
   return /^(Red|Orange|Blue|Green)( |$)/.test(l) ? l.replace(/^(\w+)/, '$1 Line') : l;
 }
 // "toward Forest Hills" from the trip's headsign ('' without one).
@@ -2130,7 +2231,12 @@ export const toward = leg => (leg.headsign ? `toward ${leg.headsign}` : '');
 // Forest Hills"; the vehicle alone without a headsign. `label`: the leg's own (the
 // card's strip names a several-route leg by what its routes share, "Green").
 export const vehicleArrow = (leg, label = vehicleLabel(leg)) => [label ?? '', leg.headsign && `→ ${leg.headsign}`].filter(Boolean).join(' ');
-const lineToward = leg => [lineLabel(leg), toward(leg)].filter(Boolean).join(' ');
+// The line with its assigned track, before the headsign so a cut line keeps it ("Haverhill Line
+// · Track 5 toward Haverhill"; the cards' "→ Haverhill" is what gets cut).
+export const withTrack = leg => [lineLabel(leg), leg.track && `Track ${leg.track}`].filter(Boolean).join(' · ');
+// "Flag stop" (tell the crew) for a leg boarded (`at` 'board') or left (`at` 'alight') at one.
+export const flagStop = (leg, at) => (leg?.flag === at || leg?.flag === 'both' ? 'Flag stop' : '');
+const lineToward = leg => [withTrack(leg), toward(leg)].filter(Boolean).join(' ');
 // In the transfer, where the headline already names the vehicle and its time: "Toward Redstone",
 // or the line ("Orange Line") without a headsign.
 const towardOnly = leg => (leg.headsign ? `Toward ${leg.headsign}` : lineLabel(leg));
@@ -2374,9 +2480,10 @@ export function pollIntervalMs(rows, nowMs, riding = false) {
 
 // ---------- Live Activity (the iOS app's Lock Screen card for a tracked ride) ----------
 
-// The Dynamic Island's route label: "OL" / "RL" / "BL", "GL B", "132", "SL1", "M".
+// The Dynamic Island's route label: "OL" / "RL" / "BL", "GL B", "132", "SL1", "M", "CR".
 export function islandLabel(leg) {
   const l = vehicleLabel(leg) ?? '';
+  if (/^CR( |$)/.test(l)) return 'CR';
   const sub = l.match(/^(Red|Orange|Blue|Green)\b(?: (\w+))?/);
   if (sub) return `${sub[1][0]}L${sub[2] ? ` ${sub[2]}` : ''}`;
   if (/^(Bus|Silver) /.test(l)) return l.replace(/^(Bus|Silver) /, '');
@@ -2471,18 +2578,19 @@ function rideCardFields(ride, legs, phase, stops, outlook, eta, nowMs) {
     head: '', countTo: 0, countAfter: false, headTime: '', long: '', headsign: '', right: '', note: '', emoji: '', islandText: '',
     then: [], thenText: '', nextWarn: false,
   };
-  const line = leg => Object.assign(out, { long: lineLabel(leg), headsign: leg.headsign ?? '', right: arrive, emoji: modeEmoji(leg) });
+  const line = (leg, long) => Object.assign(out, { long, headsign: leg.headsign ?? '', right: arrive, emoji: modeEmoji(leg) });
   const missedDep = outlook && (outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null));
   switch (phase.kind) {
     case 'riding': {
       const leg = legs[phase.leg];
-      line(leg);
+      line(leg, [lineLabel(leg), flagStop(leg, 'alight')].filter(Boolean).join(' · '));
       const n = stops?.stops.length ?? 0;
       const cue = n ? getOffText(stops) : null;
       if (cue === 'Get off here') Object.assign(out, { head: cue, islandText: 'here' });
       else if (cue) Object.assign(out, { head: 'Get off next stop', countTo: Math.round(leg.arr / 1000), countAfter: true, islandText: 'next' });
       else if (n) Object.assign(out, { head: `Get off in ${stopCountText(n)}`, countTo: Math.round(leg.arr / 1000), countAfter: true, islandText: stopCountText(n) });
       else Object.assign(out, { head: 'Get off in', countTo: Math.round(leg.arr / 1000) });
+      out.note = trainAlert(leg);
       if (outlook?.none) Object.assign(out, { thenText: `No connection after ${t(outlook.needed)}`, nextWarn: true });
       else if (outlook) {
         const next = outlook.legs[outlook.leg];
@@ -2502,10 +2610,11 @@ function rideCardFields(ride, legs, phase, stops, outlook, eta, nowMs) {
         Object.assign(out, { head: `No connection after ${t(outlook.needed)}`, note: 'Open the app for another way.' });
         break;
       }
-      line(leg);
+      line(leg, withTrack(leg));
       Object.assign(out, { head: `${vehicleLabel(leg)} in`, countTo: Math.round(leg.dep / 1000), headTime: legTime(leg, leg.dep, nowMs) });
       if (missedDep != null) out.note = `Missed the ${t(missedDep)}`;
       else if (outlook) out.note = outlook.margin < 2 * MIN ? 'tight' : `${formatCountdown(outlook.margin)} to spare`;
+      else out.note = trainAlert(leg);
       break;
     }
     case 'walking':
@@ -2536,9 +2645,10 @@ export function leavePhase(row, nowMs) {
   return 'gone';
 }
 // The compact island's emoji past the leave-by, by mode: 🚌 bus (and the Silver Line), 🚇 subway,
-// 🚊 light rail (the Green Line, the Mattapan Trolley).
+// 🚊 light rail (the Green Line, the Mattapan Trolley), 🚆 commuter rail.
 export function modeEmoji(leg) {
   const l = vehicleLabel(leg) ?? '';
+  if (/^CR( |$)/.test(l)) return '🚆';
   if (/^(Red|Orange|Blue)\b/.test(l)) return '🚇';
   if (/^Green\b/.test(l) || l === 'Mattapan') return '🚊';
   return /^(Bus|Silver) /.test(l) ? '🚌' : '';
@@ -2555,7 +2665,7 @@ function leaveCardBase(row, nowMs) {
     phase: '', warn: false, color: first.color ?? '', label: islandLabel(first), title: '', until: 0, stops: -1,
     sub: lineToward(first), next: '', legs: row.legs.map(l => ({ color: l.color ?? '', dep: Math.round(l.dep / 1000), arr: Math.round(l.arr / 1000) })),
     island: '', join: ' ',
-    head: '', countTo: 0, headTime: '', long: lineLabel(first), headsign: first.headsign ?? '', right: '', note: '', emoji: '',
+    head: '', countTo: 0, headTime: '', long: withTrack(first), headsign: first.headsign ?? '', right: '', note: '', emoji: '',
     // The later legs (2026-10-31): "then ● Bus 132", as the medium widget.
     then: row.legs.slice(1).map(l => ({ label: vehicleLabel(l) ?? '', color: l.color ?? '' })), thenText: '',
   };
@@ -2567,11 +2677,11 @@ const withSoon = (out, nowMs) => Object.assign(out, { soon: out.until > 0 && out
 // 7 min · 7:48am").
 const leaveHead = (row, nowMs, was) => ({
   head: 'Leave in', countTo: Math.round(row.leaveBy / 1000), headTime: formatTime(row.leaveBy, nowMs), right: `arrive ${etaTime(row, nowMs)}`,
-  note: was == null ? '' : `Moved (was ${formatTime(was, nowMs)})`, emoji: WALK_EMOJI,
+  note: was == null ? trainAlert(row.legs[0]) : `Moved (was ${formatTime(was, nowMs)})`, emoji: WALK_EMOJI,
 });
 const departsHead = (row, nowMs) => ({
   head: 'Departs in', countTo: Math.round(row.firstDep / 1000), headTime: legTime(row.legs[0], row.firstDep, nowMs),
-  right: `arrive ${etaTime(row, nowMs)}`, emoji: modeEmoji(row.legs[0]),
+  right: `arrive ${etaTime(row, nowMs)}`, emoji: modeEmoji(row.legs[0]), note: trainAlert(row.legs[0]),
 });
 // `was`: the leave-by last notified before it moved (amber until the next change).
 export function leaveActivityState(row, nowMs, { was = null } = {}) {
@@ -2804,7 +2914,7 @@ export function widgetView(tripName, rows, nowMs, follow = null) {
     const approx = r.legs.some(l => l.every) ? '~' : '';
     return {
       time: t(r.leaveBy), vehicle: vehicleLabel(first) ?? '', short: vehicleLabel(first), color: first.color ?? '', label: islandLabel(first),
-      line: vehicleArrow(first), long: lineLabel(first), headsign: first.headsign ?? '', arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
+      line: vehicleArrow(first), long: withTrack(first), headsign: first.headsign ?? '', arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
       then: r.legs.slice(1).map(l => ({ label: vehicleLabel(l) ?? '', color: l.color ?? '' })),
     };
   });
@@ -2937,21 +3047,57 @@ export function childToParentMap(...docs) {
   return parentMapOf(...docs);
 }
 
+const alertActive = (at, nowMs) => ALERT_EFFECTS.has(at.effect) && (at.active_period ?? []).some(p =>
+  (p.start == null || Date.parse(p.start) <= nowMs) && (p.end == null || Date.parse(p.end) > nowMs));
+
+// The line's alerts: one naming a trip ("Train 2501 is 10 min late") is that train's
+// (tripAlerts), not the line's.
 export function filterAlerts(alertsDoc, routes, stops, nowMs) {
   const out = [];
   for (const a of alertsDoc?.data ?? []) {
     const at = a.attributes ?? {};
-    if (!ALERT_EFFECTS.has(at.effect)) continue;
-    const active = (at.active_period ?? []).some(p =>
-      (p.start == null || Date.parse(p.start) <= nowMs) && (p.end == null || Date.parse(p.end) > nowMs));
-    if (!active) continue;
+    if (!alertActive(at, nowMs)) continue;
     const relevant = (at.informed_entity ?? []).some(e =>
-      e.route && routes.has(e.route) && (!e.stop || stops.has(e.stop)));
+      !e.trip && e.route && routes.has(e.route) && (!e.stop || stops.has(e.stop)));
     if (!relevant) continue;
     out.push({ id: a.id, effect: at.effect, header: at.short_header || at.header, severity: at.severity });
   }
   return out.sort((x, y) => (y.severity ?? 0) - (x.severity ?? 0));
 }
+
+// Per-train alerts by trip id, from `/alerts` documents (`data`) and `/predictions` documents
+// with `include=alerts` (`included`): Map<tripId, [{ id, effect, header, severity }]>, most
+// severe first.
+export function tripAlerts(docs, nowMs) {
+  const seen = new Set();
+  const out = new Map();
+  for (const doc of docs ?? []) {
+    for (const a of [...(doc?.data ?? []), ...(doc?.included ?? [])]) {
+      if (a?.type !== 'alert' || seen.has(a.id)) continue;
+      seen.add(a.id);
+      const at = a.attributes ?? {};
+      if (!alertActive(at, nowMs)) continue;
+      const entry = { id: a.id, effect: at.effect, header: at.short_header || at.header, severity: at.severity };
+      for (const trip of new Set((at.informed_entity ?? []).map(e => e.trip).filter(Boolean))) {
+        if (!out.has(trip)) out.set(trip, []);
+        out.get(trip).push(entry);
+      }
+    }
+  }
+  for (const list of out.values()) list.sort((x, y) => (y.severity ?? 0) - (x.severity ?? 0));
+  return out;
+}
+// A row (or ride) with each leg's train alerts (`alerts`: up to 2 headers; one no longer
+// active is dropped, as a ride keeps the legs it was given).
+export function withTripAlerts(row, byTrip) {
+  if (!row?.legs) return row;
+  return { ...row, legs: row.legs.map(({ alerts: _, ...l }) => {
+    const list = byTrip?.get(l.tripId);
+    return list?.length ? { ...l, alerts: list.slice(0, 2).map(a => a.header) } : l;
+  }) };
+}
+// The card's note for a leg's train alert ('' none).
+const trainAlert = leg => leg?.alerts?.[0] ?? '';
 
 // ---------- formatting ----------
 

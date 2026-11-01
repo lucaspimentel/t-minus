@@ -1,0 +1,545 @@
+{
+ "data": [
+  {
+   "type": "stop",
+   "id": "place-WR-0329",
+   "attributes": {
+    "latitude": 42.773474,
+    "longitude": -71.086237,
+    "name": "Haverhill"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0329",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0329-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0329-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0329-B",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0325",
+   "attributes": {
+    "latitude": 42.766912,
+    "longitude": -71.088411,
+    "name": "Bradford"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0325",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0325-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0325-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0325-B",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0264",
+   "attributes": {
+    "latitude": 42.701806,
+    "longitude": -71.15198,
+    "name": "Lawrence"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0264-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0264-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0264-B2",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0228",
+   "attributes": {
+    "latitude": 42.658336,
+    "longitude": -71.144502,
+    "name": "Andover"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0228-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0228-B0",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0228-B1",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0205",
+   "attributes": {
+    "latitude": 42.627356,
+    "longitude": -71.159962,
+    "name": "Ballardvale"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0205-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0205-B0",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0205-B1",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0205-B2",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0163",
+   "attributes": {
+    "latitude": 42.571073,
+    "longitude": -71.160939,
+    "name": "North Wilmington"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0163-B0",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0163-B1",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0163-S",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0120",
+   "attributes": {
+    "latitude": 42.52221,
+    "longitude": -71.108294,
+    "name": "Reading"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0120-B",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0120-S",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0099",
+   "attributes": {
+    "latitude": 42.502126,
+    "longitude": -71.075566,
+    "name": "Wakefield"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0099",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0099-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0099-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0099-B0",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0099-B1",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0085",
+   "attributes": {
+    "latitude": 42.483005,
+    "longitude": -71.067247,
+    "name": "Greenwood"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0085",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0085-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0085-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0085-B0",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0085-B1",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0075",
+   "attributes": {
+    "latitude": 42.469464,
+    "longitude": -71.068297,
+    "name": "Melrose Highlands"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0075",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0075-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0075-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0075-B0",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0075-B1",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0075-B2",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0067",
+   "attributes": {
+    "latitude": 42.458768,
+    "longitude": -71.069789,
+    "name": "Melrose/Cedar Park"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0067",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0067-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0067-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0067-B0",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0067-B1",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-WR-0062",
+   "attributes": {
+    "latitude": 42.451731,
+    "longitude": -71.069379,
+    "name": "Wyoming Hill"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "WR-0062",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0062-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0062-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0062-B0",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0062-B1",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0062-B2",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0062-B3",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-ogmnl",
+   "attributes": {
+    "latitude": 42.43668,
+    "longitude": -71.071097,
+    "name": "Oak Grove"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70036",
+       "type": "stop"
+      },
+      {
+       "id": "9328",
+       "type": "stop"
+      },
+      {
+       "id": "Oak Grove-01",
+       "type": "stop"
+      },
+      {
+       "id": "Oak Grove-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0053-S",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-mlmnl",
+   "attributes": {
+    "latitude": 42.426632,
+    "longitude": -71.07411,
+    "name": "Malden Center"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "5072",
+       "type": "stop"
+      },
+      {
+       "id": "5327",
+       "type": "stop"
+      },
+      {
+       "id": "53270",
+       "type": "stop"
+      },
+      {
+       "id": "70034",
+       "type": "stop"
+      },
+      {
+       "id": "70035",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0045-S",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "place-north",
+   "attributes": {
+    "latitude": 42.365577,
+    "longitude": -71.06129,
+    "name": "North Station"
+   },
+   "relationships": {
+    "child_stops": {
+     "data": [
+      {
+       "id": "70026",
+       "type": "stop"
+      },
+      {
+       "id": "70027",
+       "type": "stop"
+      },
+      {
+       "id": "70205",
+       "type": "stop"
+      },
+      {
+       "id": "70206",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-01",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-02",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-03",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-04",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-05",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-06",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-07",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-08",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-09",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-10",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-B1",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000-B2",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

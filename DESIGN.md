@@ -42,7 +42,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Departures shown | Next `departureCount` departures (config, 1-8, default 4) |
 | Config editing | Full-screen setup view (gear button) with route and stop pickers (no direction step); JSON only via Export/Import |
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
-| Deferred | See `TODO.md` (default times estimated from stop coordinates, commuter rail/ferry) |
+| Deferred | See `TODO.md` (default times estimated from stop coordinates, ferry) |
 
 ## Surface wording (2026-10-27)
 
@@ -63,6 +63,13 @@ ones):
 | App card leg strip | "Orange" | none (the expanded row has it) |
 | Widget Home Screen (small, medium; 2026-10-29) | "Orange Line" | "toward Forest Hills" ("→" where it doesn't fit) |
 | Connection lines ("then ● Bus 132"), Dynamic Island | "Orange" | none |
+
+Commuter rail (2026-11-01) follows the same two forms: "Haverhill Line" on text lines,
+"CR Haverhill" where tight, "CR" as the compact island badge, 🚆. Its assigned track goes before
+the headsign so a cut line keeps it: "Haverhill Line · Track 5 toward Haverhill" ("→ Haverhill"
+on the cards and widget). The train number ("Train 2317 · Track 5") is in the expanded row only;
+a flag stop reads "Malden Center · Flag stop" there and "Haverhill Line · Flag stop" on the ride
+card. See "Commuter rail".
 
 Later legs keep their headsign in the expanded row only; no headsign: the vehicle alone ("Bus
 132"). Red, Blue and Green follow Orange ("Green Line B" / "Green B"). The Dynamic Island's
@@ -1570,6 +1577,61 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 - **Previews:** the `ios` workflow also renders `widget-<theme>.png` (the leave-time samples and
   every followed state, small and medium).
 
+## Commuter rail (2026-11-01)
+
+Commuter rail (route type 2) is a mode like the others: setup's route and station lists, the
+rail network (`loadRailNetwork`: canonical patterns, one per branch, all stops), nearby, and the
+planner's network (`/api/plan`, `HOP_KMH` 60 km/h without a midday sample) ask for types
+`0,1,2,3`. Its stations share the subway's parent ids (`place-north`, `place-sstat`,
+`place-bbsta`, `place-mlmnl`), so transfers need nothing new. Excluded everywhere:
+`CR-Foxboro` (Foxboro Event Service: stadium events only, fare class "Special";
+`EXCLUDED_ROUTES`). The first-leg default list stays the subway (twelve lines would bury it);
+commuter rail comes up by typing a station or line. All lines share one color, so a station's
+next-leg groups are per line for commuter rail (`reachableFrom`), not per color, and a station
+tapped in a group rides that group's line (`legBetween`'s `only`: North Station to Malden Center
+is the Orange Line or the Haverhill Line, by the list it was tapped in). Setup's kept
+copies are keyed `t-minus:routes:2` and `t-minus:rail-network:2` (the older, rail-only copies
+are removed).
+
+- **Timing:** not subway (`isSubwayRoute`): schedules until predictions appear (only for trains
+  already given a vehicle, about 1-2 hours ahead), then live. The 6-hour schedule window and the
+  next-day fill cover the long gaps (every 2 hours on weekends).
+- **Two routes:** a trip can belong to two lines (a Franklin trip also on the Providence line);
+  its records land on the same trip and stop in `mergeTrips` (counted once), and the vehicle is
+  named by the leg's own route. `rideStops`, `tripStopCount` and the planner's sample skip the
+  second copy.
+- **Pickup and drop-off** (schedules' `pickup_type` / `drop_off_type`; predictions inherit the
+  schedule's): 1 at the board stop (no pickup) or at the alight stop (no drop-off) leaves the
+  trip out; 3 (tell the crew) is a flag stop: "Malden Center · Flag stop" (amber) in the
+  timeline, "Haverhill Line · Flag stop" on the ride card. Commuter rail only.
+- **Track:** the prediction's stop is the track's platform (`BNT-0000-05`, `platform_code`
+  "5") once dispatch assigns it; until then the station's no-track stop (`BNT-0000`, `NEC-2287`),
+  which is also what schedules name. A track counts only as a real-time assignment: the
+  predicted platform has a code and the scheduled stop it replaces has none. Where the
+  schedule's stop already is a platform ("Track 1 (All Trains)" at Malden Center) it's no news
+  and isn't shown. Kept on the ridden leg once assigned (`trackLegs`).
+- **Train number** (the trip's `name`, "2317"): the expanded row only.
+- **Per-train alerts** (an alert whose `informed_entity` names a `trip`, "Train 2501 is 5-10
+  minutes behind"): left out of the line's alert list (`filterAlerts`) and shown on that train's
+  expanded row and, as the `note`, on the leave and ride cards while it's the belled or ridden
+  train (another note, "Moved (was …)", wins). From the app's `/alerts` and from the predictions'
+  `include=alerts` (`predictionQuery`; `/schedules` answers 400 to it), so the server needs no
+  request of its own.
+- **Track push:** a belled ride's track, from the reminder's own predictions (no extra polling):
+  "Track 5" / "Now Track 7 (was 5)", body "Haverhill Line toward Haverhill at 7:48pm", kind
+  `track`, tag `<key>:track` (a change replaces the earlier one, not the reminder). With a leave
+  card it's the card's alert instead. Until the departure question; none while riding.
+- **Requests:** none added; the leg queries ask for `platform_code`, the trip `name`, the
+  pickup types and (predictions) the alerts as sparse fields.
+- **iOS:** every new text travels in existing fields (`label`, `emoji`, `long`, `headsign`,
+  `note`); no build needed.
+
+Ferry (route type 4, deferred; checked 2026-11-01): predictions and vehicles exist while boats
+run (East Boston, Charlestown; no vehicle label or occupancy), but ferry stops (`Boat-*`) have
+no parent stations, so no link to the subway (Long Wharf to Aquarium would be a walk by
+distance); most routes have no canonical pattern (only F6 and F7), so the rail network's query
+would miss them; and the loop routes (F6, F7, F10) don't fit two directions.
+
 ## Remaining unknowns
 
 - Daytime Orange prediction horizon (only a late-evening sample was taken). The schedule
@@ -1703,7 +1765,8 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   departures" makes a one-off trip. The walk fields read "Minutes to first stop" / "from last stop".
 - **Without the server** (unreachable, an error, or no push server configured): phase 1's
   rail-only search plans between two stations, and a bus stop says "Needs the T-Minus server.".
-- Not in phase 2: addresses (phase 3, below), commuter rail and ferry, time-aware search (a route not
+- Not in phase 2: addresses (phase 3, below), ferry (commuter rail since 2026-11-01: route
+  types 0,1,2,3, its hops at 60 km/h without a sample), time-aware search (a route not
   running now is still offered; the trip's rows then show no departures).
 
 ## Live times in the planner

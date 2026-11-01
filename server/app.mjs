@@ -6,13 +6,13 @@ import { gzipSync } from 'node:zlib';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-  validateConfig, tripShape, legQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
+  validateConfig, tripShape, legQuery, predictionQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpsDue, remHeadsUps, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep, liveActivityState,
   leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES, LIVE_SOON_MS,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
-  shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, WIDGET_ROWS, fillRows, nextServiceWindow,
+  shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, WIDGET_ROWS, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -678,11 +678,12 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   async function widgetDocs(trip, slack, t) {
     const { transit } = tripShape(trip);
     const [predictions, scheduleDocs] = await Promise.all([
-      Promise.all(transit.map(l => mbta('/predictions', legQuery(l)))),
+      Promise.all(transit.map(l => mbta('/predictions', predictionQuery(l)))),
       Promise.all(transit.map(l => mbta('/schedules', { ...legQuery(l), ...winOf(scheduleWindow(t)) }))),
     ]);
     const timing = scheduleTimingLeg(trip, scheduleDocs);
-    return { predictions, scheduleDocs, timing, rows: rowsFromDocs(trip, predictions, scheduleDocs, timing, t, slack, WIDGET_ROWS + 1) };
+    const alerts = tripAlerts(predictions, t);
+    return { predictions, scheduleDocs, timing, rows: rowsFromDocs(trip, predictions, scheduleDocs, timing, t, slack, WIDGET_ROWS + 1).map(r => withTripAlerts(r, alerts)) };
   }
 
   // The followed state now (widgetFollow), a ride with its legs refreshed by trip id, a missed
@@ -693,7 +694,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     const follow = widgetFollow(state, docs.rows, walkAfter, t);
     if (follow?.kind !== 'ride') return follow;
     const maps = transit.map((l, i) => mergeTrips(docs.predictions[i], docs.scheduleDocs[i]));
-    let ride = { ...follow.ride, legs: trackLegs(follow.ride.legs, transit, maps) };
+    let ride = withTripAlerts({ ...follow.ride, legs: trackLegs(follow.ride.legs, transit, maps) }, tripAlerts(docs.predictions, t));
     const phase = ridePhase(ride, walkAfter, t);
     const outlook = transferOutlook(ride, phase, tripVehicles(transit, maps, null, t), transfers, t);
     if (outlook?.missedDep != null) ride = { ...ride, legs: outlook.legs, missed: { leg: outlook.leg, dep: outlook.missedDep } };
@@ -778,8 +779,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
   async function buildNetwork(t) {
     const routes = await networkDoc('/routes', {
-      'filter[type]': '0,1,3', 'fields[route]': 'short_name,long_name,type,color,direction_destinations,sort_order',
+      'filter[type]': '0,1,2,3', 'fields[route]': 'short_name,long_name,type,color,direction_destinations,sort_order',
     });
+    routes.data = routes.data.filter(r => !EXCLUDED_ROUTES.has(r.id));
     const ids = routes.data.map(r => r.id).join(',');
     const patterns = await networkDoc('/route_patterns', {
       'filter[route]': ids, include: 'representative_trip.stops',
@@ -817,7 +819,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (!hit || t - hit.at >= DAY) {
       const doc = await mbta('/stops', {
         'filter[latitude]': lat, 'filter[longitude]': lon, 'filter[radius]': NEARBY_ME_DEGREES,
-        'filter[route_type]': '0,1,3', 'fields[stop]': 'name,latitude,longitude',
+        'filter[route_type]': '0,1,2,3', 'fields[stop]': 'name,latitude,longitude',
       });
       hit = remember(nearbyStopsCache, cell, { at: t, stops: doc.data }, MAX_NEARBY_STOPS);
     }
@@ -827,7 +829,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     const setKey = `${ids}@${w.date} ${w.minTime.slice(0, 2)}`;
     let set = nearbySetCache.get(setKey);
     if (!set) {
-      const routes = await mbta('/routes', { 'filter[stop]': ids, 'filter[type]': '0,1,3', 'fields[route]': 'short_name' });
+      const routes = await mbta('/routes', { 'filter[stop]': ids, 'filter[type]': '0,1,2,3', 'fields[route]': 'short_name' });
       let schedules = null;
       try {
         schedules = (await mbta('/schedules', {
@@ -835,7 +837,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
           'fields[schedule]': 'stop_sequence',
         })).data;
       } catch (e) { log(`nearby schedules: ${e.message}`); }
-      set = { routeIds: routes.data.map(r => r.id), schedules };
+      set = { routeIds: routes.data.map(r => r.id).filter(id => !EXCLUDED_ROUTES.has(id)), schedules };
       // Without schedules, not kept: the next call tries again.
       if (schedules) remember(nearbySetCache, setKey, set, MAX_NEARBY_SETS);
     }
@@ -848,7 +850,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   // Each leg's predictions, and its schedules (cached SCHEDULE_TTL) up to `until`.
   async function fetchDocs(rem, t, until) {
     const transit = tripShape(rem.trip).transit;
-    const predictions = await Promise.all(transit.map(l => mbta('/predictions', legQuery(l))));
+    const predictions = await Promise.all(transit.map(l => mbta('/predictions', predictionQuery(l))));
     let cached = schedules.get(rem.id);
     if (!cached || t - cached.at >= SCHEDULE_TTL) {
       // Wide enough to still hold the ride when it is hours away.
@@ -888,6 +890,26 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
   }
 
+  // A commuter rail track assigned (or changed) since the last push: from this poll's
+  // predictions (no request of its own). On the leave card (an alert) when it has one, else a
+  // notification with its own tag (a change replaces the earlier one, not the reminder). False:
+  // the subscription is gone.
+  async function trackPush(rem, row, t) {
+    const step = trackStep(rem.tracks, row, t);
+    if (!step.push) return true;
+    rem.tracks = step.sent;
+    const text = trackText(row.legs[step.push.leg], step.push.was, t);
+    if (rem.card?.token && !rem.started && await cardPush(rem, { event: 'update', state: leaveActivityState(row, t, { was: rem.card.was }), urgent: true, alert: text }, t)) return true;
+    try {
+      await sendLogged(rem.subscription, rem.id, rem.tripName, { kind: 'track', ...text, tag: `${rem.key}:track`, renotify: true }, t);
+      log(`sent track for ${rem.id}`);
+      return true;
+    } catch (e) {
+      log(`send track for ${rem.id} failed: ${e.statusCode ?? ''} ${e.message}`);
+      return e.statusCode !== 404 && e.statusCode !== 410;
+    }
+  }
+
   function drop(rem) {
     store.delete(rem.id);
     schedules.delete(rem.id);
@@ -904,9 +926,10 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       return false;
     }
     rem.lastCheckAt = t;
-    const row = rowsFromDocs(rem.trip, docs.predictions, docs.schedules, rem.timingIdx, t, rem.stopSlackMinutes).find(r => r.key === rem.key) ?? null;
+    const row = withTripAlerts(rowsFromDocs(rem.trip, docs.predictions, docs.schedules, rem.timingIdx, t, rem.stopSlackMinutes).find(r => r.key === rem.key) ?? null, tripAlerts(docs.predictions, t));
     // The ride as last seen (its departure, and its legs for the question once it's gone).
     if (row) rem.seen = { firstDep: row.firstDep, legs: row.legs, eta: row.eta };
+    if (row && !rem.asked && !(await trackPush(rem, row, t))) return drop(rem);
     if (rem.asked) return checkAsked(rem, t);
     if (rem.started) return checkStarted(rem, row, t);
     if (rem.late && !rem.left) return startLate(rem, row, t);
@@ -1190,7 +1213,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       return false;
     }
     const maps = transit.map((l, i) => mergeTrips(docs.predictions[i], docs.schedules[i]));
-    const ride = { ...ride0, legs: trackLegs(ride0.legs, transit, maps) };
+    const ride = withTripAlerts({ ...ride0, legs: trackLegs(ride0.legs, transit, maps) }, tripAlerts(docs.predictions, t));
     const phase = ridePhase(ride, walkAfter, t);
     const outlook = transferOutlook(ride, phase, tripVehicles(transit, maps, null, t), transfers, t);
     let stops = null;

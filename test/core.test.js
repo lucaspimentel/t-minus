@@ -10,7 +10,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, stopCountTrip, stopCountText, rideLine,
-  legQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
+  legQuery, predictionQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, vehicleArrow, withoutArrived, stopConnections,
   shownTrip, widgetRequest, widgetRequestError, scheduleTimingLeg, widgetView, WIDGET_HORIZON_MIN, widgetState, widgetFollow,
   leavePhase, leaveActivityState, modeEmoji, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, LEAVE_CARD_EARLY_MIN, LEAVE_CARD_MAX_MIN, leaveCardEarly, leaveStartText, firstVehicleLine,
@@ -1621,7 +1621,15 @@ test('legQuery: every route of the leg, both stops, sparse fields', () => {
   assert.equal(q['filter[direction_id]'], 0);
   assert.equal(q['filter[stop]'], 'place-gover,place-pktrm');
   assert.equal(q.include, 'stop,trip');
-  assert.equal(q['fields[trip]'], 'headsign');
+  assert.equal(q['fields[trip]'], 'headsign,name');
+  assert.equal(q['fields[stop]'], 'name,parent_station,platform_code');
+  assert.equal(q['fields[schedule]'], 'arrival_time,departure_time,pickup_type,drop_off_type');
+  // Predictions also name their alerts (per-train delays); schedules refuse include=alerts.
+  const p = predictionQuery({ kind: 'transit', route: 'Green-B', also: ['Green-C'], direction_id: 0, stop: 'place-gover', alight: 'place-pktrm' });
+  assert.equal(p.include, 'stop,trip,alerts');
+  assert.equal(p['filter[stop]'], 'place-gover,place-pktrm');
+  assert.ok(p['fields[alert]'].includes('informed_entity'));
+  assert.equal(proxyRequestError('/predictions', Object.entries(p).map(([k, v]) => [k, String(v)])), null);
 });
 
 test('rowsFromDocs: rows from raw predictions and schedules', () => {
@@ -2180,9 +2188,9 @@ test('leaveActivityState: leave in, moved, leave now, departs, gone', () => {
   assert.deepEqual(reminderText('board', 'Home to office', row, at('07:49')), { title: 'Did you get on the 7:48am Bus 132?', body: 'Home to office · tap to answer' });
 });
 
-test('modeEmoji: 🚌 bus and Silver Line, 🚇 subway, 🚊 light rail', () => {
+test('modeEmoji: 🚌 bus and Silver Line, 🚇 subway, 🚊 light rail, 🚆 commuter rail', () => {
   const e = label => modeEmoji({ label });
-  assert.deepEqual(['Bus 132', 'Silver SL1', 'Red', 'Orange', 'Blue', 'Green B', 'Green', 'Mattapan', 'CR'].map(e), ['🚌', '🚌', '🚇', '🚇', '🚇', '🚊', '🚊', '🚊', '']);
+  assert.deepEqual(['Bus 132', 'Silver SL1', 'Red', 'Orange', 'Blue', 'Green B', 'Green', 'Mattapan', 'CR Haverhill', 'CR', 'Boat'].map(e), ['🚌', '🚌', '🚇', '🚇', '🚇', '🚊', '🚊', '🚊', '🚆', '🚆', '']);
   assert.equal(modeEmoji({ label: 'Green', vehicleRoute: 'Green-D', routeLabels: { 'Green-D': 'Green D' } }), '🚊');
 });
 

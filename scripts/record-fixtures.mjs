@@ -4,9 +4,9 @@ import { writeFileSync } from 'node:fs';
 
 const API = 'https://api-v3.mbta.com';
 const OUT = new URL('../test/browser/fixtures/', import.meta.url);
-const RAIL = ['Red', 'Mattapan', 'Orange', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue'];
+const RAIL = ['Red', 'Mattapan', 'Orange', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue', 'CR-Haverhill'];
 const ROUTES = ['132', '136', '137', ...RAIL];
-const STOPS = ['132', 'Orange', 'Red', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue'].flatMap(r => [[r, 0], [r, 1]]);
+const STOPS = ['132', 'Orange', 'Red', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue', 'CR-Haverhill'].flatMap(r => [[r, 0], [r, 1]]);
 // Keyless limit is 20 requests/min: pace the requests unless a key is set.
 const PACE_MS = process.env.MBTA_API_KEY ? 0 : 3500;
 
@@ -22,7 +22,7 @@ const save = (name, doc) => writeFileSync(new URL(name, OUT), JSON.stringify(doc
 
 // Same fields as setup.js; only the routes the tests use.
 const routes = await get('/routes', {
-  'filter[type]': '0,1,3',
+  'filter[type]': '0,1,2,3',
   'fields[route]': 'short_name,long_name,type,color,direction_names,direction_destinations,sort_order',
 });
 save('routes.json', { data: routes.data.filter(r => ROUTES.includes(r.id)) });

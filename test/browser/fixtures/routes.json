@@ -290,6 +290,42 @@
   },
   {
    "attributes": {
+    "color": "80276C",
+    "direction_destinations": [
+     "Haverhill",
+     "North Station"
+    ],
+    "direction_names": [
+     "Outbound",
+     "Inbound"
+    ],
+    "long_name": "Haverhill Line",
+    "short_name": "",
+    "sort_order": 20007,
+    "type": 2
+   },
+   "id": "CR-Haverhill",
+   "links": {
+    "self": "/routes/CR-Haverhill"
+   },
+   "relationships": {
+    "agency": {
+     "data": {
+      "id": "1",
+      "type": "agency"
+     }
+    },
+    "line": {
+     "data": {
+      "id": "line-Haverhill",
+      "type": "line"
+     }
+    }
+   },
+   "type": "route"
+  },
+  {
+   "attributes": {
     "color": "FFC72C",
     "direction_destinations": [
      "Redstone Shopping Center",

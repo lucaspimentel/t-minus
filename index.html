@@ -260,6 +260,12 @@
   }
   .step.ride { font-size: 13px; color: var(--muted); padding-top: 4px; padding-bottom: 4px; }
   .step.ride .toward { font-size: 12px; }
+  .step.ride .train { font-size: 12px; color: var(--muted); }
+  .step.ride .leg-alert {
+    margin-top: 4px; padding: 4px 8px; font-size: 13px; color: var(--text); font-weight: normal;
+    background: var(--alert-bg); border: 1px solid var(--alert-border); border-radius: 8px;
+  }
+  .step .flag { color: var(--amber); font-weight: 600; }
   /* Passed steps: muted text (still 4.5:1), faded node, bar and walking figure. */
   .step.done { color: var(--muted); }
   .step.done > .node, .step.done::after, .step.done .walk-icon svg { opacity: .4; }
@@ -427,7 +433,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-10-31 · e4de9aab82</footer>
+    <footer class="version">Version 2026-11-01 · 0e2afd97d6</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -449,9 +455,9 @@ import {
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
-  filterAlerts, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery,
-} from './core.js?v=722ce279ca';
-import { openSetup } from './setup.js?v=12abc09c43';
+  filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
+} from './core.js?v=ba1c01f69b';
+import { openSetup } from './setup.js?v=d0c8db1bdb';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -563,7 +569,7 @@ async function fetchSchedules(trip, w) {
 }
 
 function fetchPredictions(trip) {
-  return Promise.all(tripShape(trip).transit.map(l => api('/predictions', legQuery(l))));
+  return Promise.all(tripShape(trip).transit.map(l => api('/predictions', predictionQuery(l))));
 }
 
 // The ridden vehicle's remaining stops (predictions for its trip) and position.
@@ -726,8 +732,12 @@ function rowsFor(trip, timing, predictionDocs, scheduleDocs, now, lastLive = nul
   if (!predictionDocs && !scheduleDocs) return [];
   const { transit } = tripShape(trip);
   const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(predictionDocs?.[i], scheduleDocs?.[i])), lastLive, now);
-  return tripRows(trip, vehicles, timing ?? 0, now, stopSlackMinutes(config), count, enRoute);
+  const alerts = trainAlerts(cache[config.trips.indexOf(trip)], now);
+  return tripRows(trip, vehicles, timing ?? 0, now, stopSlackMinutes(config), count, enRoute).map(r => withTripAlerts(r, alerts));
 }
+// Per-train alerts ("Train 2317 is 10 min late") by trip id: the trip's /alerts and the ones
+// its predictions name.
+const trainAlerts = (c, now) => tripAlerts([c?.alerts?.doc, ...(c?.predictions ?? [])], now);
 
 // En route state of the shown trip (dropped if the trip at that index was renamed/replaced).
 function enRouteState() {
@@ -1214,7 +1224,7 @@ async function syncLiveActivity(s, now) {
   }
   if (!key || activityFailed === key) return;
   const { phase, stops, outlook, walkAfter } = rideCardData(s, now);
-  const state = liveActivityState(s.ride, phase, stops, outlook, walkAfter, now);
+  const state = liveActivityState(withTripAlerts(s.ride, trainAlerts(cache[tripIdx], now)), phase, stops, outlook, walkAfter, now);
   const json = JSON.stringify(state);
   if (!activity) {
     const ok = await run('start', async () => {
@@ -1566,9 +1576,12 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     if (kind === 'riding') return part === 'from' ? ' done' : ' current';
     return part === 'from' ? ' current' : '';
   };
-  const stopLine = (name, time, id, cls, leg) => {
+  const stopLine = (name, time, id, cls, leg, at) => {
     const line = el('div', `step stop${cls}${fullStops.has(id) ? ' full' : ''}`);
-    line.append(el('span', 'node'), el('span', 'n', name ?? '—'), el('span', 't', time == null ? '' : legTime(leg, time, now)));
+    const n = el('span', 'n', name ?? '—');
+    // "Malden Center · Flag stop": tell the crew to stop there.
+    if (name && flagStop(leg, at)) n.append(' · ', el('span', 'flag', flagStop(leg, at)));
+    line.append(el('span', 'node'), n, el('span', 't', time == null ? '' : legTime(leg, time, now)));
     if (name) {
       line.onclick = e => {
         e.stopPropagation();
@@ -1598,8 +1611,12 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     const ride = el('div', `step ride${legState(i, 'ride')}`, rideLine(s));
     if (s.leg.source) ride.append(badge(s.leg));
     if (s.leg.headsign) ride.append(el('div', 'toward', toward(s.leg)));
-    leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from'), s.leg), ride,
-      ...(along?.leg === i ? along.rows : []), stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to'), s.leg));
+    // Commuter rail: "Train 2317 · Track 5", and the train's own alerts.
+    const train = [s.leg.train && `Train ${s.leg.train}`, s.leg.track && `Track ${s.leg.track}`].filter(Boolean).join(' · ');
+    if (train) ride.append(el('div', 'train', train));
+    for (const a of s.leg.alerts ?? []) ride.append(el('div', 'leg-alert', a));
+    leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from'), s.leg, 'board'), ride,
+      ...(along?.leg === i ? along.rows : []), stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to'), s.leg, 'alight'));
     timeline.append(leg);
     i++;
   }
@@ -1972,7 +1989,8 @@ function renderRideCard(s, now) {
   if (outlook) li.append(el('div', `ride-outlook${outlook.warn ? ' warn' : ''}`, outlook.text));
   // Timeline with the current step: the leg being ridden, the transfer before a leg, or the
   // final walk.
-  const steps = timelineSteps({ legs: ride.legs, eta: phase.eta, enRoute: true }, trip, 0, now, tripStopNames());
+  // The timeline's legs with their trains' alerts (shown only, not kept on the ride).
+  const steps = timelineSteps({ legs: withTripAlerts(ride, trainAlerts(cache[tripIdx], now)).legs, eta: phase.eta, enRoute: true }, trip, 0, now, tripStopNames());
   const along = stops && stops.stops.length ? { leg: phase.leg, rows: rideStopRows(stops, leg.tripId, now) } : null;
   li.append(renderTimeline(steps, now, { phase, key: `ride:${ride.legs[0].tripId}`, along }));
   if (rideNote) li.append(el('div', 'msg', rideNote));

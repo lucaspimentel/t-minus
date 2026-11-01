@@ -5,8 +5,12 @@
 // scenario = {
 //   trips: [{ id, route, direction, stops: [[stopId, 'HH:MM'], …], live?: true | { delay, stops? },
 //             cancelled?: [stopId, …], headsign?: string | null (default: the route's per direction),
-//             added?: true (an ADDED trip: predictions only, no schedule) }],
-//   alerts: [{ id, effect, header, route, stop? }],
+//             added?: true (an ADDED trip: predictions only, no schedule),
+//             commuter rail: name?: '2317' (the train number), alsoRoute?: 'CR-Other' (listed under
+//             a second route too), track?: { [stopId]: platformId } (predictions at the platform,
+//             schedules at the stop), pickup?/dropOff?: { [stopId]: GTFS type } }],
+//   alerts: [{ id, effect, header, route, stop?, trip? }],
+//   platforms?: { [platformId]: code } (platform_code of included stops, e.g. Track 5),
 //   unnamed?: true (included stops without names),
 // }
 // Times are local (America/New_York) on whatever service date the app asks for, so the same
@@ -76,12 +80,15 @@ function serviceDate(ms) {
 
 const routesOf = q => new Set(q.get('filter[route]').split(',')); // a leg with `also` asks for several
 const stopRef = id => ({ data: { id, type: 'stop' } });
+let PLATFORMS = {};
 const stopRecord = id => ({
   type: 'stop', id,
-  attributes: { name: NAMES.get(id) ?? id },
+  attributes: { name: NAMES.get(id) ?? id, ...(PLATFORMS[id] && { platform_code: PLATFORMS[id] }) },
   relationships: { parent_station: { data: PARENT.has(id) ? { id: PARENT.get(id), type: 'stop' } : null } },
 });
-const matchesStop = (id, wanted) => wanted.has(id) || wanted.has(PARENT.get(id));
+// A platform given in a scenario (BNT-0000-05) belongs to its stop's station.
+const parentOf = id => PARENT.get(id) ?? PARENT.get(id.replace(/-\d\d$/, ''));
+const matchesStop = (id, wanted) => wanted.has(id) || wanted.has(parentOf(id));
 
 // Builds a series of trips: every `every` min from `first`, `count` times; `stops` are
 // [stopId, minutesAfterFirst]. Ids are `${prefix}-HHMM`.
@@ -101,13 +108,17 @@ export async function fakeMbta(context, scenario, { now }) {
     held: [], // requests held while mode is 'hang'
     release() { const h = this.held.splice(0); this.mode = 'ok'; for (const r of h) respond(r); },
   };
+  PLATFORMS = scenario.platforms ?? {};
+  for (const id of Object.keys(PLATFORMS)) if (!PARENT.has(id) && parentOf(id)) { PARENT.set(id, parentOf(id)); NAMES.set(id, NAMES.get(parentOf(id))); }
+  // The routes a trip is listed under (a commuter rail trip can be on two) that a query asks for.
+  const routesFor = (t, q) => [t.route, t.alsoRoute].filter(r => r && routesOf(q).has(r));
 
   // A trip's headsign (`headsign` on the scenario trip, else the route's for its direction;
   // null leaves it out).
-  const HEADSIGNS = { 132: ['Redstone', 'Malden'], Orange: ['Forest Hills', 'Oak Grove'] };
+  const HEADSIGNS = { 132: ['Redstone', 'Malden'], Orange: ['Forest Hills', 'Oak Grove'], 'CR-Haverhill': ['Haverhill', 'North Station'] };
   const headsignOf = t => (t.headsign !== undefined ? t.headsign : HEADSIGNS[t.route]?.[t.direction] ?? null);
-  const tripRecords = trips => [...trips].map(t => ({ type: 'trip', id: t.id, attributes: { headsign: headsignOf(t) } }))
-    .filter(r => r.attributes.headsign);
+  const tripRecords = trips => [...trips].map(t => ({ type: 'trip', id: t.id, attributes: { headsign: headsignOf(t), ...(t.name && { name: t.name }) } }))
+    .filter(r => r.attributes.headsign || r.attributes.name);
 
   // Stop times of a trip on a service date: [{ stopId, ms, seq }].
   const timesOf = (trip, date) => trip.stops.map(([stopId, hhmm], i) => ({ stopId, ms: localMs(date, minutesOf(hhmm)), seq: i + 1 }));
@@ -136,13 +147,16 @@ export async function fakeMbta(context, scenario, { now }) {
     const anyRoute = !q.has('filter[route]');
     for (const t of scenario.trips) {
       if (t.added) continue;
-      if (!anyRoute && (!routesOf(q).has(t.route) || String(t.direction) !== q.get('filter[direction_id]'))) continue;
+      if (!anyRoute && (!routesFor(t, q).length || String(t.direction) !== q.get('filter[direction_id]'))) continue;
       for (const [stopId, hhmm] of t.stops) {
         const m = minutesOf(hhmm);
         if (!matchesStop(stopId, wanted) || m < lo || m > hi) continue;
         const at = iso(localMs(date, m));
-        data.push({ type: 'schedule', id: `sch-${t.id}-${stopId}`, attributes: { arrival_time: at, departure_time: at },
-          relationships: { route: { data: { id: t.route, type: 'route' } }, trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
+        const types = { ...(t.pickup?.[stopId] && { pickup_type: t.pickup[stopId] }), ...(t.dropOff?.[stopId] && { drop_off_type: t.dropOff[stopId] }) };
+        for (const route of anyRoute ? [t.route] : routesFor(t, q)) {
+          data.push({ type: 'schedule', id: `sch-${t.id}-${stopId}-${route}`, attributes: { arrival_time: at, departure_time: at, ...types },
+            relationships: { route: { data: { id: route, type: 'route' } }, trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
+        }
         inc.add(stopId);
         trips.add(t);
       }
@@ -157,19 +171,24 @@ export async function fakeMbta(context, scenario, { now }) {
     const inc = new Set();
     const trips = new Set();
     for (const t of scenario.trips) {
-      if (!t.live || !routesOf(q).has(t.route) || String(t.direction) !== q.get('filter[direction_id]')) continue;
-      for (const { stopId, ms } of timesOf(t, date)) {
-        const at = ms + delayOf(t, stopId);
+      if (!t.live || !routesFor(t, q).length || String(t.direction) !== q.get('filter[direction_id]')) continue;
+      for (const { stopId: scheduled, ms } of timesOf(t, date)) {
+        const at = ms + delayOf(t, scheduled);
+        const stopId = t.track?.[scheduled] ?? scheduled;
         if (!matchesStop(stopId, wanted) || at < mbta.now) continue;
-        const cancelled = t.cancelled?.includes(stopId);
-        data.push({ type: 'prediction', id: `pre-${t.id}-${stopId}`,
-          attributes: { arrival_time: cancelled ? null : iso(at), departure_time: cancelled ? null : iso(at), schedule_relationship: cancelled ? 'SKIPPED' : t.added ? 'ADDED' : null },
-          relationships: { route: { data: { id: t.route, type: 'route' } }, trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
+        const cancelled = t.cancelled?.includes(scheduled);
+        for (const route of routesFor(t, q)) {
+          data.push({ type: 'prediction', id: `pre-${t.id}-${stopId}-${route}`,
+            attributes: { arrival_time: cancelled ? null : iso(at), departure_time: cancelled ? null : iso(at), schedule_relationship: cancelled ? 'SKIPPED' : t.added ? 'ADDED' : null },
+            relationships: { route: { data: { id: route, type: 'route' } }, trip: { data: { id: t.id, type: 'trip' } }, stop: stopRef(stopId) } });
+        }
         inc.add(stopId);
         trips.add(t);
       }
     }
-    return { data, included: [...[...inc].map(stopRecord), ...tripRecords(trips)] };
+    // include=alerts: the alerts naming these trips.
+    const named = (q.get('include') ?? '').split(',').includes('alerts') ? alerts().data.filter(a => a.attributes.informed_entity.some(e => [...trips].some(t => t.id === e.trip))) : [];
+    return { data, included: [...[...inc].map(stopRecord), ...tripRecords(trips), ...named] };
   }
 
   // Remaining stops of one trip and its vehicle (heading to the next stop; with `scenario.dwell`,
@@ -193,7 +212,7 @@ export async function fakeMbta(context, scenario, { now }) {
   function alerts() {
     return { data: (scenario.alerts ?? []).map(a => ({ type: 'alert', id: a.id,
       attributes: { effect: a.effect, header: a.header, short_header: a.header, severity: a.severity ?? 5,
-        active_period: [{ start: null, end: null }], informed_entity: [{ route: a.route, stop: a.stop ?? null }] } })) };
+        active_period: [{ start: null, end: null }], informed_entity: [{ route: a.route, stop: a.stop ?? null, ...(a.trip && { trip: a.trip }) }] } })) };
   }
 
   function stops(q) {

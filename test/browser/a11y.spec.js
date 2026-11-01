@@ -2,7 +2,7 @@
 // focus kept across the once-a-second redraw, and the screen-reader announcements (#announce).
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { openApp, tick, tickTo, at, planOptions, expandOption, pickOption } from './helpers.js';
+import { openApp, tick, tickTo, at, planOptions, expandOption, pickOption, CR_CONFIG, crCommute } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -12,6 +12,17 @@ test.beforeEach(({ page }) => {
 // for pinch zoom and `maximum-scale=1` stops its zoom on focusing a small input.
 const violations = async page => (await new AxeBuilder({ page }).disableRules(['meta-viewport']).analyze())
   .violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`);
+
+for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on commuter rail rows: train, track, a train's alert, a flag stop (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openApp(page, { time: '17:20', config: CR_CONFIG, scenario: crCommute() });
+    await page.locator('.row-toggle').first().click(); // Train 2317 · Track 5, its alert
+    await page.locator('.row-toggle').nth(1).click(); // a flag stop
+    await expect(page.locator('.step .flag')).toHaveCount(1);
+    expect(await violations(page)).toEqual([]);
+  });
+}
 
 for (const scheme of ['light', 'dark']) {
   test(`axe finds nothing on the main list (each row state), an expanded row, and setup (${scheme})`, async ({ page }) => {

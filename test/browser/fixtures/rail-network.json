@@ -377,9 +377,68 @@
      }
     }
    }
+  },
+  {
+   "type": "route_pattern",
+   "id": "CR-Haverhill-779dede9-0",
+   "attributes": {
+    "direction_id": 0
+   },
+   "relationships": {
+    "route": {
+     "data": {
+      "id": "CR-Haverhill",
+      "type": "route"
+     }
+    },
+    "representative_trip": {
+     "data": {
+      "id": "canonical-CR-Haverhill-C1-0",
+      "type": "trip"
+     }
+    }
+   }
+  },
+  {
+   "type": "route_pattern",
+   "id": "CR-Haverhill-ebc58735-1",
+   "attributes": {
+    "direction_id": 1
+   },
+   "relationships": {
+    "route": {
+     "data": {
+      "id": "CR-Haverhill",
+      "type": "route"
+     }
+    },
+    "representative_trip": {
+     "data": {
+      "id": "canonical-CR-Haverhill-C1-1",
+      "type": "trip"
+     }
+    }
+   }
   }
  ],
  "included": [
+  {
+   "type": "stop",
+   "id": "BNT-0000",
+   "attributes": {
+    "latitude": 42.366417,
+    "longitude": -71.062326,
+    "name": "North Station"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-north",
+      "type": "stop"
+     }
+    }
+   }
+  },
   {
    "type": "stop",
    "id": "70208",
@@ -612,6 +671,76 @@
    }
   },
   {
+   "type": "trip",
+   "id": "canonical-CR-Haverhill-C1-1",
+   "relationships": {
+    "stops": {
+     "data": [
+      {
+       "id": "WR-0329-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0325-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0264-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0228-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0205-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0163-S",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0120-S",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0099-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0085-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0075-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0067-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0062-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0053-S",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0045-S",
+       "type": "stop"
+      },
+      {
+       "id": "BNT-0000",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
    "type": "stop",
    "id": "70013",
    "attributes": {
@@ -800,6 +929,23 @@
   },
   {
    "type": "stop",
+   "id": "WR-0325-01",
+   "attributes": {
+    "latitude": 42.766912,
+    "longitude": -71.088411,
+    "name": "Bradford"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0325",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
    "id": "70245",
    "attributes": {
     "latitude": 42.337875,
@@ -975,6 +1121,23 @@
   },
   {
    "type": "stop",
+   "id": "WR-0329-02",
+   "attributes": {
+    "latitude": 42.773474,
+    "longitude": -71.086237,
+    "name": "Haverhill"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0329",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
    "id": "70011",
    "attributes": {
     "latitude": 42.336451,
@@ -1125,6 +1288,23 @@
   },
   {
    "type": "stop",
+   "id": "WR-0062-01",
+   "attributes": {
+    "latitude": 42.451731,
+    "longitude": -71.069379,
+    "name": "Wyoming Hill"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0062",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
    "id": "70253",
    "attributes": {
     "latitude": 42.333279,
@@ -1241,6 +1421,23 @@
   },
   {
    "type": "stop",
+   "id": "WR-0085-02",
+   "attributes": {
+    "latitude": 42.483005,
+    "longitude": -71.067247,
+    "name": "Greenwood"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0085",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
    "id": "70125",
    "attributes": {
     "latitude": 42.348819,
@@ -1285,6 +1482,40 @@
     "parent_station": {
      "data": {
       "id": "place-davis",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0099-01",
+   "attributes": {
+    "latitude": 42.502126,
+    "longitude": -71.075566,
+    "name": "Wakefield"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0099",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0163-S",
+   "attributes": {
+    "latitude": 42.571073,
+    "longitude": -71.160939,
+    "name": "North Wilmington"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0163",
       "type": "stop"
      }
     }
@@ -1421,6 +1652,23 @@
     "parent_station": {
      "data": {
       "id": "place-astao",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0062-02",
+   "attributes": {
+    "latitude": 42.451731,
+    "longitude": -71.069379,
+    "name": "Wyoming Hill"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0062",
       "type": "stop"
      }
     }
@@ -2033,6 +2281,23 @@
     "parent_station": {
      "data": {
       "id": "place-jfk",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0067-01",
+   "attributes": {
+    "latitude": 42.458768,
+    "longitude": -71.069789,
+    "name": "Melrose/Cedar Park"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0067",
       "type": "stop"
      }
     }
@@ -2868,6 +3133,23 @@
   },
   {
    "type": "stop",
+   "id": "WR-0325-02",
+   "attributes": {
+    "latitude": 42.766912,
+    "longitude": -71.088411,
+    "name": "Bradford"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0325",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
    "id": "70218",
    "attributes": {
     "latitude": 42.343118,
@@ -3191,6 +3473,23 @@
   },
   {
    "type": "stop",
+   "id": "WR-0099-02",
+   "attributes": {
+    "latitude": 42.502126,
+    "longitude": -71.075566,
+    "name": "Wakefield"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0099",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
    "id": "70002",
    "attributes": {
     "latitude": 42.309832,
@@ -3320,6 +3619,23 @@
     "parent_station": {
      "data": {
       "id": "place-gover",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0264-02",
+   "attributes": {
+    "latitude": 42.701806,
+    "longitude": -71.15198,
+    "name": "Lawrence"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0264",
       "type": "stop"
      }
     }
@@ -3480,6 +3796,40 @@
   },
   {
    "type": "stop",
+   "id": "WR-0075-01",
+   "attributes": {
+    "latitude": 42.469464,
+    "longitude": -71.068297,
+    "name": "Melrose Highlands"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0075",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0085-01",
+   "attributes": {
+    "latitude": 42.483005,
+    "longitude": -71.067247,
+    "name": "Greenwood"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0085",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
    "id": "70130",
    "attributes": {
     "latitude": 42.350263,
@@ -3524,6 +3874,23 @@
     "parent_station": {
      "data": {
       "id": "place-bcnwa",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0053-S",
+   "attributes": {
+    "latitude": 42.437731,
+    "longitude": -71.070705,
+    "name": "Oak Grove"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-ogmnl",
       "type": "stop"
      }
     }
@@ -4000,6 +4367,23 @@
     "parent_station": {
      "data": {
       "id": "place-clmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0075-02",
+   "attributes": {
+    "latitude": 42.469464,
+    "longitude": -71.068297,
+    "name": "Melrose Highlands"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0075",
       "type": "stop"
      }
     }
@@ -4525,6 +4909,23 @@
   },
   {
    "type": "stop",
+   "id": "WR-0045-S",
+   "attributes": {
+    "latitude": 42.426632,
+    "longitude": -71.07411,
+    "name": "Malden Center"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-mlmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
    "id": "70128",
    "attributes": {
     "latitude": 42.348747,
@@ -4603,6 +5004,23 @@
     "parent_station": {
      "data": {
       "id": "place-mlmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0228-02",
+   "attributes": {
+    "latitude": 42.658336,
+    "longitude": -71.144502,
+    "name": "Andover"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0228",
       "type": "stop"
      }
     }
@@ -5335,6 +5753,76 @@
    }
   },
   {
+   "type": "trip",
+   "id": "canonical-CR-Haverhill-C1-0",
+   "relationships": {
+    "stops": {
+     "data": [
+      {
+       "id": "BNT-0000",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0045-S",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0053-S",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0062-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0067-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0075-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0085-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0099-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0120-S",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0163-S",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0205-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0228-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0264-02",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0325-01",
+       "type": "stop"
+      },
+      {
+       "id": "WR-0329-01",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
    "type": "stop",
    "id": "70106",
    "attributes": {
@@ -5346,6 +5834,23 @@
     "parent_station": {
      "data": {
       "id": "place-lake",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0329-01",
+   "attributes": {
+    "latitude": 42.773474,
+    "longitude": -71.086237,
+    "name": "Haverhill"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0329",
       "type": "stop"
      }
     }
@@ -5592,6 +6097,23 @@
     "parent_station": {
      "data": {
       "id": "place-capst",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0205-02",
+   "attributes": {
+    "latitude": 42.627356,
+    "longitude": -71.159962,
+    "name": "Ballardvale"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0205",
       "type": "stop"
      }
     }
@@ -6224,6 +6746,23 @@
   },
   {
    "type": "stop",
+   "id": "WR-0067-02",
+   "attributes": {
+    "latitude": 42.458768,
+    "longitude": -71.069789,
+    "name": "Melrose/Cedar Park"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0067",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
    "id": "70168",
    "attributes": {
     "latitude": 42.322738,
@@ -6251,6 +6790,23 @@
     "parent_station": {
      "data": {
       "id": "place-fenwy",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "WR-0120-S",
+   "attributes": {
+    "latitude": 42.52221,
+    "longitude": -71.108294,
+    "name": "Reading"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-WR-0120",
       "type": "stop"
      }
     }

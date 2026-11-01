@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { createApp, declarativePush, apnsPush, apnsActivityPush } from '../server/app.mjs';
 import { openStore } from '../server/store.mjs';
-import { legQuery, tripShape } from '../core.js';
+import { legQuery, predictionQuery, tripShape } from '../core.js';
 
 const at = hhmm => Date.parse(`2026-09-30T${hhmm}:00-04:00`);
 const iso = hhmm => `2026-09-30T${hhmm}:00-04:00`;
@@ -75,6 +75,18 @@ async function setup({ staticRoot = null } = {}) {
       return { ok: true, json: async () => ({
         data: stops.map(([id, , t], k) => ({ type: 'prediction', attributes: { arrival_time: iso(t), departure_time: iso(t), stop_sequence: 10 + k }, relationships: { stop: { data: { id } } } })),
         included: stops.map(([id, name]) => ({ type: 'stop', id, attributes: { name } })),
+      }) };
+    }
+    // Commuter rail (world.crTrack: the track given at North Station, '05'): train 2317, North
+    // Station 7:30 → Malden Center 7:40.
+    if (route === 'CR-Haverhill') {
+      const crStops = [['BNT-0000', 'place-north', null], ['BNT-0000-05', 'place-north', '5'], ['BNT-0000-07', 'place-north', '7'], ['WR-0045-S', 'place-mlmnl', '1']]
+        .map(([id, parent, code]) => ({ type: 'stop', id, attributes: { name: id, platform_code: code }, relationships: { parent_station: { data: { id: parent } } } }));
+      const board = u.pathname === '/predictions' && world.crTrack ? `BNT-0000-${world.crTrack}` : 'BNT-0000';
+      const kind = u.pathname === '/predictions' ? 'prediction' : 'schedule';
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({
+        data: [rec(kind, 'T1', board, '07:30'), rec(kind, 'T1', 'WR-0045-S', '07:40')],
+        included: [...crStops, { type: 'trip', id: 'T1', attributes: { headsign: 'Haverhill', name: '2317' } }],
       }) };
     }
     // The bus's schedules carry its headsign (an included trip); Orange's predictions don't.
@@ -169,6 +181,32 @@ test('a reminder sends heads-ups at 10 and 5 min, then "Leave now", asks at the 
     await s.app.tick();
     assert.equal(s.sent.length, 4);
     assert.equal(s.store.all().length, 0);
+  } finally { await s.close(); }
+});
+
+test('a belled commuter rail ride: a push when its track is assigned and when it changes, from the same polls', async () => {
+  const s = await setup();
+  const crTrip = { name: 'Home', legs: [{ kind: 'walk', minutes: 5 }, { kind: 'transit', route: 'CR-Haverhill', label: 'CR Haverhill', direction_id: 0, stop: 'place-north', alight: 'place-mlmnl' }, { kind: 'walk', minutes: 3 }] };
+  try {
+    s.world.clock = at('06:30');
+    assert.equal((await s.call('POST', '/api/reminders', reminder({ trip: crTrip, tripName: 'Home', timingIdx: 0, key: 'T1', leaveBy: at('07:24') }))).status, 201);
+    const poll = async () => {
+      const before = s.world.calls.filter(c => c === '/predictions').length;
+      s.world.clock = s.store.all()[0].nextPollAt;
+      await s.app.tick();
+      // One /predictions per poll for the one leg: the track adds no request.
+      assert.equal(s.world.calls.filter(c => c === '/predictions').length, before + 1);
+    };
+    await poll();
+    assert.deepEqual(s.sent.filter(p => p.kind === 'track'), []);
+    s.world.crTrack = '05';
+    await poll();
+    assert.deepEqual(s.sent.filter(p => p.kind === 'track'), [{ kind: 'track', title: 'Track 5', body: 'Haverhill Line toward Haverhill at 7:30am', tag: 'T1:track', renotify: true }]);
+    await poll();
+    assert.equal(s.sent.filter(p => p.kind === 'track').length, 1);
+    s.world.crTrack = '07';
+    await poll();
+    assert.deepEqual(s.sent.filter(p => p.kind === 'track').map(p => p.title), ['Track 5', 'Now Track 7 (was 5)']);
   } finally { await s.close(); }
 });
 
@@ -976,7 +1014,7 @@ test('rides: validation, PUT replaces the legs, DELETE, a dead subscription drop
 });
 
 // The Orange leg's predictions, as the app asks the proxy for them.
-const orangeQuery = () => new URLSearchParams(legQuery(tripShape(trip).transit[1]));
+const orangeQuery = () => new URLSearchParams(predictionQuery(tripShape(trip).transit[1]));
 
 test('/api/mbta: fresh copies are shared (with reminders too); stale copies when the MBTA fails', async () => {
   const s = await setup();

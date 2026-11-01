@@ -118,3 +118,36 @@ export async function pickOption(page, i = 0, action = 'Save trip') {
   await expandOption(page, i);
   await planOptions(page).nth(i).locator('.row-foot').getByRole('button', { name: action, exact: true }).click();
 }
+
+// Commuter rail: North Station → Malden Center on the Haverhill Line (one trip, 10-min walk
+// before, 5 after).
+export const CR_CONFIG = {
+  departureCount: 4, stopSlackMinutes: 1,
+  trips: [{
+    name: 'Office to home',
+    legs: [
+      { kind: 'walk', minutes: 10 },
+      { kind: 'transit', route: 'CR-Haverhill', direction_id: 0, stop: 'place-north', alight: 'place-mlmnl', label: 'CR Haverhill', color: '80276C' },
+      { kind: 'walk', minutes: 5 },
+    ],
+  }],
+};
+
+// Haverhill Line trains at North Station (BNT-0000) and Malden Center (WR-0045-S):
+// 2317 at 5:48pm (live, given Track 5, a per-train delay alert), 2319 at 6:15pm (no pickup at
+// North Station: not shown), 2321 at 6:48pm (a flag stop at Malden Center), 2323 at 7:30pm.
+export function crCommute() {
+  const stops = (dep, arr) => [['BNT-0000', dep], ['WR-0045-S', arr]];
+  return {
+    platforms: { 'BNT-0000-05': '5' },
+    trips: [
+      { id: 'T2317', route: 'CR-Haverhill', direction: 0, name: '2317', stops: stops('17:48', '17:58'), live: true, track: { 'BNT-0000': 'BNT-0000-05' } },
+      { id: 'T2319', route: 'CR-Haverhill', direction: 0, name: '2319', stops: stops('18:15', '18:25'), pickup: { 'BNT-0000': 1 } },
+      { id: 'T2321', route: 'CR-Haverhill', direction: 0, name: '2321', stops: stops('18:48', '18:58'), dropOff: { 'WR-0045-S': 3 } },
+      { id: 'T2323', route: 'CR-Haverhill', direction: 0, name: '2323', stops: stops('19:30', '19:40') },
+    ],
+    alerts: [
+      { id: 'a-2317', effect: 'DELAY', header: 'Train 2317 is 5-10 minutes behind schedule', route: 'CR-Haverhill', trip: 'T2317' },
+    ],
+  };
+}
