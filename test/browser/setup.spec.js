@@ -87,12 +87,13 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Redstone Shopping Center', 'toward Malden Center Station']);
   await setup(page).locator('.item', { hasText: 'Main St @ South St' }).nth(1).click(); // toward Malden Center Station
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Malden Center Station']);
-  // Rail connections at the stops (Malden Center and across from Oak Grove: Orange).
-  await expect(setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).locator('.conn')).toHaveText('Orange');
+  // Rail connections at the stops (Malden Center and across from Oak Grove: Orange, and the
+  // Haverhill Line, which stops at Oak Grove).
+  await expect(setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).locator('.conn')).toHaveText(['Orange', 'CR Haverhill']);
   // Only the stop nearest each station: not Glen Rock Rd or 14 Summer St (~124 m away, a block off).
   await expect(setup(page).locator('.item', { hasText: 'Washington St @ Glen Rock Rd' }).locator('.conn')).toHaveCount(0);
   await expect(setup(page).locator('.item', { hasText: '14 Summer St' }).locator('.conn')).toHaveCount(0);
-  await expect(setup(page).locator('.item', { hasText: 'Malden Center' }).locator('.conn')).toHaveText('Orange');
+  await expect(setup(page).locator('.item', { hasText: 'Malden Center' }).locator('.conn')).toHaveText(['Orange', 'CR Haverhill']);
   await expect(setup(page).locator('.item', { hasText: 'Pond St @ Stone Zoo' }).locator('.conn')).toHaveCount(0);
   await setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).click();
   await expect(setup(page)).toContainText('Main St @ South St → Washington St opp Oak Grove Sta');
@@ -138,7 +139,7 @@ test('the next leg lists the stations and routes near the transfer; a route boar
   await button(page, '+ Add transit leg').click();
   await expect(setup(page)).toContainText('Near Washington St opp Oak Grove Sta');
   await expect(setup(page).locator('.section-head')).toHaveText(['Stations', 'Routes']);
-  await expect(setup(page).locator('.item b')).toHaveText(['Oak Grove', 'Orange']); // not Bus 132, just ridden
+  await expect(setup(page).locator('.item b')).toHaveText(['Oak Grove', 'Orange', 'CR Haverhill']); // not Bus 132, just ridden
   await button(page, 'Show all routes').click();
   await expect(setup(page).locator('.item b', { hasText: /^Bus 132$/ })).toBeVisible();
   await expect(setup(page).locator('.item b', { hasText: /^Blue$/ })).toBeVisible();
@@ -158,12 +159,15 @@ test('after the Orange Line to Oak Grove, the next leg lists the buses there; el
   await setup(page).locator('#picker-search').fill('Oak Grove');
   await setup(page).locator('.item', { hasText: 'Oak Grove' }).first().click();
   await expect(setup(page)).toContainText('· State → Oak Grove');
-  // Oak Grove has only the Orange Line: the nearby routes instead (no Orange, no Oak Grove station).
+  // Past the Orange Line, Oak Grove has the Haverhill Line; its buses are one tap away (no
+  // Orange, no Oak Grove station there).
   await button(page, '+ Add transit leg').click();
+  await expect(setup(page).locator('.section-head')).toHaveText(['CR Haverhill toward Haverhill', 'CR Haverhill toward North Station']);
+  await button(page, 'Buses near Oak Grove').click();
   await expect(setup(page)).toContainText('Near Oak Grove');
   await expect(setup(page).locator('.item b', { hasText: /^Bus 132$/ })).toBeVisible();
   await expect(setup(page).locator('.item b', { hasText: /^Orange$/ })).toHaveCount(0);
-  await expect(setup(page).locator('.item.station')).toHaveCount(0);
+  await expect(setup(page).locator('.item.station')).toHaveText([/^Oak Grove\s*Orange\s*CR Haverhill$/]); // for its other line
   await button(page, 'Show all routes').click();
   await expect(setup(page).locator('.item b', { hasText: /^Orange$/ })).toBeVisible();
 });
@@ -173,10 +177,10 @@ test('station-first: from a station to any station reachable without a transfer'
   await startFirstTrip(page);
   await button(page, '+ Add transit leg').click();
   await setup(page).locator('#picker-search').fill('Oak Gro');
-  await expect(setup(page).locator('.item.station')).toHaveText([/^Oak Grove\s*Orange$/]);
+  await expect(setup(page).locator('.item.station')).toHaveText([/^Oak Grove\s*Orange\s*CR Haverhill$/]);
   await setup(page).locator('.item.station', { hasText: 'Oak Grove' }).click();
   await expect(setup(page).locator('.muted').first()).toHaveText('From Oak Grove · Change');
-  await expect(setup(page).locator('.section-head')).toHaveText(['Orange toward Forest Hills']);
+  await expect(setup(page).locator('.section-head')).toHaveText(['Orange toward Forest Hills', 'CR Haverhill toward Haverhill', 'CR Haverhill toward North Station']);
   await setup(page).locator('#picker-search').fill('Downtown');
   await setup(page).locator('.item', { hasText: 'Downtown Crossing' }).click();
   await expect(setup(page)).toContainText('Orange toward Forest Hills · Oak Grove → Downtown Crossing');
@@ -552,10 +556,12 @@ test('Show nearby lists the stations and routes around you, nearest first; a rou
   const items = setup(page).locator('.list .item');
   // Stations: Oak Grove (its recorded network position, ~90 m); Malden Center is ~1.3 km away.
   await expect(setup(page).locator('.list .item.station')).toHaveText([/^Oak Grove.*90 m$/]);
-  // Routes: 132 (its stop on Washington St, from the schedules) and Orange (its station).
+  // Routes: 132 (its stop on Washington St, from the schedules), Orange and the Haverhill Line
+  // (the station).
   const routes = (await setup(page).locator('.list .item:not(.station)').allInnerTexts()).map(t => t.replace(/\s+/g, ' ').trim());
-  expect(routes).toHaveLength(2);
+  expect(routes).toHaveLength(3);
   expect(routes).toContainEqual(expect.stringMatching(/^Orange .* 90 m$/));
+  expect(routes).toContainEqual(expect.stringMatching(/^CR Haverhill .* 90 m$/));
   expect(routes).toContainEqual(expect.stringMatching(/^Bus 132 .* 180 m$/)); // from the schedules
   const ds = routes.map(meters);
   expect(ds).toEqual([...ds].sort((a, b) => a - b));
@@ -615,7 +621,7 @@ const listHits = mbta => mbta.hits.filter(h => (h.path === '/routes' && !h.query
 async function warmLists(page) {
   await page.locator('#open-setup').click();
   await expect(setup(page).locator('.trip-row .item').first()).toContainText('Bus 132');
-  await page.waitForFunction(() => localStorage.getItem('t-minus:stops:132/1') && localStorage.getItem('t-minus:routes'));
+  await page.waitForFunction(() => localStorage.getItem('t-minus:stops:132/1') && localStorage.getItem('t-minus:routes:2'));
 }
 
 test('route and stop lists are kept on the phone: a later session makes no list requests', async ({ page }) => {
@@ -630,7 +636,7 @@ test('route and stop lists are kept on the phone: a later session makes no list 
     await expect(setup(page).locator('.list .item').first()).toBeVisible();
   };
   await session();
-  await page.waitForFunction(() => localStorage.getItem('t-minus:rail-network'));
+  await page.waitForFunction(() => localStorage.getItem('t-minus:rail-network:2'));
   const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:stops:132/1')));
   expect(kept.data.data[0]).toEqual({ type: 'stop', id: expect.any(String), attributes: expect.objectContaining({ name: expect.any(String) }), relationships: { child_stops: { data: expect.any(Array) } } });
   await page.reload();
