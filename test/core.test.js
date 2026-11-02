@@ -1510,6 +1510,12 @@ test('railConnections: same station or within 200 m, own routes left out, branch
   assert.deepEqual(railConnections(stop('5991', 42.436927, -71.071292), rail, ['Orange']), []);
   // Haymarket: the station itself (no coordinates needed), Green branches merged.
   assert.deepEqual(railConnections(stop('place-haecl'), rail, ['Orange']), [{ label: 'Green C/D', color: '00843D' }]);
+  // Two or more commuter rail lines: "Commuter Rail"; one keeps its name.
+  const cr = (route, label) => ({ route, label, color: '80276C', stops: [st('place-sstat', 42.352271, -71.055242)] });
+  const south = [{ route: 'Red', label: 'Red', color: 'DA291C', stops: [st('place-sstat', 42.352271, -71.055242)] },
+    cr('CR-Fairmount', 'CR Fairmount'), cr('CR-Worcester', 'CR Framingham/Worcester'), cr('CR-Providence', 'CR Providence/Stoughton')];
+  assert.deepEqual(railConnections(stop('place-sstat'), south), [{ label: 'Red', color: 'DA291C' }, { label: 'Commuter Rail', color: '80276C' }]);
+  assert.deepEqual(railConnections(stop('place-sstat'), south.slice(0, 2)), [{ label: 'Red', color: 'DA291C' }, { label: 'CR Fairmount', color: '80276C' }]);
   // ~700 m from Park Street: none.
   assert.deepEqual(railConnections(stop('x', 42.3627, -71.0624), rail), []);
   // Stations connect by id only: State and Government Center are ~155 m apart.

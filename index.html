@@ -32,7 +32,8 @@
   * { box-sizing: border-box; }
   /* No double-tap zoom (iOS Safari ignores user-scalable=no for pinch zoom). No rubber-band
      bounce: the main list has its own pull-to-refresh. */
-  html { touch-action: manipulation; overscroll-behavior-y: none; }
+  /* No iOS text inflation: a too-wide line made the whole picker larger (2026-11-02). */
+  html { touch-action: manipulation; overscroll-behavior-y: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -396,7 +397,8 @@
   .setup .list.trips { margin: 0; }
   .setup .section { margin: 20px 0 6px; }
   .setup .list .section-head { margin: 8px 0 0; font-weight: 600; }
-  .setup .item .conn { color: var(--muted); font-size: 13px; margin-left: 4px; }
+  /* A tag longer than the line (South Station's CR lines) wraps inside instead of widening the page. */
+  .setup .item .conn { color: var(--muted); font-size: 13px; margin-left: 4px; display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
   .setup button.item.has-dist { display: flex; align-items: baseline; gap: 8px; }
   .setup .item.has-dist .main { flex: 1; min-width: 0; }
   .setup .item .dist { color: var(--muted); font-size: 14px; white-space: nowrap; }
@@ -433,7 +435,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-01 · 0e2afd97d6</footer>
+    <footer class="version">Version 2026-11-01 · ec13863c88</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -456,8 +458,8 @@ import {
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
-} from './core.js?v=ba1c01f69b';
-import { openSetup } from './setup.js?v=d0c8db1bdb';
+} from './core.js?v=8866ca4bfc';
+import { openSetup } from './setup.js?v=750a398182';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';

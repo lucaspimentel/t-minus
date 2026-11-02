@@ -46,3 +46,18 @@ test('rows: no train that skips the pickup; the expanded row shows the train, tr
   await expect(second.locator('.leg-alert')).toHaveCount(0);
   await expect(second.locator('.step.stop').last()).toContainText('Malden Center · Flag stop');
 });
+
+test('a station line tag longer than the screen wraps instead of widening the page', async ({ page }) => {
+  // South Station's CR tag ("CR Fairmount/Fall River/…") made the page wider than the screen;
+  // iOS then inflated every font in the picker (2026-11-02). The fixtures have no tag that long.
+  await openApp(page, { time: '07:00', config: null, waitForRows: false });
+  await page.locator('#open-setup').click();
+  await button(page, '+ Plan a trip').click();
+  await button(page, 'Build it by hand').click();
+  await button(page, '+ Add transit leg').click();
+  await setup(page).locator('#picker-search').fill('North Sta');
+  const tag = setup(page).locator('.item.station .conn').filter({ hasText: 'CR Haverhill' }).first();
+  await tag.evaluate(el => { el.lastChild.textContent = 'CR Fairmount/Fall River/New Bedford/Framingham/Worcester/Franklin/Needham/Providence/Stoughton'; });
+  const { scroll, width } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: window.innerWidth }));
+  expect(scroll).toBeLessThanOrEqual(width);
+});

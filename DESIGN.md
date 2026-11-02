@@ -671,7 +671,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   the list's nearest stop to it, and none when the station itself is in the list
   (`stopConnections`, `CONNECTION_METERS`, per direction list): "Washington St opp Oak Grove Sta
   ● Orange", but not Glen Rock Rd or 14 Summer St a block away. The leg's own route is left out; branches of a line (same color) merge as "Green
-  D/E" (`commonLabel`).
+  D/E" (`commonLabel`); two or more commuter rail lines are "Commuter Rail" (2026-11-02: South
+  Station's twelve made one tag wider than the screen, and iOS enlarged every font on the page;
+  `text-size-adjust: 100%` and wrapping tags guard against the next one). One line keeps its
+  name ("CR Fitchburg").
 - Rail network (`railNetwork`): one `/route_patterns?filter[route]=<rail routes>&filter[canonical]=true
   &include=representative_trip.stops` request (~100 KB; 18 patterns, each branch and direction,
   stations in order via the platforms' `parent_station`), cached in `localStorage`

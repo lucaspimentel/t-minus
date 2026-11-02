@@ -956,7 +956,8 @@ export const CONNECTION_METERS = 200;
 // the lines listing that station (State and Government Center are ~155 m apart but separate);
 // another stop (a street bus stop has no parent station) to lines with a station within
 // CONNECTION_METERS. `railStops`: [{ route, label, color, stops: [{ id, lat, lon }] }].
-// Branches of one line (same color) merge: [{ label: 'Green B/C/D/E', color }].
+// Branches of one line (same color) merge: [{ label: 'Green B/C/D/E', color }]; two or more
+// commuter rail lines are "Commuter Rail" (South Station's twelve made a tag wider than the screen).
 export function railConnections(stop, railStops, exclude = []) {
   const a = stop?.attributes ?? {};
   const here = { lat: a.latitude, lon: a.longitude };
@@ -977,7 +978,8 @@ function addLine(byColor, line) {
   if (!byColor.has(key)) byColor.set(key, { color: line.color, labels: [] });
   if (!byColor.get(key).labels.includes(line.label)) byColor.get(key).labels.push(line.label);
 }
-const mergedLines = byColor => [...byColor.values()].map(c => ({ label: commonLabel(c.labels), color: c.color }));
+const mergedLines = byColor => [...byColor.values()].map(c => ({
+  label: c.labels.length > 1 && c.labels.every(l => /^CR /.test(l)) ? 'Commuter Rail' : commonLabel(c.labels), color: c.color }));
 
 // Rail lines for each stop of one drop-off list (JSON:API stops): a station in the list tags
 // itself; otherwise each station tags only the list's nearest non-station stop within
