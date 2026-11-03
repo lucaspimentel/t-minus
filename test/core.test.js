@@ -9,6 +9,7 @@ import {
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
+  validAutoBell, bostonMs, autoBellNext, autoBellRow, autoBellLabel, autoBellTrips,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, stopCountTrip, stopCountText, rideLine,
   legQuery, predictionQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, vehicleArrow, withoutArrived, stopConnections,
@@ -1667,7 +1668,7 @@ test('reminderStep: heads-ups at 10 and 5 min, then leave; times follow the row'
 });
 
 test('remHeadsUps: reminders saved with headsUp (5 min only)', () => {
-  assert.deepEqual(HEADS_UP_MINS, [10, 5]);
+  assert.deepEqual(HEADS_UP_MINS, [60, 10, 5]);
   assert.deepEqual(remHeadsUps({ headsUp: true }), [5]);
   assert.deepEqual(remHeadsUps({ headsUp: false }), []);
   assert.deepEqual(remHeadsUps({ headsUps: [10, 5], headsUp: false }), [10, 5]);
@@ -2539,4 +2540,53 @@ test('widgetView: per-minute countdowns, leave now, departs, the next row; early
   assert.deepEqual([none.entries.length, none.entries[0].title, none.entries[0].next, none.end], [1, 'No more today', '', null]);
   const noTrips = widgetView(null, [], at('23:30'));
   assert.deepEqual([noTrips.name, noTrips.entries[0].title, noTrips.end], ['', 'Plan a trip in T-Minus', null]);
+});
+
+// ---------- auto-bell ----------
+
+test('auto-bell: validation, labels, the form, and the trips sent to the server', () => {
+  assert.equal(validAutoBell({ days: [2, 4], arriveBy: '10:00' }), true);
+  for (const bad of [null, {}, { days: [], arriveBy: '10:00' }, { days: [7], arriveBy: '10:00' }, { days: [2, 2], arriveBy: '10:00' }, { days: [2], arriveBy: '' }, { days: [2], arriveBy: '24:00' }]) {
+    assert.equal(validAutoBell(bad), false, JSON.stringify(bad));
+  }
+  assert.equal(autoBellLabel({ days: [4, 2], arriveBy: '10:00' }), '🔔 Tue Thu · by 10:00am');
+  assert.equal(autoBellLabel({ days: [0, 1], arriveBy: '19:05' }), '🔔 Mon Sun · by 7:05pm');
+  assert.equal(autoBellLabel(undefined), '');
+  const trip = { name: 'Home to office', legs: [{ kind: 'transit', route: '132', direction_id: 0, stop: 'a', alight: 'b' }] };
+  // The form always has the field; no days (or no time) saves none.
+  const form = tripToForm(trip);
+  assert.deepEqual(form.autoBell, { days: [], arriveBy: '' });
+  assert.equal('autoBell' in formToTrip(form), false);
+  const on = formToTrip({ ...form, autoBell: { days: [4, 2], arriveBy: '10:00' } });
+  assert.deepEqual(on.autoBell, { days: [2, 4], arriveBy: '10:00' });
+  assert.deepEqual(tripToForm(on).autoBell, { days: [2, 4], arriveBy: '10:00' });
+  assert.deepEqual(validateConfig({ trips: [on] }), []);
+  assert.equal(validateConfig({ trips: [{ ...on, autoBell: { days: [9], arriveBy: '10:00' } }] }).length, 1);
+  assert.deepEqual(autoBellTrips({ trips: [trip, on] }), [{ index: 1, tripName: 'Home to office', trip: on, autoBell: on.autoBell }]);
+  assert.deepEqual(autoBellTrips(null), []);
+});
+
+test('auto-bell: the next one in Boston time (EST and EDT), 2 h ahead; a done day is skipped', () => {
+  assert.equal(new Date(bostonMs('2026-11-03', 600)).toISOString(), '2026-11-03T15:00:00.000Z');
+  assert.equal(new Date(bostonMs('2026-07-01', 600)).toISOString(), '2026-07-01T14:00:00.000Z');
+  const ab = { days: [2, 4], arriveBy: '10:00' }; // Tue, Thu
+  const tue7 = Date.parse('2026-11-03T07:00:00-05:00');
+  assert.deepEqual(autoBellNext(ab, null, tue7), { date: '2026-11-03', at: Date.parse('2026-11-03T08:00:00-05:00'), target: Date.parse('2026-11-03T10:00:00-05:00') });
+  // Between the bell time and the target: now.
+  const tue9 = Date.parse('2026-11-03T09:00:00-05:00');
+  assert.equal(autoBellNext(ab, null, tue9).at, tue9);
+  // Done today, or past the target: Thursday.
+  assert.equal(autoBellNext(ab, '2026-11-03', tue9).date, '2026-11-05');
+  assert.equal(autoBellNext(ab, null, Date.parse('2026-11-03T10:00:00-05:00')).date, '2026-11-05');
+  // Saturday → Tuesday.
+  assert.equal(autoBellNext(ab, null, Date.parse('2026-11-07T12:00:00-05:00')).date, '2026-11-10');
+  assert.equal(autoBellNext({ days: [], arriveBy: '10:00' }, null, tue7), null);
+});
+
+test('auto-bell: the ride is the last one arriving by the target, else the earliest after it', () => {
+  const row = (key, eta, extra = {}) => ({ key, eta, leaveBy: eta - 40, ...extra });
+  assert.equal(autoBellRow([row('a', 900), row('b', 980), row('c', 1010)], 1000).key, 'b');
+  assert.equal(autoBellRow([row('a', 900), row('b', 980, { missed: true })], 1000).key, 'a');
+  assert.equal(autoBellRow([row('c', 1030), row('d', 1010)], 1000).key, 'd');
+  assert.equal(autoBellRow([], 1000), null);
 });

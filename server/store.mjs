@@ -2,7 +2,8 @@
 // queries, the whole reminder as JSON in `body`. Writes are per row. Also the MBTA proxy's static
 // copies (`mbta_cache`: routes, stops, route patterns), kept across restarts, and the pushes sent to
 // each phone in the last 24 h (`push_log`, the setup's "Pending notifications"), and the iOS app's
-// diagnostics per device (`app_log`, 24 h).
+// diagnostics per device (`app_log`, 24 h), and each phone's auto-bell schedules (`auto_bells`: one
+// per trip, polled at `next_at`).
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -41,6 +42,14 @@ export function openStore(dir) {
       body TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS app_log_device ON app_log (device, at);
+    CREATE TABLE IF NOT EXISTS auto_bells (
+      id TEXT PRIMARY KEY,
+      endpoint TEXT NOT NULL,
+      next_at INTEGER NOT NULL,
+      body TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS auto_bells_due ON auto_bells (next_at);
+    CREATE INDEX IF NOT EXISTS auto_bells_endpoint ON auto_bells (endpoint);
   `);
   const q = {
     add: db.prepare('INSERT INTO reminders (id, endpoint, next_poll_at, body) VALUES (?, ?, ?, ?)'),
@@ -62,6 +71,11 @@ export function openStore(dir) {
     appPruneOld: db.prepare('DELETE FROM app_log WHERE at < ?'),
     appPruneFor: db.prepare('DELETE FROM app_log WHERE device = ? AND id NOT IN (SELECT id FROM app_log WHERE device = ? ORDER BY id DESC LIMIT ?)'),
     appFor: db.prepare('SELECT body FROM app_log WHERE device = ? AND at >= ? ORDER BY id DESC'),
+    autoAdd: db.prepare('INSERT INTO auto_bells (id, endpoint, next_at, body) VALUES (?, ?, ?, ?)'),
+    autoUpdate: db.prepare('UPDATE auto_bells SET next_at = ?, body = ? WHERE id = ?'),
+    autoDeleteFor: db.prepare('DELETE FROM auto_bells WHERE endpoint = ?'),
+    autoFor: db.prepare('SELECT body FROM auto_bells WHERE endpoint = ?'),
+    autoDue: db.prepare('SELECT body FROM auto_bells WHERE next_at <= ? ORDER BY next_at'),
     cacheGet: db.prepare('SELECT body, last_modified, fetched_at FROM mbta_cache WHERE key = ?'),
     cachePut: db.prepare('INSERT OR REPLACE INTO mbta_cache (key, body, last_modified, fetched_at) VALUES (?, ?, ?, ?)'),
     cacheTouch: db.prepare('UPDATE mbta_cache SET fetched_at = ? WHERE key = ?'),
@@ -95,6 +109,19 @@ export function openStore(dir) {
       q.appPruneFor.run(device, device, max);
     },
     appLogFor: (device, since) => parse(q.appFor.all(device, since)),
+    // Auto-bell schedules: a phone's whole set is replaced at once (`replaceAutoBells`); `nextAt`
+    // null (nothing scheduled) is kept as never due.
+    replaceAutoBells: (endpoint, list) => {
+      db.exec('BEGIN');
+      try {
+        q.autoDeleteFor.run(endpoint);
+        for (const a of list) q.autoAdd.run(a.id, endpoint, a.nextAt ?? Number.MAX_SAFE_INTEGER, JSON.stringify(a));
+        db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
+    },
+    updateAutoBell: a => { q.autoUpdate.run(a.nextAt ?? Number.MAX_SAFE_INTEGER, JSON.stringify(a), a.id); },
+    autoBellsFor: endpoint => parse(q.autoFor.all(endpoint)),
+    dueAutoBells: t => parse(q.autoDue.all(t)),
     // { text, lastModified, at } or null.
     cacheGet: key => {
       const r = q.cacheGet.get(key);

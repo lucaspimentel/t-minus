@@ -7,7 +7,9 @@ followed rides with their next push and its last 24 h of sent pushes (`POST /api
 `POST /api/pending/clear`, with the push subscription in the body). It also follows tracked rides for stop
 alerts (`POST /api/rides`, `PUT` / `DELETE /api/rides/:id`): a heads-up 3 stops before each
 drop-off, "get off" with the drop-off next, and missed connections (see `DESIGN.md`,
-Notifications and Hosting). It also answers setup's "Show nearby" (`GET /api/nearby?lat&lon`: the routes around a
+Notifications and Hosting). It bells trips on a schedule (auto-bell: `PUT /api/auto-bells`, a
+phone's days and arrive-by times; `POST /api/bells` lists the bells it set; see `DESIGN.md`,
+"Auto-bell"). It also answers setup's "Show nearby" (`GET /api/nearby?lat&lon`: the routes around a
 point with their distances), auto-route (`GET /api/plan?from&to`:
 plans with buses, from a network built daily from 3 MBTA requests, from stops, stations or a
 point `@lat,lon`; `GET /api/places?q`: addresses and places from Photon, else Nominatim; see

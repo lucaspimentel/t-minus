@@ -88,6 +88,9 @@ export function validateConfig(cfg) {
     }
     if (t.near !== undefined && t.near !== true) errors.push(`${p} near must be true if present.`);
     if (t.near === true && t.window != null) errors.push(`${p} can't have both near and window.`);
+    if (t.autoBell !== undefined && !validAutoBell(t.autoBell)) {
+      errors.push(`${p} autoBell must be { "days": [0-6, Sunday 0], "arriveBy": "HH:MM" }.`);
+    }
     if (t.timingLeg !== undefined && t.timingLeg !== null &&
         !(Number.isInteger(t.timingLeg) && t.timingLeg >= 0 && t.timingLeg < transitCount)) {
       errors.push(`${p} timingLeg must be a transit leg index from 0 to ${transitCount - 1}.`);
@@ -153,6 +156,7 @@ export function tripToForm(trip) {
     window: trip.window ? { ...trip.window } : null,
     near: trip.near === true,
     timingLeg: Number.isInteger(trip.timingLeg) ? trip.timingLeg : null,
+    autoBell: { days: [...(trip.autoBell?.days ?? [])], arriveBy: trip.autoBell?.arriveBy ?? '' },
     walkBefore,
     walkAfter,
     transit: transit.map((l, i) => ({
@@ -184,6 +188,9 @@ export function formToTrip(form) {
   if (form.window) trip.window = { ...form.window };
   else if (form.near) trip.near = true;
   if (Number.isInteger(form.timingLeg)) trip.timingLeg = form.timingLeg;
+  // No days (or no time): off.
+  const ab = form.autoBell;
+  if (ab?.days?.length && HHMM_RE.test(ab.arriveBy ?? '')) trip.autoBell = { days: [...ab.days].sort((a, b) => a - b), arriveBy: ab.arriveBy };
   trip.legs = legs;
   return trip;
 }
@@ -1664,7 +1671,7 @@ const update = (now, was) => ({ update: true, was, earlier: now < was });
 // ({ was, earlier }), and a heads-up then carries `was` too. Heads-ups passed together (a late poll)
 // send once. Missing for REMINDER_MISSING polls in a row, the ride is reported cancelled; long
 // past, it just expires.
-export const HEADS_UP_MINS = [10, 5];
+export const HEADS_UP_MINS = [60, 10, 5];
 export const REMINDER_MISSING = 3;
 // Reminders saved before HEADS_UP_MINS have `headsUp` (the 5-min one still due?).
 export const remHeadsUps = rem => rem.headsUps ?? (rem.headsUp ? [5] : []);
@@ -1686,6 +1693,9 @@ export function reminderStep(rem, row, nowMs) {
 // The heads-ups a reminder set at `nowMs` still gets (not those already inside their window).
 export const headsUpsDue = (leaveBy, nowMs) => HEADS_UP_MINS.filter(m => nowMs < leaveBy - m * MIN);
 
+// The heads-ups' countdown: "60 min" at the hour (not "1h 00m").
+const headsUpCountdown = ms => (ms >= 60 * MIN && ms < 61 * MIN ? '60 min' : formatCountdown(ms));
+
 // Push text: { title, body }. `row` (when known) names the first vehicle and its time; an
 // 'update' (or a heads-up after a moved time) also gives the new leave-by and the one last shown (`was`).
 // Before the leave-by the body names the vehicle and the arrival (or the moved leave-by), not the
@@ -1695,7 +1705,7 @@ export function reminderText(kind, tripName, row, nowMs, was) {
   const moved = () => `${vehicle} · leave by ${formatTime(row.leaveBy, nowMs)} (was ${formatTime(was, nowMs)})`;
   const arrive = () => (row.eta == null ? vehicle : `${vehicle} · arrive ${row.legs.some(l => l.every) ? '~' : ''}${formatTime(row.eta, nowMs)}`);
   switch (kind) {
-    case 'headsUp': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: was == null ? arrive() : moved() };
+    case 'headsUp': return { title: `Leave in ${headsUpCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: was == null ? arrive() : moved() };
     case 'update': return { title: `Leave in ${formatCountdown(row.leaveBy - nowMs)} · ${tripName}`, body: moved() };
     case 'leave': return { title: `Leave now · ${tripName}`, body: firstVehicleLine(row, nowMs) };
     case 'board': return { title: boardingQuestion(row.legs[0], nowMs), body: `${tripName} · tap to answer` };
@@ -2636,7 +2646,7 @@ function rideCardFields(ride, legs, phase, stops, outlook, eta, nowMs) {
 // (`sub`) gets the departure time from the leave-by on, and both late phases count down to it.
 // `island` (the Dynamic Island's short text) marks a leave or walk card; `join` puts the countdown
 // right after the title ("Leave in 9 minutes").
-export const LEAVE_CARD_MIN = HEADS_UP_MINS[0];
+export const LEAVE_CARD_MIN = 10;
 export const LEAVE_CARD_EARLY_MIN = 60; // before this: "Leave at 7:39am", no countdown
 export const LEAVE_CARD_MAX_MIN = 8 * 60; // iOS ends a Live Activity after 8 h
 export const leaveCardEarly = (leaveBy, nowMs) => leaveBy - nowMs > LEAVE_CARD_EARLY_MIN * MIN;
@@ -3100,6 +3110,72 @@ export function withTripAlerts(row, byTrip) {
 }
 // The card's note for a leg's train alert ('' none).
 const trainAlert = leg => leg?.alerts?.[0] ?? '';
+
+// ---------- auto-bell ----------
+
+// A trip's `autoBell: { days: [2, 4] (0 = Sunday), arriveBy: "10:00" }`: on those days the server
+// bells the ride that gets there by `arriveBy`, AUTO_BELL_LEAD_MIN before it (Boston time).
+export const AUTO_BELL_LEAD_MIN = 120;
+export function validAutoBell(ab) {
+  if (!ab || typeof ab !== 'object' || !Array.isArray(ab.days) || !ab.days.length) return false;
+  if (!ab.days.every(d => Number.isInteger(d) && d >= 0 && d <= 6) || new Set(ab.days).size !== ab.days.length) return false;
+  return HHMM_RE.test(ab.arriveBy ?? '') && parseHHMM(ab.arriveBy) < 24 * 60;
+}
+
+// Epoch ms of a Boston wall-clock time (`date` "YYYY-MM-DD", minutes after midnight).
+export function bostonMs(date, minutes) {
+  const [y, m, d] = date.split('-').map(Number);
+  const wanted = Date.UTC(y, m - 1, d, 0, minutes);
+  let t = wanted + 5 * 60 * MIN; // EST; corrected below for EDT
+  for (let i = 0; i < 2; i++) {
+    const p = localParts(t);
+    const [py, pm, pd] = p.date.split('-').map(Number);
+    t += wanted - Date.UTC(py, pm - 1, pd, p.hour, p.minute);
+  }
+  return t;
+}
+const weekdayOf = date => new Date(`${date}T12:00:00Z`).getUTCDay();
+
+// The next auto-bell not done yet: { date, at (when to bell), target (arrive by) }, the
+// soonest whose target is still ahead and whose date isn't `lastDate` (done or skipped). Past
+// `at` but before the target (saved late, the server was down): `at` is now.
+export function autoBellNext(ab, lastDate, nowMs) {
+  if (!validAutoBell(ab)) return null;
+  const today = localParts(nowMs).date;
+  for (let i = 0; i <= 7; i++) {
+    const date = addDays(today, i);
+    if (date === lastDate || !ab.days.includes(weekdayOf(date))) continue;
+    const target = bostonMs(date, parseHHMM(ab.arriveBy));
+    if (target <= nowMs) continue;
+    return { date, at: Math.max(nowMs, target - AUTO_BELL_LEAD_MIN * MIN), target };
+  }
+  return null;
+}
+
+// The row to bell: the latest arrival at or before the target, else the earliest after it
+// (late: its arrival shows red). Missed rows are left out; null when none.
+export function autoBellRow(rows, targetMs) {
+  const open = rows.filter(r => !r.missed && r.eta != null);
+  const inTime = open.filter(r => r.eta <= targetMs);
+  if (inTime.length) return inTime.reduce((a, b) => (b.eta > a.eta || (b.eta === a.eta && b.leaveBy > a.leaveBy) ? b : a));
+  return open.reduce((a, b) => (a == null || b.eta < a.eta ? b : a), null);
+}
+
+// Setup's trip list: "🔔 Tue Thu · by 10:00am" ('' when off).
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+export const AUTO_BELL_DAYS = [1, 2, 3, 4, 5, 6, 0]; // Monday first
+export const dayName = d => DAY_NAMES[d];
+export function autoBellLabel(ab) {
+  if (!validAutoBell(ab)) return '';
+  const days = AUTO_BELL_DAYS.filter(d => ab.days.includes(d)).map(dayName).join(' ');
+  const [h, m] = ab.arriveBy.split(':').map(Number);
+  return `🔔 ${days} · by ${h % 12 || 12}:${pad(m)}${h < 12 ? 'am' : 'pm'}`;
+}
+
+// What the app sends the server (`PUT /auto-bells`): the saved trips with an auto-bell, by index.
+export function autoBellTrips(cfg) {
+  return (cfg?.trips ?? []).flatMap((trip, index) => (validAutoBell(trip.autoBell) ? [{ index, tripName: trip.name, trip, autoBell: trip.autoBell }] : []));
+}
 
 // ---------- formatting ----------
 

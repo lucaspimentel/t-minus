@@ -6,9 +6,9 @@ import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
-  reverseTrip, nearestStop, windowLabel, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
+  reverseTrip, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=8866ca4bfc';
+} from './core.js?v=b9c647c8fb';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -86,7 +86,7 @@ const NEARBY_RADIUS = 0.003;
 // a trip it starts, close setup. `onOneOff(trip)`: an option's "See departures", handed back as a
 // one-off trip (labeled, not saved). `onClose({ show })`: `show` is a just-saved trip's index.
 // `planApi(path, params)`: the T-Minus server's /stops and /plan (buses); null: rail only, in the browser.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null }) {
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, autoBell = false }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -99,7 +99,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   const savedTrips = () => saved?.trips ?? [];
   // The trip being edited: `idx` is its saved index (null for a new trip, inserted at `insertAt`).
   // `initial`: the form as opened (JSON), to tell whether Cancel discards edits (null: always).
-  const editor = (idx, insertAt, form, messages = []) => ({ idx, insertAt, form, messages, initial: JSON.stringify(form) });
+  const editor = (idx, insertAt, form, messages = []) => {
+    form.autoBell ??= { days: [], arriveBy: '' };
+    return { idx, insertAt, form, messages, initial: JSON.stringify(form) };
+  };
   // `editing.origin`: where a new trip's Save and Cancel go back to ('main': close setup).
   let editing = null;
   // The planner: { from, to ({ id, name, routes: [{ id, label, color }] }, picked in the leg picker's
@@ -331,7 +334,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('button', { type: 'button', class: 'item', onclick: () => openTrip(i) },
         h('div', { class: 'trip-main' },
           h('b', {}, t.name),
-          h('div', { class: 'muted' }, `${t.near ? 'Near first stop' : windowLabel(t.window)} · `, ...chain)),
+          h('div', { class: 'muted' }, `${t.near ? 'Near first stop' : windowLabel(t.window)} · `, ...chain),
+          autoBell && autoBellLabel(t.autoBell) && h('div', { class: 'muted' }, autoBellLabel(t.autoBell))),
         h('span', { class: 'go' }, '›')),
       h('button', { type: 'button', 'aria-label': `Move ${t.name} up`, disabled: i === 0, onclick: () => moveTrip(i, -1) }, '↑'),
       h('button', { type: 'button', 'aria-label': `Move ${t.name} down`, disabled: i === n - 1, onclick: () => moveTrip(i, 1) }, '↓'));
@@ -828,6 +832,22 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
           `Automatic${current != null && t.transit[current] ? ` (currently ${routeName(t.transit[current].route)})` : ''}`),
         ...t.transit.map((l, j) => h('option', { value: String(j), selected: t.timingLeg === j }, `${routeName(l.route)} (pinned)`))));
     const isSaved = editing.idx != null;
+    // Auto-bell (where the bell can notify): the days and the arrive-by time. No days: off.
+    const ab = (t.autoBell ??= { days: [], arriveBy: '' });
+    const autoBellCard = autoBell && h('div', { class: 'card auto-bell' },
+      h('b', {}, 'Auto-bell'),
+      h('div', { class: 'field' }, 'Days',
+        h('div', { class: 'toggle days', role: 'group', 'aria-label': 'Auto-bell days' }, ...AUTO_BELL_DAYS.map(d => h('button', {
+          type: 'button', 'aria-pressed': String(ab.days.includes(d)),
+          onclick: () => {
+            ab.days = ab.days.includes(d) ? ab.days.filter(x => x !== d) : [...ab.days, d];
+            if (ab.days.length && !ab.arriveBy) ab.arriveBy = '09:00';
+            render();
+          },
+        }, dayName(d))))),
+      h('label', { class: 'field' }, 'Arrive by',
+        h('input', { type: 'time', value: ab.arriveBy, oninput: e => { ab.arriveBy = e.target.value; } })),
+      h('div', { class: 'muted hint' }, 'Bells the last ride that gets you there by then, 2 hours ahead. No days: off.'));
     return [
       h('div', { class: 'setup-head' },
         h('button', { type: 'button', onclick: cancelEdit }, 'Cancel'),
@@ -858,6 +878,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
             h('label', { class: 'field' }, 'Shown from', timeInput('from')),
             h('label', { class: 'field' }, 'until', timeInput('to'))),
           timing)),
+      autoBellCard,
       isSaved && h('div', { class: 'btns trip-btns' },
         t.transit.length > 0 && h('button', { type: 'button', onclick: addReturnTrip }, 'Add return trip'),
         h('button', { type: 'button', class: 'danger', onclick: deleteTrip }, 'Delete trip')),

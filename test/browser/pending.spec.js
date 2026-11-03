@@ -72,7 +72,7 @@ test('pending notifications: server entries with sent and next pushes, local-onl
   await page.addInitScript(stub, { server: PUSH, reminders });
   await openApp(page, { time: '06:50' });
   await openPending(page);
-  expect(calls.find(c => c.path === '/pending').body.subscription.endpoint).toBe('https://push.example/1');
+  await expect.poll(() => calls.find(c => c.path === '/pending')?.body.subscription.endpoint).toBe('https://push.example/1');
   await expect(setup(page).locator('.muted.section')).toHaveText(['On the server · checked 6:50am', 'Only on this phone', 'Sent · last 24 h']);
   await expect(cards(page)).toHaveCount(3);
   const r1 = cards(page).nth(0);

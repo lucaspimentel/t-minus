@@ -401,6 +401,9 @@
   .setup .item .conn { color: var(--muted); font-size: 13px; margin-left: 4px; display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
   .setup button.item.has-dist { display: flex; align-items: baseline; gap: 8px; }
   .setup .item.has-dist .main { flex: 1; min-width: 0; }
+  .auto-bell .toggle.days { flex-wrap: nowrap; margin-top: 4px; }
+  .auto-bell .toggle.days button { flex: 1 1 0; min-width: 0; padding: 10px 0; }
+  .auto-bell .hint { font-size: 14px; margin-top: 8px; }
   .setup .item .dist { color: var(--muted); font-size: 14px; white-space: nowrap; }
   .setup button.link { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; }
   .leg-routes { display: flex; flex-wrap: wrap; gap: 0 14px; margin: -2px 0 6px; }
@@ -435,7 +438,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-01 · ec13863c88</footer>
+    <footer class="version">Version 2026-11-03 · f04d23c101</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -456,10 +459,10 @@ import {
   validateConfig, tripShape, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
-  unpinTarget, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
+  unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
-} from './core.js?v=8866ca4bfc';
-import { openSetup } from './setup.js?v=750a398182';
+} from './core.js?v=b9c647c8fb';
+import { openSetup } from './setup.js?v=56537157bf';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1352,6 +1355,7 @@ if (native) {
     token = String(token).toLowerCase();
     if (store.get(KEY_START_TOKEN) === token) return;
     store.set(KEY_START_TOKEN, token);
+    syncAutoBells();
     for (const rem of Object.values(reminders)) {
       if ((rem.dep ?? rem.leaveBy) > Date.now()) pushApi('PUT', `/reminders/${rem.id}`, { startToken: token }).catch(e => nativeLog('liveActivity', `start token: ${e.message}`));
     }
@@ -1532,6 +1536,65 @@ function bellOn(r) {
 }
 function bellOff() {
   setEnRoute(unpinTarget(enRouteState()));
+  render();
+  schedulePoll();
+}
+
+// Auto-bell (DESIGN.md "Auto-bell"): the saved trips' schedules go to the server, which bells
+// them. Sent when they (or the subscription, the start token, the stop slack) change, and daily.
+// `prompt`: from setup's Save, where notifications may be asked for.
+const KEY_AUTO_BELLS = 't-minus:auto-bells'; // { sent (the request as JSON), at }
+async function syncAutoBells(prompt = false) {
+  if (!SERVER_API || !pushSupported) return;
+  const trips = autoBellTrips(savedConfig);
+  const last = store.get(KEY_AUTO_BELLS);
+  if (!trips.length && !last) return;
+  try {
+    const subscription = prompt && trips.length ? await pushSubscription() : await currentSubscription();
+    if (!subscription) return;
+    const startToken = await liveStartToken();
+    const body = { subscription, ...(startToken && { startToken }), stopSlackMinutes: stopSlackMinutes(savedConfig), trips };
+    const json = JSON.stringify(body);
+    if (last?.sent === json && Date.now() - last.at < 24 * 3600_000) return;
+    await pushApi('PUT', '/auto-bells', body);
+    if (trips.length) store.set(KEY_AUTO_BELLS, { sent: json, at: Date.now() }); else store.del(KEY_AUTO_BELLS);
+  } catch (e) {
+    if (prompt) showToast(`Couldn't set the auto-bell: ${e.message}`, 'Retry', () => syncAutoBells(true));
+  }
+}
+// The bells the server set: shown as if belled here (the pin and its reminder). A trip already
+// under way keeps its state, and the server's bell is deleted.
+async function adoptBells() {
+  if (!SERVER_API || !pushSupported || !config) return;
+  let bells;
+  try {
+    const subscription = await currentSubscription();
+    if (!subscription) return;
+    ({ bells } = await pushApi('POST', '/bells', { subscription }));
+  } catch { return; }
+  const known = new Set(Object.values(reminders).map(r => r.id));
+  const all = store.get(KEY_EN_ROUTE) ?? {};
+  let changed = false;
+  for (const b of bells ?? []) {
+    if (known.has(b.id)) continue;
+    const trip = config.trips[b.index];
+    if (trip?.name !== b.tripName) continue;
+    const cur = all[b.index]?.name === trip.name ? all[b.index] : null;
+    // Under way, riding, or belled here already (hand wins): the server's bell goes.
+    if (cur && (cur.ride || tripStarted(cur) || cur.bell)) { pushApi('DELETE', `/reminders/${b.id}?reason=started`).catch(() => {}); continue; }
+    // One bell at a time (as bellOn).
+    for (const [k, s] of Object.entries(all)) {
+      if (!s?.bell || s.ride) continue;
+      const rest = unpinTarget(s);
+      if (rest) all[k] = rest; else delete all[k];
+    }
+    all[b.index] = { ...pinTarget(cur, { key: b.key, legs: b.legs }, Date.now()), name: trip.name };
+    reminders[`${b.index}/${b.key}`] = { id: b.id, leaveBy: b.leaveBy, dep: b.dep, headsUps: b.headsUps, timingIdx: b.timingIdx, key: b.key, bell: true, auto: true };
+    changed = true;
+  }
+  if (!changed) return;
+  store.set(KEY_EN_ROUTE, all);
+  saveReminders();
   render();
   schedulePoll();
 }
@@ -2174,6 +2237,7 @@ function showSetup({ importOpen = false, plan = false } = {}) {
     pushDebug: SERVER_API ? pushDebug : null,
     nearby: SERVER_API ? nearbyFromServer : null,
     planApi: SERVER_API ? planFromServer : null,
+    autoBell: !!SERVER_API && pushSupported,
     // Auto-route options drawn like an expanded row.
     timeline: (steps, key) => renderTimeline(steps, Date.now(), { key }),
     onClose: closeSetup,
@@ -2193,6 +2257,7 @@ function showSetup({ importOpen = false, plan = false } = {}) {
       notice = warning;
       tripIdx = config ? chooseTrip(Date.now(), null, located()) : 0;
       if (config) locate(); // the saved trips may now use location
+      syncAutoBells(true);
     },
   });
 }
@@ -2405,6 +2470,8 @@ document.addEventListener('visibilitychange', () => {
     checkForUpdate();
     widgetSent = null; // the widget may have fallen behind
     if (!setupView) { refresh(); locate(); }
+    syncAutoBells();
+    adoptBells();
   }
 });
 
@@ -2472,6 +2539,8 @@ window.appStarted = true;
 render();
 startRum();
 if (config) { refresh({ force: true }); locate(); } // no trips: the empty state (Plan a trip / Import trips)
+syncAutoBells();
+adoptBells();
 </script>
 </body>
 </html>

@@ -42,7 +42,8 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Departures shown | Next `departureCount` departures (config, 1-8, default 4) |
 | Config editing | Full-screen setup view (gear button) with route and stop pickers (no direction step); JSON only via Export/Import |
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
-| Deferred | See `TODO.md` (default times estimated from stop coordinates, ferry) |
+| Auto-bell | Per trip: days and an arrive-by time; the server bells the ride 2 h ahead (see "Auto-bell") |
+| Deferred | See `TODO.md` (default times estimated from stop coordinates, ferry, skipping an auto-bell day) |
 
 ## Surface wording (2026-10-27)
 
@@ -77,7 +78,7 @@ compact badge stays the route's short label ("132", "OL"). Widget times carry no
 ("Leave 5:57am", "arrive 12:08am" late at night; 2026-10-29: "Thu" overflowed the medium rows);
 the app's keep it.
 
-Reminder notifications: the heads-ups (10 and 5 min) come before the leave-by, so their body is
+Reminder notifications: the heads-ups (60, 10 and 5 min) come before the leave-by, so their body is
 the vehicle and the arrival, "Bus 132 toward Malden · arrive ~8:25am" (moved: "Bus 132 toward
 Malden · leave by 7:36am (was 7:39am)"); "Leave now", sent at the leave-by, names the departure,
 "Bus 132 toward Malden at 7:48am".
@@ -504,6 +505,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
       "name": "Home to office",
       "window": { "from": "00:00", "to": "12:00" },
       "timingLeg": 0,
+      "autoBell": { "days": [2, 4], "arriveBy": "10:00" },
       "legs": [
         { "kind": "walk", "minutes": 5 },
         { "kind": "transit", "route": "132", "direction_id": 1, "stop": "15999", "alight": "5991",
@@ -1024,7 +1026,9 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     legs with the same `legQuery` as the page. It rebuilds rows (`rowsFromDocs`) and finds its
     key.
   - **Decisions (`reminderStep`):**
-    - Heads-ups go out 10 and 5 min before leave-by (`HEADS_UP_MINS`; 10 added 2026-10-15),
+    - Heads-ups go out 60, 10 and 5 min before leave-by (`HEADS_UP_MINS`; 10 added 2026-10-15,
+      60 on 2026-11-03 with auto-bell: "Leave in 60 min · Home to office"; on a leave card it
+      is the switch from "Leave at" to the countdown, with an alert, and it ends "(was …)"),
       except those whose time had passed when the reminder was set (`headsUps`, the ones still
       due). Heads-ups passed together (a late poll) send once. Reminders stored before then have
       `headsUp` (the 5-min one; `remHeadsUps`).
@@ -1634,6 +1638,39 @@ run (East Boston, Charlestown; no vehicle label or occupancy), but ferry stops (
 no parent stations, so no link to the subway (Long Wharf to Aquarium would be a walk by
 distance); most routes have no canonical pattern (only F6 and F7), so the rail network's query
 would miss them; and the loop routes (F6, F7, F10) don't fit two directions.
+
+## Auto-bell (2026-11-03)
+
+A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue and Thu".
+
+- **Setup:** the trip editor's Auto-bell card (shown where the bell can notify: the server and
+  push): seven day buttons (Monday first) and "Arrive by". No days: off. Saved as the trip's
+  `autoBell: { days: [2, 4] (0 = Sunday), arriveBy: "HH:MM" }` (`validAutoBell`). Setup's trip
+  list adds "🔔 Tue Thu · by 10:00am" (`autoBellLabel`). Return trips don't copy it.
+- **To the server:** `PUT /api/auto-bells { subscription, startToken?, stopSlackMinutes, trips:
+  [{ index, tripName, trip, autoBell }] }` (`autoBellTrips`; at most 10), the phone's whole set
+  (empty: none). The app sends it when it changes (stored as `t-minus:auto-bells`, with the
+  subscription and the start token) and at least daily, at launch and on return; from setup's
+  Save it may ask for notifications. Stored per phone in the `auto_bells` table; a trip sent
+  again with the same index and name keeps the day it last belled (`lastDate`).
+- **When:** `AUTO_BELL_LEAD_MIN` (120) before the target on a chosen day, Boston time
+  (`autoBellNext`; saved later than that but before the target: at once). The server loop
+  checks due schedules each tick.
+- **Which ride:** today's rows (as the widget's, 40 of them) → the last arrival (`eta`, walk
+  included) at or before the target, else the earliest after it, late in red (`autoBellRow`).
+  Then a reminder exactly as the app's bell posts it, marked `auto: { index, dep, legs }`: the
+  quiet leave card, the heads-ups, "Leave now", "Did you get on?". The MBTA failing: tried
+  again (`RETRY_MS`) until the target.
+- **Not belled** that day: this phone already has a bell (one at a time; a manual bell stays),
+  or rides that trip, or no ride at all. Each is logged.
+- **In the app:** `POST /api/bells { subscription }` lists the server's bells (`adoptBells`, at
+  launch and on return): each is pinned on its trip and kept as that trip's reminder, as if
+  belled here; one already under way on that trip keeps its state and the server's bell is
+  deleted. From then on it is a manual bell: it stays on its ride, a manual bell elsewhere
+  replaces it, bell off cancels that day only.
+- **Widget:** it follows the bell once the app has opened (its request comes from the app); the
+  leave card shows it from the start.
+- Deferred: skipping a day in advance (`TODO.md`).
 
 ## Remaining unknowns
 
