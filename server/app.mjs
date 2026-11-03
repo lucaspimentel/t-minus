@@ -126,7 +126,7 @@ function pendingView(e, t) {
   const first = tripShape(e.trip).transit[0];
   const c = e.card && !e.card.tried ? e.card : null;
   const activity = c ? { sent: c.sent ?? 0, title: c.last?.title ?? null, error: c.error ?? null, token: !!c.token } : null;
-  return { ...base, key: e.key, leaveBy: e.leaveBy, headsUps: remHeadsUps(e), route: first?.label ?? first?.route ?? null, ...(activity && { activity }) };
+  return { ...base, key: e.key, leaveBy: e.leaveBy, headsUps: remHeadsUps(e), route: first?.label ?? first?.route ?? null, ...(activity && { activity }), ...(e.card?.dismissed && { cardDismissed: true }) };
 }
 
 const nearBoston = (lat, lon) => lat >= 41.5 && lat <= 43.5 && lon >= -72.5 && lon <= -69.5;
@@ -639,6 +639,22 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       if (b?.startToken != null && !validToken(b.startToken)) return reply(res, 400, { error: 'startToken is invalid' });
       if (b?.activity != null && !validToken(b.activity?.token)) return reply(res, 400, { error: 'activity is invalid' });
       if (b?.started != null && !Number.isFinite(b.started?.atStop)) return reply(res, 400, { error: 'started is invalid' });
+      for (const k of ['cardDismissed', 'restartCard']) if (b?.[k] != null && typeof b[k] !== 'boolean') return reply(res, 400, { error: `${k} is invalid` });
+      // `cardDismissed` (the iOS app: the leave card was swiped away or is gone): the reminder's
+      // next steps go out as notifications; the card isn't started again by itself.
+      if (b?.cardDismissed) {
+        rem.card = { tried: true, token: null, dismissed: true, error: null };
+        log(`leave card dismissed for ${rem.id}`);
+      }
+      // `restartCard` ("Show again" in the app): a new start push at the next check; past the
+      // leave-by, at "Departs in" (as a late bell).
+      if (b?.restartCard) {
+        if (rem.asked || rem.started || !rem.startToken) return reply(res, 409, { error: "The card can't start now" });
+        rem.card = null;
+        if (rem.left) { rem.left = false; rem.late = true; }
+        rem.nextPollAt = t;
+        log(`leave card restart for ${rem.id}`);
+      }
       if (b?.startToken) rem.startToken = b.startToken;
       // `started: { atStop }`: "Leaving now" / "At the stop" with the bell on. No more leave
       // alerts (the app keeps the card as the walk card); the departure asks only when the at-stop

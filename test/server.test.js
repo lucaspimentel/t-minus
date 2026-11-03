@@ -1607,3 +1607,56 @@ test('auto-bell: requests are validated; an empty list removes them', async () =
     assert.equal(s.store.autoBellsFor(subscription().endpoint).length, 0);
   } finally { await s.close(); }
 });
+
+// ---------- swiped-away leave cards ----------
+
+test('leave card dismissed: the next heads-up is a notification; the card is not started again by itself', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('06:50');
+    const { id } = await (await s.call('POST', '/api/reminders', leaveReminder())).json();
+    await s.app.tick();
+    await s.call('PUT', `/api/reminders/${id}`, { activity: { token: CARD } });
+    assert.equal(s.activity.length, 1);
+    assert.equal((await s.call('PUT', `/api/reminders/${id}`, { cardDismissed: 'yes' })).status, 400);
+    assert.equal((await s.call('PUT', `/api/reminders/${id}`, { cardDismissed: true })).status, 204);
+    const { entries } = await (await s.call('POST', '/api/pending', { subscription: apnsSub })).json();
+    assert.equal(entries[0].cardDismissed, true);
+    s.world.clock = at('06:54');
+    await s.app.tick();
+    assert.equal(s.sent.at(-1).title, 'Leave in 10 min · Home to office');
+    assert.equal(s.activity.length, 1);
+    s.world.clock = at('06:59');
+    await s.app.tick();
+    assert.equal(s.sent.at(-1).title, 'Leave in 5 min · Home to office');
+    assert.equal(s.activity.length, 1);
+  } finally { await s.close(); }
+});
+
+test('Show again (restartCard): a new start push before the leave-by, a late bell\'s card after it; not while asking', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('06:50');
+    const { id } = await (await s.call('POST', '/api/reminders', leaveReminder())).json();
+    await s.app.tick();
+    await s.call('PUT', `/api/reminders/${id}`, { cardDismissed: true });
+    s.world.clock = at('06:51');
+    assert.equal((await s.call('PUT', `/api/reminders/${id}`, { restartCard: true })).status, 204);
+    await s.app.tick();
+    assert.deepEqual(s.activity.map(a => a.event), ['start', 'start']);
+    assert.equal(s.activity.at(-1).state.title, 'Leave in');
+    // Gone again, past the leave-by: started as a late bell's card.
+    await s.call('PUT', `/api/reminders/${id}`, { cardDismissed: true });
+    s.world.clock = at('07:04') + 30_000;
+    await s.app.tick();
+    assert.equal(s.sent.at(-1).title.startsWith('Leave now'), true);
+    assert.equal((await s.call('PUT', `/api/reminders/${id}`, { restartCard: true })).status, 204);
+    await s.app.tick();
+    assert.equal(s.activity.at(-1).event, 'start');
+    assert.equal(s.activity.at(-1).state.phase, 'now'); // as a late bell: "Leave now", then "Departs in"
+    // At the departure it asks; then no restart.
+    s.world.clock = at('07:11');
+    await s.app.tick();
+    assert.equal((await s.call('PUT', `/api/reminders/${id}`, { restartCard: true })).status, 409);
+  } finally { await s.close(); }
+});

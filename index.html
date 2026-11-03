@@ -438,7 +438,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-03 · db6be33dc6</footer>
+    <footer class="version">Version 2026-11-03 · 7dd98b0fdf</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -462,7 +462,7 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
 } from './core.js?v=b9c647c8fb';
-import { openSetup } from './setup.js?v=56537157bf';
+import { openSetup } from './setup.js?v=bc7f2fb9e6';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1180,7 +1180,7 @@ async function syncRideAlert(s, now) {
 // (syncRideAlert), which updates it while the app is closed and shows "Arrived" at the end.
 // iOS refusing (Live Activities off in Settings) or a plugin error: the app log, once per ride.
 const KEY_ACTIVITY = 't-minus:activity';
-let activity = native ? store.get(KEY_ACTIVITY) ?? null : null; // { id, key, token, last }
+let activity = native ? store.get(KEY_ACTIVITY) ?? null : null; // { id, key, token, last, gone (swiped away) }
 let activityBusy = false;
 let activityFailed = null; // the ride key iOS refused
 const activityKey = s => (s?.ride ? `${tripIdx}/${s.ride.boardedAt}` : null);
@@ -1237,10 +1237,52 @@ async function syncLiveActivity(s, now) {
       saveActivity({ id, key, token: null, last: json });
     });
     if (!ok) activityFailed = key;
-  } else if (activity.last !== json) {
+  } else if (activity.last !== json && !activity.gone) {
     const { id } = activity;
     saveActivity({ ...activity, last: json });
-    await run('update', () => T.liveActivityUpdate({ id, state }));
+    activityBusy = true;
+    try { await T.liveActivityUpdate({ id, state }); } catch (e) {
+      // Swiped away: no more updates until "Show again" (checkDismissedCards).
+      if (/no such activity/.test(e.message)) { if (activity?.id === id) saveActivity({ ...activity, gone: true }); } else nativeLog('liveActivity', `update: ${e.message}`);
+    } finally { activityBusy = false; }
+  }
+}
+
+// Cards swiped away (the iOS app's liveActivityDismissed; DESIGN.md "Swiped-away cards"): on open,
+// "Lock Screen card closed · Show again" for the ride's card while the ride is on, or the belled
+// ride's leave card before its departure. Show again: a new ride card from here; a leave card
+// from the server (`restartCard`).
+async function checkDismissedCards() {
+  if (!native) return;
+  const rideCardBack = () => {
+    const { id } = activity;
+    showToast('Lock Screen card closed', 'Show again', () => {
+      if (activity?.id !== id) return;
+      saveActivity(null);
+      activityFailed = null;
+      render();
+    });
+  };
+  // An update that found no card (any build): the ride card is gone.
+  if (activity?.gone) return rideCardBack();
+  let list;
+  try { list = (await plugins.TMinus.liveActivityDismissed()).activities ?? []; } catch (e) {
+    if (!unimplemented(e)) nativeLog('liveActivity', `dismissed: ${e.message}`);
+    return;
+  }
+  if (activity && list.some(a => a.id === activity.id)) return rideCardBack();
+  if (!SERVER_API) return;
+  const now = Date.now();
+  const all = store.get(KEY_EN_ROUTE) ?? {};
+  for (const a of list) {
+    const found = a.reminderId && Object.entries(reminders).find(([, r]) => r.id === a.reminderId);
+    if (!found) continue;
+    const [k, rem] = found;
+    const s = all[Number(k.split('/')[0])];
+    if ((rem.dep ?? rem.leaveBy) <= now || tripStarted(s)) continue;
+    return showToast('Lock Screen card closed', 'Show again', () => {
+      pushApi('PUT', `/reminders/${rem.id}`, { restartCard: true }).catch(() => showToast("Couldn't show the card"));
+    });
   }
 }
 
@@ -1367,6 +1409,7 @@ if (native) {
     if (!(await adoptBells())) return;
     const keep = new Set([...Object.values(reminders).map(r => r.id), leaveCard?.reminderId]);
     for (const a of await leaveActivities()) if (a.reminderId && !keep.has(a.reminderId)) endActivity(a.id, 'end leave card');
+    checkDismissedCards();
   });
 }
 
@@ -2476,7 +2519,7 @@ document.addEventListener('visibilitychange', () => {
     widgetSent = null; // the widget may have fallen behind
     if (!setupView) { refresh(); locate(); }
     syncAutoBells();
-    adoptBells();
+    if (native) adoptBells().then(checkDismissedCards); else adoptBells();
   }
 });
 

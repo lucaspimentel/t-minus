@@ -17,7 +17,8 @@ test.beforeEach(({ page }) => {
 // Activity). Calls land in window.nativeCalls; Live Activity calls in window.activityCalls (the
 // activity's push token follows a start by 50 ms).
 // `leave` (Phase 3a): the plugin has the leave-card methods (liveActivityStartToken, and
-// liveActivityList from window.fakeActivities); window.emitStartToken(token) fires its event.
+// liveActivityList from window.fakeActivities, liveActivityDismissed from window.fakeDismissed);
+// window.emitStartToken(token) fires its event.
 // `widget` (Phase 3b): the plugin has widgetSave; its bodies land in window.widgetBodies.
 function capacitorStub({ server, permission = 'prompt', fail = null, token, leave = false, widget = false }) {
   localStorage.setItem('t-minus:push-server', JSON.stringify(server));
@@ -59,6 +60,7 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token, leav
     ...(leave && {
       liveActivityStartToken: async () => ({ token: 'EF'.repeat(40) }),
       liveActivityList: async () => ({ activities: window.fakeActivities ?? [] }),
+      liveActivityDismissed: async () => ({ activities: window.fakeDismissed ?? [] }),
     }),
     ...(widget && { widgetSave: async ({ body }) => { (window.widgetBodies ??= []).push(JSON.parse(body)); } }),
   };
@@ -427,4 +429,37 @@ test('at launch, the card of a bell the server set stays; a card from a gone rem
   await openApp(page, { time: '06:50' });
   await expect(firstRow(page).locator('.summary .bell')).toHaveCount(1);
   await expect.poll(() => page.evaluate(() => window.activityCalls.filter(c => c.call === 'end').map(c => c.id))).toEqual(['leave2']);
+});
+
+// A swiped-away card: on return to the app, "Lock Screen card closed · Show again".
+const backToApp = page => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+
+test('a swiped-away leave card: on return, Show again asks the server to start it again', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await page.evaluate(() => { window.fakeDismissed = [{ id: 'leave1', reminderId: 'r1' }]; });
+  await backToApp(page);
+  await expect(page.locator('#toast')).toContainText('Lock Screen card closed');
+  await page.locator('#toast').getByRole('button', { name: 'Show again' }).click();
+  await expect.poll(() => calls.find(c => c.method === 'PUT' && c.path === '/reminders/r1')?.body).toEqual({ restartCard: true });
+});
+
+test('a swiped-away ride card: on return, Show again starts a new one', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await tickTo(page, '07:00');
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await tickTo(page, '07:12'); // boarded
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:activity'))?.key ?? null)).not.toBeNull();
+  const starts = async () => (await activityCalls(page)).filter(c => c.call === 'start').length;
+  const before = await starts(); // the walk card's, then the ride card's
+  await page.evaluate(() => { window.fakeDismissed = [{ id: 'act1', reminderId: null }]; });
+  await backToApp(page);
+  await expect(page.locator('#toast')).toContainText('Lock Screen card closed');
+  await page.locator('#toast').getByRole('button', { name: 'Show again' }).click();
+  await expect.poll(starts).toBe(before + 1);
 });

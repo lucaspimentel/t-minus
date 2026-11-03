@@ -1494,6 +1494,30 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 - **Build:** TestFlight build 15. Only the phone tests push-to-start and the background token
   send.
 
+### Swiped-away cards (2026-11-03)
+
+A card that is gone (swiped away; also ended by iOS) still has its push token, and APNs accepts
+pushes to it: the leave card's heads-ups went out as card alerts nobody saw (2026-11-03, a card
+the app had ended at launch: no notification at all that morning). So:
+
+- **Detection (native, the build after 46):** `LiveActivityObserver` watches every card's state;
+  `.dismissed` (not for cards the app ended itself, `liveActivityEnd`) is recorded for the web app
+  (`TMinus.liveActivityDismissed()` → `{ activities: [{ id, reminderId }] }`), and a leave card's
+  goes to the server as `PUT /api/reminders/<id> { cardDismissed: true }` (retried like its
+  token). Cards gone while the app wasn't running count at its next launch (the cards it saw are
+  kept, `knownActivities`). A new leave card for the same reminder clears its record.
+- **Server:** `cardDismissed` marks the card gone (`card: { tried, dismissed }`): the reminder's
+  next steps (heads-ups, "Leave now", "Did you get on?") are notifications, and the card isn't
+  started again by itself. Pending notifications shows "card dismissed".
+- **"Show again":** on each open (launch, return), a toast "Lock Screen card closed · Show again"
+  while the card still applies: the ride's card while riding (also on build 46: an update that
+  finds no card marks it `gone`, and later updates stop), or the belled ride's leave card before
+  its departure (not once the trip started). The ride card: a new one from the app. The leave
+  card: `PUT /api/reminders/<id> { restartCard: true }` → a new start push at the next check
+  (past the leave-by, as a late bell's card); 409 while asking, after "Leaving now" / "At the
+  stop", or without a start token.
+- A swipe is for that ride only: the next bell or ride gets its card.
+
 ### Widget (Phase 3b, 2026-10-26)
 
 - **What:** "Leave times", the shown trip's next leave-bys on the Home Screen (small, medium);

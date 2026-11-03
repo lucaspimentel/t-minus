@@ -15,6 +15,7 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "liveActivityEnd", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "liveActivityStartToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "liveActivityList", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "liveActivityDismissed", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "widgetSave", returnType: CAPPluginReturnPromise),
     ]
 
@@ -95,9 +96,13 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let state = rideState(call) else { return call.reject("state is invalid") }
         let attributes = RideAttributes(tripName: call.getString("tripName") ?? "")
         Task {
-            for old in Activity<RideAttributes>.activities where old.attributes.reminderId == nil { await old.end(nil, dismissalPolicy: .immediate) }
+            for old in Activity<RideAttributes>.activities where old.attributes.reminderId == nil {
+                LiveActivityObserver.shared.endedByApp(old.id)
+                await old.end(nil, dismissalPolicy: .immediate)
+            }
             do {
                 let act = try Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: state.staleDate), pushType: .token)
+                LiveActivityObserver.shared.observe(act)
                 call.resolve(["id": act.id])
                 Task {
                     for await data in act.pushTokenUpdates {
@@ -137,9 +142,20 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(["activities": list])
     }
 
+    // liveActivityDismissed() → { activities: [{ id, reminderId }] }: cards dismissed without the
+    // app ending them (swiped away), oldest first; a leave card's goes once a new one starts.
+    @objc func liveActivityDismissed(_ call: CAPPluginCall) {
+        let list: [[String: Any]] = LiveActivityObserver.dismissed().map { e in
+            let reminderId: Any = e["reminderId"].map { $0 as Any } ?? NSNull()
+            return ["id": e["id"] ?? "", "reminderId": reminderId]
+        }
+        call.resolve(["activities": list])
+    }
+
     // liveActivityEnd({ id }): removed at once (Done, Cancel, a replaced ride). A missing one is fine.
     @objc func liveActivityEnd(_ call: CAPPluginCall) {
         guard let act = activity(call.getString("id")) else { return call.resolve() }
+        LiveActivityObserver.shared.endedByApp(act.id)
         Task {
             await act.end(nil, dismissalPolicy: .immediate)
             call.resolve()

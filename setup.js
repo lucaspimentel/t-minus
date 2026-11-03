@@ -412,7 +412,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const next = e.next;
       const details = e.kind === 'ride'
         ? legs.map(l => `${l.tripId} ${t(l.dep)}→${t(l.arr)}${l.source === 'live' ? ' live' : ''}`).join(' · ')
-        : `Leave by ${t(e.leaveBy)} · row ${e.key}`;
+        : `Leave by ${t(e.leaveBy)} · row ${e.key}${e.cardDismissed ? ' · card dismissed' : ''}`;
       return h('div', { class: 'card pn' },
         h('div', { class: 'k' }, kindName(e), e.phase ? ` · ${e.phase}` : ''),
         h('div', { class: 't1' }, title),
