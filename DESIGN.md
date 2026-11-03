@@ -348,9 +348,10 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
   - The next leg, picked by the rider (`connectionChoices`: up to 4 of its vehicles other than
     the planned one): while riding, "Different connection?" / "Keep this connection" lists
     those leaving from the current leg's arrival; in the transfer, "Different train?" /
-    "Different bus?" lists those leaving from now, preceded by up to 2 that already left after
-    the previous leg's arrival (at most 15 min ago: the rider caught an earlier one than
-    planned, 2026-11-03; picking one starts that leg), and "I'm at the stop" (only when one
+    "Different bus?" lists those leaving from now, preceded by the ones that already left, as
+    "On a different train?" lists them (`otherVehicles`: after the previous leg's arrival, in
+    the last 15 min, up to 4; the rider caught an earlier one than planned, 2026-11-03;
+    picking one starts that leg), and "I'm at the stop" (only when one
     leaves before the planned one) takes the first from now. Picking re-plans the later legs (`switchLeg`);
     the new trip ids reach the server's stop alerts (`PUT /rides/:id`), which keep the pick
     the same way.

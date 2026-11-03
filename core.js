@@ -2313,13 +2313,12 @@ export function otherVehicles(vehicles, leg, nowMs, afterMs = -Infinity) {
 
 // "Different connection?" / "Different bus?" in the transfer: up to 4 vehicles of the next leg
 // leaving from `fromMs` (now in the transfer, the current leg's arrival while riding), other than
-// the planned one. In the transfer also up to 2 that already left since `sinceMs` (the rider may
-// have caught an earlier one than planned, 2026-11-03: the previous leg's arrival, at most
-// PREVIOUS_MINUTES ago); picking one starts that leg.
-export function connectionChoices(vehicles, planned, fromMs, sinceMs = fromMs) {
-  const others = vehicles.filter(v => v.tripId !== planned.tripId);
-  const left = others.filter(v => v.dep >= sinceMs && v.dep < fromMs).slice(-2);
-  return [...left, ...others.filter(v => v.dep >= fromMs).slice(0, 4)];
+// the planned one. In the transfer (`afterMs`: the previous leg's arrival) they follow the ones
+// that already left, as "On a different train?" lists them (otherVehicles): the rider may have
+// caught an earlier one than planned (2026-11-03); picking one starts that leg.
+export function connectionChoices(vehicles, planned, fromMs, afterMs = null) {
+  const left = afterMs == null ? [] : otherVehicles(vehicles, planned, fromMs, afterMs);
+  return [...left, ...vehicles.filter(v => v.dep >= fromMs && !left.includes(v) && v.tripId !== planned.tripId).slice(0, 4)];
 }
 
 // "train" or "bus" in "On a different train?" (riding) and "Different bus?" (the transfer): buses
