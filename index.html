@@ -438,7 +438,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-03 · 7dd98b0fdf</footer>
+    <footer class="version">Version 2026-11-03 · c99efbe5d0</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -459,10 +459,10 @@ import {
   validateConfig, tripShape, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
-  unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
+  unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, PREVIOUS_MINUTES, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
-} from './core.js?v=b9c647c8fb';
-import { openSetup } from './setup.js?v=bc7f2fb9e6';
+} from './core.js?v=1f593edd36';
+import { openSetup } from './setup.js?v=69dcd2c44d';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -2133,7 +2133,9 @@ function renderRideCard(s, now) {
   // the stop" = the first departure from now, and "Different bus?"): the rider's pick sticks.
   const { transfers } = tripShape(trip);
   const nl = phase.kind === 'transfer' ? phase.leg : phase.kind === 'riding' && phase.leg + 1 < ride.legs.length ? phase.leg + 1 : -1;
-  const choices = nl < 0 ? [] : connectionChoices(rideVehicles()[nl] ?? [], ride.legs[nl], phase.kind === 'transfer' ? now : ride.legs[phase.leg].arr);
+  const choices = nl < 0 ? [] : phase.kind === 'transfer'
+    ? connectionChoices(rideVehicles()[nl] ?? [], ride.legs[nl], now, Math.max(ride.legs[nl - 1].arr, now - PREVIOUS_MINUTES * 60000))
+    : connectionChoices(rideVehicles()[nl] ?? [], ride.legs[nl], ride.legs[phase.leg].arr);
   const pickNext = v => {
     nextOpen = false;
     rideNote = null;
@@ -2141,7 +2143,8 @@ function renderRideCard(s, now) {
     render();
     schedulePoll();
   };
-  if (phase.kind === 'transfer' && choices[0] && choices[0].dep < ride.legs[nl].dep) btns.append(btn("I'm at the stop", () => pickNext(choices[0])));
+  const nextFromNow = choices.find(v => v.dep >= now);
+  if (phase.kind === 'transfer' && nextFromNow && nextFromNow.dep < ride.legs[nl].dep) btns.append(btn("I'm at the stop", () => pickNext(nextFromNow)));
   if (choices.length) {
     const noun = vehicleNoun(ride.legs[nl]);
     const [open, closed] = phase.kind === 'transfer' ? [`Keep this ${noun}`, `Different ${noun}?`] : ['Keep this connection', 'Different connection?'];

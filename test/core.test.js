@@ -625,6 +625,10 @@ test('transfer outlook, auto re-plan, and switching to a later vehicle', () => {
   const many = [...trains, veh('o4', '08:10', '08:25'), veh('o5', '08:20', '08:35')];
   assert.deepEqual(connectionChoices(many, leg(trains[2], 'Orange'), at('07:29')).map(v => v.tripId), ['o1', 'o3', 'o4', 'o5']);
   assert.deepEqual(connectionChoices(trains, leg(trains[3], 'Orange'), at('07:26')).map(v => v.tripId), ['o0', 'o1', 'o2']);
+  // In the transfer, also up to 2 that already left since a time (the most recent), then from now.
+  assert.deepEqual(connectionChoices(many, leg(trains[3], 'Orange'), at('07:37'), at('07:26')).map(v => v.tripId), ['o1', 'o2', 'o4', 'o5']);
+  assert.deepEqual(connectionChoices(many, leg(trains[3], 'Orange'), at('07:37'), at('07:30')).map(v => v.tripId), ['o1', 'o2', 'o4', 'o5']);
+  assert.deepEqual(connectionChoices(many, leg(trains[3], 'Orange'), at('07:37'), at('07:32')).map(v => v.tripId), ['o2', 'o4', 'o5']);
 });
 
 test('rideStops: remaining stops to the drop-off and the vehicle', () => {

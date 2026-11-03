@@ -195,6 +195,20 @@ test('in the transfer: I\'m at the stop takes the next train; Different train? p
   await expect(card(page).getByRole('button', { name: "I'm at the stop" })).toHaveCount(0); // nothing sooner
 });
 
+test('in the transfer: Different train? also lists a train that already left, and picking it starts the ride', async ({ page }) => {
+  await openApp(page, { time: '07:00' });
+  await atTheStop(page);
+  await tickTo(page, '07:28'); // the 7:26 left after the bus was off (7:22): caught early
+  await transferHead(page, '~7:32am');
+  await card(page).getByRole('button', { name: 'Different train?' }).click();
+  await tick(page, 300);
+  expect(await choiceNames(page)).toEqual(['Orange ~7:26am', 'Orange ~7:38am', 'Orange ~7:44am', 'Orange ~7:50am', 'Orange ~7:56am']);
+  await card(page).getByRole('button', { name: 'Orange ~7:26am' }).click();
+  await tick(page, 300);
+  await expect(head(page)).toHaveText(riding('Orange'));
+  await offAt(page, '7:41am');
+});
+
 test('while riding: Different connection? lists the next leg after the arrival; the pick is kept even when tight', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await atTheStop(page);
