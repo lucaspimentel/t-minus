@@ -438,7 +438,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-03 · f04d23c101</footer>
+    <footer class="version">Version 2026-11-03 · db6be33dc6</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -1360,8 +1360,11 @@ if (native) {
       if ((rem.dep ?? rem.leaveBy) > Date.now()) pushApi('PUT', `/reminders/${rem.id}`, { startToken: token }).catch(e => nativeLog('liveActivity', `start token: ${e.message}`));
     }
   })).catch(e => nativeLog('liveActivity', `start token listener: ${e.message}`));
-  // Cards left from reminders that are gone (their token never reached the server).
+  // Cards left from reminders that are gone (their token never reached the server). The bells
+  // the server set (auto-bell) are picked up first, or their cards would end here; without an
+  // answer from the server, none are ended.
   Promise.resolve().then(async () => {
+    if (!(await adoptBells())) return;
     const keep = new Set([...Object.values(reminders).map(r => r.id), leaveCard?.reminderId]);
     for (const a of await leaveActivities()) if (a.reminderId && !keep.has(a.reminderId)) endActivity(a.id, 'end leave card');
   });
@@ -1563,15 +1566,16 @@ async function syncAutoBells(prompt = false) {
   }
 }
 // The bells the server set: shown as if belled here (the pin and its reminder). A trip already
-// under way keeps its state, and the server's bell is deleted.
+// under way keeps its state, and the server's bell is deleted. False when the server couldn't
+// be asked (the iOS app's card cleanup then waits).
 async function adoptBells() {
-  if (!SERVER_API || !pushSupported || !config) return;
+  if (!SERVER_API || !pushSupported || !config) return true;
   let bells;
   try {
     const subscription = await currentSubscription();
-    if (!subscription) return;
+    if (!subscription) return true;
     ({ bells } = await pushApi('POST', '/bells', { subscription }));
-  } catch { return; }
+  } catch { return false; }
   const known = new Set(Object.values(reminders).map(r => r.id));
   const all = store.get(KEY_EN_ROUTE) ?? {};
   let changed = false;
@@ -1592,11 +1596,12 @@ async function adoptBells() {
     reminders[`${b.index}/${b.key}`] = { id: b.id, leaveBy: b.leaveBy, dep: b.dep, headsUps: b.headsUps, timingIdx: b.timingIdx, key: b.key, bell: true, auto: true };
     changed = true;
   }
-  if (!changed) return;
+  if (!changed) return true;
   store.set(KEY_EN_ROUTE, all);
   saveReminders();
   render();
   schedulePoll();
+  return true;
 }
 
 // Stop names of the shown trip, from the stops its schedule and prediction responses include.
@@ -2540,7 +2545,7 @@ render();
 startRum();
 if (config) { refresh({ force: true }); locate(); } // no trips: the empty state (Plan a trip / Import trips)
 syncAutoBells();
-adoptBells();
+if (!native) adoptBells(); // the iOS app's card cleanup calls it
 </script>
 </body>
 </html>

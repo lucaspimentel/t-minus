@@ -69,7 +69,7 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token, leav
   window.Capacitor = { isNativePlatform: () => true, Plugins: { PushNotifications, TMinus } };
 }
 
-async function fakeServer(page, { appLog = [] } = {}) {
+async function fakeServer(page, { appLog = [], bells = [] } = {}) {
   const calls = [];
   await page.context().route(`${PUSH}/**`, async route => {
     const req = route.request();
@@ -80,6 +80,7 @@ async function fakeServer(page, { appLog = [] } = {}) {
     if (path === '/rides') return route.fulfill({ status: 201, json: { id: 'ride1' }, headers: cors });
     if (path.startsWith('/rides/') || path.startsWith('/reminders/')) return route.fulfill({ status: 204, headers: cors });
     if (path === '/log') return route.fulfill({ status: 204, headers: cors });
+    if (path === '/bells') return route.fulfill({ json: { bells }, headers: cors });
     if (path === '/log/read') return route.fulfill({ json: { lines: appLog }, headers: cors });
     if (path === '/pending') return route.fulfill({ json: { now: at('06:50'), entries: [], log: [] }, headers: cors });
     return route.fulfill({ status: 404, json: { error: 'Not found' }, headers: cors });
@@ -408,4 +409,22 @@ test('the card\'s Yes boards the asked ride', async ({ page }) => {
   await page.evaluate(d => window.emitAnswer('yes', d), dep);
   await tick(page, 1000);
   await expect(page.locator('.row.ride')).toHaveCount(1);
+});
+
+// Auto-bell: the server set a bell and started its card before the app opened. At launch the
+// app picks the bell up first, so the card stays; a card whose reminder is gone still ends.
+test('at launch, the card of a bell the server set stays; a card from a gone reminder ends', async ({ page }) => {
+  const legs = [
+    { route: '132', label: 'Bus 132', color: 'FFC72C', tripId: 'b1', dep: at('07:08'), arr: at('07:20'), source: 'schedule' },
+    { route: 'Orange', label: 'Orange', color: 'ED8B00', tripId: 'o1', dep: at('07:27'), arr: at('07:45'), source: 'schedule' },
+  ];
+  await fakeServer(page, { bells: [{ id: 'auto1', index: 0, tripName: 'Home to office', key: '132in-0708', leaveBy: at('07:02'), dep: at('07:08'), headsUps: [60, 10, 5], timingIdx: 0, legs }] });
+  await page.addInitScript(capacitorStub, { server: PUSH, token: TOKEN, leave: true });
+  await page.addInitScript(token => {
+    localStorage.setItem('t-minus:apns-token', JSON.stringify(token));
+    window.fakeActivities = [{ id: 'leave1', reminderId: 'auto1', tripName: 'Home to office' }, { id: 'leave2', reminderId: 'gone1', tripName: 'Home to office' }];
+  }, TOKEN.toLowerCase());
+  await openApp(page, { time: '06:50' });
+  await expect(firstRow(page).locator('.summary .bell')).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => window.activityCalls.filter(c => c.call === 'end').map(c => c.id))).toEqual(['leave2']);
 });

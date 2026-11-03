@@ -1666,7 +1666,9 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
 - **In the app:** `POST /api/bells { subscription }` lists the server's bells (`adoptBells`, at
   launch and on return): each is pinned on its trip and kept as that trip's reminder, as if
   belled here; one already under way on that trip keeps its state and the server's bell is
-  deleted. From then on it is a manual bell: it stays on its ride, a manual bell elsewhere
+  deleted. In the iOS app this runs before the launch's cleanup of leave cards whose reminder it
+  doesn't know (2026-11-03: the auto-bell's card, started at 8:30am, was ended when the app
+  opened); without an answer from the server the cleanup is skipped. From then on it is a manual bell: it stays on its ride, a manual bell elsewhere
   replaces it, bell off cancels that day only.
 - **Widget:** it follows the bell once the app has opened (its request comes from the app); the
   leave card shows it from the start.
