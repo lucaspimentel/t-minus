@@ -110,21 +110,27 @@
     background: var(--card); border: 1px solid var(--border); border-left: 6px solid var(--border);
     border-radius: 12px; padding: 12px 14px;
   }
-  .row.green { border-left-color: var(--green); }
+  /* Only the target (.catch: the ride the app answers with, or the belled one) is green, in every
+     mode; later reachable rows are neutral (the .row border, the text color). Amber and red keep
+     their color on any row; .catch never overrides them. */
+  .row.catch.green, .row.catch.enroute { border-left-color: var(--green); }
   .row.amber { border-left-color: var(--amber); }
   .row.red { border-left-color: var(--red); }
   .big {
     display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px;
     font-size: 28px; font-weight: 700;
   }
-  /* The countdown never breaks; if a long leave-by time ("Thu 5:31am") doesn't fit beside it,
-     the time drops to the next line, still right-aligned. */
+  /* The countdown never breaks; if the time would drop below a long countdown ("Departs in
+     1h 26m"), the countdown steps down (fit1, then fit2: fitHeads); only if it still doesn't fit
+     (a next-day "Thu 5:31am" at 360 px) does the time drop to the next line, still right-aligned. */
   .big > span { white-space: nowrap; }
+  .big.fit1 > span:first-child { font-size: .86em; } /* 28px → 24px */
+  .big.fit2 > span:first-child { font-size: .72em; } /* 28px → 20px */
   .big .at { font-size: 20px; font-weight: 600; margin-left: auto; }
   /* Equal-width digits in the time columns only, so times line up down a list; elsewhere the
      wide tabular "1" would gap names like "Bus 132". */
   .step .t, .big .at { font-variant-numeric: tabular-nums; }
-  .green .big { color: var(--green); }
+  .catch.green .big, .catch.enroute .big { color: var(--green); }
   .amber .big { color: var(--amber); }
   .red .big { color: var(--red); }
   .row.missed { border-left-color: var(--muted); }
@@ -286,10 +292,6 @@
   }
   .en-status { flex: 1 1 0; min-width: 0; }
   .enroute-bar.wide .en-status { flex-basis: 100%; }
-  .row.enroute { border-left-color: var(--border); }
-  .enroute .big { color: var(--text); }
-  .row.enroute.catch { border-left-color: var(--green); }
-  .catch .big { color: var(--green); }
   .version { color: var(--muted); font-size: 12px; text-align: center; margin-top: 20px; }
   /* Reload prompts: a 44 px target. The new-version card sits above the footer version. */
   .big-btn { min-height: 44px; padding: 0 22px; font-size: 17px; font-weight: 600; border-radius: 12px;
@@ -438,7 +440,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-03 · f5e292e710</footer>
+    <footer class="version">Version 2026-11-03 · cf534332a2</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -458,11 +460,11 @@
 import {
   validateConfig, tripShape, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
-  rowState, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
+  rowState, targetRow, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
-} from './core.js?v=ab5e2714b6';
-import { openSetup } from './setup.js?v=c1c06ea0a6';
+} from './core.js?v=18d2b4a50c';
+import { openSetup } from './setup.js?v=5956fde3f1';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -917,7 +919,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   const target = firstLeg ? r.firstDep : r.leaveBy;
   const key = prev ? `prev:${r.key}` : rowKey(r);
   const reminder = prev ? null : reminderFor(r);
-  const label = countdownLabel(prev ? 'missed' : state, target - now, vehicleLabel(r.legs[0]));
+  const label = countdownLabel(prev ? 'missed' : state, target - now);
   if (prev) gone = r;
   // The spaces between spans (not rendered in the flex rows) keep the words apart in the
   // button's text, which must read in order inside its name (rowAriaLabel).
@@ -1819,12 +1821,11 @@ function render() {
   if (listTrip !== tripIdx) { listTrip = tripIdx; extraRows = 0; prevOpen = false; }
   const current = currentRows(now);
   renderEnRoute(now, current.length > 0);
-  // The ride being headed for: the pinned one (the bell), else en route the first
-  // reachable one.
+  // The target, highlighted green in every mode: the pinned one (the bell), else the first row
+  // still to catch (targetRow).
   const s = enRouteState();
   const pinnedKey = s?.pinned ? s.target?.key ?? null : null;
-  const catchRow = pinnedKey != null ? current.find(r => r.key === pinnedKey && !r.nextDay)
-    : current.find(r => rowState(now, r) === 'enroute');
+  const catchRow = targetRow(current, now, pinnedKey);
   const prev = previousRides(config.trips[tripIdx], rideVehicles(), now);
   if (!prev.length) prevOpen = false;
   // While previous rides are shown, a missed row whose train has left is among them (one that
@@ -1914,6 +1915,19 @@ function setRows(...rows) {
   const focused = document.activeElement?.dataset?.focus;
   $('rows').replaceChildren(...rows);
   if (focused) $('rows').querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+  fitHeads();
+}
+
+// A long countdown ("Departs in 1h 26m") would push the time to a second line at phone widths:
+// step its size down until the time fits beside it (at most twice; then it wraps as before).
+function fitHeads() {
+  for (const big of $('rows').querySelectorAll('.big')) {
+    const label = big.firstElementChild, at = big.querySelector('.at');
+    if (!at || label === at) continue;
+    const wrapped = () => at.getBoundingClientRect().top >= label.getBoundingClientRect().bottom;
+    if (wrapped()) big.classList.add('fit1');
+    if (wrapped()) { big.classList.remove('fit1'); big.classList.add('fit2'); }
+  }
 }
 
 // Screen readers: a polite announcement (#announce), for changes that would otherwise only be seen.
@@ -1930,7 +1944,7 @@ function announceLeaveState(r, now) {
   const key = `${tripIdx}/${rowKey(r)}`;
   if (lastLeave?.key === key && lastLeave.state !== state) {
     const target = state === 'red' || state === 'missed' || state === 'enroute' ? r.firstDep : r.leaveBy;
-    announce(`${countdownLabel(state, target - now, vehicleLabel(r.legs[0]))} · ${formatTime(target, now)}`);
+    announce(`${countdownLabel(state, target - now)} · ${formatTime(target, now)}`);
   }
   lastLeave = { key, state };
 }

@@ -1813,6 +1813,14 @@ export function rowState(nowMs, row) {
   return countdownState(nowMs, row.leaveBy, row.lastChance, row.firstDep);
 }
 
+// The target row: the ride the app answers with, highlighted green (only it, in every mode;
+// 2026-11-04). The pinned one (the bell) when there is a pin, else the first row still to catch
+// (not missed, hidden or without a connection). Null when there is none.
+export function targetRow(rows, nowMs, pinnedKey = null) {
+  if (pinnedKey != null) return rows.find(r => r.key === pinnedKey && !r.nextDay) ?? null;
+  return rows.find(r => ['green', 'amber', 'red', 'enroute'].includes(rowState(nowMs, r))) ?? null;
+}
+
 // "Leaving now" (at the stop after the walk) or "At the stop" (now). `at` is the first tap,
 // kept when "At the stop" follows "Leaving now"; it caps the mode at 30 min.
 // A target pinned with the bell (`pinned`, `target`) is kept.
@@ -3219,11 +3227,12 @@ export function rowAriaLabel(countdown, at, eta, reminder = false, details = [])
   return [countdown, at, ...details, `arrive ${eta}`, ...(reminder ? ['reminder set'] : [])].join(', ');
 }
 
-// Headline for a departure row, given its countdownState and the time left until leave-by
-// (green, amber), the last chance (red), or the first departure (missed).
-export function countdownLabel(state, msLeft, label = '') {
+// Headline for a departure row, given its rowState and the time left until leave-by
+// (green, amber), the last chance (red), or the first departure (missed, en route: "Departs in",
+// the vehicle is in the leg strip; 2026-11-04, was "Bus 132 in").
+export function countdownLabel(state, msLeft) {
   switch (state) {
-    case 'enroute': return `${label} in ${formatCountdown(msLeft)}`;
+    case 'enroute': return `Departs in ${formatCountdown(msLeft)}`;
     case 'green':
     case 'amber': return `Leave in ${formatCountdown(msLeft)}`;
     case 'red': return `Hurry · ${formatCountdown(msLeft)}`;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage, scrubApiKey, rumInitOptions,
+  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, targetRow, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage, scrubApiKey, rumInitOptions,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -399,7 +399,8 @@ test('en route: reachability from the at-stop time, no leave-by', () => {
   assert.equal(enRouteActive(leaving, 0, at('08:00')), false);
 
   // Labels, status, polling, wake lock.
-  assert.equal(countdownLabel('enroute', 6 * MIN, 'Bus 132'), 'Bus 132 in 6 min');
+  assert.equal(countdownLabel('enroute', 6 * MIN), 'Departs in 6 min');
+  assert.equal(countdownLabel('enroute', 86 * MIN), 'Departs in 1h 26m');
   assert.equal(enRouteStatus(leaving, at('07:31')), 'Walking · at the stop ~7:35am');
   assert.equal(enRouteStatus(leaving, at('07:36')), 'At the stop since ~7:35am');
   assert.equal(enRouteStatus(stop, at('07:39')), 'At the stop since 7:38am');
@@ -958,7 +959,32 @@ test('countdownLabel text per state', () => {
   assert.equal(countdownLabel('missed', 30_000), 'Departs in <1 min');
   assert.equal(countdownLabel('missed', -30_000), 'Missed · left <1 min ago');
   assert.equal(countdownLabel('missed', -3 * MIN - 10_000), 'Missed · left 3 min ago');
+  assert.equal(countdownLabel('enroute', 150_000), 'Departs in 2 min');
   assert.equal(countdownLabel('none', 0), 'No connection');
+});
+
+test('targetRow: the pinned row, else the first row still to catch', () => {
+  // leaveBy 07:10, lastChance 07:12, firstDep 07:15 for 'a'; each later row 30 min later.
+  const row = (key, h, extra = {}) => ({ key, leaveBy: at(h), lastChance: at(h) + 2 * MIN, firstDep: at(h) + 5 * MIN, ...extra });
+  const rows = [row('a', '07:10'), row('b', '07:40'), row('c', '08:10')];
+  const key = (r) => r?.key ?? null;
+  assert.equal(key(targetRow(rows, at('07:00'))), 'a'); // green
+  assert.equal(key(targetRow(rows, at('07:08'))), 'a'); // amber
+  assert.equal(key(targetRow(rows, at('07:11'))), 'a'); // red
+  assert.equal(key(targetRow(rows, at('07:13'))), 'b'); // a missed
+  // En route: the first reachable one; missed skipped.
+  const en = rows.map(r => ({ ...r, leaveBy: null, enRoute: true }));
+  assert.equal(key(targetRow(en, at('07:00'))), 'a');
+  assert.equal(key(targetRow(en, at('07:12'))), 'b');
+  // A pin wins; a missing pin or a pinned next-day row: none.
+  assert.equal(key(targetRow(rows, at('07:00'), 'b')), 'b');
+  assert.equal(key(targetRow(rows, at('07:00'), 'zz')), null);
+  assert.equal(key(targetRow([row('a', '07:10', { nextDay: true })], at('07:00'), 'a')), null);
+  // Only next-day rows: the first is the answer.
+  assert.equal(key(targetRow([row('n1', '07:10', { nextDay: true }), row('n2', '07:40', { nextDay: true })], at('07:00'))), 'n1');
+  // "No connection" skipped; all missed: none.
+  assert.equal(key(targetRow([row('x', '07:10', { leaveBy: null }), row('b', '07:40')], at('07:00'))), 'b');
+  assert.equal(key(targetRow(rows, at('08:13'))), null);
 });
 
 test('windowLabel formats trip windows for the setup list', () => {

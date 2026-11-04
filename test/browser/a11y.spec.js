@@ -83,6 +83,17 @@ for (const scheme of ['light', 'dark']) {
   });
 }
 
+for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on the at-the-stop list; a row's name says what it shows (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openApp(page, { time: '07:00' });
+    await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+    await tick(page, 1000);
+    await expect(page.getByRole('button', { name: /^Departs in 7 min, 7:08am, Bus 132, Orange, / })).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+  });
+}
+
 test('a row is a button: its name says when to leave, and Enter expands it', async ({ page }) => {
   await openApp(page, { time: '06:55' });
   const btn = page.getByRole('button', { name: 'Leave in 6 min, 7:02am, Bus 132, Orange, scheduled, arrive ~7:57am' });

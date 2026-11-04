@@ -29,8 +29,11 @@ test('At the stop highlights the first ride you can catch', async ({ page }) => 
   await atTheStop(page);
   await expect(bar(page)).toContainText('At the stop since 7:00am');
   const catchRow = page.locator('.row.catch');
-  await expect(catchRow.locator('.big')).toHaveText(/Bus 132 in 7 min\s*7:08am/);
-  await expect(page.locator('.row').nth(1)).toContainText('Bus 132 in 35 min');
+  await expect(catchRow.locator('.big')).toHaveText(/Departs in 7 min\s*7:08am/);
+  await expect(page.locator('.row').nth(1)).toContainText('Departs in 35 min');
+  // Only the target is green; the later ride is neutral.
+  await expect(page.locator('.row').nth(1)).not.toHaveClass(/\bcatch\b/);
+  await expect(page.locator('.row').nth(1).locator('.big')).not.toHaveCSS('color', await catchRow.locator('.big').evaluate(e => getComputedStyle(e).color));
 });
 
 test('Leaving now adds the walk before picking the ride', async ({ page }) => {
@@ -488,7 +491,7 @@ test('a leg with several routes is labeled by what they share, each vehicle by i
   await greenD.click();
   await expect(greenD.locator('.timeline .step.ride')).toContainText('Green Line D · 1 stop · 2 min');
   await atTheStop(page);
-  await expect(page.locator('.row.catch .big')).toContainText('Green B in 4 min');
+  await expect(page.locator('.row.catch .big')).toContainText('Departs in 4 min');
   await tickTo(page, '06:45:30');
   await expect(head(page)).toHaveText(riding('Green B'));
   await offAt(page, '6:47am');

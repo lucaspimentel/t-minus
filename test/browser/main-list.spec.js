@@ -76,6 +76,67 @@ test('before stop names are known, the timeline keeps its shape with "—"', asy
   await expect(first.locator('.timeline .step.stop .t')).toHaveText(['7:08am', '7:22am', '~7:32am', '~7:47am']);
 });
 
+// The computed color of a custom property ("--green") as getComputedStyle reports colors.
+const cssColor = (page, v) => page.evaluate(v => {
+  const d = document.createElement('div');
+  d.style.color = `var(${v})`;
+  document.body.append(d);
+  const c = getComputedStyle(d).color;
+  d.remove();
+  return c;
+}, v);
+
+test('only the target ride is green; later rows are neutral', async ({ page }) => {
+  await openApp(page, { time: '06:55' });
+  const [green, border] = [await cssColor(page, '--green'), await cssColor(page, '--border')];
+  const [first, second] = [page.locator('.row').nth(0), page.locator('.row').nth(1)];
+  await expect(first).toHaveClass(/\bgreen\b.*\bcatch\b/);
+  await expect(first).toHaveCSS('border-left-color', green);
+  await expect(first.locator('.big')).toHaveCSS('color', green);
+  await expect(second).toHaveClass(/\bgreen\b/);
+  await expect(second).not.toHaveClass(/\bcatch\b/);
+  await expect(second).toHaveCSS('border-left-color', border);
+  await expect(second.locator('.big')).not.toHaveCSS('color', green);
+  // The first one missed: the next becomes the target.
+  await tickTo(page, '07:03:30');
+  await expect(first).toHaveClass(/\bmissed\b/);
+  await expect(second).toHaveClass(/\bcatch\b/);
+  await expect(second.locator('.big')).toHaveCSS('color', green);
+});
+
+test('a belled row turning amber or red shows amber or red, not green', async ({ page }) => {
+  await openApp(page, { time: '06:55' });
+  await page.locator('.row-toggle').first().click();
+  await page.getByRole('button', { name: 'Track', exact: true }).click();
+  await tick(page, 1000);
+  const first = page.locator('.row').first();
+  await tickTo(page, '06:59:30');
+  await expect(first).toHaveClass(/\bamber\b.*\bcatch\b.*\btracked\b/);
+  await expect(first.locator('.big')).toHaveCSS('color', await cssColor(page, '--amber'));
+  await tickTo(page, '07:02:30');
+  await expect(first).toHaveClass(/\bred\b/);
+  await expect(first.locator('.big')).toHaveCSS('color', await cssColor(page, '--red'));
+});
+
+for (const width of [390, 360]) {
+  test(`a long countdown keeps the time on its line (${width} px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await openApp(page, { time: '06:55' });
+    const sameLine = () => page.locator('.row .big').evaluateAll(bigs => bigs.map(b => {
+      const [label, at] = [b.firstElementChild.getBoundingClientRect(), b.querySelector('.at').getBoundingClientRect()];
+      return at.top < label.bottom;
+    }));
+    expect(await rowHeads(page)).toContain('Leave in 1h 30m 8:26am');
+    expect(await sameLine()).toEqual([true, true, true, true]);
+    await expect(page.locator('.row .big > span:first-child').first()).toHaveCSS('font-size', '28px'); // short: not shrunk
+    await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+    await tick(page, 1000);
+    expect((await rowHeads(page)).filter(h => /^Departs in 1h \d\dm /.test(h))).toHaveLength(2);
+    expect(await sameLine()).toEqual([true, true, true, true]);
+    if (width === 390) await expect(page.locator('.row .big > span:first-child').first()).toHaveCSS('font-size', '28px');
+  });
+}
+
 test('countdown goes green → amber → red → missed, and the missed row leaves after 5 min', async ({ page }) => {
   await openApp(page, { time: '06:55' });
   const first = page.locator('.row').first();

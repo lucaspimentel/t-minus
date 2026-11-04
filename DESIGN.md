@@ -250,6 +250,11 @@ unavailable: fallback, and the status line adds "Location off".
 | Missed | `last_chance <= now < first_leg.departure + 5 min` | Amber "Departs in 2 min" at full size (can no longer be reached at your pace, still to leave; `.departs`, 2026-10-21, like the leave card; screen readers hear the same), then gray and smaller "Missed · left 3 min ago"; first-leg departure on the right |
 | Hidden | `now >= first_leg.departure + 5 min` | Row removed |
 
+Only the target row is green (2026-11-04, the same in every mode): the ride the app answers with,
+the first row still to catch (green, amber, red or en route; `targetRow`), or the belled one.
+Later rows in the green state are neutral (the plain border, the text color). Amber and red show
+on any row at their thresholds, the belled row included (its outline stays green).
+
 A missed row's collapsed line shows the first leg (the one missed) instead of the timing leg.
 Live predictions disappear once a vehicle leaves its stop, so the last live times seen while
 the app is open are kept per trip (`rememberLive`/`withRemembered`, dropped 30 min after
@@ -268,9 +273,9 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
 - At-stop time: tap + `walkBefore` ("Leaving now"), or the tap ("At the stop"; replaces the
   estimate when tapped while walking).
 - Today's rows: a ride is reachable if its first vehicle departs at or after the at-stop time
-  (no stop slack). Reachable rows read "Bus 132 in 6 min" (to the first leg's departure,
-  shown on the right, collapsed line shows the first leg); the first is highlighted green
-  (the one being headed for), later ones neutral. No leave-by. Unreachable rides follow the
+  (no stop slack). Reachable rows read "Departs in 6 min" (to the first leg's departure,
+  shown on the right; the vehicle is in the leg strip; 2026-11-04, was "Bus 132 in 6 min"); the
+  first is highlighted green (the target, `targetRow`, as in the normal list), later ones neutral. No leave-by. Unreachable rides follow the
   missed rules (one gray row, missed immediately if the at-stop time is after it leaves).
   Next-day rows are not shown (the list may be shorter than `departureCount`).
 - The highlighted ride is the target, re-taken every tick while it's reachable
@@ -286,8 +291,8 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
   `kind: 'track'`: rows keep their leave-by countdowns, the pinned row has a green outline (and,
   collapsed, a small bell when a reminder is set), and the bar reads "Tracking Bus 132 7:40am"
   [Leaving now] [At the stop] [Cancel] (both keep the pin; Cancel turns the bell off, with
-  "Tracking cancelled · Undo"). While en route, the pinned row is highlighted instead of the
-  first reachable one. Bell off drops only the pin (`unpinTarget`): plain tracking ends;
+  "Tracking cancelled · Undo"). In every mode the pinned row is the highlighted target instead of
+  the first reachable one (in the normal list too, 2026-11-04; amber/red stay amber/red under the outline). Bell off drops only the pin (`unpinTarget`): plain tracking ends;
   "Leaving now" / "At the stop" stays and the highlight goes back to the first reachable ride.
 - **Boarding question:** a pinned departure boards on its own only after "Leaving now" / "At the
   stop" with an at-stop time on or before it. Otherwise, at its departure (live, else scheduled)
@@ -381,7 +386,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 
 ### Display
 
-- Per departure: countdown/state with the leave-by time right-aligned ("Leave in 12 min   8:04am"),
+- Per departure: countdown/state with the leave-by time right-aligned ("Leave in 12 min   8:04am";
+  a countdown too long for the time to fit beside it steps down 28 → 24 → 20px, `fitHeads`, and
+  only then lets the time wrap, as a next-day "Thu 10:26am" at 360 px does),
   then, collapsed, a leg strip (the timeline's gray rail laid out horizontally: short stubs
   for the walks at both ends, evenly spaced colored dots with short labels, "─● Bus 132 ──●
   Orange ─"), then the source badge (LIVE/SCHEDULED, or "every 6 min" for a subway leg with no predictions; of the timing leg; the first leg on missed
@@ -1464,8 +1471,8 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   for "🚌 59 min"). Emoji only there. The state adds `head`, `countTo`, `headTime`, `long`,
   `headsign`, `right`, `note`, `emoji`; builds before 35 ignore them and keep the layout above.
 - **Walk card:** "Leaving now" / "At the stop" with the bell mark its reminder `started` (without
-  the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Bus 132 in 6
-  minutes", "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once there; "2 min late" in
+  the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Departs in 6
+  min · 6:15pm" (`head`; builds before 35 show the `title` "Bus 132 in 6 minutes"), "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once there; "2 min late" in
   amber), "Arrive 8:25am" (`walkActivityState`; on both cards "~" only when a leg is a headway estimate), updated by the app while open, no alerts.
   A missed departure turns it into the boarding question (app and server). Boarding ends it just before the ride card starts; Cancel or the vehicle leaving end it. Known
   limit: with the app closed it isn't updated (stale 2 min after its countdown; ended at the next
