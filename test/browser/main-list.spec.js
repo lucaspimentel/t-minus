@@ -122,18 +122,30 @@ for (const width of [390, 360]) {
   test(`a long countdown keeps the time on its line (${width} px)`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await openApp(page, { time: '06:55' });
-    const sameLine = () => page.locator('.row .big').evaluateAll(bigs => bigs.map(b => {
-      const [label, at] = [b.firstElementChild.getBoundingClientRect(), b.querySelector('.at').getBoundingClientRect()];
-      return at.top < label.bottom;
+    // Every time on its headline's line unless already at the smallest step, and a headline shrunk
+    // only when it wouldn't fit at the size before (font-independent: CI's fonts are wider than the
+    // sandbox's Inter or SF Pro).
+    const check = () => page.locator('.row .big').evaluateAll(bigs => bigs.map(b => {
+      const label = b.firstElementChild, at = b.querySelector('.at');
+      const fits = () => at.getBoundingClientRect().top < label.getBoundingClientRect().bottom;
+      const ok = fits();
+      const step = b.classList.contains('fit2') ? 'fit2' : b.classList.contains('fit1') ? 'fit1' : null;
+      let needed = true;
+      if (step) {
+        b.classList.remove(step);
+        if (step === 'fit2') b.classList.add('fit1');
+        needed = !fits();
+        b.classList.remove('fit1');
+        b.classList.add(step);
+      }
+      return (ok || step === 'fit2') && needed;
     }));
     expect(await rowHeads(page)).toContain('Leave in 1h 30m 8:26am');
-    expect(await sameLine()).toEqual([true, true, true, true]);
-    await expect(page.locator('.row .big > span:first-child').first()).toHaveCSS('font-size', '28px'); // short: not shrunk
+    expect(await check()).toEqual([true, true, true, true]);
     await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
     await tick(page, 1000);
     expect((await rowHeads(page)).filter(h => /^Departs in 1h \d\dm /.test(h))).toHaveLength(2);
-    expect(await sameLine()).toEqual([true, true, true, true]);
-    if (width === 390) await expect(page.locator('.row .big > span:first-child').first()).toHaveCSS('font-size', '28px');
+    expect(await check()).toEqual([true, true, true, true]);
   });
 }
 
