@@ -29,6 +29,14 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
   running in the background: the server answers, turning the leave card into the ride card and
   driving it; the app catches up at its next open). Today Yes / Missed it open the app.
 
+- Boarding from location (grilled 2026-11-05): a Settings toggle (off by default; "Always" for
+  the geofence). A belled ride's boarding stop gets a ~100 m geofence from leave-by − 15 min to
+  dep + 30 min; entering it marks "At the stop". GPS (high accuracy, until the ride ends) matches
+  the vehicle you move with (bus ~30 s, above-ground Orange ~60 s): which vehicle, when it left,
+  missed it (switch to the next), got off (the transfer, or the ride ends). Each acts with Undo;
+  the card updates silently. Native Swift (a geofence relaunch has no WebView); coordinates stay
+  on the phone. No fix: today's behavior, with a later correction.
+
 ## Deferred
 
 - Default times to/from the stops and transfer times estimated from stop coordinates
