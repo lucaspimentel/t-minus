@@ -3,7 +3,8 @@
 // through the app's TMinus plugin, the app log, and no Web Push or service worker. The push
 // server is stubbed at https://push.test. Home to office at 6:50: the 7:08 bus 132, leave by 7:02.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, at } from './helpers.js';
+import AxeBuilder from '@axe-core/playwright';
+import { openApp, tick, tickTo, at, riding } from './helpers.js';
 
 const PUSH = 'https://push.test';
 const TOKEN = 'AB'.repeat(32);
@@ -20,7 +21,11 @@ test.beforeEach(({ page }) => {
 // liveActivityList from window.fakeActivities, liveActivityDismissed from window.fakeDismissed);
 // window.emitStartToken(token) fires its event.
 // `widget` (Phase 3b): the plugin has widgetSave; its bodies land in window.widgetBodies.
-function capacitorStub({ server, permission = 'prompt', fail = null, token, leave = false, widget = false }) {
+// `boarding` (boarding from location): the plugin has locationStatus (window.locStatus) and the
+// boarding* methods, recorded in window.boardingCalls; boardingPending returns window.boardingAction
+// once, boardingLog window.boardingLines; window.emitBoarding() fires the `boarding` event.
+// `boardingOn`: the setting is on.
+function capacitorStub({ server, permission = 'prompt', fail = null, token, leave = false, widget = false, boarding = false, boardingOn = false }) {
   localStorage.setItem('t-minus:push-server', JSON.stringify(server));
   window.nativeCalls = [];
   const listeners = {};
@@ -63,7 +68,20 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token, leav
       liveActivityDismissed: async () => ({ activities: window.fakeDismissed ?? [] }),
     }),
     ...(widget && { widgetSave: async ({ body }) => { (window.widgetBodies ??= []).push(JSON.parse(body)); } }),
+    ...(boarding && {
+      locationStatus: async () => ({ status: window.locStatus ?? 'notDetermined' }),
+      locationAuthorize: async () => { window.boardingCalls.push({ call: 'authorize' }); window.locStatus = 'always'; return { status: 'always' }; },
+      boardingSetting: async a => { window.boardingCalls.push({ call: 'setting', ...a }); },
+      boardingArm: async a => { window.boardingCalls.push({ call: 'arm', ...a }); },
+      boardingDisarm: async () => { window.boardingCalls.push({ call: 'disarm' }); },
+      boardingPending: async () => { const action = window.boardingAction ?? null; window.boardingAction = null; return { action }; },
+      boardingUndo: async a => { window.boardingCalls.push({ call: 'undo', ...a }); },
+      boardingLog: async () => ({ lines: window.boardingLines ?? [] }),
+    }),
   };
+  window.boardingCalls = [];
+  if (boardingOn) localStorage.setItem('t-minus:boarding-location', 'true');
+  window.emitBoarding = () => emit('TMinus.boarding', {});
   window.emitStartToken = t => emit('TMinus.startToken', { token: t });
   // A tap on a notification's action (`actionId`: 'tap', 'yes', 'missed').
   window.emitAction = (actionId, data) => emit('pushNotificationActionPerformed', { actionId, notification: { data } });
@@ -462,4 +480,150 @@ test('a swiped-away ride card: on return, Show again starts a new one', async ({
   await expect(page.locator('#toast')).toContainText('Lock Screen card closed');
   await page.locator('#toast').getByRole('button', { name: 'Show again' }).click();
   await expect.poll(starts).toBe(before + 1);
+});
+
+// ---------- boarding from location ----------
+
+const boardingCalls = (page, call) => page.evaluate(c => window.boardingCalls.filter(x => x.call === c), call);
+// What the native code decided, from the trip's current state: `switch` (the 7:26am Orange
+// instead of the 7:32am), `missed` (back at the stop), `gotOff` (off the Orange now); then the
+// `boarding` event.
+async function detect(page, kind, toast) {
+  await page.evaluate(async ([kind, toast]) => {
+    const { boardingBase } = await import('/core.js');
+    const cur = JSON.parse(localStorage.getItem('t-minus:en-route'))[0];
+    const now = Date.now();
+    const leg1 = f => ({ ...cur, ride: { ...cur.ride, legs: cur.ride.legs.map((l, i) => (i === 1 ? f(l) : l)) } });
+    const state = kind === 'switch' ? leg1(l => ({ ...l, tripId: 'OLin-0726', dep: l.dep - 6 * 60_000, arr: l.arr - 6 * 60_000 }))
+      : kind === 'missed' ? { kind: 'stop', at: now, atStop: now, name: cur.name }
+        : leg1(l => ({ ...l, off: now }));
+    window.boardingAction = { undoId: 'u1', tripIdx: 0, tripName: cur.name, toast, at: now, state, base: boardingBase(cur), from: boardingBase(cur) };
+    window.emitBoarding();
+  }, [kind, toast]);
+  await tick(page, 300);
+}
+const toastEl = page => page.locator('#toast');
+
+test('Detect boarding with location: in the app only; turning it on asks for location and tells the native code', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true });
+  await openApp(page, { time: '06:50' });
+  await page.locator('#open-setup').click();
+  const box = page.getByRole('checkbox', { name: 'Detect boarding with location' });
+  await expect(box).not.toBeChecked();
+  await box.check();
+  await expect(page.locator('#boarding-hint')).toHaveText(/^Always: detects arriving at the stop/);
+  expect(await boardingCalls(page, 'authorize')).toHaveLength(1);
+  expect((await boardingCalls(page, 'setting')).at(-1)).toMatchObject({ on: true, defaults: { slack: 1, alerts: true } });
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:boarding-location')))).toBe(true);
+});
+
+test('Detect boarding with location: not offered in the browser, nor by a build without it', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN });
+  await openApp(page, { time: '06:50' });
+  await page.locator('#open-setup').click();
+  await expect(page.locator('#setup .check').first()).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Detect boarding with location' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Boarding log' })).toHaveCount(0);
+});
+
+test('with the setting on, a belled ride is armed: its window and state, the core.js URL, no position anywhere', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, boardingOn: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await expect.poll(async () => (await boardingCalls(page, 'arm')).length).toBeGreaterThan(0);
+  const { session, coreUrl } = (await boardingCalls(page, 'arm')).at(-1);
+  expect(coreUrl).toMatch(/\/core\.js\?v=[0-9a-f]{10}$/);
+  expect(session).toMatchObject({ on: true, tripIdx: 0, reminderId: 'r1', window: { from: at('07:02') - 15 * 60_000, to: at('07:08') + 30 * 60_000 } });
+  expect(session.enRoute).toMatchObject({ kind: 'track', bell: true });
+  expect(session.subscription).toEqual({ endpoint: `apns:${TOKEN.toLowerCase()}` });
+  for (const c of calls) expect(JSON.stringify(c.body ?? {})).not.toMatch(/"lat"|"lon"|latitude|longitude/);
+  // Bell off: disarmed.
+  const disarms = (await boardingCalls(page, 'disarm')).length;
+  await firstRow(page).getByRole('button', { name: 'Tracking', exact: true }).click();
+  await expect.poll(async () => (await boardingCalls(page, 'disarm')).length).toBe(disarms + 1);
+});
+
+test('another train detected: the ride switches, with Undo (which tells the native code)', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, boardingOn: true });
+  await openApp(page, { time: '07:00' });
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await tickTo(page, '07:24'); // off the bus, in the transfer (the 7:32am planned)
+  await expect(page.locator('.row.ride .big')).toHaveText(/7:32am$/);
+  await detect(page, 'switch', 'On the 7:26am Orange, not the 7:32am');
+  await expect(toastEl(page)).toContainText('On the 7:26am Orange, not the 7:32am');
+  await expect(page.locator('.row.ride .big')).toHaveText(/7:26am$/);
+  await toastEl(page).getByRole('button', { name: 'Undo' }).click();
+  await tick(page, 300);
+  await expect(page.locator('.row.ride .big')).toHaveText(/7:32am$/);
+  expect(await boardingCalls(page, 'undo')).toEqual([{ call: 'undo', undoId: 'u1' }]);
+});
+
+test('missed the bus detected: back at the stop; got off detected: the walk', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, boardingOn: true });
+  await openApp(page, { time: '07:00' });
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await tickTo(page, '07:09'); // boarded the 7:08am (assumed)
+  await expect(page.locator('.row.ride')).toHaveCount(1);
+  await detect(page, 'missed', 'Missed the 7:08am Bus 132');
+  await expect(toastEl(page)).toContainText('Missed the 7:08am Bus 132');
+  await expect(page.locator('#enroute')).toContainText('At the stop since 7:09am');
+  await expect(page.locator('.row.ride')).toHaveCount(0);
+
+  await tickTo(page, '07:36:30'); // boarded the 7:36am
+  await tickTo(page, '08:10'); // on the Orange
+  await expect(page.locator('.ride-head')).toHaveText(riding('Orange'));
+  await detect(page, 'gotOff', 'Got off at State');
+  await expect(toastEl(page)).toContainText('Got off at State');
+  await expect(page.locator('.ride-head')).toHaveText(/^Walking · arrive/);
+});
+
+test('at the next open: the latest action applies with its toast while its ride is on; not once it is over', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, boardingOn: true });
+  await page.addInitScript(([t]) => {
+    if (sessionStorage.getItem('opened')) return;
+    sessionStorage.setItem('opened', '1');
+    window.boardingAction = { undoId: 'u2', tripIdx: 0, tripName: 'Home to office', toast: 'At the stop (location)', at: t, state: { kind: 'stop', at: t, atStop: t, name: 'Home to office' }, base: 'null', from: 'null' };
+  }, [at('06:58')]);
+  await openApp(page, { time: '07:00' });
+  await expect(toastEl(page)).toContainText('At the stop (location)');
+  await expect(page.locator('#enroute')).toContainText('At the stop since 6:58am');
+});
+
+test('at the next open: an action for a ride that is over is dropped', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, boardingOn: true });
+  await page.addInitScript(([t]) => {
+    const legs = [{ tripId: '132in-0544', dep: t, arr: t + 60_000 }, { tripId: 'OLin-0600', dep: t + 120_000, arr: t + 180_000 }];
+    window.boardingAction = { undoId: 'u3', tripIdx: 0, tripName: 'Home to office', toast: 'Got off at State', at: t, state: { kind: 'stop', at: t, atStop: t, ride: { legs, boardedAt: t }, name: 'Home to office' }, base: 'null', from: 'null' };
+  }, [at('05:44')]);
+  await openApp(page, { time: '07:00' });
+  await tick(page, 500);
+  await expect(toastEl(page)).toBeHidden();
+  await expect(page.locator('.row.ride')).toHaveCount(0);
+});
+
+test('the Boarding log: newest first, Copy; axe finds nothing', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true });
+  await page.addInitScript(([t]) => {
+    window.boardingLines = [{ at: t, line: 'geofence entered' }, { at: t + 60_000, line: 'leg 0 boarded 132in-0708 (planned 132in-0708) meters 12,20' }];
+    navigator.clipboard.writeText = async text => { window.copied = text; };
+  }, [at('07:04')]);
+  await openApp(page, { time: '07:10' });
+  await page.locator('#open-setup').click();
+  await page.getByRole('button', { name: 'Boarding log' }).click();
+  await expect(page.locator('.boarding-log > div')).toHaveText(['7:05am leg 0 boarded 132in-0708 (planned 132in-0708) meters 12,20', '7:04am geofence entered']);
+  const v = await new AxeBuilder({ page }).disableRules(['meta-viewport']).analyze();
+  expect(v.violations.map(x => x.id)).toEqual([]);
+  await page.getByRole('button', { name: 'Copy' }).click();
+  await expect(toastEl(page)).toContainText('Copied');
+  expect(await page.evaluate(() => window.copied)).toMatch(/geofence entered$/);
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Detect boarding with location' })).toBeVisible();
 });

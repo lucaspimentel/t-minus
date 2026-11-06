@@ -30,6 +30,11 @@ names and bundle ID) are in `DESIGN.md` ("iOS app").
 - **Project changes:** new targets, capabilities, entitlements, and `Info.plist` keys are edited as
   files, not in Xcode: the `xcodeproj` Ruby gem, run here, for new files, build settings and the
   `TMinusWidgets` extension (Phase 2); the result is committed. 3b added the widget to it.
+- **Compiling:** no `swiftc` here; an `ios` run with `upload` off compiles the app target
+  (`xcodebuild build`, unsigned) besides rendering the previews, so a native change is checked
+  before an upload.
+- **Background Live Activities:** iOS doesn't let the app start one in the background; boarding
+  from location (with the page closed) reuses the leave card as the ride card (`DESIGN.md`).
 - **Seeing native UI:** no SwiftUI previews; the `ios` workflow renders the views to PNGs
   (`ios/Previews`, the `live-activity-previews` artifact; see `DESIGN.md`), the widget's sizes
   included.

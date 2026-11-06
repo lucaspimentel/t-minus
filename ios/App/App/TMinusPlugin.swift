@@ -17,10 +17,19 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "liveActivityList", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "liveActivityDismissed", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "widgetSave", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "locationStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "locationAuthorize", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "boardingSetting", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "boardingArm", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "boardingDisarm", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "boardingPending", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "boardingUndo", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "boardingLog", returnType: CAPPluginReturnPromise),
     ]
 
     private var startTokenObserver: NSObjectProtocol?
     private var answerObserver: NSObjectProtocol?
+    private var boardingObserver: NSObjectProtocol?
 
     // ---------- "Did you get on?" from the card or the widget (RideState.answerURL) ----------
 
@@ -54,6 +63,69 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
             self?.sendPendingAnswer()
         }
         sendPendingAnswer()
+        // Boarding from location decided something (BoardingLocation): the page takes it with
+        // boardingPending.
+        boardingObserver = NotificationCenter.default.addObserver(forName: BoardingLocation.changed, object: nil, queue: .main) { [weak self] _ in
+            self?.notifyListeners("boarding", data: [:], retainUntilConsumed: true)
+        }
+    }
+
+    // ---------- boarding from location (BoardingLocation, DESIGN.md) ----------
+
+    // locationStatus() → { status: 'notDetermined' | 'whenInUse' | 'always' | 'denied' }
+    @objc func locationStatus(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { call.resolve(["status": BoardingLocation.shared.status]) }
+    }
+
+    // locationAuthorize() → { status }: asks for While Using, then Always.
+    @objc func locationAuthorize(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { BoardingLocation.shared.authorize { call.resolve(["status": $0]) } }
+    }
+
+    // boardingSetting({ on, defaults }): the Settings toggle, and what an auto-bell needs to arm
+    // with the page closed ({ trips, subscription, slack, alerts }). Off disarms.
+    @objc func boardingSetting(_ call: CAPPluginCall) {
+        let on = call.getBool("on") ?? false
+        let defaults = call.getObject("defaults").map { $0 as [String: Any] }
+        DispatchQueue.main.async {
+            BoardingLocation.shared.setOn(on, defaults: defaults)
+            call.resolve()
+        }
+    }
+
+    // boardingArm({ session, coreUrl }): the trip to follow (core.js boardingSession).
+    @objc func boardingArm(_ call: CAPPluginCall) {
+        guard let session = call.getObject("session"), let coreUrl = call.getString("coreUrl") else { return call.reject("session is missing") }
+        let web = session as [String: Any]
+        Task {
+            await BoardingLocation.shared.arm(session: web, coreUrl: coreUrl)
+            call.resolve()
+        }
+    }
+
+    @objc func boardingDisarm(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            BoardingLocation.shared.disarm()
+            call.resolve()
+        }
+    }
+
+    // boardingPending() → { action: { undoId, toast, at, state, base, from } | null }, taken.
+    @objc func boardingPending(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { call.resolve(["action": BoardingLocation.shared.takePending() ?? NSNull()]) }
+    }
+
+    @objc func boardingUndo(_ call: CAPPluginCall) {
+        guard let id = call.getString("undoId") else { return call.reject("undoId is missing") }
+        DispatchQueue.main.async {
+            BoardingLocation.shared.undo(id)
+            call.resolve()
+        }
+    }
+
+    // boardingLog() → { lines: [{ at, line }] }: the on-device log, oldest first.
+    @objc func boardingLog(_ call: CAPPluginCall) {
+        call.resolve(["lines": BoardingLog.shared.all()])
     }
 
     // keepAwake({ on }): keeps the screen on while a ride is tracked (the PWA's Wake Lock).

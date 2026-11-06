@@ -12,7 +12,9 @@ export const IMPORTS = [
   { file: 'index.html', dep: 'setup.js' },
 ];
 
-export const importRe = dep => new RegExp(`from '\\./${dep.replace('.', '\\.')}(\\?v=[0-9a-f]*)?'`);
+// Every `'./core.js?v=…'` in the file: the import, and index.html's CORE_JS (the URL the iOS
+// app's native code loads core.js from: boarding from location).
+export const importRe = dep => new RegExp(`'\\./${dep.replace('.', '\\.')}(\\?v=[0-9a-f]*)?'`, 'g');
 
 // Line endings are normalized to LF first: a Windows checkout (core.autocrlf) has CRLF on
 // disk while CI has LF, and the hash must be identical on both.
@@ -40,8 +42,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   for (const { file, dep } of IMPORTS) {
     const source = readFileSync(file, 'utf8');
     const re = importRe(dep);
-    if (!re.test(source)) throw new Error(`${dep} import not found in ${file}`);
-    writeFileSync(file, source.replace(re, `from './${dep}?v=${fileHash(dep)}'`));
+    if (!source.match(re)) throw new Error(`${dep} import not found in ${file}`);
+    writeFileSync(file, source.replace(re, `'./${dep}?v=${fileHash(dep)}'`));
     console.log(`${file} now imports ${dep}?v=${fileHash(dep)}`);
   }
   // The date only changes when the content does.

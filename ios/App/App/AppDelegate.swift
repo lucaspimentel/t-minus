@@ -10,6 +10,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         Observability.shared.start() // Datadog RUM, before any native request
         LiveActivityObserver.shared.start() // also in a background launch after a leave card's start
+        BoardingLocation.shared.start() // also in a background relaunch by its geofence
         // The boarding question's actions (the server's `board` pushes): both open the app, which
         // gets the action from the PushNotifications plugin (`pushNotificationActionPerformed`).
         UNUserNotificationCenter.current().setNotificationCategories([

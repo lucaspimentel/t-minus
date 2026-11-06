@@ -1637,7 +1637,7 @@ export const tripFields = {
   'fields[prediction]': 'arrival_time,departure_time,schedule_relationship',
   'fields[schedule]': 'arrival_time,departure_time,pickup_type,drop_off_type', // flag stops, no pickup
   include: 'stop,trip',
-  'fields[stop]': 'name,parent_station,platform_code', // names for the timeline (stopNames), tracks
+  'fields[stop]': 'name,parent_station,platform_code,latitude,longitude', // names for the timeline (stopNames), tracks; where to detect boarding
   'fields[trip]': 'headsign,name', // "toward Forest Hills", the train number
 };
 export function legQuery(leg) {
@@ -1941,12 +1941,14 @@ export function trackLegs(legs, transit, tripsMaps, memory = null) {
 
 // Phase of a ride: riding leg i (boarded, before its arrival), transfer before leg i (before
 // its departure), walking (after the last arrival, before the ETA), arrived (5 min), done.
+// A leg's `off` (the rider got off, detected from location) ends it before its arrival; the ETA
+// stays the last arrival + the walk.
 export function ridePhase(ride, walkAfter, nowMs) {
   const legs = ride.legs;
   const eta = legs[legs.length - 1].arr + walkAfter * MIN;
   for (let i = 0; i < legs.length; i++) {
     if (i > 0 && nowMs < legs[i].dep) return { kind: 'transfer', leg: i, eta };
-    if (nowMs < legs[i].arr) return { kind: 'riding', leg: i, eta };
+    if (nowMs < (legs[i].off ?? legs[i].arr)) return { kind: 'riding', leg: i, eta };
   }
   if (nowMs < eta) return { kind: 'walking', leg: legs.length, eta };
   return { kind: nowMs < eta + 5 * MIN ? 'arrived' : 'done', leg: legs.length, eta };
@@ -1971,6 +1973,18 @@ export function replanFrom(vehiclesByLeg, from, nowMs, transfers, skipTripId = n
     earliest = next.arr + (transfers[i] ?? 0) * MIN;
   }
   return chain;
+}
+
+// "Missed it" on leg i of a ride (the trip card, or detected from location): on the first leg,
+// back to waiting at the stop (the next departure becomes the target); on a later leg, its next
+// vehicle and the earliest connections after it. `note`: "No later connection." (state kept).
+export function missLeg(state, i, vehiclesByLeg, transfers, nowMs) {
+  if (i === 0) return { state: { kind: 'stop', at: nowMs, atStop: nowMs, ...(state.name && { name: state.name }) }, note: null };
+  const missed = state.ride.legs[i];
+  const chain = replanFrom(vehiclesByLeg, i, nowMs, transfers, missed.tripId);
+  if (!chain) return { state, note: 'No later connection.' };
+  const legs = state.ride.legs.map((l, k) => (chain[k - i] ? onVehicle(l, chain[k - i]) : l));
+  return { state: { ...state, ride: { ...state.ride, legs } }, note: null };
 }
 
 // Remaining stops of the ridden vehicle from `/predictions?filter[trip]=…&include=stop,vehicle`:
@@ -2200,6 +2214,7 @@ export function checkRide(trip, ride, nowMs) {
     for (const k of ['label', 'route', 'headsign', 'vehicleRoute']) if (l[k] != null && (typeof l[k] !== 'string' || l[k].length > 100)) return `ride leg ${k} is invalid`;
     for (const k of ['track', 'train']) if (l[k] != null && (typeof l[k] !== 'string' || l[k].length > 10)) return `ride leg ${k} is invalid`;
     if (l.flag != null && !FLAGS.includes(l.flag)) return 'ride leg flag is invalid';
+    if (l.off != null && !Number.isFinite(l.off)) return 'ride leg off is invalid';
   }
   if (!Number.isFinite(ride.boardedAt)) return 'ride.boardedAt is invalid';
   const end = legs[n - 1].arr;
@@ -2822,9 +2837,9 @@ export function widgetRequest(cfg, oneOffAt, override, lastUsed, state = null) {
 // The leg fields the widget's server needs to name and time a ride's legs. Times to the minute:
 // the server refreshes them by trip id, and the request (rewritten when it changes, reloading the
 // widget) shouldn't change with every poll.
-const WIDGET_LEG_KEYS = ['route', 'label', 'routeLabels', 'vehicleRoute', 'color', 'headsign', 'tripId', 'dep', 'arr', 'source', 'arrSource', 'every', 'picked'];
+const WIDGET_LEG_KEYS = ['route', 'label', 'routeLabels', 'vehicleRoute', 'color', 'headsign', 'tripId', 'dep', 'arr', 'source', 'arrSource', 'every', 'picked', 'off'];
 const toMinute = ms => Math.floor(ms / MIN) * MIN;
-const widgetLegs = legs => legs.map(l => Object.fromEntries(WIDGET_LEG_KEYS.filter(k => l[k] != null).map(k => [k, k === 'dep' || k === 'arr' ? toMinute(l[k]) : l[k]])));
+const widgetLegs = legs => legs.map(l => Object.fromEntries(WIDGET_LEG_KEYS.filter(k => l[k] != null).map(k => [k, k === 'dep' || k === 'arr' || k === 'off' ? toMinute(l[k]) : l[k]])));
 
 // The one en-route state the widget follows (2026-10-31; KEY_EN_ROUTE's { [tripIdx]: state }): a
 // ride first, then the boarding question, "Leaving now" / "At the stop", the bell. Null: none
@@ -3253,6 +3268,451 @@ export function formatCountdown(ms) {
   return `${m} min`;
 }
 
+// ---------- Boarding from location (the iOS app; DESIGN.md "Boarding from location") ----------
+
+// The phone's location (geofence, GPS) against the MBTA's vehicle positions tells which vehicle
+// the rider got on, a missed one, and getting off. The native code runs this section in
+// JavaScriptCore (nativeBoardingStep: JSON in, JSON out), with the app's page closed too, so it
+// uses no DOM, fetch, timers or URLSearchParams. Coordinates and distances stay on the phone:
+// only the on-device log (`log` actions) has them.
+export const GEOFENCE_METERS = 100; // iOS's practical minimum
+export const GEOFENCE_BEFORE_MIN = 15; // a belled ride's stop counts from leave-by − 15 min…
+// …to the departure + ASK_MINUTES.
+export const STOP_AREA_METERS = 100; // "at the stop"
+export const MATCH_METERS = 75; // a vehicle this close to the phone moves with it
+export const MATCH_SECONDS_BUS = 30; // for at least this long (bus positions are GPS)
+export const MATCH_SECONDS_TRAIN = 60; // (subway positions update every 15–35 s)
+export const MATCH_MIN_UPDATES = 2; // vehicle position updates within MATCH_METERS
+export const LEFT_STOP_METERS = 100; // …while the phone is this far from the stop
+export const MISSED_PAST_METERS = 200; // the planned vehicle this far past the stop, the phone still there
+export const GOT_OFF_METERS = 150; // the ridden vehicle this far from a still phone
+export const STILL_METERS = 50; // "still": within this of one point (or at walking pace)
+export const WALK_METERS_PER_S = 2;
+export const GPS_MAX_ACCURACY_METERS = 50; // worse fixes are ignored
+export const VEHICLE_FRESH_SECONDS = 90;
+export const SAMPLE_GAP_SECONDS = 20; // a vehicle position is compared with a phone fix this close in time
+export const BOARD_CHECK_MIN = 10; // a leg's vehicle is confirmed (or corrected) until this long after its departure
+export const BOARDING_POLL_MS = 10_000; // /vehicles while GPS is on
+export const DOCS_POLL_MS = 60_000; // predictions
+export const SCHEDULES_POLL_MS = 30 * MIN;
+export const BOARDING_KEEP_MIN = 10; // phone fixes and vehicle positions kept
+export const BOARDING_LOG_DAYS = 7; // the on-device log
+
+// A leg's /vehicles query (route and direction only: no coordinates leave the phone).
+export function vehiclesQuery(leg) {
+  return { 'filter[route]': legRoutes(leg).join(','), 'filter[direction_id]': leg.direction_id, 'fields[vehicle]': 'latitude,longitude,updated_at,current_status' };
+}
+// /vehicles → [{ id, tripId, lat, lon, updatedAt, status }] (those with a position and a trip).
+export function vehiclePositions(doc) {
+  return (doc?.data ?? []).map(v => ({
+    id: v.id, tripId: v.relationships?.trip?.data?.id ?? null, lat: v.attributes?.latitude, lon: v.attributes?.longitude,
+    updatedAt: Date.parse(v.attributes?.updated_at ?? ''), status: v.attributes?.current_status ?? null,
+  })).filter(p => p.tripId && Number.isFinite(p.lat) && Number.isFinite(p.lon) && Number.isFinite(p.updatedAt));
+}
+// A stop's position and name from the docs' included stops: the stop itself or, for a station,
+// its first child platform with a position (the station's name). Null when unknown.
+export function stopPoint(docs, stopId) {
+  const stops = docs.flatMap(d => d?.included ?? []).filter(x => x.type === 'stop');
+  const own = stops.find(x => x.id === stopId);
+  const pick = [own, ...stops.filter(x => x.relationships?.parent_station?.data?.id === stopId)]
+    .find(x => Number.isFinite(x?.attributes?.latitude) && Number.isFinite(x?.attributes?.longitude));
+  if (!pick) return null;
+  return { lat: pick.attributes.latitude, lon: pick.attributes.longitude, name: own?.attributes?.name ?? pick.attributes.name ?? null };
+}
+// Each transit leg's boarding and drop-off stop positions: [{ board, alight }] (null when unknown).
+export function legPoints(trip, docs) {
+  return tripShape(trip).transit.map(l => ({ board: stopPoint(docs, l.stop), alight: stopPoint(docs, l.alight) }));
+}
+
+const near = (a, b) => distanceMeters(a, b);
+// The phone's position at time t: between the fixes around it (no more than 2 gaps apart), else
+// the closest fix within SAMPLE_GAP_SECONDS; null without one.
+function phoneAt(track, t) {
+  let before = null;
+  let after = null;
+  for (const p of track) {
+    if (p.t <= t) before = p;
+    else { after = p; break; }
+  }
+  const gap = SAMPLE_GAP_SECONDS * 1000;
+  if (before && after && after.t - before.t <= 2 * gap) {
+    const f = (t - before.t) / (after.t - before.t || 1);
+    return { lat: before.lat + f * (after.lat - before.lat), lon: before.lon + f * (after.lon - before.lon) };
+  }
+  const c = [before, after].filter(p => p && Math.abs(p.t - t) <= gap).sort((x, y) => Math.abs(x.t - t) - Math.abs(y.t - t))[0];
+  return c ? { lat: c.lat, lon: c.lon } : null;
+}
+// Each vehicle's distinct positions (by update time), oldest first.
+function snapshotsByTrip(positions) {
+  const out = new Map();
+  for (const p of positions) {
+    const list = out.get(p.tripId) ?? [];
+    if (!list.some(q => q.updatedAt === p.updatedAt)) list.push(p);
+    out.set(p.tripId, list);
+  }
+  for (const list of out.values()) list.sort((a, b) => a.updatedAt - b.updatedAt);
+  return out;
+}
+const NONE = { kind: 'none' };
+const m0 = x => Math.round(x);
+
+// The phone's fixes (`track`: [{ t, lat, lon, acc }]) against the vehicles' positions (`positions`:
+// vehiclePositions, accumulated): a verdict.
+// ctx: { mode: 'board' | 'ride', stop ({ lat, lon }, the boarding stop), planned (trip id),
+//   candidates (trip ids), bus, since (ms: fixes before it are ignored), nowMs, rideTripId }.
+// - board: { kind: 'boarded', tripId, at } when, after the phone was at the stop, a candidate
+//   stayed within MATCH_METERS of it for MATCH_MIN_UPDATES+ updates over the bus / train window
+//   while the phone was LEFT_STOP_METERS+ from the stop (two trains side by side at a terminal:
+//   only the one leaving with the phone); { kind: 'missed', tripId } when the planned vehicle,
+//   after being at the stop, is MISSED_PAST_METERS+ past it and the phone stayed at the stop.
+// - ride: { kind: 'gotOff', at, lat, lon } when the ridden vehicle (once within MATCH_METERS) is
+//   GOT_OFF_METERS+ from the phone for 2 updates and the phone is still or walking.
+// No usable fix (underground, no signal, poor accuracy): { kind: 'none' }.
+export function matchVehicle(track0, positions, ctx) {
+  const track = track0.filter(p => p.acc <= GPS_MAX_ACCURACY_METERS && p.t >= (ctx.since ?? -Infinity)).sort((a, b) => a.t - b.t);
+  if (!track.length) return NONE;
+  const snaps = snapshotsByTrip(positions);
+  if (ctx.mode === 'ride') return gotOff(track, snaps.get(ctx.rideTripId) ?? [], ctx);
+  const atStop = track.find(p => near(p, ctx.stop) <= STOP_AREA_METERS);
+  if (!atStop) return NONE;
+  const windowMs = (ctx.bus ? MATCH_SECONDS_BUS : MATCH_SECONDS_TRAIN) * 1000;
+  let best = null;
+  for (const tripId of new Set([ctx.planned, ...ctx.candidates])) {
+    let run = [];
+    let found = null;
+    for (const s of snaps.get(tripId) ?? []) {
+      if (s.updatedAt < atStop.t) continue;
+      const ph = phoneAt(track, s.updatedAt);
+      if (!ph) continue;
+      const m = near(ph, s);
+      if (m > MATCH_METERS) { run = []; continue; }
+      if (near(ph, ctx.stop) <= LEFT_STOP_METERS) continue;
+      run.push({ t: s.updatedAt, m });
+      if (run.length >= MATCH_MIN_UPDATES && run[run.length - 1].t - run[0].t >= windowMs) found = [...run];
+    }
+    if (!found) continue;
+    const mean = found.reduce((a, r) => a + r.m, 0) / found.length;
+    if (!best || found.length > best.run.length || (found.length === best.run.length && mean < best.mean)) best = { tripId, run: found, mean };
+  }
+  if (best) {
+    // Left the stop: the last fix at the stop before the match.
+    const left = track.filter(p => p.t <= best.run[0].t && near(p, ctx.stop) <= STOP_AREA_METERS).pop();
+    return { kind: 'boarded', tripId: best.tripId, at: left?.t ?? best.run[0].t, meters: best.run.map(r => m0(r.m)) };
+  }
+  const planned = snaps.get(ctx.planned) ?? [];
+  const last = planned[planned.length - 1];
+  if (last && ctx.nowMs - last.updatedAt <= VEHICLE_FRESH_SECONDS * 1000 && near(last, ctx.stop) > MISSED_PAST_METERS) {
+    const there = planned.filter(s => s.updatedAt < last.updatedAt && near(s, ctx.stop) <= STOP_AREA_METERS + 50).pop();
+    const after = there ? track.filter(p => p.t >= there.updatedAt) : [];
+    const recent = after.some(p => p.t >= last.updatedAt - SAMPLE_GAP_SECONDS * 1000);
+    if (there && recent && after.every(p => near(p, ctx.stop) <= STOP_AREA_METERS)) {
+      return { kind: 'missed', tripId: ctx.planned, meters: [m0(near(last, ctx.stop))] };
+    }
+  }
+  return NONE;
+}
+function gotOff(track, snaps, ctx) {
+  let onboard = false;
+  let far = [];
+  for (const s of snaps) {
+    const ph = phoneAt(track, s.updatedAt);
+    if (!ph) continue;
+    const m = near(ph, s);
+    if (m <= MATCH_METERS) { onboard = true; far = []; } else if (onboard && m > GOT_OFF_METERS) far.push({ t: s.updatedAt, m });
+  }
+  if (far.length < 2) return NONE;
+  const end = track[track.length - 1];
+  const since = track.filter(p => p.t >= far[0].t - SAMPLE_GAP_SECONDS * 1000);
+  const first = since[0];
+  if (!first || end.t < far[far.length - 1].t - SAMPLE_GAP_SECONDS * 1000) return NONE;
+  const spread = Math.max(...since.map(p => near(p, end)));
+  if (spread > Math.max(STILL_METERS, WALK_METERS_PER_S * (end.t - first.t) / 1000)) return NONE;
+  const at = phoneAt(track, far[0].t) ?? first;
+  return { kind: 'gotOff', at: far[0].t, lat: at.lat, lon: at.lon, meters: far.map(r => m0(r.m)) };
+}
+
+// The web app and native code compare en-route states by this signature: a detected action
+// applies only to the state it was computed from.
+export function boardingBase(state) {
+  if (!state) return 'null';
+  return JSON.stringify([state.kind, state.atStop ?? null, state.target?.key ?? null, state.asking?.dep ?? null,
+    state.ride ? [state.ride.boardedAt, state.ride.legs.map(l => [l.tripId, l.off ?? null])] : null]);
+}
+
+// "At the stop" from the geofence: only a belled ride not started yet (plain tracking), within
+// its window.
+export function geofenceEntered(state, window, walkBefore, nowMs) {
+  if (!state || state.ride || state.asking || state.kind !== 'track' || !state.bell || !window) return state;
+  if (nowMs < window.from || nowMs >= window.to) return state;
+  return startEnRoute('stop', nowMs, walkBefore, state);
+}
+
+// The session the web app hands to native code (TMinus.boardingArm), with what native code adds:
+// web: { on, tripIdx, trip, timingIdx, slack, enRoute, alerts, subscription, card ({ id, token,
+//   kind }), reminderId, window ({ from, to }: the geofence's), points (legPoints) };
+// native: { geofence ({ lastInside }), track, positions, docs ({ p, s }), fetched ({ key: ms }),
+//   matched ({ leg: tripId }), rejected, pending }.
+const WEB_KEYS = ['on', 'tripIdx', 'trip', 'timingIdx', 'slack', 'enRoute', 'alerts', 'subscription', 'card', 'reminderId', 'window', 'points'];
+export function boardingSession(web) {
+  return Object.fromEntries(WEB_KEYS.map(k => [k, web[k] ?? null]));
+}
+// The geofence's window for a belled ride: leave-by − GEOFENCE_BEFORE_MIN to the departure + ASK_MINUTES.
+export const boardingWindow = (leaveBy, dep) => ({ from: leaveBy - GEOFENCE_BEFORE_MIN * MIN, to: dep + ASK_MINUTES * MIN });
+
+function rideOf(s, maps, shape) {
+  const st = s.enRoute;
+  return st?.ride ? { ...st.ride, legs: trackLegs(st.ride.legs, shape.transit, maps) } : null;
+}
+const docsMaps = (s, shape) => shape.transit.map((l, i) => mergeTrips(s.docs?.p?.[i] ?? null, s.docs?.s?.[i] ?? null));
+// Points from the session, else from its docs.
+function pointsOf(s) {
+  const fromDocs = legPoints(s.trip, [...(s.docs?.p ?? []), ...(s.docs?.s ?? [])]);
+  return fromDocs.map((p, i) => ({ board: s.points?.[i]?.board ?? p.board, alight: s.points?.[i]?.alight ?? p.alight }));
+}
+
+// What native code should do now: { region ({ id, lat, lon, radius }), gps, queries ([{ key,
+// path, params, every }]) }. The region is monitored for the whole window (an entry before it
+// only records being inside); GPS from "Leaving now" / "At the stop" (tapped or the geofence)
+// until the ride is over or its last walk starts.
+export function boardingWants(s, nowMs) {
+  const none = { region: null, gps: false, queries: [] };
+  const st = s?.enRoute;
+  if (!s?.on || !st) return none;
+  const shape = tripShape(s.trip);
+  const ride = rideOf(s, docsMaps(s, shape), shape);
+  const phase = ride ? ridePhase(ride, shape.walkAfter, nowMs) : null;
+  if (!enRouteActive(st, shape.walkAfter, nowMs)) return none;
+  const gps = st.kind !== 'track' && (!phase || phase.kind === 'riding' || phase.kind === 'transfer');
+  const board = pointsOf(s)[0]?.board;
+  const region = !st.ride && st.kind === 'track' && st.bell && s.window && nowMs < s.window.to && board
+    ? { id: `tminus-stop-${s.tripIdx}`, lat: board.lat, lon: board.lon, radius: GEOFENCE_METERS } : null;
+  const watching = !st.ride && st.kind === 'track' && st.bell && s.window && nowMs < s.window.to;
+  const queries = [];
+  if (gps || watching) {
+    const w = scheduleWindow(nowMs, 30, 240);
+    shape.transit.forEach((l, i) => {
+      queries.push({ key: `p${i}`, path: '/predictions', params: predictionQuery(l), every: DOCS_POLL_MS });
+      queries.push({ key: `s${i}`, path: '/schedules', params: { ...legQuery(l), 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime }, every: SCHEDULES_POLL_MS });
+    });
+  }
+  if (gps) {
+    const leg = phase ? Math.min(phase.leg, shape.transit.length - 1) : 0;
+    queries.push({ key: `v${leg}`, path: '/vehicles', params: vehiclesQuery(shape.transit[leg]), every: BOARDING_POLL_MS });
+  }
+  return { region, gps, queries };
+}
+
+const shortTime = (leg, ms, nowMs) => legTime(leg, ms, nowMs);
+// What a verdict does to the en-route state: { state, toast, sig } or null (nothing to do).
+function applyVerdict(s, v, ctx, nowMs) {
+  const { st, ride, leg, shape, vehiclesByLeg } = ctx;
+  if (v.kind === 'boarded') {
+    const L = ride ? ride.legs[leg] : st.target.legs[0];
+    // Not boarded yet (before the planned departure, or the question still open): boarded now.
+    const { target, pinned: _, bell: __, asking: ___, ...rest } = st;
+    const baseState = ride ? st : { ...rest, ride: { legs: target.legs, boardedAt: Math.min(nowMs, L.dep) } };
+    const baseRide = baseState.ride;
+    if (v.tripId === L.tripId) return ride ? null : { state: baseState, toast: null, sig: null };
+    const vehicle = (vehiclesByLeg[leg] ?? []).find(x => x.tripId === v.tripId);
+    if (!vehicle) return null;
+    const switched = switchLeg(baseRide, leg, vehicle, vehiclesByLeg, shape.transfers);
+    const nl = switched.legs[leg];
+    return {
+      state: { ...baseState, ride: switched },
+      toast: `On the ${shortTime(nl, nl.dep, nowMs)} ${vehicleLabel(nl)}, not the ${shortTime(L, L.dep, nowMs)}`,
+      sig: `boarded:${leg}:${v.tripId}`,
+    };
+  }
+  if (v.kind === 'missed') {
+    const L = ride ? ride.legs[leg] : st.target.legs[0];
+    const toast = `Missed the ${formatTime(L.dep, nowMs)} ${vehicleLabel(L)}`;
+    const sig = `missed:${leg}:${v.tripId}`;
+    if (!ride) return { state: st.asking ? answerBoarding(st, false) : { kind: 'stop', at: nowMs, atStop: nowMs, name: st.name }, toast, sig };
+    const r = missLeg({ ...st, ride: { ...st.ride, legs: ride.legs } }, leg, vehiclesByLeg, shape.transfers, nowMs);
+    return r.note ? null : { state: r.state, toast, sig };
+  }
+  if (v.kind === 'gotOff') {
+    const pts = pointsOf(s);
+    const last = leg === shape.transit.length - 1;
+    const alight = pts[leg]?.alight;
+    const planned = alight && near(v, alight) <= STOP_AREA_METERS;
+    const sig = `gotOff:${leg}:${ride.legs[leg].tripId}`;
+    const name = alight?.name ?? 'the stop';
+    if (planned && (!last || shape.walkAfter > 0)) {
+      const legs = st.ride.legs.map((l, k) => (k === leg ? { ...l, off: v.at } : l));
+      return { state: { ...st, ride: { ...st.ride, legs } }, toast: `Got off at ${name}`, sig };
+    }
+    return { state: null, toast: planned ? `Got off at ${name} · ride ended` : 'Got off · ride ended', sig };
+  }
+  return null;
+}
+
+// The server and Lock Screen card changes for a state the native code changed while the app
+// was closed (the web app does its own while open): [{ type: 'http', method, path, body, then }]
+// and [{ type: 'card', id, state | end }]. Never with coordinates.
+function closedAppActions(s, prev, next, nowMs) {
+  const out = [];
+  const shape = tripShape(s.trip);
+  const alertId = prev?.alert?.id;
+  const token = s.card?.token ?? null;
+  const ride = r => ({ legs: r.legs, boardedAt: r.boardedAt });
+  if (next?.ride && !prev?.ride) {
+    if (s.subscription) {
+      out.push({ type: 'http', method: 'POST', path: '/rides', then: 'ride',
+        body: { subscription: s.subscription, trip: s.trip, tripName: s.trip.name, ride: ride(next.ride), alerts: !!s.alerts, ...(token && { activity: { token } }) } });
+    }
+    if (s.reminderId) out.push({ type: 'http', method: 'DELETE', path: `/reminders/${s.reminderId}?reason=started` });
+  } else if (next?.ride && alertId && boardingBase(next) !== boardingBase(prev)) {
+    out.push({ type: 'http', method: 'PUT', path: `/rides/${alertId}`, body: { ride: ride(next.ride) } });
+  } else if (!next?.ride && alertId) {
+    out.push({ type: 'http', method: 'DELETE', path: `/rides/${alertId}` });
+  }
+  if (next && !next.ride && tripStarted(next) && !tripStarted(prev) && s.reminderId) {
+    out.push({ type: 'http', method: 'PUT', path: `/reminders/${s.reminderId}`, body: { started: { atStop: next.atStop } } });
+  }
+  if (s.card?.id) {
+    if (next?.ride) {
+      const maps = docsMaps(s, shape);
+      const r = { ...next.ride, legs: trackLegs(next.ride.legs, shape.transit, maps) };
+      const phase = ridePhase(r, shape.walkAfter, nowMs);
+      const outlook = transferOutlook(r, phase, tripVehicles(shape.transit, maps, null, nowMs), shape.transfers, nowMs);
+      out.push({ type: 'card', id: s.card.id, state: liveActivityState(r, phase, null, outlook, shape.walkAfter, nowMs) });
+    } else if (!next || !tripStarted(next)) {
+      out.push({ type: 'card', id: s.card.id, end: true });
+    }
+  }
+  return out;
+}
+
+// The web app's (or a bell's) fields over what native code has gathered for the same trip; a new
+// ride starts its matches over.
+function armSession(s, web) {
+  const same = s && s.tripIdx === web.tripIdx && s.trip?.name === web.trip?.name;
+  const fresh = !same || s.enRoute?.ride?.boardedAt !== web.enRoute?.ride?.boardedAt;
+  return { geofence: { lastInside: null }, track: [], positions: [], docs: { p: [], s: [] }, fetched: {}, matched: {}, rejected: [], pending: null,
+    ...(same && s), ...(same && fresh && { matched: {}, rejected: [] }), ...web };
+}
+
+const keepRecent = (list, nowMs, at) => list.filter(x => at(x) >= nowMs - BOARDING_KEEP_MIN * MIN);
+
+// One step of the native boarding engine. Input (JSON): { session, event, nowMs, active (the
+// app's page is open: it applies the changes and syncs the server and the card itself) }.
+// Events: arm { session } (from the web app), disarm, geofence { inside }, location { samples },
+// doc { key, doc } (a `wants.queries` answer), posted { id } (the ride POSTed), undo { undoId },
+// take (the web app took the pending action), tick.
+// Output (JSON): { session, wants, actions: [{ type: 'state', undoId, toast, state, base, from },
+// { type: 'http', … }, { type: 'card', … }, { type: 'log', line }] }.
+export function nativeBoardingStep(input) {
+  const { session, event, nowMs, active } = JSON.parse(input);
+  const actions = [];
+  const log = line => actions.push({ type: 'log', line });
+  let s = session;
+  switch (event.type) {
+    case 'arm': s = armSession(s, boardingSession(event.session)); break;
+    case 'bell': {
+      // An auto-bell's leave card started with the page closed: its bell (POST /bells), with the
+      // page's last `defaults` ({ trips, subscription, slack, alerts }). Not over a started trip.
+      const { bell: b, defaults: d, card } = event;
+      const trip = d?.trips?.[b.index];
+      if (trip?.name !== b.tripName || (s?.enRoute && tripStarted(s.enRoute))) break;
+      s = armSession(s, boardingSession({
+        on: true, tripIdx: b.index, trip, timingIdx: b.timingIdx, slack: d.slack, alerts: d.alerts, subscription: d.subscription, card,
+        reminderId: b.id, window: boardingWindow(b.leaveBy, b.dep), enRoute: { ...pinTarget(null, { key: b.key, legs: b.legs }, nowMs), name: trip.name },
+      }));
+      log(`armed from the bell for ${trip.name}`);
+      break;
+    }
+    case 'disarm': s = null; break;
+    case 'take': if (s) s = { ...s, pending: null }; break;
+    case 'undo':
+      if (s?.pending?.undoId === event.undoId) {
+        s = { ...s, enRoute: s.pending.undo, rejected: [...s.rejected, s.pending.sig].filter(Boolean), pending: null };
+        log('undone');
+      }
+      break;
+    case 'posted':
+      if (s?.enRoute?.ride) {
+        const sync = `${s.enRoute.ride.legs.map(l => l.tripId).join(',')}|${!!s.alerts}|${s.card?.token ?? null}`;
+        s = { ...s, enRoute: { ...s.enRoute, alert: { id: event.id, sync } } };
+        if (s.pending?.state?.ride?.boardedAt === s.enRoute.ride.boardedAt) s.pending = { ...s.pending, state: s.enRoute };
+      }
+      break;
+    case 'location':
+      if (s) s = { ...s, track: keepRecent([...s.track, ...event.samples], nowMs, p => p.t) };
+      break;
+    case 'doc':
+      if (s) {
+        const k = event.key;
+        const docs = { p: [...(s.docs.p ?? [])], s: [...(s.docs.s ?? [])] };
+        let positions = s.positions;
+        if (k[0] === 'v') positions = keepRecent([...positions, ...vehiclePositions(event.doc)], nowMs, p => p.updatedAt);
+        else docs[k[0]][Number(k.slice(1))] = event.doc;
+        s = { ...s, docs, positions, fetched: { ...s.fetched, [k]: nowMs } };
+      }
+      break;
+    default: break;
+  }
+  if (!s) return JSON.stringify({ session: null, wants: boardingWants(null, nowMs), actions });
+  const commit = (next, toast, sig, what) => {
+    const prev = s.enRoute;
+    const pending = { undoId: `${nowMs}:${what}`, tripIdx: s.tripIdx, tripName: s.trip.name, toast, at: nowMs, state: next, base: boardingBase(prev), from: s.pending?.from ?? boardingBase(prev), undo: prev, sig };
+    s = { ...s, enRoute: next, pending };
+    actions.push({ type: 'state', ...pending });
+    if (!active) actions.push(...closedAppActions(s, prev, next, nowMs));
+  };
+  const shape = tripShape(s.trip);
+  if (event.type === 'geofence') {
+    const was = s.geofence?.lastInside;
+    s = { ...s, geofence: { lastInside: !!event.inside } };
+    if (was === false && event.inside) {
+      const next = geofenceEntered(s.enRoute, s.window, shape.walkBefore, nowMs);
+      log(`geofence entered${next === s.enRoute ? ' (ignored)' : ''}`);
+      if (next !== s.enRoute) commit(next, 'At the stop (location)', null, 'stop');
+    } else log(`geofence ${event.inside ? 'inside' : 'outside'}${was == null ? ' (initial)' : ''}`);
+  }
+  let st = s.enRoute;
+  if (!st || !s.on) return JSON.stringify({ session: s, wants: boardingWants(s, nowMs), actions });
+  const maps = docsMaps(s, shape);
+  const vehiclesByLeg = tripVehicles(shape.transit, maps, null, nowMs);
+  // The app closed: boarding at the departure, as the app does it.
+  if (!active && !st.ride && st.kind !== 'track') {
+    const rows = tripRows(s.trip, vehiclesByLeg, s.timingIdx ?? 0, nowMs, s.slack ?? 0, 4, st);
+    const next = advanceEnRoute(st, rows, nowMs);
+    if (next.ride) { log('boarded at the departure'); commit(next, null, null, 'board'); } else s = { ...s, enRoute: next };
+    st = s.enRoute;
+  }
+  // Matching.
+  const ride = rideOf(s, maps, shape);
+  const phase = ride ? ridePhase(ride, shape.walkAfter, nowMs) : null;
+  let leg = 0;
+  let mode = null;
+  if (ride && (phase.kind === 'riding' || phase.kind === 'transfer')) {
+    leg = phase.leg;
+    const L = ride.legs[leg];
+    if (phase.kind === 'transfer' || (!s.matched[leg] && nowMs < L.dep + BOARD_CHECK_MIN * MIN)) mode = 'board';
+    else if (s.matched[leg]) mode = 'ride';
+  } else if (!ride && st.kind !== 'track' && st.target) mode = 'board';
+  const pts = pointsOf(s);
+  if (mode && pts[leg]?.board) {
+    const L = ride ? ride.legs[leg] : st.target.legs[0];
+    const since = ride
+      ? (mode === 'ride' ? L.dep - 2 * MIN : leg > 0 ? (ride.legs[leg - 1].off ?? ride.legs[leg - 1].arr) - 2 * MIN : L.dep - 15 * MIN)
+      : Math.min(st.atStop, nowMs) - 2 * MIN;
+    const candidates = (vehiclesByLeg[leg] ?? []).filter(x => x.dep >= nowMs - PREVIOUS_MINUTES * MIN && x.dep <= nowMs + 30 * MIN).map(x => x.tripId);
+    const v = matchVehicle(s.track, s.positions, {
+      mode, stop: pts[leg].board, planned: L.tripId, candidates, bus: vehicleNoun(L) === 'bus', since, nowMs, rideTripId: s.matched[leg] ?? L.tripId,
+    });
+    if (v.kind !== 'none') {
+      log(`leg ${leg} ${v.kind}${v.tripId ? ` ${v.tripId}` : ''} (planned ${L.tripId}) meters ${(v.meters ?? []).join(',')}`);
+      if (v.kind === 'boarded') s = { ...s, matched: { ...s.matched, [leg]: v.tripId } };
+      const r = applyVerdict(s, v, { st, ride, leg, shape, vehiclesByLeg }, nowMs);
+      if (r?.sig && s.rejected.includes(r.sig)) log('undone before: ignored');
+      else if (r) commit(r.state, r.toast, r.sig, v.kind);
+    }
+  }
+  return JSON.stringify({ session: s, wants: boardingWants(s, nowMs), actions });
+}
+
 // ---------- MBTA proxy (server/, `/api/mbta/*`) ----------
 
 // How long the server's copies are fresh, and how old a copy it may still serve when the MBTA
@@ -3262,6 +3722,7 @@ export const CACHE_CLASSES = {
   alerts: { fresh: 60_000, stale: 15 * 60_000 },
   schedules: { fresh: 15 * 60_000, stale: 24 * 60 * 60_000 }, // the key holds filter[date]
   static: { fresh: 24 * 60 * 60_000, stale: Infinity, disk: true }, // revalidated daily
+  vehicles: { fresh: 5_000, stale: 30_000 }, // boarding from location: an old position is worse than none
 };
 
 // The paths and parameters the app and setup send (an allowlist), with each path's cache class.
@@ -3274,6 +3735,7 @@ export const MBTA_PROXY_PATHS = {
   '/routes': proxyPath('static', ['type', 'stop']),
   '/stops': proxyPath('static', ['route', 'direction_id', 'latitude', 'longitude', 'radius', 'route_type']),
   '/route_patterns': proxyPath('static', ['route', 'canonical']),
+  '/vehicles': proxyPath('vehicles', ['route', 'direction_id', 'trip']),
 };
 const MAX_PARAM_LENGTH = 2000;
 

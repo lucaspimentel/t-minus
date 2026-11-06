@@ -37,12 +37,18 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>T-Minus uses your location at your boarding stop to tell when you got there and which bus or train you got on, even when the app is closed. Your location stays on your phone.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>T-Minus uses your location to show nearby stops and to pick the trip that starts where you are.</string>
+	<string>T-Minus uses your location to show nearby stops, to pick the trip that starts where you are, and to tell which bus or train you got on. Your location stays on your phone.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

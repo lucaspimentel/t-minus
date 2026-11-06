@@ -5,11 +5,17 @@ import { IMPORTS, importRe, fileHash, versionRe, versionHash } from '../scripts/
 
 for (const { file, dep } of IMPORTS) {
   test(`${file} imports ${dep} stamped with its current content hash`, () => {
-    const match = readFileSync(file, 'utf8').match(importRe(dep));
-    assert.ok(match, `${dep} import not found in ${file}`);
-    assert.equal(match[1], `?v=${fileHash(dep)}`, `${dep} changed: run \`npm run stamp\``);
+    const matches = [...readFileSync(file, 'utf8').matchAll(importRe(dep))];
+    assert.ok(matches.length, `${dep} import not found in ${file}`);
+    for (const m of matches) assert.equal(m[1], `?v=${fileHash(dep)}`, `${dep} changed: run \`npm run stamp\``);
   });
 }
+
+test('index.html names the core.js it imports for the iOS app\'s native code (CORE_JS)', () => {
+  const m = readFileSync('index.html', 'utf8').match(/const CORE_JS = '\.\/core\.js\?v=([0-9a-f]{10})'/);
+  assert.ok(m, 'CORE_JS not found in index.html');
+  assert.equal(m[1], fileHash('core.js'));
+});
 
 test('index.html version footer matches the current shell files', () => {
   const match = readFileSync('index.html', 'utf8').match(versionRe);

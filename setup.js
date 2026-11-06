@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=18d2b4a50c';
+} from './core.js?v=bb6d29ff27';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -86,7 +86,10 @@ const NEARBY_RADIUS = 0.003;
 // a trip it starts, close setup. `onOneOff(trip)`: an option's "See departures", handed back as a
 // one-off trip (labeled, not saved). `onClose({ show })`: `show` is a just-saved trip's index.
 // `planApi(path, params)`: the T-Minus server's /stops and /plan (buses); null: rail only, in the browser.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, autoBell = false }) {
+// `boarding` (the iOS app, a build with boarding from location; else null): { get() → Promise<{ on,
+// status }>, set(on) → Promise<{ on, status }>, log() → Promise<[{ at, line }]> } for the
+// "Detect boarding with location" setting (saved at once) and the "Boarding log" screen.
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, autoBell = false, boarding = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -118,6 +121,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let picker = null;
   // "Pending notifications" (debug): { loading, error, data, busy (the entry id being deleted) }.
   let pending = null;
+  let boardingInfo = null; // { on, status } once loaded
+  let boardingLog = null; // the "Boarding log" screen: { lines, error }
   let listMessages = [];
   let busy = false;
 
@@ -341,6 +346,42 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       h('button', { type: 'button', 'aria-label': `Move ${t.name} down`, disabled: i === n - 1, onclick: () => moveTrip(i, 1) }, '↓'));
   }
 
+  // ---------- Boarding from location (the iOS app) ----------
+
+  function boardingHint({ on, status }) {
+    if (status === 'denied') return 'Location is off for T-Minus in Settings.';
+    if (!on) return 'Uses your location at the stop to tell which bus or train you got on. Your location stays on this phone.';
+    return status === 'always'
+      ? 'Always: detects arriving at the stop of a belled ride, which bus or train you got on, and getting off.'
+      : 'While Using: detects which bus or train you got on after Leaving now or At the stop. Allow Always in Settings to detect arriving at the stop.';
+  }
+  function setBoarding(on) {
+    boarding.set(on).then(info => { boardingInfo = info; render(); }, e => { toast(`Couldn't change it: ${e.message}`); render(); });
+  }
+  function openBoardingLog() {
+    boardingLog = { lines: null, error: null };
+    render();
+    const b = boardingLog;
+    boarding.log().then(lines => { if (boardingLog === b) b.lines = lines; }, e => { if (boardingLog === b) b.error = e.message || String(e); })
+      .finally(() => { if (boardingLog === b) render(); });
+  }
+  function boardingLogScreen() {
+    const b = boardingLog;
+    const lines = [...(b.lines ?? [])].reverse();
+    const now = Date.now();
+    const text = () => lines.map(l => `${new Date(l.at).toISOString()} ${l.line}`).join('\n');
+    return [
+      h('div', { class: 'setup-head' },
+        h('button', { type: 'button', onclick: () => { boardingLog = null; render(); } }, 'Back'),
+        h('b', {}, 'Boarding log'),
+        h('button', { type: 'button', disabled: !lines.length, onclick: () => navigator.clipboard.writeText(text()).then(() => toast('Copied'), () => toast("Couldn't copy")) }, 'Copy')),
+      b.error ? h('div', { class: 'msg err' }, `Couldn't load: ${b.error}`)
+        : !b.lines ? waitLine('Loading…')
+          : !lines.length ? h('div', { class: 'msg' }, 'Nothing logged in the last 7 days.')
+            : h('div', { class: 'card boarding-log' }, lines.map(l => h('div', {}, h('span', { class: 'muted' }, formatTime(l.at, now)), ' ', l.line))),
+    ];
+  }
+
   // ---------- Pending notifications (debug) ----------
 
   // Loaded on open and on ↻ only. A late answer for a closed screen is dropped.
@@ -473,6 +514,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         h('label', { class: 'check' },
           h('input', { type: 'checkbox', checked: app.wakeRiding, onchange: e => { app.wakeRiding = e.target.checked; } }),
           'Keep screen on while riding'),
+        boarding && h('label', { class: 'check' },
+          h('input', { type: 'checkbox', id: 'boarding-location', checked: !!boardingInfo?.on, disabled: !boardingInfo, onchange: e => setBoarding(e.target.checked) }),
+          'Detect boarding with location'),
+        boarding && boardingInfo && h('div', { class: 'push-hint', id: 'boarding-hint' }, boardingHint(boardingInfo)),
         h('label', { class: 'field' }, 'MBTA API key (optional)',
           // Masked so the key isn't exposed on screen (or in screenshots).
           h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Used only when the T-Minus server is unreachable', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),
@@ -488,7 +533,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       testPush && h('div', { class: 'muted section' }, 'Notifications'),
       testPush && h('div', { class: 'btns' },
         h('button', { type: 'button', disabled: !testPush.supported, onclick: () => testPush.send() }, 'Send test notification in 10 s'),
-        pushDebug && h('button', { type: 'button', disabled: !pushDebug.supported, onclick: openPending }, 'Pending notifications')),
+        pushDebug && h('button', { type: 'button', disabled: !pushDebug.supported, onclick: openPending }, 'Pending notifications'),
+        boarding && h('button', { type: 'button', onclick: openBoardingLog }, 'Boarding log')),
       testPush && !testPush.supported && h('div', { class: 'push-hint' }, 'Add to Home Screen to get notifications.'),
       onReset && h('div', { class: 'muted section' }, 'Reset'),
       onReset && h('div', { class: 'btns' }, h('button', { type: 'button', class: 'danger', onclick: () => {
@@ -1317,9 +1363,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let shown = null;
   const scrollY = { list: 0, trip: 0 };
   function render() {
-    const screen = picker ? `picker:${picker.step}` : editing ? 'trip' : planner ? 'plan' : pending ? 'pending' : 'list';
+    const screen = picker ? `picker:${picker.step}` : editing ? 'trip' : planner ? 'plan' : pending ? 'pending' : boardingLog ? 'boarding-log' : 'list';
     if (screen !== shown && (shown === 'list' || shown === 'trip')) scrollY[shown] = window.scrollY;
-    root.replaceChildren(...(picker ? pickerScreen() : editing ? tripScreen() : planner ? plannerScreen() : pending ? pendingScreen() : listScreen()).flat(2).filter(Boolean));
+    root.replaceChildren(...(picker ? pickerScreen() : editing ? tripScreen() : planner ? plannerScreen() : pending ? pendingScreen() : boardingLog ? boardingLogScreen() : listScreen()).flat(2).filter(Boolean));
     if (screen !== shown) {
       const restore = screen === 'list' || (screen === 'trip' && shown?.startsWith('picker:'));
       window.scrollTo(0, restore ? scrollY[screen] : 0);
@@ -1331,7 +1377,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   root.hidden = false;
   loadNames();
   render();
+  boarding?.get().then(info => { boardingInfo = info; render(); }, () => {});
   // Closing drops the planner and the pending list, so a late answer to a closed search never redraws over the next
   // setup view (they share `root`).
-  return { close() { planner = null; pending = null; root.hidden = true; root.replaceChildren(); } };
+  return { close() { planner = null; pending = null; boardingLog = null; boarding = null; root.hidden = true; root.replaceChildren(); } };
 }

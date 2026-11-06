@@ -17,6 +17,18 @@ final class LiveActivityObserver {
     static let startTokenChanged = Notification.Name("TMinusStartToken")
     static let dismissedKey = "dismissedActivities"
     static let knownKey = "knownActivities" // the cards seen and not ended by the app: [{ id, reminderId? }]
+    static let tokensKey = "leaveCardTokens" // { id: token }: a leave card's token for boarding from location
+
+    static func token(_ id: String) -> String? {
+        (UserDefaults.standard.dictionary(forKey: tokensKey) as? [String: String])?[id]
+    }
+    private static func saveToken(_ id: String, _ token: String) {
+        var all = (UserDefaults.standard.dictionary(forKey: tokensKey) as? [String: String]) ?? [:]
+        let live = Set(Activity<RideAttributes>.activities.map(\.id))
+        all = all.filter { live.contains($0.key) }
+        all[id] = token
+        UserDefaults.standard.set(all, forKey: tokensKey)
+    }
 
     private var observed = Set<String>()
     private var appEnded = Set<String>()
@@ -96,8 +108,12 @@ final class LiveActivityObserver {
         }
         if let reminderId {
             clearDismissed(reminderId: reminderId)
+            if act.activityState == .active {
+                DispatchQueue.main.async { BoardingLocation.shared.leaveCardStarted(id: act.id, reminderId: reminderId) }
+            }
             Task {
                 for await data in act.pushTokenUpdates {
+                    Self.saveToken(act.id, Self.hex(data))
                     await send(reminderId: reminderId, body: ["activity": ["token": Self.hex(data)]], what: "leave card token")
                 }
             }

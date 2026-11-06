@@ -1085,11 +1085,23 @@ test('/api/mbta: static copies survive a restart and are revalidated daily', asy
   } finally { await s.close(); }
 });
 
+test('/api/mbta/vehicles (boarding from location): proxied, cached for 5 s', async () => {
+  const s = await setup();
+  try {
+    const path = '/api/mbta/vehicles?filter[route]=Orange&filter[direction_id]=0&fields[vehicle]=latitude,longitude,updated_at,current_status';
+    assert.equal((await s.call('GET', path)).status, 200);
+    assert.equal((await s.call('GET', path)).status, 200);
+    assert.deepEqual(s.world.calls, ['/vehicles']);
+  } finally {
+    await s.close();
+  }
+});
+
 test('/api/mbta: allowlist, same origin, per-IP limit, budget guard, kill switch, MBTA 4xx', async () => {
   const s = await setup();
   try {
     const status = async (path, headers = {}, origin = null, c = s.call) => (await c('GET', path, null, origin, headers)).status;
-    assert.equal(await status('/api/mbta/vehicles?filter[route]=Red'), 400);
+    assert.equal(await status('/api/mbta/facilities?filter[route]=Red'), 400);
     assert.equal(await status('/api/mbta/stops?filter[id]=x'), 400);
     assert.equal(await status('/api/mbta/stops?filter[route]=Red&api_key=k'), 400);
     assert.equal(await status('/api/mbta/stops?filter[route]=Red', { 'sec-fetch-site': 'cross-site' }), 403);

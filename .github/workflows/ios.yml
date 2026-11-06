@@ -2,9 +2,9 @@ name: ios
 
 # Builds the iOS app (ios/, Capacitor) and uploads it to TestFlight. Manual: Actions → ios → Run
 # workflow. Every run renders the Live Activity and widget previews (ios/Previews) as the
-# live-activity-previews artifact; `upload` off stops there. Web and server changes reach the app
-# through its remote URL, so a build is needed only for native changes or before a TestFlight
-# build expires (90 days). See IOS.md.
+# live-activity-previews artifact; `upload` off compiles the app and stops there. Web and server
+# changes reach the app through its remote URL, so a build is needed only for native changes or
+# before a TestFlight build expires (90 days). See IOS.md.
 #
 # Signing without a Mac: the archive is signed ad hoc (it carries App.entitlements, no profile);
 # the export re-signs it for App Store Connect with automatic signing and the App Store Connect API
@@ -45,14 +45,19 @@ jobs:
           retention-days: 30
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        if: inputs.upload
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-        if: inputs.upload
       - run: npx cap sync ios
-        if: inputs.upload
+
+      # A preview run also compiles the app (the archive below does it on an upload): the only
+      # Swift compile check of the app target.
+      - name: Compile the app
+        if: ${{ !inputs.upload }}
+        run: |
+          xcodebuild build -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO -quiet
 
       - name: API key
         if: inputs.upload

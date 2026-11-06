@@ -302,6 +302,8 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
   tracking ends). Unanswered, it closes `ASK_MINUTES` (30) after the departure
   (`enRouteActive`). The push at the departure asks the same (see Notifications). Saved pins
   from before the bell are dropped at load (`migrateEnRoute`).
+- In the iOS app, location can tell the stop, the vehicle boarded, a missed one and getting off
+  (see "Boarding from location" under "iOS app").
 - Boarding is assumed when the target's first vehicle departs (live or scheduled time) while
   it was reachable: its legs (trip id + times) become the ride, and a trip card replaces the
   list and the bar:
@@ -827,6 +829,9 @@ still holds, to stay well inside it either way:
 - Schedules: one request per transit leg on load, on trip change, and every 15 min.
 - Alerts: one request every 5 min.
 - While riding a tracked trip: one `/predictions?filter[trip]=…` request per poll (60 s).
+- Boarding from location (the iOS app's native code, with GPS on): `/vehicles` for the current
+  leg every 10 s, `/predictions` per leg every 60 s, `/schedules` per leg every 30 min, all
+  through the proxy (its 5 s cache for `/vehicles`): ~8 requests a minute per phone.
 - Expanding a row: one `/schedules?filter[trip]=…` per transit leg for its stop counts, once per
   trip and service date (memory); collapsed rows cost nothing.
 - Schedule window: from 30 min ago (for missed rows, with the 15-min refresh) to
@@ -1138,6 +1143,8 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 - **RUM ↔ APM:** same-origin `/api/` requests carry `datadog` and `tracecontext` headers
   (`allowedTracingUrls`), so a resource (an `/api/mbta/*` call, a reminder) links to its server
   trace.
+- **Location:** boarding from location sends no coordinates or distances anywhere (RUM, traces,
+  the app log): they stay in the native code's on-device log.
 - **The MBTA key:** never in a URL. The server and the app's direct fallback send it as
   `x-api-key`; RUM's `beforeSend` also strips `api_key` from resource and view URLs.
 - **Budget:** `/api/config` is one same-origin request per page load, outside the MBTA budget;
@@ -1527,6 +1534,71 @@ the app had ended at launch: no notification at all that morning). So:
   (past the leave-by, as a late bell's card); 409 while asking, after "Leaving now" / "At the
   stop", or without a start token.
 - A swipe is for that ride only: the next bell or ride gets its card.
+
+### Boarding from location (2026-11-06)
+
+The iOS app can tell from the phone's location which vehicle the rider got on, a missed one, and
+getting off (`core.js` "Boarding from location", `BoardingLocation.swift`). The PWA doesn't.
+
+- **Setting:** "Detect boarding with location" in setup's Settings (the app only, a build with
+  it), off by default, saved at once (`t-minus:boarding-location`). Turning it on asks for While
+  Using, then Always. While Using: GPS after "Leaving now" / "At the stop" only. Always: also the
+  stop's geofence. The hint under it says which. Location off for the app: the toggle stays off.
+- **At the stop (Always):** a belled ride's boarding stop gets a ~100 m geofence
+  (`GEOFENCE_METERS`), counted from leave-by − 15 min (`GEOFENCE_BEFORE_MIN`) to the departure +
+  `ASK_MINUTES`. Only an entry from outside counts (inside when it starts, e.g. home next to the
+  stop, doesn't). An entry marks "At the stop" (`geofenceEntered`, the same state as the tap, so
+  boarding is assumed at the departure as today; toast "At the stop (location) · Undo").
+- **GPS:** high accuracy, in the background too (the blue indicator), from "Leaving now" /
+  "At the stop" (tapped or the geofence) until the ride is over or its last walk starts
+  (`boardingWants`). A ride without either (the bell's question answered Yes, "I got on") isn't
+  followed.
+- **Matching** (`matchVehicle`): the leg's vehicles that left in the last 15 min or leave in the
+  next 30 (the planned one, earlier, later), their positions from `/vehicles` (route and
+  direction, every 10 s through the proxy). A vehicle that stays within 75 m of the phone
+  (`MATCH_METERS`) for 2+ position updates over 30 s (bus) or 60 s (train: positions update every
+  15–35 s), while the phone is 100 m+ from the stop, is the one boarded. Two trains side by side at
+  Oak Grove (11 m apart) differ only once one leaves: the one leaving with the phone. A stopped
+  train's position can be minutes old: positions are deduplicated by update time and compared
+  with the phone's fix at that time (within 20 s). Fixes worse than 50 m are ignored; no fix
+  (underground) is no verdict: today's behavior applies.
+- **What a match does** (each with Undo; an undone verdict isn't applied again):
+  - Boarding is still assumed at the departure. A match within 10 min of it confirms it
+    (nothing shown) or switches the leg (`switchLeg`, later legs re-planned): "On the 7:26am
+    Orange, not the 7:32am · Undo". At the first leg and at each transfer.
+  - Missed: the planned vehicle 200 m+ past the stop after being at it, the phone still at the
+    stop: `missLeg` (first leg: back to "At the stop", the next departure; a later leg: its
+    next vehicle) and "Missed the 7:08am Bus 132 · Undo".
+  - Got off (once matched): the vehicle 150 m+ from a phone that is still or walking, for 2
+    updates. At the planned drop-off of an earlier leg: that leg's `off` time, the transfer
+    starts ("Got off at Oak Grove"). At the last drop-off with a walk after: `off`, the walk
+    starts at once and GPS stops ("Got off at State"); the ride still ends at the arrival + the
+    walk. Without a walk: the ride ends ("Got off at State · ride ended"). Anywhere else: the ride
+    ends ("Got off · ride ended").
+  - A leg's `off` ends it in `ridePhase` (also on the server, which stores legs as posted, and
+    in the widget's state). Older builds ignore it.
+- **The app closed:** the native code runs core.js's `nativeBoardingStep` in a JSContext (a
+  geofence event can relaunch the app without its page). The page arms it (`TMinus.boardingArm`:
+  `boardingSession`, the trip, its en-route state, the cards, the bell's reminder and window,
+  never a position) whenever that changes, and sends `CORE_JS`, the URL of the `core.js` it
+  imports (stamped with its hash): the native code fetches it when it changed, strips `export`,
+  and keeps a copy for relaunches. An auto-bell's leave card starting with the page closed arms
+  it from the server's bell (`POST /bells`, with the page's last trips and subscription). With
+  the page closed, the native code also boards at the departure (as the page does) and keeps the
+  server and the card in step: `PUT /reminders/<id> { started }` at the geofence, `POST /rides`
+  at boarding with the leave card's token (it becomes the ride card: iOS doesn't let an app start
+  a Live Activity in the background), `PUT` / `DELETE /rides/<id>` after a switch, a miss or
+  getting off, and quiet card updates (no alert). With the page open, the page does all that
+  itself.
+- **The page:** the `boarding` event (or, at an open, `boardingPending`) gives the latest action;
+  it applies when computed from the trip's current state (or the one before earlier actions taken
+  while closed: `boardingBase`), while its ride is still on, with its toast for 5 s and Undo
+  (`boardingUndo`).
+- **Privacy:** coordinates and distances stay on the phone: none in requests (the queries carry
+  route, direction and stops), RUM, traces or the server's app log. They go only to the
+  on-device log: setup's "Boarding log" (7 days, newest first, Copy).
+- **CI:** an `ios` run with `upload` off also compiles the app target (the only Swift compile
+  check; no `swiftc` in the cloud sandbox).
 
 ### Widget (Phase 3b, 2026-10-26)
 

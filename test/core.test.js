@@ -1659,7 +1659,7 @@ test('legQuery: every route of the leg, both stops, sparse fields', () => {
   assert.equal(q['filter[stop]'], 'place-gover,place-pktrm');
   assert.equal(q.include, 'stop,trip');
   assert.equal(q['fields[trip]'], 'headsign,name');
-  assert.equal(q['fields[stop]'], 'name,parent_station,platform_code');
+  assert.equal(q['fields[stop]'], 'name,parent_station,platform_code,latitude,longitude');
   assert.equal(q['fields[schedule]'], 'arrival_time,departure_time,pickup_type,drop_off_type');
   // Predictions also name their alerts (per-train delays); schedules refuse include=alerts.
   const p = predictionQuery({ kind: 'transit', route: 'Green-B', also: ['Green-C'], direction_id: 0, stop: 'place-gover', alight: 'place-pktrm' });
@@ -2110,14 +2110,15 @@ test('proxyRequestError: the allowlist of paths and parameters', () => {
   assert.equal(proxyRequestError('/predictions', Object.entries(rideStopsQuery('t1'))), null);
   assert.equal(proxyRequestError('/alerts', [['filter[route]', '132,Orange'], ['filter[datetime]', 'NOW'], ['fields[alert]', 'effect']]), null);
   assert.equal(proxyRequestError('/route_patterns', [['filter[route]', 'Red'], ['filter[canonical]', 'true'], ['include', 'representative_trip.stops'], ['fields[trip]', '']]), null);
-  assert.equal(proxyRequestError('/vehicles', []), 'path is not allowed');
+  assert.equal(proxyRequestError('/facilities', []), 'path is not allowed');
+  assert.equal(proxyRequestError('/vehicles', [['filter[route]', 'Orange'], ['fields[vehicle]', 'latitude']]), null);
   assert.equal(proxyRequestError('/toString', []), 'path is not allowed');
   assert.equal(proxyRequestError('/stops', [['api_key', 'k']]), 'api_key is not allowed');
   assert.equal(proxyRequestError('/alerts', [['filter[stop]', 'x']]), 'filter[stop] is not allowed');
   assert.equal(proxyRequestError('/stops', [['filter[route]', 'a'], ['filter[route]', 'b']]), 'filter[route] is repeated');
   assert.equal(proxyRequestError('/stops', [['filter[route]', 'x'.repeat(2001)]]), 'filter[route] is too long');
   assert.deepEqual(Object.fromEntries(Object.entries(MBTA_PROXY_PATHS).map(([p, v]) => [p, v.cache])), {
-    '/predictions': 'predictions', '/schedules': 'schedules', '/alerts': 'alerts', '/routes': 'static', '/stops': 'static', '/route_patterns': 'static',
+    '/predictions': 'predictions', '/schedules': 'schedules', '/alerts': 'alerts', '/routes': 'static', '/stops': 'static', '/route_patterns': 'static', '/vehicles': 'vehicles',
   });
   assert.equal(CACHE_CLASSES.predictions.stale, 2 * 60_000);
 });

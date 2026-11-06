@@ -358,6 +358,7 @@
   .field > .item { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; }
   .field .item .change { margin-left: auto; color: var(--accent-text); font-size: 14px; }
   .check { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 14px; }
+  .boarding-log div { font-size: 13px; margin: 4px 0; overflow-wrap: anywhere; }
   .setup .check input { width: auto; margin: 0; }
   .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
   .setup input, .setup textarea, .setup select {
@@ -440,7 +441,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-03 · cf534332a2</footer>
+    <footer class="version">Version 2026-11-05 · 4a96b0620b</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -463,8 +464,9 @@ import {
   rowState, targetRow, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
-} from './core.js?v=18d2b4a50c';
-import { openSetup } from './setup.js?v=5956fde3f1';
+  missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
+} from './core.js?v=bb6d29ff27';
+import { openSetup } from './setup.js?v=55cd3ab284';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1415,6 +1417,119 @@ if (native) {
   });
 }
 
+// ---------- boarding from location (the iOS app; DESIGN.md "Boarding from location") ----------
+
+// The native code (BoardingLocation.swift) follows the belled or started trip with a geofence at
+// its stop and GPS, running core.js's nativeBoardingStep, also with this page closed. This page
+// arms it (the trip, its state, the cards; never a position), takes what it decided (a `boarding`
+// event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
+// stay in the native code: nothing here logs or sends them.
+const KEY_BOARDING = 't-minus:boarding-location';
+const CORE_JS = './core.js?v=bb6d29ff27'; // the native code loads the same core.js (npm run stamp)
+let boardingOk = null; // the build has it (null: not known yet)
+let boardingSent = null; // the last session armed ('off': disarmed)
+let boardingSettingSent = null;
+async function boardingCall(name, args) {
+  try { return await plugins.TMinus[name](args); } catch (e) {
+    if (unimplemented(e)) boardingOk = false; else nativeLog('boarding', `${name}: ${e.message}`);
+    return null;
+  }
+}
+const apnsSubscription = () => (store.get(KEY_APNS) ? { endpoint: `apns:${store.get(KEY_APNS)}` } : null);
+// The trip to follow: the one the widget follows (a ride, the question, a started trip, the bell).
+function boardingArmSession() {
+  const all = store.get(KEY_EN_ROUTE) ?? {};
+  const w = widgetState(all, config.trips);
+  if (!w) return null;
+  const idx = w.trip;
+  const s = all[idx];
+  const trip = config.trips[idx];
+  const rem = Object.entries(reminders).find(([k, r]) => k.startsWith(`${idx}/`) && r.bell)?.[1] ?? null;
+  const window = s.bell && !s.ride && rem && s.target ? boardingWindow(rem.leaveBy, rem.dep ?? s.target.legs[0].dep) : null;
+  const card = activity && s.ride && activity.key === `${idx}/${s.ride.boardedAt}` ? { id: activity.id, token: activity.token ?? null, kind: 'ride' }
+    : leaveCard?.idx === idx ? { id: leaveCard.id, token: null, kind: 'leave' } : null;
+  const c = cache[idx];
+  return boardingSession({
+    on: true, tripIdx: idx, trip, timingIdx: c?.timing ?? 0, slack: stopSlackMinutes(config), enRoute: s,
+    alerts: notifyPermission() === 'granted' && !s.alert?.off, subscription: apnsSubscription(), card, reminderId: rem?.id ?? null, window,
+    points: legPoints(trip, [...(c?.predictions ?? []), ...(c?.schedules?.docs ?? [])]),
+  });
+}
+async function syncBoarding() {
+  if (!native || boardingOk !== true || !config) return;
+  const on = store.get(KEY_BOARDING) === true;
+  // What an auto-bell needs to arm with this page closed.
+  const defaults = on ? { trips: config.trips, subscription: apnsSubscription(), slack: stopSlackMinutes(config), alerts: notifyPermission() === 'granted' } : null;
+  const setting = JSON.stringify([on, defaults]);
+  if (setting !== boardingSettingSent) {
+    boardingSettingSent = setting;
+    boardingCall('boardingSetting', { on, ...(defaults && { defaults }) });
+  }
+  const session = on ? boardingArmSession() : null;
+  const json = session ? JSON.stringify(session) : 'off';
+  if (json === boardingSent) return;
+  boardingSent = json;
+  if (session) await boardingCall('boardingArm', { session, coreUrl: new URL(CORE_JS, location.href).href });
+  else await boardingCall('boardingDisarm');
+}
+// What the native code decided (detected at the stop, another vehicle, missed, got off): applied
+// if it was computed from this trip's current state (or the one before its earlier actions),
+// with Undo. At an open, only while that ride is still on.
+async function takeBoarding() {
+  if (!native || boardingOk !== true || !config) return;
+  const a = (await boardingCall('boardingPending'))?.action;
+  if (!a || config.trips[a.tripIdx]?.name !== a.tripName) return;
+  const all = store.get(KEY_EN_ROUTE) ?? {};
+  const cur = all[a.tripIdx]?.name === a.tripName ? all[a.tripIdx] : null;
+  const base = boardingBase(cur);
+  if (base !== a.base && base !== a.from) return;
+  if (a.state && !enRouteActive(a.state, tripShape(config.trips[a.tripIdx]).walkAfter, Date.now())) return;
+  if (a.tripIdx !== tripIdx) setTrip(a.tripIdx, true);
+  const snap = enRouteState();
+  // A ride the native code posted with the leave card's token: that card is now the ride card.
+  if (a.state?.ride && a.state.alert && leaveCard?.idx === tripIdx && activity?.key !== `${tripIdx}/${a.state.ride.boardedAt}`) {
+    saveActivity({ id: leaveCard.id, key: `${tripIdx}/${a.state.ride.boardedAt}`, token: null, last: null });
+    saveLeaveCard(null);
+  }
+  rideNote = null;
+  setEnRoute(a.state);
+  boardingSent = null;
+  render();
+  schedulePoll();
+  if (!a.toast) return;
+  showToast(a.toast, 'Undo', () => {
+    // The server's copy changed (or was deleted): synced again.
+    setEnRoute(snap?.alert ? { ...snap, alert: { ...snap.alert, sync: null } } : snap);
+    boardingCall('boardingUndo', { undoId: a.undoId });
+    boardingSent = null;
+    render();
+    schedulePoll();
+  });
+}
+if (native) {
+  Promise.resolve().then(() => plugins.TMinus.locationStatus()).then(() => { boardingOk = true; takeBoarding(); }, e => { boardingOk = !unimplemented(e); });
+  Promise.resolve().then(() => plugins.TMinus.addListener('boarding', () => takeBoarding()))
+    .catch(e => nativeLog('boarding', `listener: ${e.message}`));
+}
+// Setup's "Detect boarding with location" (setup.js `boarding`).
+const boardingSetup = () => (native && boardingOk === true ? {
+  get: async () => {
+    const { status } = await plugins.TMinus.locationStatus();
+    return { on: store.get(KEY_BOARDING) === true && status !== 'denied', status };
+  },
+  set: async on => {
+    let { status } = await plugins.TMinus.locationStatus();
+    if (on && status !== 'always' && status !== 'denied') ({ status } = await plugins.TMinus.locationAuthorize());
+    const ok = on && status !== 'denied';
+    store.set(KEY_BOARDING, ok);
+    boardingSettingSent = null;
+    boardingSent = null;
+    await syncBoarding();
+    return { on: ok, status };
+  },
+  log: async () => (await plugins.TMinus.boardingLog()).lines ?? [],
+} : null);
+
 // "Turn on stop alerts" (once per device): the permission prompt, then the ride is posted; also
 // after its alerts were deleted in "Pending notifications".
 async function turnOnStopAlerts() {
@@ -1811,6 +1926,7 @@ function render() {
   }
   syncLeaveCard(now);
   syncLiveActivity(en, now);
+  syncBoarding(now);
   if (en?.ride) {
     syncRideAlert(en, now);
     renderEnRoute(now, false, true);
@@ -2198,25 +2314,12 @@ function missedIt(phase) {
   const now = Date.now();
   const s = enRouteState();
   if (!s?.ride) return;
-  rideNote = null;
-  if (phase.leg === 0) {
-    setEnRoute({ kind: 'stop', at: now, atStop: now });
-  } else {
-    const trip = config.trips[tripIdx];
-    const { transit, transfers } = tripShape(trip);
-    const c = cache[tripIdx];
-    const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i])), c?.lastLive, now);
-    const missed = s.ride.legs[phase.leg];
-    const chain = replanFrom(vehicles, phase.leg, now, transfers, missed.tripId);
-    if (!chain) rideNote = 'No later connection.';
-    else {
-      const legs = s.ride.legs.map((l, i) => {
-        const v = chain[i - phase.leg];
-        return v ? onVehicle(l, v) : l;
-      });
-      setEnRoute({ ...s, ride: { ...s.ride, legs } });
-    }
-  }
+  const { transit, transfers } = tripShape(config.trips[tripIdx]);
+  const c = cache[tripIdx];
+  const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i])), c?.lastLive, now);
+  const { state, note } = missLeg(s, phase.leg, vehicles, transfers, now);
+  rideNote = note;
+  if (!note) setEnRoute(state);
   render();
   schedulePoll();
 }
@@ -2303,6 +2406,7 @@ function showSetup({ importOpen = false, plan = false } = {}) {
     nearby: SERVER_API ? nearbyFromServer : null,
     planApi: SERVER_API ? planFromServer : null,
     autoBell: !!SERVER_API && pushSupported,
+    boarding: boardingSetup(),
     // Auto-route options drawn like an expanded row.
     timeline: (steps, key) => renderTimeline(steps, Date.now(), { key }),
     onClose: closeSetup,
@@ -2536,7 +2640,7 @@ document.addEventListener('visibilitychange', () => {
     widgetSent = null; // the widget may have fallen behind
     if (!setupView) { refresh(); locate(); }
     syncAutoBells();
-    if (native) adoptBells().then(checkDismissedCards); else adoptBells();
+    if (native) adoptBells().then(checkDismissedCards).then(takeBoarding); else adoptBells();
   }
 });
 
