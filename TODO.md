@@ -29,6 +29,20 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
   running in the background: the server answers, turning the leave card into the ride card and
   driving it; the app catches up at its next open). Today Yes / Missed it open the app.
 
+## Ideas (2026-11-06, to grill one by one)
+
+- Route map: the trip's route with its stations and the user's location. Open: where (expanded
+  row, ride card, a screen of its own), map tiles (a library or tile host: against "no runtime
+  dependencies") or a schematic SVG from the stops' coordinates and the route's shape
+  (`/shapes`, `route_patterns`), the live vehicle on it, request budget.
+- Settings toggles for notifications, Live Activities, location, etc. Today: notifications come
+  with the bell, Live Activities follow iOS Settings, location is asked by "Current location".
+  Boarding from location already has its own setting (DESIGN.md "Boarding from location").
+- UI refresh, mostly the setup (settings) screen and the top of the main screen. Mockups first.
+- Drop-off stop name, not only the stop count: the timeline already names it; the ride
+  headline ("Bus 132 · 9 stops · 4 min"), the ride card, the island, the widget and the stop
+  alerts may not. Check each surface against "Each fact once per surface".
+
 ## Deferred
 
 - Default times to/from the stops and transfer times estimated from stop coordinates
