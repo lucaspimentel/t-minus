@@ -35,9 +35,10 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
   row, ride card, a screen of its own), map tiles (a library or tile host: against "no runtime
   dependencies") or a schematic SVG from the stops' coordinates and the route's shape
   (`/shapes`, `route_patterns`), the live vehicle on it, request budget.
-- Settings toggles for notifications, Live Activities, location, etc. Today: notifications come
-  with the bell, Live Activities follow iOS Settings, location is asked by "Current location".
-  Boarding from location already has its own setting (DESIGN.md "Boarding from location").
+- Settings: a link to the app's page in iOS Settings (Notifications, Live Activities, Location)
+  instead of toggles of our own. A `TMinusPlugin` method opening
+  `UIApplication.openSettingsURLString`; shown in the iOS app only (the PWA can't open Settings).
+  Each permission shows there only once the app has asked for it. Needs a new build.
 - UI refresh, mostly the setup (settings) screen and the top of the main screen. Mockups first.
 - Drop-off stop name, not only the stop count: the timeline already names it; the ride
   headline ("Bus 132 · 9 stops · 4 min"), the ride card, the island, the widget and the stop
