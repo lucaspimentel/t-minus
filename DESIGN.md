@@ -1403,6 +1403,10 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   in the content: iOS can't say "<1 minute" itself, and the times aren't accurate to the second;
   80 s leaves the server's 20-s poll time to deliver it before "0 minutes"; also shown past the
   time instead of "−1 minute").
+  On the dimmed Always-On screen the Lock Screen card's headline drops the countdown and shows
+  the time ("Departs 9:43am", "Leave 7:39am", "Get off in 5 stops"; "<1 min" kept): iOS dashes
+  self-ticking date text at reduced luminance ("Departs in – min", seen 2026-11-05). From the
+  build after 50.
 - **Dynamic Island:** expanded content margins 24 pt at the sides, 14 top, 18 bottom (the
   defaults let the rounded corners clip the route label and the last line). Compact: the route's dot and label (`islandLabel`: "OL", "GL B", "132",
   "SL1"; 🚶 on the final walk), then the stops left, or the countdown when stops don't apply (no

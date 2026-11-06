@@ -74,6 +74,29 @@ private let leaveSamples: [(String, RideState)] = [
     ("Ride cancelled", leave("cancelled", "Ride cancelled", right: "", note: "Open the app for the next one.", emoji: "", long: "")),
 ]
 
+// The cards on the dimmed Always-On screen: the headline's time instead of the dashed countdown.
+private func dimmedOf(_ list: [(String, RideState)], _ names: [String]) -> [(String, RideState)] {
+    list.filter { sample in names.contains { sample.0.hasPrefix($0) } }
+}
+private let leaveDimmed = dimmedOf(leaveSamples, ["An hour+ ahead", "Leave in 28 min", "Leave in <1 minute", "Past the leave-by", "Walk card, late", "Did you get on?"])
+private let rideDimmed = dimmedOf(samples, ["Riding", "Next stop", "No stop list yet", "Transfer", "Walking", "Arrived"])
+
+private struct Dimmed: View {
+    let tripName: String
+    let list: [(String, RideState)]
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        Text("Dimmed (Always-On)").font(.caption).foregroundStyle(.white)
+        ForEach(list, id: \.0) { name, state in
+            Text(name).font(.caption).foregroundStyle(.white)
+            RideCardView(tripName: tripName, state: state)
+                .environment(\.isLuminanceReduced, true)
+                .background(Theme.of(scheme).card)
+                .clipShape(RoundedRectangle(cornerRadius: 22))
+        }
+    }
+}
+
 private struct Compact: View {
     let state: RideState
     var body: some View {
@@ -111,6 +134,7 @@ private struct LeaveSheet: View {
                     .background(Theme.of(scheme).card)
                     .clipShape(RoundedRectangle(cornerRadius: 22))
             }
+            Dimmed(tripName: "Home to office", list: leaveDimmed)
             Text("Dynamic Island: compact, then expanded (top row and body), per card").font(.caption).foregroundStyle(.white)
             ForEach(leaveSamples, id: \.0) { name, state in
                 Text(name).font(.caption).foregroundStyle(.white)
@@ -135,6 +159,7 @@ private struct Sheet: View {
                     .background(Theme.of(scheme).card)
                     .clipShape(RoundedRectangle(cornerRadius: 22))
             }
+            Dimmed(tripName: "Office → Home", list: rideDimmed)
             Text("Dynamic Island: compact (riding, next stop, here, no stop list, transfer, walking), expanded, minimal").font(.caption).foregroundStyle(.white)
             ForEach([samples[0].1, samples[3].1, samples[4].1, samples[5].1, samples[6].1, samples[10].1], id: \.self) { state in
                 HStack { IslandLeading(state: state); Spacer(); IslandTrailing(state: state) }

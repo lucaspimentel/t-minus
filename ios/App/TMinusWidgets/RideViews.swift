@@ -46,6 +46,29 @@ func headCountdown(_ state: RideState) -> Text? {
     return Text(.dateRange(endingAt: until), format: .components(style: .abbreviated, fields: [.minute]))
 }
 
+// "8:24am" in the device's time zone.
+private let clockFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "h:mma"
+    f.amSymbol = "am"
+    f.pmSymbol = "pm"
+    return f
+}()
+
+// The headline on the dimmed Always-On screen, where iOS dashes self-ticking date text: the time
+// instead of the countdown ("Departs 9:43am", "Get off in 5 stops"). Nil when no live countdown
+// would be drawn (none, past, or the fixed "<1 min"): the lit form is used then.
+func dimmedHead(_ state: RideState) -> String? {
+    if state.soon == true { return nil }
+    guard let to = state.countTo, to > 0, Date(timeIntervalSince1970: to) > Date() else { return nil }
+    let head = state.head ?? ""
+    if state.countAfter == true { return head }
+    let lead = head.hasSuffix(" in") ? String(head.dropLast(3)) : head
+    let time = (state.headTime ?? "").isEmpty ? clockFormatter.string(from: Date(timeIntervalSince1970: to)) : state.headTime!
+    return lead.isEmpty ? time : "\(lead) \(time)"
+}
+
 // One segment per leg, as wide as its share of the riding time (at least 8% so a short leg shows):
 // full once done, advancing on its own while ridden.
 struct LegsBar: View {
@@ -103,10 +126,12 @@ struct LegsBar: View {
 // 8:25am", a note ("At the stop ~7:44am · 4 min to spare", amber when late; the transfer's spare),
 // the connection ("then ● Bus 132 6:38pm · 4 min to spare", amber when tight or missed), the legs.
 // The headline is amber with `warn`, except while riding (the connection line says it).
+// Dimmed (Always-On), the headline shows the time instead of the countdown (dimmedHead).
 // The Lock Screen card under its header; the expanded island under the island's top row.
 struct LeaveBody: View {
     let state: RideState
     let text, muted, amber, track: Color
+    @Environment(\.isLuminanceReduced) private var dimmed
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             // Its full height: with a note below, the stack squeezed it to its minimum scale (only
@@ -138,6 +163,7 @@ struct LeaveBody: View {
     }
 
     private var headline: Text {
+        if dimmed, let head = dimmedHead(state) { return Text(head) }
         var t = Text(state.head ?? "")
         if state.countAfter == true {
             if let countdown = headCountdown(state) { t = t + (Text(" · ") + countdown).font(.subheadline.weight(.semibold)) }

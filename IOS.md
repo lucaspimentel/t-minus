@@ -49,6 +49,9 @@ names and bundle ID) are in `DESIGN.md` ("iOS app").
     .components(style:fields:))`. `Text(until, format: .offset(to: Date()))` is drawn once and
     doesn't tick (the card showed "59 minutes" beside the island's live "55 min");
     `.durationOffset(to:)` reads negative ("-28 min").
+  - At reduced luminance (Always-On), a self-ticking `Text(.dateRange…, format: .components…)`
+    renders its number as "–". Branch on `@Environment(\.isLuminanceReduced)` and show fixed
+    text (the card's `dimmedHead`).
   - A `Text` with `minimumScaleFactor` in a `VStack` is squeezed vertically when a line follows
     it (the headline shrank above a note); `.fixedSize(horizontal: false, vertical: true)` keeps
     its height (`.layoutPriority(1)` didn't).
