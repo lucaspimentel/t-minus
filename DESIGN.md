@@ -1378,7 +1378,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   the countdown (no stop list, the transfer, the walk). The leave and walk cards also show the
   later legs ("then ● Bus 132"); the question reads "Did you get on? · left 6:15pm" with the
   arrival on the line. The old fields (`title`, `sub`, `next`) are still sent.
-- **The drop-off while riding (2026-11-06, mockups accepted 2026-11-06):** the line
+- **The drop-off while riding (2026-11-06, mockups accepted 2026-11-06; build 54):** the line
   names the drop-off instead of the headsign, which matters only before boarding: "● Orange Line
   to Malden Center" (`dropOff`; a commuter rail flag stop "to 🚩 Malden Center", the flag before
   the name so a long one can't cut it; without a stop list, the old line). The arrival moves to the third line:
