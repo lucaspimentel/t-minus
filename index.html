@@ -441,7 +441,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-05 · 4a96b0620b</footer>
+    <footer class="version">Version 2026-11-06 · e4e713419c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
@@ -465,8 +465,8 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-} from './core.js?v=bb6d29ff27';
-import { openSetup } from './setup.js?v=55cd3ab284';
+} from './core.js?v=873fa543f8';
+import { openSetup } from './setup.js?v=dcf4913076';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1425,7 +1425,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=bb6d29ff27'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=873fa543f8'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -1837,10 +1837,12 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     const leg = el('div', 'tl-leg');
     leg.style.setProperty('--c', s.leg.color ? `#${s.leg.color}` : 'var(--muted)');
     // "Orange Line · 13 stops · 15 min LIVE" (stops when known), then "toward Forest Hills" (the
-    // trip's headsign) below. Untimed (an auto-route option in setup): no minutes.
+    // trip's headsign) below; none on the leg being ridden (2026-11-06: the headsign matters only
+    // before boarding; the leg's last row names the drop-off). Untimed (an auto-route option in
+    // setup): no minutes.
     const ride = el('div', `step ride${legState(i, 'ride')}`, rideLine(s));
     if (s.leg.source) ride.append(badge(s.leg));
-    if (s.leg.headsign) ride.append(el('div', 'toward', toward(s.leg)));
+    if (s.leg.headsign && !(kind === 'riding' && i === p)) ride.append(el('div', 'toward', toward(s.leg)));
     // Commuter rail: "Train 2317 · Track 5", and the train's own alerts.
     const train = [s.leg.train && `Train ${s.leg.train}`, s.leg.track && `Track ${s.leg.track}`].filter(Boolean).join(' · ');
     if (train) ride.append(el('div', 'train', train));

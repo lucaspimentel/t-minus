@@ -18,23 +18,31 @@ private let trip = legs((orange, -8, 6), (bus, 14, 44)) // 14 and 30 min: propor
 private func ride(_ phase: String, _ head: String, countTo: Double = 0, after: Bool = false, time: String = "", warn: Bool = false,
                   long: String = "Orange Line", headsign: String = "Oak Grove", color: String = orange, right: String = "arrive 7:21pm", note: String = "",
                   then: [(String, String)] = [], thenText: String = "", nextWarn: Bool = false, emoji: String = "🚇", island: String = "",
-                  legs: [RideState.Leg] = trip) -> RideState {
+                  dropOff: String = "", thenState: String = "", legs: [RideState.Leg] = trip) -> RideState {
     var st = RideState(phase: phase, warn: warn, color: color, label: color == bus ? "132" : color.isEmpty ? "" : "OL", title: head, until: countTo, stops: -1,
                        sub: "", next: "", legs: legs, soon: false, nextWarn: nextWarn)
     st.head = head; st.countTo = countTo; st.countAfter = after; st.headTime = time; st.long = long; st.headsign = headsign; st.right = right
     st.note = note; st.emoji = emoji; st.islandText = island; st.then = then.map { RideState.ThenLeg(label: $0.0, color: $0.1) }; st.thenText = thenText
+    if !dropOff.isEmpty { st.dropOff = dropOff; st.headsign = ""; st.thenState = thenState }
     return st
 }
 private let busNext = [("Bus 132", bus)]
 private let atTransfer = legs((orange, -20, -6), (bus, 6, 30))
 private let samples: [(String, RideState)] = [
-    ("Riding", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, then: busNext, thenText: "6:38pm · 4 min to spare", island: "5 stops")),
-    ("Riding, tight connection", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, then: busNext, thenText: "6:38pm · tight", nextWarn: true, island: "5 stops")),
+    // Riding (2026-11-06): "● Orange Line to Oak Grove", then "then ● Bus 132 at 6:38pm" with the
+    // arrival, the time amber when tight, red when missed; the last leg: "Arrive 7:21pm" alone.
+    ("Riding", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, then: busNext, thenText: "at 6:38pm", island: "5 stops", dropOff: "Oak Grove")),
+    ("Riding, tight connection", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, then: busNext, thenText: "at 6:38pm", nextWarn: true, island: "5 stops",
+                                      dropOff: "Oak Grove", thenState: "tight")),
     ("Riding, missed connection", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, warn: true, right: "arrive 7:41pm", then: busNext,
-                                       thenText: "6:58pm (missed 6:38pm)", nextWarn: true, island: "5 stops")),
-    ("Next stop", ride("riding", "Get off next stop", countTo: now + 120, after: true, then: busNext, thenText: "6:38pm · 4 min to spare", island: "next")),
-    ("Get off here", ride("riding", "Get off here", then: busNext, thenText: "6:38pm · 4 min to spare", island: "here")),
-    ("No stop list yet", ride("riding", "Get off in", countTo: now + 540, then: busNext, thenText: "6:38pm · 4 min to spare")),
+                                       thenText: "at 6:58pm", nextWarn: true, island: "5 stops", dropOff: "Oak Grove", thenState: "missed")),
+    ("Next stop", ride("riding", "Get off next stop", countTo: now + 120, after: true, then: busNext, thenText: "at 6:38pm", island: "next", dropOff: "Oak Grove")),
+    ("Get off here", ride("riding", "Get off here", then: busNext, thenText: "at 6:38pm", island: "here", dropOff: "Oak Grove")),
+    ("Riding, last leg, long stop name", ride("riding", "Get off in 9 stops", countTo: now + 840, after: true, long: "Bus 132", color: bus, right: "arrive 6:52pm", emoji: "🚌",
+                                              island: "9 stops", dropOff: "Washington St opp Ruggles St", legs: legs((bus, -5, 14)))),
+    ("Riding, flag stop", ride("riding", "Get off in 3 stops", countTo: now + 660, after: true, long: "Haverhill Line", color: "80276C", emoji: "🚆",
+                               island: "3 stops", dropOff: "🚩 Malden Center", legs: legs(("80276C", -5, 11)))),
+    ("No stop list yet", ride("riding", "Get off in", countTo: now + 540, then: busNext, thenText: "at 6:38pm")),
     ("Transfer", ride("transfer", "Bus 132 in", countTo: now + 360, time: "6:38pm", long: "Bus 132", headsign: "Redstone", color: bus, note: "4 min to spare",
                       emoji: "🚌", legs: atTransfer)),
     ("Transfer, tight", ride("transfer", "Bus 132 in", countTo: now + 120, time: "6:38pm", warn: true, long: "Bus 132", headsign: "Redstone", color: bus, note: "tight",
@@ -200,22 +208,24 @@ private func hent(_ head: String, _ headTime: String, warn: Bool = false) -> Wid
 // A followed ride (2026-10-31): the entry's own line, arrival, note and connection.
 private func fent(_ head: String, _ headTime: String = "", warn: Bool = false, long: String = "Orange Line", headsign: String = "Oak Grove", color: String = orange,
                   arrive: String = "arrive 7:21pm", note: String = "", then: [(String, String)] = [("Bus 132", bus)], thenText: String = "", thenWarn: Bool = false,
-                  dep: Double? = nil) -> LeaveContent {
+                  dep: Double? = nil, dropOff: String? = nil, thenState: String? = nil) -> LeaveContent {
     var e = WidgetView.Entry(at: 0, row: -1, title: head, count: "", warn: warn, next: "", head: head, headTime: headTime)
-    e.long = long; e.headsign = headsign; e.color = color; e.arrive = arrive; e.note = note
+    e.long = long; e.headsign = dropOff == nil ? headsign : ""; e.color = color; e.arrive = arrive; e.note = note
     e.then = then.map { RideState.ThenLeg(label: $0.0, color: $0.1) }; e.thenText = thenText; e.thenWarn = thenWarn; e.dep = dep
+    e.dropOff = dropOff; e.thenState = thenState
     return LeaveContent(name: "Office → Home", entry: e, rows: [])
 }
 private let followSamples: [(String, LeaveContent)] = [
     ("Walking to the stop", fent("Departs in 6 min", "6:15pm", note: "At the stop ~6:13pm · 2 min to spare")),
     ("Walking, late", fent("Departs in 3 min", "6:15pm", warn: true, note: "At the stop ~6:17pm · 2 min late")),
     ("Did you get on? (Yes / Missed it on medium)", fent("Did you get on?", "left 6:15pm", dep: now - 60)),
-    ("Riding", fent("Get off in 5 stops", "9 min", thenText: "6:38pm · 4 min to spare")),
-    ("Riding, tight", fent("Get off in 5 stops", "9 min", thenText: "6:38pm · tight", thenWarn: true)),
-    ("Riding, missed", fent("Get off in 5 stops", "9 min", arrive: "arrive 7:41pm", thenText: "6:58pm (missed 6:38pm)", thenWarn: true)),
-    ("Next stop", fent("Get off next stop", "2 min", thenText: "6:38pm · 4 min to spare")),
-    ("Get off here", fent("Get off here", thenText: "6:38pm · 4 min to spare")),
-    ("No stop list", fent("Get off in 9 min", thenText: "6:38pm · 4 min to spare")),
+    ("Riding", fent("Get off in 5 stops", "9 min", thenText: "at 6:38pm", dropOff: "Oak Grove")),
+    ("Riding, tight", fent("Get off in 5 stops", "9 min", thenText: "at 6:38pm", thenWarn: true, dropOff: "Oak Grove", thenState: "tight")),
+    ("Riding, missed", fent("Get off in 5 stops", "9 min", arrive: "arrive 7:41pm", thenText: "at 6:58pm", thenWarn: true, dropOff: "Oak Grove", thenState: "missed")),
+    ("Next stop", fent("Get off next stop", "2 min", thenText: "at 6:38pm", dropOff: "Oak Grove")),
+    ("Get off here", fent("Get off here", thenText: "at 6:38pm", dropOff: "Oak Grove")),
+    ("Riding, last leg", fent("Get off in 9 stops", "14 min", long: "Bus 132", color: bus, arrive: "arrive 6:52pm", then: [], dropOff: "Washington St opp Ruggles St")),
+    ("No stop list", fent("Get off in 9 min", thenText: "at 6:38pm")),
     ("Transfer", fent("Bus 132 in 6 min", "6:38pm", long: "Bus 132", headsign: "Redstone", color: bus, note: "4 min to spare", then: [])),
     ("Transfer, tight", fent("Bus 132 in 2 min", "6:38pm", warn: true, long: "Bus 132", headsign: "Redstone", color: bus, note: "tight", then: [])),
     ("Walking to the destination", fent("Arrive in 5 min", "7:21pm", long: "", headsign: "", color: "", arrive: "", then: [])),

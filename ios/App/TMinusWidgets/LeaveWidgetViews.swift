@@ -22,6 +22,8 @@ private extension LeaveContent {
     var thenLegs: [RideState.ThenLeg] { entry?.then ?? (firstRow?.then ?? []).map { RideState.ThenLeg(label: $0.label, color: $0.color) } }
     var thenText: String { entry?.thenText ?? "" }
     var thenWarn: Bool { entry?.thenWarn ?? false }
+    var dropOff: String { entry?.dropOff ?? "" }
+    var thenState: String? { entry?.thenState }
     var askDep: Double? { entry?.dep }
     // A countdown to show (else "No more today", "Plan a trip", "Open T-Minus").
     var isHome: Bool { entry?.head != nil }
@@ -95,11 +97,15 @@ private struct SmallHome: View {
                     Text(content.long).lineLimit(1).minimumScaleFactor(0.8)
                 }
                 .foregroundStyle(th.text)
-                if !content.headsign.isEmpty {
-                    Text("toward \(content.headsign)").foregroundStyle(th.muted).lineLimit(1).minimumScaleFactor(0.8).padding(.leading, content.color.isEmpty ? 0 : 13)
+                // Riding (2026-11-06): "to Malden Center" in the headsign's place.
+                let second = !content.dropOff.isEmpty ? "to \(content.dropOff)" : content.headsign.isEmpty ? "" : "toward \(content.headsign)"
+                if !second.isEmpty {
+                    Text(second).foregroundStyle(th.muted).lineLimit(1).minimumScaleFactor(0.8).padding(.leading, content.color.isEmpty ? 0 : 13)
                 }
             }
-            if !content.arrive.isEmpty { Text(content.arrive).foregroundStyle(content.thenWarn ? th.amber : th.muted).lineLimit(1) }
+            if !content.arrive.isEmpty {
+                Text(content.arrive).foregroundStyle(thenTimeColor(content.thenState, amber: th.amber, red: th.red) ?? (content.thenWarn ? th.amber : th.muted)).lineLimit(1)
+            }
         }
         .font(.caption)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -109,7 +115,9 @@ private struct SmallHome: View {
 // Home Screen medium (2026-10-29; one ride 2026-10-30; followed rides 2026-10-31): "Leave in 5 min
 // · 12:17am" (or "Get off in 5 stops · 9 min"), the line and direction in full ("→" only where
 // "toward" doesn't fit), then at the bottom the note (amber with `warn`), the connection on its
-// own line ("then ● Bus 132 6:38pm · 4 min to spare", amber when tight or missed), and the later
+// own line ("then ● Bus 132 6:38pm · 4 min to spare", amber when tight or missed; riding with
+// `dropOff`, 2026-11-06: "● Bus 132 to Malden Center" and "then ● Orange at 6:38pm" beside the
+// arrival, the time amber or red), and the later
 // legs ("then ● Bus 132", when there's no connection line) with the arrival (never cut). "Did you
 // get on?" (2026-10-31): the arrival at the line's end and [Yes] [Missed it] at the bottom.
 private struct MediumHome: View {
@@ -126,7 +134,11 @@ private struct MediumHome: View {
             if !content.long.isEmpty {
                 HStack(spacing: 5) {
                     RouteDot(hex: content.color, size: 8)
-                    LineToward(line: content.long, headsign: content.headsign, muted: th.muted)
+                    if content.dropOff.isEmpty {
+                        LineToward(line: content.long, headsign: content.headsign, muted: th.muted)
+                    } else {
+                        LineTo(line: content.long, dropOff: content.dropOff)
+                    }
                     // "Did you get on?": the arrival here, the buttons in the bottom row.
                     if content.askDep != nil && !content.arrive.isEmpty {
                         Spacer(minLength: 8)
@@ -148,6 +160,26 @@ private struct MediumHome: View {
 
     @ViewBuilder private func bottom(_ th: Theme, tint: Color) -> some View {
         if !content.note.isEmpty { Text(content.note).foregroundStyle(tint).lineLimit(1) }
+        if !content.dropOff.isEmpty {
+            // Riding (2026-11-06): "then ● Bus 132 at 6:38pm" with the arrival on its right, or
+            // "Arrive 7:21pm" alone on the last leg.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if !content.thenText.isEmpty || !content.thenLegs.isEmpty {
+                    ThenLine(legs: content.thenLegs, text: content.thenText, muted: th.muted,
+                             textColor: thenTimeColor(content.thenState, amber: th.amber, red: th.red))
+                        .foregroundStyle(content.thenWarn && content.thenState == nil ? th.amber : th.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(content.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize()
+                } else {
+                    Text(content.arrive.prefix(1).uppercased() + content.arrive.dropFirst()).foregroundStyle(th.muted).lineLimit(1)
+                }
+            }
+        } else {
+            legacyBottom(th)
+        }
+    }
+
+    @ViewBuilder private func legacyBottom(_ th: Theme) -> some View {
         if !content.thenText.isEmpty {
             ThenLine(legs: content.thenLegs, text: content.thenText, muted: th.muted).foregroundStyle(content.thenWarn ? th.amber : th.text)
         }

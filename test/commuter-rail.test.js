@@ -243,6 +243,10 @@ test('the track before the headsign; flag stops; train alerts as the card note',
   const ride = { legs: [crLeg({ track: '5', flag: 'alight', alerts: ['Train 2317 is 10 min late'] })], boardedAt: t('17:48') };
   const riding = liveActivityState(ride, { kind: 'riding', leg: 0, eta: t('18:05') }, null, null, 7, t('17:50'));
   assert.deepEqual([riding.long, riding.note], ['Haverhill Line · Flag stop', 'Train 2317 is 10 min late']);
+  // With the stop list (2026-11-06): the drop-off in the headsign's place, the flag before it.
+  const stops = { vehicle: null, stops: [{ id: 'a', name: 'Wyoming Hill', time: t('17:54'), dropOff: false }, { id: 'b', name: 'Malden Center', time: t('17:58'), dropOff: true }] };
+  const named = liveActivityState(ride, { kind: 'riding', leg: 0, eta: t('18:05') }, stops, null, 7, t('17:50'));
+  assert.deepEqual([named.long, named.headsign, named.dropOff], ['Haverhill Line', '', '🚩 Malden Center']);
   // Widget rows.
   const w = widgetView('Home', [crRow({ track: '5' })], t('17:20'));
   assert.equal(w.rows[0].long, 'Haverhill Line · Track 5');

@@ -63,7 +63,9 @@ ones):
 | Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
 | App card leg strip | "Orange" | none (the expanded row has it) |
 | Widget Home Screen (small, medium; 2026-10-29) | "Orange Line" | "toward Forest Hills" ("→" where it doesn't fit) |
-| Connection lines ("then ● Bus 132"), Dynamic Island | "Orange" | none |
+| Connection lines ("then ● Bus 132 at 6:38pm"), Dynamic Island | "Orange" | none |
+| Riding: ride card, expanded island, both widgets (2026-11-06) | "Orange Line" | the drop-off instead: "to Malden Center" ("to 🚩 Malden Center" at a flag stop) |
+| Riding: the app's timeline, the ridden leg (2026-11-06) | "Orange Line" | none (the leg's last row names the drop-off) |
 
 Commuter rail (2026-11-01) follows the same two forms: "Haverhill Line" on text lines,
 "CR Haverhill" where tight, "CR" as the compact island badge, 🚆. Its assigned track goes before
@@ -334,7 +336,7 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
     requests.
   - Next connection (riding leg i, or in the transfer before leg i+1): needed = leg i's
     arrival + transfer, margin = leg i+1's departure − needed (`transferOutlook`,
-    `outlookText`): "Then Orange Line toward Forest Hills 7:31am · 4 min to spare", "· tight" (under 2 min, amber;
+    `outlookText`): "Then Orange Line toward Forest Hills at 7:31am · 4 min to spare" ("at", 2026-11-06), "· tight" (under 2 min, amber;
     also a negative margin: the transfer time is an estimate, and the rider may make it).
     Missed only when it's impossible: leg i+1 leaves before leg i arrives, or before now. That
     re-plans legs i+1… to the earliest feasible chain after `needed` (never an earlier
@@ -1080,7 +1082,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     (`rideStopsQuery`, `rideStops`) → `rideAlertStep`.
   - **Pushes (`rideAlertText`), per leg, transfers included:** "3 stops to Oak Grove" /
     "Orange Line · arrive 5:56pm" when the stops left drop to 3 (skipped if the leg started
-    with 3 or fewer); "Next stop: Oak Grove · get off" / "Then Bus 132 toward Redstone 6:26pm ·
+    with 3 or fewer); "Next stop: Oak Grove · get off" / "Then Bus 132 toward Redstone at 6:26pm ·
     25 min to spare" (last leg: "Arrive ~6:43pm") with the drop-off next, or 2 min before the
     arrival without a stop list; "Missed the 6:26pm Bus 132" / "Next: Bus 132 6:54pm · arrive
     7:11pm" once per missed departure (an earlier-vehicle switch is silent); "No connection
@@ -1376,6 +1378,16 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   the countdown (no stop list, the transfer, the walk). The leave and walk cards also show the
   later legs ("then ● Bus 132"); the question reads "Did you get on? · left 6:15pm" with the
   arrival on the line. The old fields (`title`, `sub`, `next`) are still sent.
+- **The drop-off while riding (2026-11-06, mockups accepted 2026-11-06):** the line
+  names the drop-off instead of the headsign, which matters only before boarding: "● Orange Line
+  to Malden Center" (`dropOff`; a commuter rail flag stop "to 🚩 Malden Center", the flag before
+  the name so a long one can't cut it; without a stop list, the old line). The arrival moves to the third line:
+  "then ● Bus 132 at 6:38pm" with "arrive 7:52pm" on its right (the spare is gone: the time is
+  amber when tight, red when missed, `thenState`; "No connection after 6:31pm" stays amber), or
+  "Arrive 7:21pm" alone on the last leg. The medium widget matches; the small one reads "● Bus
+  132" / "to Washington St opp…" / "arrive 6:52pm" (the arrival amber or red). The app's timeline
+  drops the ridden leg's "toward" line: its last row names the drop-off, once per surface.
+  `nextWarn`, `headsign` and `right` keep their meaning for older builds.
 - **Yes / Missed it (2026-10-31):** the question on the Lock Screen card, the expanded island and
   the medium widget has [Yes] (blue) [Missed it] in place of the legs bar (the widget: in place of
   its bottom row, the arrival moved to the line's end). Each is a link,

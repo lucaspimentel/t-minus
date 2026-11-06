@@ -11,12 +11,25 @@ extension Color {
 }
 
 struct Theme {
-    let card, text, muted, track, amber: Color
+    let card, text, muted, track, amber, red: Color
     static func of(_ scheme: ColorScheme) -> Theme {
         scheme == .dark
-            ? Theme(card: Color(hex: "1C1F24"), text: Color(hex: "ECEEF1"), muted: Color(hex: "9AA0A8"), track: Color(hex: "2E333A"), amber: Color(hex: "F0A830"))
-            : Theme(card: .white, text: Color(hex: "1C1F24"), muted: Color(hex: "6B7078"), track: Color(hex: "DCDDE0"), amber: Color(hex: "A35F00"))
+            ? Theme(card: Color(hex: "1C1F24"), text: Color(hex: "ECEEF1"), muted: Color(hex: "9AA0A8"), track: Color(hex: "2E333A"), amber: Color(hex: "F0A830"), red: Color(hex: "FF6B6B"))
+            : Theme(card: .white, text: Color(hex: "1C1F24"), muted: Color(hex: "6B7078"), track: Color(hex: "DCDDE0"), amber: Color(hex: "A35F00"), red: Color(hex: "C62828"))
     }
+}
+
+// The connection's time color (`thenState`, 2026-11-06): amber when tight, red when missed; nil
+// (the line's own color) otherwise.
+func thenTimeColor(_ state: String?, amber: Color, red: Color) -> Color? {
+    switch state { case "tight": return amber; case "missed": return red; default: return nil }
+}
+
+// "Orange Line to Malden Center": the line and the drop-off while riding, cut at the end.
+struct LineTo: View {
+    let line: String
+    let dropOff: String
+    var body: some View { Text("\(line) to \(dropOff)").lineLimit(1).truncationMode(.tail) }
 }
 
 struct RouteDot: View {
@@ -125,12 +138,15 @@ struct LegsBar: View {
 // "Leave in 28 min · 7:39am" / "Get off in 5 stops · 9 min", "● Bus 132 toward Malden   arrive
 // 8:25am", a note ("At the stop ~7:44am · 4 min to spare", amber when late; the transfer's spare),
 // the connection ("then ● Bus 132 6:38pm · 4 min to spare", amber when tight or missed), the legs.
+// While riding with `dropOff` (2026-11-06): "● Orange Line to Malden Center", then "then ● Bus 132
+// at 6:38pm" (the time amber or red, `thenState`) with the arrival on its right, or "Arrive
+// 7:21pm" alone on the last leg.
 // The headline is amber with `warn`, except while riding (the connection line says it).
 // Dimmed (Always-On), the headline shows the time instead of the countdown (dimmedHead).
 // The Lock Screen card under its header; the expanded island under the island's top row.
 struct LeaveBody: View {
     let state: RideState
-    let text, muted, amber, track: Color
+    let text, muted, amber, red, track: Color
     @Environment(\.isLuminanceReduced) private var dimmed
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -138,19 +154,41 @@ struct LeaveBody: View {
             // the width may shrink it).
             headline.font(.title3.weight(.bold)).foregroundStyle(state.warn && state.phase != "riding" ? amber : text).lineLimit(1).minimumScaleFactor(0.7)
                 .fixedSize(horizontal: false, vertical: true)
+            let drop = state.dropOff ?? ""
+            let right = state.right ?? ""
+            let hasThen = !(state.then ?? []).isEmpty || !(state.thenText ?? "").isEmpty
             if let long = state.long, !long.isEmpty {
                 HStack(spacing: 6) {
                     RouteDot(hex: state.color, size: 10)
-                    LineToward(line: long, headsign: state.headsign ?? "", muted: muted).foregroundStyle(text)
-                    Spacer(minLength: 8)
-                    if let right = state.right, !right.isEmpty { Text(right).foregroundStyle(muted).lineLimit(1).fixedSize() }
+                    if drop.isEmpty {
+                        LineToward(line: long, headsign: state.headsign ?? "", muted: muted).foregroundStyle(text)
+                        Spacer(minLength: 8)
+                        if !right.isEmpty { Text(right).foregroundStyle(muted).lineLimit(1).fixedSize() }
+                    } else {
+                        LineTo(line: long, dropOff: drop).foregroundStyle(text)
+                        Spacer(minLength: 0)
+                    }
                 }
                 .font(.subheadline)
             }
             if let note = state.note, !note.isEmpty {
                 Text(note).font(.subheadline).foregroundStyle(state.warn ? amber : text).lineLimit(2)
             }
-            if !(state.then ?? []).isEmpty || !(state.thenText ?? "").isEmpty {
+            if !drop.isEmpty {
+                // The third line: the connection with the arrival on its right, or the arrival alone.
+                HStack(spacing: 8) {
+                    if hasThen {
+                        ThenLine(legs: state.then ?? [], text: state.thenText ?? "", muted: muted,
+                                 textColor: thenTimeColor(state.thenState, amber: amber, red: red))
+                            .foregroundStyle(state.nextWarn == true && (state.thenState ?? "").isEmpty ? amber : text)
+                        Spacer(minLength: 8)
+                        if !right.isEmpty { Text(right).foregroundStyle(muted).lineLimit(1).fixedSize() }
+                    } else if !right.isEmpty {
+                        Text(right.prefix(1).uppercased() + right.dropFirst()).foregroundStyle(muted).lineLimit(1)
+                    }
+                }
+                .font(.subheadline)
+            } else if hasThen {
                 ThenLine(legs: state.then ?? [], text: state.thenText ?? "", muted: muted)
                     .font(.subheadline).foregroundStyle(state.nextWarn == true ? amber : text)
             }
@@ -205,6 +243,7 @@ struct ThenLine: View {
     let legs: [RideState.ThenLeg]
     let text: String
     let muted: Color
+    var textColor: Color? = nil // the text alone ("at 6:38pm") amber or red (thenTimeColor)
     var body: some View {
         HStack(spacing: 5) {
             if !legs.isEmpty {
@@ -215,7 +254,9 @@ struct ThenLine: View {
                     Text(leg.label)
                 }
             }
-            if !text.isEmpty { Text(text) }
+            if !text.isEmpty {
+                if let textColor { Text(text).foregroundStyle(textColor) } else { Text(text) }
+            }
         }
         .lineLimit(1).truncationMode(.tail)
     }
@@ -234,7 +275,7 @@ struct RideCardView: View {
                 Text("T-Minus")
             }
             .font(.caption).foregroundStyle(th.muted)
-            LeaveBody(state: state, text: th.text, muted: th.muted, amber: th.amber, track: th.track)
+            LeaveBody(state: state, text: th.text, muted: th.muted, amber: th.amber, red: th.red, track: th.track)
         }
         .padding(16)
     }
@@ -330,6 +371,6 @@ struct IslandExpanded: View {
     let state: RideState
     var body: some View {
         let amber = Color(hex: "F0A830"), track = Color(hex: "333333")
-        LeaveBody(state: state, text: .white, muted: .gray, amber: amber, track: track)
+        LeaveBody(state: state, text: .white, muted: .gray, amber: amber, red: Color(hex: "FF6B6B"), track: track)
     }
 }

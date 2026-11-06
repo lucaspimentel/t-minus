@@ -56,8 +56,9 @@ ride, and against these rules:
   "arrive 3:03pm". Vehicles in two forms: full text lines (notifications, the leave card, the ride
   bar, the expanded row, both Home Screen widgets) say "Bus 132 toward Malden" / "Orange Line"
   (on the widgets "→ Malden" where "toward" doesn't fit); tight ones (the card's leg strip, the
-  connection lines "then ● Bus 132", the Dynamic Island) say "Bus 132" / "Orange", with no headsign. The headsign
-  goes with the first leg only.
+  connection lines "then ● Bus 132 at 6:38pm", the Dynamic Island) say "Bus 132" / "Orange", with no headsign. The headsign
+  goes with the first leg only, and only before boarding: while riding, the cards and widgets say
+  "Orange Line to Malden Center" (the drop-off), and the app's timeline drops the ridden leg's headsign.
   DESIGN.md "Surface wording" lists each surface.
 - Color carries state: amber/red mean late or at risk, at the same thresholds on every surface;
   the color and the time say it, without a separate warning line.

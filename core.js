@@ -2316,7 +2316,7 @@ export function outlookText(outlook, ride, nowMs, { transfer = false } = {}) {
   if (!outlook) return null;
   if (outlook.none) return { text: `No connection after ${formatTime(outlook.needed, nowMs)}`, warn: true };
   const leg = outlook.legs[outlook.leg];
-  const head = transfer ? towardOnly(leg) : `Then ${lineToward(leg)} ${legTime(leg, leg.dep, nowMs)}`;
+  const head = transfer ? towardOnly(leg) : `Then ${lineToward(leg)} at ${legTime(leg, leg.dep, nowMs)}`;
   const missed = outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null);
   if (missed != null) return { text: `${head} (missed ${formatTime(missed, nowMs)})`, warn: true };
   if (outlook.margin < 2 * MIN) return { text: `${head} · tight`, warn: true };
@@ -2606,23 +2606,31 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
 // The ride card in the leave card's layout (2026-10-31), shared with the widget (widgetView):
 // `head` with a countdown to `countTo` after it ("Get off in 5 stops · 9 min": `countAfter`, the
 // countdown in `headTime`'s place; else "Get off in 9 min"), `headTime`; the line (`long`,
-// `headsign`) with the trip's arrival (`right`); `note` (the transfer's spare); the connection
-// (`then`, `thenText`, amber with `nextWarn`): "then ● Bus 132 6:38pm · 4 min to spare"; the
+// `headsign`) with the trip's arrival (`right`); while riding, `dropOff` in the headsign's place
+// ("to Malden Center"; the arrival then on the third line); `note` (the transfer's spare); the
+// connection (`then`, `thenText`, `nextWarn`, `thenState`): "then ● Bus 132 at 6:38pm", the time
+// amber when tight, red when missed; the
 // compact island's `emoji` and `islandText` ("5 stops", "next", "here"; '' for the countdown).
 function rideCardFields(ride, legs, phase, stops, outlook, eta, nowMs) {
   const t = ms => formatTime(ms, nowMs);
   const arrive = `arrive ${legs.some(l => l.every) ? '~' : ''}${t(eta)}`;
   const out = {
     head: '', countTo: 0, countAfter: false, headTime: '', long: '', headsign: '', right: '', note: '', emoji: '', islandText: '',
-    then: [], thenText: '', nextWarn: false,
+    then: [], thenText: '', thenState: '', nextWarn: false, dropOff: '',
   };
   const line = (leg, long) => Object.assign(out, { long, headsign: leg.headsign ?? '', right: arrive, emoji: modeEmoji(leg) });
   const missedDep = outlook && (outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null));
   switch (phase.kind) {
     case 'riding': {
       const leg = legs[phase.leg];
-      line(leg, [lineLabel(leg), flagStop(leg, 'alight')].filter(Boolean).join(' · '));
       const n = stops?.stops.length ?? 0;
+      // While riding, the drop-off replaces the headsign (2026-11-06): "● Orange Line to Malden
+      // Center", a flag stop "to 🚩 Malden Center"; the arrival goes to the card's third line.
+      const drop = stops?.stops[n - 1];
+      if (drop?.dropOff && drop.name) {
+        line(leg, lineLabel(leg));
+        Object.assign(out, { headsign: '', dropOff: `${flagStop(leg, 'alight') ? '🚩 ' : ''}${drop.name}` });
+      } else line(leg, [lineLabel(leg), flagStop(leg, 'alight')].filter(Boolean).join(' · '));
       const cue = n ? getOffText(stops) : null;
       if (cue === 'Get off here') Object.assign(out, { head: cue, islandText: 'here' });
       else if (cue) Object.assign(out, { head: 'Get off next stop', countTo: Math.round(leg.arr / 1000), countAfter: true, islandText: 'next' });
@@ -2636,7 +2644,9 @@ function rideCardFields(ride, legs, phase, stops, outlook, eta, nowMs) {
         const tight = missedDep == null && outlook.margin < 2 * MIN;
         Object.assign(out, {
           then: [{ label: vehicleLabel(next) ?? '', color: next.color ?? '' }],
-          thenText: missedDep != null ? `${at} (missed ${t(missedDep)})` : tight ? `${at} · tight` : `${at} · ${formatCountdown(outlook.margin)} to spare`,
+          // "then ● Bus 132 at 6:38pm": the time amber when tight, red when missed (`thenState`).
+          thenText: `at ${at}`,
+          thenState: missedDep != null ? 'missed' : tight ? 'tight' : '',
           nextWarn: missedDep != null || tight,
         });
       }
@@ -3002,8 +3012,9 @@ export function widgetView(tripName, rows, nowMs, follow = null) {
 // countdown's minute, a phase, a stop passed (`follow.stops`, rideStops from the reload, for the
 // leg ridden then). Each entry: `head` (with the countdown: "Departs in 6 min", "Get off in 5
 // stops"), `headTime` ("6:15pm", or the countdown after a stop count: "9 min"), `long`,
-// `headsign`, `color`, `arrive` (the trip's), `note` (amber with `warn`), `then` / `thenText`
-// (amber with `thenWarn`; the small size's arrival too). The headline is amber with `warn` (late,
+// `headsign` (riding: `dropOff` instead), `color`, `arrive` (the trip's), `note` (amber with
+// `warn`), `then` / `thenText` (amber with `thenWarn`, the time red with `thenState` 'missed';
+// the small size's arrival too). The headline is amber with `warn` (late,
 // a tight or missed transfer; not while riding: the connection line says it). `end`: the ride's
 // end (5 min after the arrival), the question's or the departure; `refresh`: every
 // WIDGET_RIDE_REFRESH_MIN, at each stop once 3 are left, and at each phase.
@@ -3052,6 +3063,7 @@ function widgetFollowView(tripName, follow, nowMs) {
       at: sec(t), row: -1, title: head, count: '', next: '', warn: !!st.warn, head, headTime: st.countAfter ? left : st.headTime ?? '',
       long: st.long ?? '', headsign: st.headsign ?? '', color: st.color ?? '', arrive: st.right ?? '', note: st.note ?? '',
       then: st.then ?? [], thenText: st.thenText ?? '', thenWarn: !!st.nextWarn, ...(st.askDep && { dep: st.askDep }),
+      ...(st.dropOff && { dropOff: st.dropOff }), ...(st.thenState && { thenState: st.thenState }),
     };
   };
   for (let t = nowMs; t < until && t < horizon;) {

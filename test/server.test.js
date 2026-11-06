@@ -607,7 +607,7 @@ test('/api/widget following: a ride (stops, connection), the bell, walking; ende
     s.world.rideStops.b1 = busStops(3, '07:18');
     const ride = await post(body({ kind: 'stop', ride: { legs, boardedAt: at('07:10') } }));
     const e = ride.entries[0];
-    assert.deepEqual([e.head, e.headTime, e.long, e.arrive, e.then.map(l => l.label), e.thenText, e.thenWarn], ['Get off in 3 stops', '10 min', 'Bus 132', 'arrive 8:00am', ['Orange'], '7:33am · 3 min to spare', false]);
+    assert.deepEqual([e.head, e.headTime, e.long, e.arrive, e.then.map(l => l.label), e.thenText, e.thenWarn], ['Get off in 3 stops', '10 min', 'Bus 132', 'arrive 8:00am', ['Orange'], 'at 7:33am', false]);
     assert.equal(ride.end, at('08:05') / 1000);
     assert.ok(s.world.calls.some(c => c === '/predictions'));
     // No stop list (the request failed or listed nothing): minutes.
@@ -650,13 +650,13 @@ test('a followed ride: heads-up, get off, a missed connection, get off again, th
     s.world.clock = at('07:22');
     s.world.rideStops.b1 = busStops(1);
     await s.app.tick();
-    assert.deepEqual(s.sent.at(-1), { kind: 'getOff', title: 'Next stop: Oak Grove · get off', body: 'Then Orange Line 7:33am · 3 min to spare', tag: `ride:${id}:0`, renotify: true });
+    assert.deepEqual(s.sent.at(-1), { kind: 'getOff', title: 'Next stop: Oak Grove · get off', body: 'Then Orange Line at 7:33am · 3 min to spare', tag: `ride:${id}:0`, renotify: true });
     // The planned train now leaves under the transfer time (7:25 + 5) but after the bus gets in:
     // kept, tight (the get-off alert is updated, alerting since it's earlier); no missed alert.
     s.world.clock = at('07:23');
     s.world.orange = '07:28';
     await s.app.tick();
-    assert.deepEqual(s.sent.at(-1), { kind: 'getOff', title: 'Next stop: Oak Grove · get off', body: 'Then Orange Line 7:28am · tight (was 7:33am)', tag: `ride:${id}:0`, renotify: true });
+    assert.deepEqual(s.sent.at(-1), { kind: 'getOff', title: 'Next stop: Oak Grove · get off', body: 'Then Orange Line at 7:28am · tight (was 7:33am)', tag: `ride:${id}:0`, renotify: true });
     assert.deepEqual(s.store.get(id).ride.legs.map(l => l.tripId), ['b1', 'o1']);
     // It leaves before the bus gets in: re-planned to o2.
     s.world.clock = at('07:24');

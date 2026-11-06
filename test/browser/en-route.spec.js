@@ -60,8 +60,11 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await tickTo(page, '07:08:30');
   await expect(head(page)).toHaveText(riding('Bus 132'));
   await offAt(page, '7:22am');
-  await expect(card(page)).toContainText('Then Orange Line toward Forest Hills ~7:32am · 5 min to spare');
+  await expect(card(page)).toContainText('Then Orange Line toward Forest Hills at ~7:32am · 5 min to spare');
   await expect(card(page).locator('.summary')).toHaveCount(0); // the arrival time is the timeline's end only
+  // The ridden leg: no headsign (its last row names the drop-off); the next leg keeps its own.
+  await expect(card(page).locator('.step.ride.current .toward')).toHaveCount(0);
+  await expect(card(page).locator('.step.ride .toward')).toHaveText(['toward Forest Hills']);
   // The buttons sit below the timeline, not on its last row.
   const gap = await card(page).evaluate(c => c.querySelector('.ride-btns').getBoundingClientRect().top - c.querySelector('.timeline').getBoundingClientRect().bottom);
   expect(gap).toBeGreaterThanOrEqual(8);
@@ -116,7 +119,7 @@ test('a bus running late: under the transfer time is tight; leaving before the a
   await openApp(page, { time: '07:00', scenario });
   await atTheStop(page);
   await tickTo(page, '07:09');
-  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills ~7:32am · 5 min to spare');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills at ~7:32am · 5 min to spare');
   // On board, the bus starts running 8 min late: off at 7:30, under the 5-min transfer to the
   // 7:32 Orange but still before it: kept, tight.
   const bus = scenario.trips.find(t => t.id === '132in-0708');
@@ -124,13 +127,13 @@ test('a bus running late: under the transfer time is tight; leaving before the a
   await tickTo(page, '07:11');
   await expect(head(page)).toHaveText(riding('Bus 132'));
   await offAt(page, '7:30am');
-  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills ~7:32am · tight');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills at ~7:32am · tight');
   await expect(card(page).locator('.ride-outlook')).toHaveClass(/warn/);
   // 11 min late: off at 7:33, after the 7:32 leaves: re-planned from 7:38 (7:33 + 5).
   bus.live = { delay: 11, stops: ['5991'] };
   await tickTo(page, '07:12');
   await offAt(page, '7:33am');
-  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills ~7:38am (missed 7:32am)');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills at ~7:38am (missed 7:32am)');
   await expect(card(page).locator('.ride-outlook')).toHaveClass(/warn/);
   // In the transfer: the countdown to the re-planned train, the card amber.
   await tickTo(page, '07:34');
@@ -222,9 +225,9 @@ test('while riding: Different connection? lists the next leg after the arrival; 
   expect(await choiceNames(page)).toEqual(['Orange ~7:26am', 'Orange ~7:38am', 'Orange ~7:44am', 'Orange ~7:50am']);
   await card(page).getByRole('button', { name: 'Orange ~7:26am' }).click();
   await tick(page, 300);
-  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills ~7:26am · tight');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills at ~7:26am · tight');
   await tickTo(page, '07:16');
-  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills ~7:26am · tight');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills at ~7:26am · tight');
   await expect(card(page).getByRole('button', { name: 'Cancel trip' })).toBeVisible();
 });
 
@@ -236,11 +239,11 @@ test('a planned train that falls behind gives way to an earlier one, silently', 
   await openApp(page, { time: '07:00', scenario });
   await atTheStop(page);
   await tickTo(page, '07:09');
-  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills 7:32am · 5 min to spare');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills at 7:32am · 5 min to spare');
   // The planned 7:32 now leaves at 7:42; the 7:38 is still catchable (off at 7:22 + 5 min).
   scenario.trips.find(t => t.id === 'OLin-0732').live = { delay: 10 };
   await tickTo(page, '07:11');
-  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills 7:38am · 11 min to spare');
+  await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills at 7:38am · 11 min to spare');
   await expect(card(page).locator('.ride-outlook')).not.toHaveClass(/warn/);
   await tickTo(page, '07:39');
   await expect(head(page)).toHaveText(riding('Orange'));

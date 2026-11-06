@@ -50,6 +50,12 @@ struct RideState: Codable, Hashable {
     var then: [ThenLeg]? = nil
     var thenText: String? = nil
     var islandText: String? = nil
+    // While riding (2026-11-06): the drop-off in the headsign's place ("● Orange Line to Malden
+    // Center", a flag stop "🚩 Malden Center"), the arrival (`right`) moved to the connection's
+    // line; the connection reads "then ● Bus 132 at 6:38pm" (`thenText` "at 6:38pm"), its time
+    // amber when `thenState` is "tight", red when "missed". Absent from older servers.
+    var dropOff: String? = nil
+    var thenState: String? = nil
     // "Did you get on?" (2026-10-31): the asked departure (Unix seconds) for the Yes / Missed it
     // links (answerURL), in place of the legs bar.
     var askDep: Double? = nil
