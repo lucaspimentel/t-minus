@@ -521,7 +521,10 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 - **Drawing:** an SVG outline with no street map (equirectangular, north up, in meters from the
   first boarding stop). Each leg is its route's shape (`route_patterns` with
   `representative_trip.shape`), trimmed to its boarding and drop-off stops, in the route's
-  color; its stops are small dots, the ends larger and labeled. Two leg ends within 250 m are
+  color; its stops are small dots, the ends larger and labeled. An intermediate stop is drawn
+  only when it's 14 px or more from the last one drawn on its leg and from the leg's end
+  (`stopsToShow`, rechecked on zoom; 2026-11-07: the small setup maps were a string of bus-stop
+  dots); a selected stop always. Two leg ends within 250 m are
   one transfer: one dot when they share a name, else the next leg's label only ("Oak Grove", not
   "Washington St opp Oak Grove Sta"). Transfer walks are dashed. A tap (or Enter) on a stop
   shows its name in the caption; pinch, drag or the wheel zoom and pan, from 150 m across to

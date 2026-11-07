@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, vehiclesOnStretch,
-  fitView, viewLimits, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, proxyRequestError, distanceMeters,
+  fitView, viewLimits, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -265,4 +265,19 @@ test('basemapNames: neighborhoods only zoomed in, Boston only zoomed out, fully 
   assert.deepEqual([...basemapNames(clash, view(5000), size)], [0]);
   assert.deepEqual(nameBox('Malden', 'town'), { w: 6 * 7.9, h: 11 });
   assert.equal(basemapNames(names, null, size).size, 0);
+});
+
+test('stopsToShow: leg ends always; intermediate stops only with room between them', () => {
+  // A leg of stops 100 m apart (ends major), then a second leg.
+  const legA = [0, 100, 200, 300, 400].map((y, k) => ({ id: `a${k}`, x: 0, y, major: k === 0 || k === 4, leg: 0 }));
+  const legB = [{ id: 'b0', x: 50, y: 400, major: true, leg: 1 }, { id: 'b1', x: 50, y: 600, major: false, leg: 1 }, { id: 'b2', x: 50, y: 900, major: true, leg: 1 }];
+  const stops = [...legA, ...legB];
+  const ids = (ppm, opts) => [...stopsToShow(stops, ppm, opts)].map(i => stops[i].id);
+  // Zoomed in (0.2 px/m: 20 px apart): every stop.
+  assert.deepEqual(ids(0.2), stops.map(s => s.id));
+  // Zoomed out (0.1 px/m: 10 px apart): every other stop, never next to the end; leg B's (20 px) kept.
+  assert.deepEqual(ids(0.1), ['a0', 'a2', 'a4', 'b0', 'b1', 'b2']);
+  // Far out: the ends only, and a selected stop.
+  assert.deepEqual(ids(0.01), ['a0', 'a4', 'b0', 'b2']);
+  assert.deepEqual(ids(0.01, { keep: 'a1' }), ['a0', 'a1', 'a4', 'b0', 'b2']);
 });

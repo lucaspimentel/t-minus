@@ -3946,6 +3946,22 @@ export function stopListStretch(stopsDoc, stop, alight) {
 // The phone's location in the map's coordinates (it stays on the phone).
 export const mapPoint = (model, p) => (model?.origin && p ? projector(model.origin.lat, model.origin.lon).toXY(p) : null);
 
+// The route map's stops to draw at `ppm` pixels per meter: every leg end (major), and an
+// intermediate stop only when it's at least `minPx` from the last one drawn on its leg and from
+// the leg's end, so a zoomed-out bus leg isn't a string of dots; `keep` (a selected stop) always.
+// `stops`: routeMapModel's, in leg order. → Set of indices.
+export function stopsToShow(stops, ppm, { minPx = 14, keep = null } = {}) {
+  const shown = new Set();
+  const far = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) * ppm >= minPx;
+  let last = null;
+  stops.forEach((st, i) => {
+    if (st.major || st.id === keep) { shown.add(i); last = st; return; }
+    const end = stops.slice(i + 1).find(x => x.major && x.leg === st.leg);
+    if ((!last || last.leg !== st.leg || far(st, last)) && (!end || far(st, end))) { shown.add(i); last = st; }
+  });
+  return shown;
+}
+
 // [{ lat, lon }] → a Google encoded polyline (precision 5): decodePolyline's inverse.
 export function encodePolyline(points) {
   let out = '', plat = 0, plon = 0;

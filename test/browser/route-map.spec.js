@@ -200,6 +200,11 @@ test('setup: a planner option\'s map (both end walks, taps keep the card open); 
   await expect(editorMap.locator('svg')).toHaveAttribute('role', 'img');
   await expect(legs(editorMap)).toHaveCount(2);
   await expect(editorMap.getByRole('button')).toHaveCount(0);
+  // Small and zoomed out: the leg ends stay, the bus's crowded stops thin out.
+  const stopDisplay = sel => editorMap.locator(sel).evaluateAll(gs => gs.map(g => g.getAttribute('display') !== 'none'));
+  expect(await stopDisplay('.map-stop.major')).not.toContain(false);
+  const minor = await stopDisplay('.map-stop:not(.major)');
+  expect(minor.filter(Boolean).length).toBeLessThan(minor.length / 2);
   await setup.getByRole('button', { name: /^Change leg 2/ }).click();
   await setup.getByRole('button', { name: 'Remove leg', exact: true }).click();
   await expect(legs(setup.locator('.route-map'))).toHaveCount(1);

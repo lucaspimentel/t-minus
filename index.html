@@ -497,7 +497,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-07 · ddd4669029</footer>
+    <footer class="version">Version 2026-11-07 · b85651eb40</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -527,9 +527,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames,
-} from './core.js?v=3134c5b67b';
-import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=e9d951405e';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
+} from './core.js?v=9e54979b33';
+import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=2a5b3cc535';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1488,7 +1488,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=3134c5b67b'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=9e54979b33'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2696,7 +2696,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   el.append(svg);
   const cap = caption ?? (interactive ? Object.assign(document.createElement('p'), { className: 'map-caption' }) : null);
   if (cap && !caption) { cap.setAttribute('aria-live', 'polite'); el.append(cap); }
-  const w = { el, svg, model: null, view: null, fit: null, touched: false, selected: null, marks: [], note: '', base: null };
+  const w = { el, svg, model: null, view: null, fit: null, touched: false, selected: null, marks: [], stopMarks: [], note: '', base: null };
   basemapWidgets.add(w);
   loadBasemap();
   const size = () => ({ width: svg.clientWidth || 340, height: svg.clientHeight || 200 });
@@ -2706,6 +2706,11 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     svg.setAttribute('viewBox', `${w.view.x} ${w.view.y} ${w.view.w} ${w.view.h}`);
     const s = mpp();
     for (const m of w.marks) m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`);
+    // Intermediate stops only with room between them (a zoomed-out bus leg isn't a row of dots).
+    if (w.model) {
+      const shown = stopsToShow(w.model.stops, 1 / s, { keep: w.selected });
+      w.stopMarks.forEach((m, i) => { if (shown.has(i)) m.removeAttribute('display'); else m.setAttribute('display', 'none'); });
+    }
     if (w.base) {
       const shown = basemapNames(w.base.names, w.view, size());
       w.base.marks.forEach((m, i) => {
@@ -2734,11 +2739,13 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     w.fit = model.view;
     const mark = (x, y, cls) => { const g = svgEl('g', { class: cls }); g.dataset.x = x; g.dataset.y = y; w.marks.push(g); return g; };
     w.marks = [];
+    w.stopMarks = [];
     const parts = [];
     for (const wk of model.walks) parts.push(svgEl('line', { class: 'map-walk', x1: wk.from.x, y1: wk.from.y, x2: wk.to.x, y2: wk.to.y, 'data-kind': wk.kind }));
     for (const l of model.legs) parts.push(svgEl('polyline', { class: `map-leg${l.faded ? ' faded' : ''}`, stroke: mapColor(l.color), 'data-color': l.color ?? '', points: l.path.map(p => `${p.x},${p.y}`).join(' ') }));
     for (const st of model.stops) {
       const g = mark(st.x, st.y, `map-stop${st.major ? ' major' : ''}`);
+      w.stopMarks.push(g);
       g.append(svgEl('circle', { r: st.major ? 6 : 3.5, stroke: mapColor(st.color) }));
       if (st.label || w.selected === st.id) g.append(svgEl('text', { x: 10, y: 4, class: 'map-label' }, st.name));
       if (interactive) {
