@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=873fa543f8';
+} from './core.js?v=03429d586a';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -24,12 +24,12 @@ const stopDocs = new Map(); // stopsKey → /stops doc (trip order, with child_s
 const RAIL_KEY = 't-minus:rail-network:2';
 const ROUTES_KEY = 't-minus:routes:2';
 try { localStorage.removeItem('t-minus:rail-network'); localStorage.removeItem('t-minus:routes'); } catch { /* storage off */ }
-const SAVED_TTL = 7 * 24 * 60 * 60_000;
+export const SAVED_TTL = 7 * 24 * 60 * 60_000;
 
 // Data kept on the phone (localStorage `{ at, data }`): the saved copy at once, and past `ttl`
 // a fresh one fetched in the background for next time (a failure there is ignored). Without a
 // copy, the fetch is awaited and saved. Storage errors (quota, private mode) are ignored.
-function keptCopy(key, ttl, fetcher) {
+export function keptCopy(key, ttl, fetcher) {
   let copy = null;
   try { copy = JSON.parse(localStorage.getItem(key)); } catch {}
   const fetchAndKeep = () => fetcher().then(data => {
@@ -89,7 +89,7 @@ const NEARBY_RADIUS = 0.003;
 // `boarding` (the iOS app, a build with boarding from location; else null): { get() → Promise<{ on,
 // status }>, set(on) → Promise<{ on, status }>, log() → Promise<[{ at, line }]> } for the
 // "Detect boarding with location" setting (saved at once) and the "Boarding log" screen.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, autoBell = false, boarding = null }) {
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, routeMap = null, autoBell = false, boarding = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -674,6 +674,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const card = h('li', { class: 'row option', onclick: () => { const opened = (p.plan.open ??= new Set()); if (!opened.delete(k)) opened.add(k); render(); } }, toggle);
       if (open) {
         const legs = o.legs.map((l, i) => ({ ...tags[i], from: board(l), to: alight(l) }));
+        // The route map, both end walks from a place's point (kept here, never saved).
+        const end = id => { const st = railNet && networkStation(railNet, id); return st ? { lat: st.lat, lon: st.lon, name: st.name } : null; };
+        card.append(routeMap?.(o.legs.map((l, i) => ({ route: l.route, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: tags[i].color, label: tags[i].label })),
+          { start: p.from.point ?? null, end: p.to.point ?? null, points: o.legs.map(l => ({ board: end(l.stop), alight: end(l.alight) })) }, `option:${k}`) ?? '');
         card.append(timeline?.(optionSteps(o, { walkBefore: wb, walkAfter: wa, slack: app.stopSlackMinutes, legs }), `option:${k}`) ?? '',
           h('div', { class: 'row-foot' },
             o.arrive != null && h('button', { type: 'button', class: 'track-btn', 'data-focus': `pick:${k}:departures`, onclick: e => { e.stopPropagation(); pick(o, 'departures'); } }, 'See departures'),
@@ -910,6 +914,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
           ? h('button', { type: 'button', class: 'add accent', onclick: () => openPicker(null) }, '+ Add transit leg')
           : h('div', { class: 'legs-empty' }, 'No legs yet. Add the bus or train you take first.',
             h('button', { type: 'button', class: 'primary add', onclick: () => openPicker(null) }, '+ Add transit leg')),
+        t.transit.length > 0 && routeMap?.(t.transit.map(l => ({ ...l, color: l.color ?? routeById(l.route)?.attributes?.color ?? null })), { static: true }, 'editor'),
         numberField('Minutes from last stop', t.walkAfter, v => { t.walkAfter = v; }),
         // 'toggle' fires asynchronously, so a re-render right after opening (a change inside) would
         // close it again; the summary click records the new state first.

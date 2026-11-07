@@ -417,6 +417,42 @@
   .muted { color: var(--muted); font-size: 14px; margin: 4px 0 8px; }
   .msg { font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
   .msg.err { color: var(--red); }
+  /* The route map (DESIGN.md "Route map"): the 🗺 sheet and setup's inline maps. Marks are sized
+     in pixels (scaled by the view in script); lines keep their width while zooming. */
+  .map-sheet {
+    position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--bg);
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px max(16px, env(safe-area-inset-bottom));
+  }
+  .map-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .map-head h2 { margin: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .map-head button {
+    min-height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .map-body { flex: 1; min-height: 0; display: flex; }
+  .map-body .route-map { flex: 1; display: flex; }
+  .map-body .route-svg { flex: 1; height: auto; }
+  .route-map { margin: 8px 0; }
+  .route-svg {
+    display: block; width: 100%; height: 200px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  .route-svg[role="img"] { touch-action: auto; }
+  .map-caption { margin: 6px 0 0; min-height: 20px; font-size: 14px; color: var(--muted); }
+  .map-leg { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .map-leg.faded { opacity: .35; }
+  .map-walk { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .map-stop circle { fill: var(--card); stroke-width: 1.5; }
+  .map-stop.major circle { stroke-width: 3; }
+  .map-stop .map-hit { fill: transparent; stroke: none; cursor: pointer; }
+  .map-stop:focus { outline: none; }
+  .map-stop:focus-visible circle:first-child { stroke: var(--text); stroke-width: 3; }
+  .map-label { font-size: 12px; font-weight: 600; fill: var(--text); stroke: var(--bg); stroke-width: 3; paint-order: stroke; stroke-linejoin: round; }
+  .map-vehicle text { font-size: 10px; font-weight: 700; }
+  .map-vehicle rect { stroke: var(--card); stroke-width: 1.5; }
+  .map-vehicle.mine rect { stroke: var(--text); stroke-width: 2.5; }
+  .map-here .halo { fill: #1a73e8; opacity: .2; }
+  .map-here .dot { fill: #1a73e8; stroke: #fff; stroke-width: 2; }
 </style>
 </head>
 <body>
@@ -427,6 +463,7 @@
     <header>
       <div class="toggle" id="toggle" role="group" aria-label="Trip"></div>
       <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh"><span>&#x21bb;</span></button>
+      <button class="icon-btn" id="map-btn" type="button" aria-label="Route map" title="Route map" hidden>&#x1F5FA;&#xFE0F;</button>
       <button class="icon-btn" id="open-setup" aria-label="Setup" title="Setup">&#x2699;</button>
     </header>
     <div class="enroute-bar oneoff-banner" id="oneoff" hidden><span class="en-status">One-off trip: not saved</span>
@@ -441,9 +478,14 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-06 · e4e713419c</footer>
+    <footer class="version">Version 2026-11-07 · 7cbe7feab2</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
+  <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
+    <div class="map-head"><h2 id="map-title"></h2><button type="button" class="link-btn" id="map-done">Done</button></div>
+    <div id="map-body" class="map-body"></div>
+    <p id="map-caption" class="map-caption" aria-live="polite"></p>
+  </div>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
 </main>
@@ -465,8 +507,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-} from './core.js?v=873fa543f8';
-import { openSetup } from './setup.js?v=dcf4913076';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS,
+} from './core.js?v=03429d586a';
+import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=096f7d7dd3';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1425,7 +1468,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=873fa543f8'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=03429d586a'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -1865,6 +1908,7 @@ function render() {
   syncWidget();
   renderToggle();
   $('refresh').hidden = !config; // nothing to refresh without trips
+  $('map-btn').hidden = !config;
   $('oneoff').hidden = !config || tripIdx !== oneOffIdx();
   $('plan-trip').hidden = true; // shown with the rows (not while riding, nor without trips)
 
@@ -2411,6 +2455,7 @@ function showSetup({ importOpen = false, plan = false } = {}) {
     boarding: boardingSetup(),
     // Auto-route options drawn like an expanded row.
     timeline: (steps, key) => renderTimeline(steps, Date.now(), { key }),
+    routeMap: routeMapEl,
     onClose: closeSetup,
     onReset: resetApp,
     startImport: importOpen,
@@ -2530,6 +2575,263 @@ function closeSetup({ show = null } = {}) {
 $('open-setup').onclick = () => showSetup();
 $('plan-trip').onclick = () => showSetup({ plan: true });
 
+// ---------- route map (DESIGN.md "Route map") ----------
+// The trip drawn at true positions: shapes kept on the phone, the phone's location and the
+// legs' vehicles while the sheet is open. Coordinates never leave the phone: shape and vehicle
+// requests carry the route and direction only.
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const svgEl = (tag, attrs = {}, text = null) => {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  return e;
+};
+const shapeDocs = new Map(); // stopsKey → trimmed shapes (trimShapesDoc), once loaded
+const shapeLoads = new Map(); // stopsKey → the pending load
+const shapeFailedAt = new Map(); // stopsKey → when a load failed (retried after a minute)
+function legShapes(leg) {
+  const k = stopsKey(leg.route, leg.direction_id);
+  if (shapeDocs.has(k)) return Promise.resolve(shapeDocs.get(k));
+  if (Date.now() - (shapeFailedAt.get(k) ?? -Infinity) < 60_000) return Promise.resolve(null);
+  if (!shapeLoads.has(k)) {
+    shapeLoads.set(k, keptCopy(`t-minus:shapes:${k}`, SAVED_TTL, () => api('/route_patterns', shapesQuery(leg.route, leg.direction_id)).then(trimShapesDoc))
+      .then(d => { shapeDocs.set(k, d); return d; }, () => { shapeFailedAt.set(k, Date.now()); return null; })
+      .finally(() => shapeLoads.delete(k)));
+  }
+  return shapeLoads.get(k);
+}
+const loadedShapes = legs => legs.map(l => shapeDocs.get(stopsKey(l.route, l.direction_id)) ?? null);
+// Without a shape: the leg's stops from setup's kept stop list, else its two ends from the
+// loaded predictions and schedules (`points`: legPoints); else nothing (the leg isn't drawn).
+function mapFallback(leg, point = null) {
+  const kept = store.get(`t-minus:stops:${stopsKey(leg.route, leg.direction_id)}`)?.data;
+  const list = stopListStretch(kept, leg.stop, leg.alight);
+  if (list) return list;
+  return point?.board && point?.alight ? [{ id: leg.stop, ...point.board, name: point.board.name ?? leg.stop }, { id: leg.alight, ...point.alight, name: point.alight.name ?? leg.alight }] : null;
+}
+// Readable text on a route color (dark on the 132's yellow, white on the Orange Line's orange).
+function textOn(hex) {
+  const n = parseInt(hex ?? '6b7078', 16);
+  const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const L = 0.2126 * lin(n >> 16 & 255) + 0.7152 * lin(n >> 8 & 255) + 0.0722 * lin(n & 255);
+  return (L + 0.05) / 0.05 > 1.05 / (L + 0.05) ? '#1c1f24' : '#ffffff';
+}
+const mapColor = c => (c ? `#${c}` : 'var(--muted)');
+
+// A map widget: `el` (a div with the SVG and, when interactive, a caption) and draw(input, here)
+// (input: routeMapModel's, without `aspect`; here: the phone's { lat, lon } or null). Interactive:
+// pinch / drag / wheel to zoom and pan, stops as buttons whose names show in the caption.
+// The view the rider zoomed to is kept across redraws; marks keep their size in pixels.
+function mapWidget({ label, interactive = false, focusKey = 'map', caption = null }) {
+  const svg = svgEl('svg', { class: 'route-svg', role: interactive ? 'group' : 'img', 'aria-label': label });
+  const el = document.createElement('div');
+  el.className = 'route-map';
+  el.append(svg);
+  const cap = caption ?? (interactive ? Object.assign(document.createElement('p'), { className: 'map-caption' }) : null);
+  if (cap && !caption) { cap.setAttribute('aria-live', 'polite'); el.append(cap); }
+  const w = { el, svg, model: null, view: null, fit: null, touched: false, selected: null, marks: [], note: '' };
+  const size = () => ({ width: svg.clientWidth || 340, height: svg.clientHeight || 200 });
+  const mpp = () => (w.view ? w.view.w / size().width : 1); // meters per pixel
+  function apply() {
+    if (!w.view) return;
+    svg.setAttribute('viewBox', `${w.view.x} ${w.view.y} ${w.view.w} ${w.view.h}`);
+    const s = mpp();
+    for (const m of w.marks) m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`);
+  }
+  function showCaption() {
+    if (!cap) return;
+    const st = w.model?.stops.find(x => x.id === w.selected);
+    cap.textContent = st?.name ?? w.note;
+  }
+  function select(id) {
+    w.selected = w.selected === id ? null : id;
+    w.redraw?.();
+  }
+  w.draw = (input, here = null, note = '') => {
+    w.redraw = () => w.draw(input, here, note);
+    const { width, height } = size();
+    const model = routeMapModel({ ...input, aspect: width / height });
+    const focused = svg.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
+    w.model = model;
+    w.note = note;
+    if (!w.touched || !w.view) w.view = model.view;
+    w.fit = model.view;
+    const mark = (x, y, cls) => { const g = svgEl('g', { class: cls }); g.dataset.x = x; g.dataset.y = y; w.marks.push(g); return g; };
+    w.marks = [];
+    const parts = [];
+    for (const wk of model.walks) parts.push(svgEl('line', { class: 'map-walk', x1: wk.from.x, y1: wk.from.y, x2: wk.to.x, y2: wk.to.y, 'data-kind': wk.kind }));
+    for (const l of model.legs) parts.push(svgEl('polyline', { class: `map-leg${l.faded ? ' faded' : ''}`, stroke: mapColor(l.color), 'data-color': l.color ?? '', points: l.path.map(p => `${p.x},${p.y}`).join(' ') }));
+    for (const st of model.stops) {
+      const g = mark(st.x, st.y, `map-stop${st.major ? ' major' : ''}`);
+      g.append(svgEl('circle', { r: st.major ? 6 : 3.5, stroke: mapColor(st.color) }));
+      if (st.label || w.selected === st.id) g.append(svgEl('text', { x: 10, y: 4, class: 'map-label' }, st.name));
+      if (interactive) {
+        g.append(svgEl('circle', { r: 14, class: 'map-hit' }));
+        Object.assign(g.dataset, { focus: `${focusKey}:stop:${st.id}`, stop: st.id });
+        g.setAttribute('role', 'button');
+        g.setAttribute('tabindex', '0');
+        g.setAttribute('aria-label', st.name);
+        g.setAttribute('aria-pressed', String(w.selected === st.id));
+      }
+      parts.push(g);
+    }
+    for (const v of model.vehicles) {
+      const g = mark(v.x, v.y, `map-vehicle${v.mine ? ' mine' : ''}`);
+      const wd = Math.max(22, v.label.length * 7 + 8) * (v.mine ? 1.25 : 1), ht = v.mine ? 20 : 16;
+      g.append(svgEl('rect', { x: -wd / 2, y: -ht / 2, width: wd, height: ht, rx: 4, fill: mapColor(v.color) }), svgEl('text', { y: 4, 'text-anchor': 'middle', fill: textOn(v.color) }, v.label));
+      g.dataset.vehicle = v.id;
+      parts.push(g);
+    }
+    const p = mapPoint(model, here);
+    if (p) { const g = mark(p.x, p.y, 'map-here'); g.append(svgEl('circle', { r: 14, class: 'halo' }), svgEl('circle', { r: 6, class: 'dot' })); parts.push(g); }
+    svg.replaceChildren(...parts);
+    apply();
+    showCaption();
+    if (focused) svg.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+  };
+  new ResizeObserver(() => { if (!w.touched && w.redraw) w.redraw(); else apply(); }).observe(svg);
+  if (!interactive) return w;
+
+  // Taps and keys on stops; drags and pinches move the view.
+  const pointers = new Map();
+  let moved = 0, dragged = false;
+  const limits = () => viewLimits(w.fit);
+  const toView = (cx, cy) => { const r = svg.getBoundingClientRect(); return { x: w.view.x + (cx - r.left) * mpp(), y: w.view.y + (cy - r.top) * mpp() }; };
+  svg.addEventListener('click', e => {
+    const g = e.target.closest?.('[data-stop]');
+    if (g && !dragged) select(g.dataset.stop);
+  });
+  svg.addEventListener('keydown', e => {
+    const g = e.target.closest?.('[data-stop]');
+    if (g && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(g.dataset.stop); }
+  });
+  svg.addEventListener('pointerdown', e => {
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1) { moved = 0; dragged = false; }
+  });
+  svg.addEventListener('pointermove', e => {
+    const prev = pointers.get(e.pointerId);
+    if (!prev || !w.view) return;
+    const cur = { x: e.clientX, y: e.clientY };
+    moved += Math.hypot(cur.x - prev.x, cur.y - prev.y);
+    if (!dragged && moved < 6) return;
+    if (!dragged) { dragged = true; try { svg.setPointerCapture(e.pointerId); } catch {} }
+    const others = [...pointers].filter(([id]) => id !== e.pointerId).map(([, q]) => q);
+    if (others.length) {
+      const o = others[0], d0 = Math.hypot(prev.x - o.x, prev.y - o.y), d1 = Math.hypot(cur.x - o.x, cur.y - o.y);
+      const mid = toView((cur.x + o.x) / 2, (cur.y + o.y) / 2);
+      if (d0 > 0) w.view = zoomView(w.view, d1 / d0, mid.x, mid.y, limits());
+    } else {
+      w.view = panView(w.view, -(cur.x - prev.x) * mpp(), -(cur.y - prev.y) * mpp(), limits());
+    }
+    pointers.set(e.pointerId, cur);
+    w.touched = true;
+    apply();
+  });
+  const up = e => { pointers.delete(e.pointerId); if (!pointers.size) setTimeout(() => { dragged = false; }); };
+  svg.addEventListener('pointerup', up);
+  svg.addEventListener('pointercancel', up);
+  svg.addEventListener('wheel', e => {
+    if (!w.view) return;
+    e.preventDefault();
+    const p = toView(e.clientX, e.clientY);
+    w.view = zoomView(w.view, e.deltaY < 0 ? 1.25 : 0.8, p.x, p.y, limits());
+    w.touched = true;
+    apply();
+  }, { passive: false });
+  // Inside an option card: taps and drags on the map don't toggle the card.
+  for (const ev of ['click', 'pointerdown', 'touchstart']) el.addEventListener(ev, e => e.stopPropagation(), { passive: true });
+  return w;
+}
+
+// Setup's maps (the planner's options, the trip editor): kept per key while the legs are the
+// same, so a redraw of setup keeps the view; redrawn when a leg's shape arrives.
+const setupMaps = new Map();
+function routeMapEl(legs, { start = null, end = null, points = [], static: still = false } = {}, key = 'map') {
+  const ml = legs.map(l => ({ route: l.route, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: l.color ?? null, label: l.label ?? l.route }));
+  const sig = JSON.stringify([ml, start, end, points, still]);
+  const kept = setupMaps.get(key);
+  if (kept?.sig === sig && kept.el.isConnected) return kept.el;
+  const w = mapWidget({ label: still ? 'Map of the trip' : 'Route map', interactive: !still, focusKey: key });
+  const draw = () => w.draw({ legs: ml, shapes: loadedShapes(ml), fallback: ml.map((l, i) => mapFallback(l, points[i])), start, end });
+  draw();
+  if (ml.some(l => !shapeDocs.has(stopsKey(l.route, l.direction_id)))) Promise.all(ml.map(legShapes)).then(draw);
+  setupMaps.set(key, { sig, el: w.el });
+  return w.el;
+}
+
+// The main screen's sheet (🗺 in the header): the shown trip, with the phone's location and the
+// legs' vehicles (one /vehicles request per leg every 10 s) while open.
+let mapSheet = null;
+function drawMapSheet() {
+  const m = mapSheet;
+  if (!m) return;
+  const now = Date.now();
+  const s = enRouteState();
+  const c = cache[m.idx];
+  const points = legPoints(m.trip, [...(c?.predictions ?? []), ...(c?.schedules?.docs ?? [])]);
+  const phase = s?.ride ? ridePhase(s.ride, tripShape(m.trip).walkAfter, now) : null;
+  const mine = m.legs.map((_, i) => s?.ride?.legs[i]?.tripId ?? (s?.bell ? s.target?.legs?.[i]?.tripId ?? null : null));
+  m.widget.draw({
+    legs: m.legs, shapes: loadedShapes(m.legs), fallback: m.legs.map((l, i) => mapFallback(l, points[i])),
+    start: s?.ride ? null : m.here, finished: phase?.leg ?? 0, vehicles: m.vehicles, mine, nowMs: now,
+  }, m.here, m.locationOff ? 'Location off' : '');
+}
+async function pollMapVehicles() {
+  const m = mapSheet;
+  if (!m || document.hidden) return;
+  const res = await Promise.allSettled(m.legs.map(l => api('/vehicles', vehiclesQuery(l))));
+  if (mapSheet !== m) return;
+  m.vehicles = res.map((r, i) => (r.status === 'fulfilled' ? vehiclePositions(r.value) : m.vehicles[i] ?? []));
+  drawMapSheet();
+}
+function openMapSheet() {
+  if (!config || mapSheet) return;
+  const trip = config.trips[tripIdx];
+  const legs = tripShape(trip).transit.map(l => ({ route: l.route, also: l.also, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: l.color ?? null, label: l.label ?? l.route }));
+  const widget = mapWidget({ label: `Map of ${trip.name}`, interactive: true, focusKey: 'sheet', caption: $('map-caption') });
+  mapSheet = { idx: tripIdx, trip, legs, widget, vehicles: [], here: null, locationOff: false, watchId: null, timer: null };
+  $('map-title').textContent = trip.name;
+  $('map-body').replaceChildren(widget.el);
+  $('map-sheet').hidden = false;
+  $('app').hidden = true;
+  $('map-done').focus();
+  drawMapSheet();
+  const m = mapSheet;
+  Promise.all(legs.map(legShapes)).then(() => { if (mapSheet === m) drawMapSheet(); });
+  if (navigator.geolocation) {
+    m.watchId = navigator.geolocation.watchPosition(p => {
+      if (mapSheet !== m) return;
+      m.here = { lat: p.coords.latitude, lon: p.coords.longitude };
+      m.locationOff = false;
+      drawMapSheet();
+    }, () => {
+      if (mapSheet !== m) return;
+      m.here = null;
+      m.locationOff = true;
+      drawMapSheet();
+    }, { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 });
+  } else m.locationOff = true;
+  pollMapVehicles();
+  m.timer = setInterval(pollMapVehicles, BOARDING_POLL_MS);
+}
+function closeMapSheet() {
+  const m = mapSheet;
+  if (!m) return;
+  clearInterval(m.timer);
+  if (m.watchId != null) navigator.geolocation?.clearWatch(m.watchId);
+  mapSheet = null;
+  $('map-sheet').hidden = true;
+  $('map-body').replaceChildren();
+  $('map-caption').textContent = '';
+  $('app').hidden = false;
+  render();
+  $('map-btn').focus();
+}
+$('map-btn').onclick = openMapSheet;
+$('map-done').onclick = closeMapSheet;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && mapSheet) closeMapSheet(); });
+
 // ---------- timers ----------
 
 $('refresh').onclick = () => refresh({ force: true });
@@ -2558,7 +2860,7 @@ function endPullTouch() {
 document.addEventListener('touchstart', e => {
   endPullTouch();
   pull = null;
-  if (!config || setupView || pullHeld || e.touches.length !== 1 || scrollY > 0 || $('toast').contains(e.target)) return;
+  if (!config || setupView || mapSheet || pullHeld || e.touches.length !== 1 || scrollY > 0 || $('toast').contains(e.target)) return;
   pull = { x: e.touches[0].clientX, y: e.touches[0].clientY, dy: 0, active: false, target: e.target };
   for (const [type, fn, opts] of PULL_EVENTS) e.target.addEventListener(type, fn, opts);
 }, { passive: true });
@@ -2625,7 +2927,7 @@ function locate() {
 // a trip with an active "Leaving now" / "At the stop".
 function autoSwitch() {
   if (!config || setupView) return;
-  const t = enRouteState() ? tripIdx : chooseTrip(Date.now(), store.get(KEY_OVERRIDE), located());
+  const t = enRouteState() || mapSheet ? tripIdx : chooseTrip(Date.now(), store.get(KEY_OVERRIDE), located());
   if (t !== tripIdx) setTrip(t, false);
   else render();
 }

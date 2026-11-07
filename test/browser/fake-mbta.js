@@ -12,7 +12,11 @@
 //   alerts: [{ id, effect, header, route, stop?, trip? }],
 //   platforms?: { [platformId]: code } (platform_code of included stops, e.g. Track 5),
 //   unnamed?: true (included stops without names),
+//   vehicles?: [{ id, trip, route, direction, lat, lon }] (/vehicles: positions, updated now),
+//   noShapes?: true (the route map's shape requests fail: its straight-line fallback),
 // }
+// The route map's shapes (/route_patterns with `include` naming the shape) come from the recorded
+// `patterns-<route>-<dir>.json`; other /route_patterns requests get the rail network.
 // Times are local (America/New_York) on whatever service date the app asks for, so the same
 // scenario serves today's and the next day's schedules. Live trips also get predictions
 // (shifted by `delay` minutes, at every stop or only `stops`) until they leave each stop, as
@@ -26,13 +30,17 @@ const STOP_DOCS = new Map(readdirSync(FIXTURES).filter(f => f.startsWith('stops-
   .map(f => [f.slice(6, -5), fixture(f)])); // "132-1" → doc
 
 const RAIL_NETWORK = fixture('rail-network.json'); // /route_patterns (canonical, with trip stops)
+const SHAPE_DOCS = new Map(readdirSync(FIXTURES).filter(f => f.startsWith('patterns-'))
+  .map(f => [f.slice(9, -5), fixture(f)])); // "132-1" → /route_patterns doc with shapes
 
 // Child platform id → parent station id, and stop names, from the recorded stop lists.
 const PARENT = new Map();
 const NAMES = new Map();
+const COORDS = new Map(); // stop id → { latitude, longitude } (included stops carry them, as the API's do)
 for (const doc of STOP_DOCS.values()) {
   for (const s of doc.data) {
     NAMES.set(s.id, s.attributes.name);
+    if (s.attributes.latitude != null) COORDS.set(s.id, { latitude: s.attributes.latitude, longitude: s.attributes.longitude });
     for (const c of s.relationships?.child_stops?.data ?? []) { PARENT.set(c.id, s.id); NAMES.set(c.id, s.attributes.name); }
   }
 }
@@ -83,7 +91,7 @@ const stopRef = id => ({ data: { id, type: 'stop' } });
 let PLATFORMS = {};
 const stopRecord = id => ({
   type: 'stop', id,
-  attributes: { name: NAMES.get(id) ?? id, ...(PLATFORMS[id] && { platform_code: PLATFORMS[id] }) },
+  attributes: { name: NAMES.get(id) ?? id, ...(COORDS.get(id) ?? COORDS.get(PARENT.get(id))), ...(PLATFORMS[id] && { platform_code: PLATFORMS[id] }) },
   relationships: { parent_station: { data: PARENT.has(id) ? { id: PARENT.get(id), type: 'stop' } : null } },
 });
 // A platform given in a scenario (BNT-0000-05) belongs to its stop's station.
@@ -230,14 +238,27 @@ export async function fakeMbta(context, scenario, { now }) {
     return { data: ROUTES.data.filter(r => found.has(r.id)) };
   }
 
+  function vehicles(q) {
+    const routes = (q.get('filter[route]') ?? '').split(',');
+    const dir = q.get('filter[direction_id]');
+    return { data: (scenario.vehicles ?? []).filter(v => routes.includes(v.route) && (dir == null || String(v.direction) === dir)).map(v => ({
+      type: 'vehicle', id: v.id, attributes: { latitude: v.lat, longitude: v.lon, updated_at: iso(mbta.now), current_status: 'IN_TRANSIT_TO' },
+      relationships: { trip: { data: { type: 'trip', id: v.trip } } },
+    })) };
+  }
+
   function answer(url) {
     const q = url.searchParams;
+    if (url.pathname === '/route_patterns' && q.get('include')?.includes('shape')) {
+      return scenario.noShapes ? undefined : SHAPE_DOCS.get(`${q.get('filter[route]')}-${q.get('filter[direction_id]')}`) ?? { data: [], included: [] };
+    }
     switch (url.pathname) {
       case '/schedules': return schedules(q);
       case '/predictions': return q.has('filter[trip]') ? tripPredictions(q.get('filter[trip]')) : legPredictions(q);
       case '/alerts': return alerts();
       case '/stops': return stops(q);
       case '/route_patterns': return RAIL_NETWORK;
+      case '/vehicles': return vehicles(q);
       case '/routes': return q.has('filter[stop]') ? routesAt(q.get('filter[stop]').split(',')) : ROUTES;
       default: return null;
     }
@@ -249,6 +270,7 @@ export async function fakeMbta(context, scenario, { now }) {
     if (mbta.mode === '503') return route.fulfill({ status: 503, headers, body: '{}' }).catch(() => {});
     if (mbta.mode === '429') return route.fulfill({ status: 429, headers, body: '{}' }).catch(() => {});
     const body = answer(url);
+    if (body === undefined) return route.fulfill({ status: 503, headers, body: '{}' }).catch(() => {});
     // `scenario.unnamed`: stops come without names (the app shows "—").
     if (scenario.unnamed) for (const inc of body?.included ?? []) if (inc.attributes) delete inc.attributes.name;
     return route.fulfill({ status: body ? 200 : 404, headers, body: JSON.stringify(body ?? {}) }).catch(() => {});
@@ -273,6 +295,7 @@ export async function fakeMbta(context, scenario, { now }) {
     mbta.proxyHits.push({ at: mbta.now, path: url.pathname, query: url.searchParams });
     if (status !== 200) return route.fulfill({ status, contentType: 'application/json', body: '{}' }).catch(() => {});
     const body = answer(url);
+    if (body === undefined) return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }).catch(() => {});
     return route.fulfill({
       status: body ? 200 : 404, headers: { 'content-type': 'application/json', ...(age && { 'x-data-age': String(age) }) },
       body: JSON.stringify(body ?? {}),

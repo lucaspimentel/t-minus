@@ -2,7 +2,7 @@
 // focus kept across the once-a-second redraw, and the screen-reader announcements (#announce).
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { openApp, tick, tickTo, at, planOptions, expandOption, pickOption, CR_CONFIG, crCommute } from './helpers.js';
+import { openApp, tick, tickTo, at, planOptions, expandOption, pickOption, CR_CONFIG, crCommute, commute } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -187,6 +187,31 @@ for (const scheme of ['light', 'dark']) {
     await pickOption(page, 0, 'See departures');
     await expect(page.locator('#oneoff')).toBeVisible();
     await tick(page, 1000);
+    expect(await violations(page)).toEqual([]);
+  });
+}
+
+for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on the route map; a focused stop keeps focus across a redraw (${scheme})`, async ({ page, context }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await context.grantPermissions(['geolocation']);
+    await context.setGeolocation({ latitude: 42.4655, longitude: -71.0990 });
+    await openApp(page, { time: '07:00', scenario: { ...commute(), vehicles: [{ id: 'v1', trip: '132in-0708', route: '132', direction: 1, lat: 42.452742, lon: -71.071966 }] } });
+    await page.getByRole('button', { name: 'Route map' }).click();
+    await tick(page, 300);
+    await expect(page.locator('.map-vehicle')).toHaveCount(1);
+    expect(await violations(page)).toEqual([]);
+    await page.getByRole('button', { name: 'Oak Grove', exact: true }).focus();
+    await tick(page, 10_000); // a vehicle poll redraws the map
+    expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('sheet:stop:70036');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#map-caption')).toHaveText('Oak Grove');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toBeHidden();
+    // The trip editor's map (a picture, no buttons).
+    await page.locator('#open-setup').click();
+    await page.locator('#setup').getByRole('button', { name: /Home to office/ }).first().click();
+    await expect(page.locator('#setup .route-map svg[role="img"]')).toBeVisible();
     expect(await violations(page)).toEqual([]);
   });
 }

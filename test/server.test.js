@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { createApp, declarativePush, apnsPush, apnsActivityPush } from '../server/app.mjs';
 import { openStore } from '../server/store.mjs';
-import { legQuery, predictionQuery, tripShape } from '../core.js';
+import { legQuery, predictionQuery, tripShape, shapesQuery } from '../core.js';
 
 const at = hhmm => Date.parse(`2026-09-30T${hhmm}:00-04:00`);
 const iso = hhmm => `2026-09-30T${hhmm}:00-04:00`;
@@ -1092,6 +1092,18 @@ test('/api/mbta/vehicles (boarding from location): proxied, cached for 5 s', asy
     assert.equal((await s.call('GET', path)).status, 200);
     assert.equal((await s.call('GET', path)).status, 200);
     assert.deepEqual(s.world.calls, ['/vehicles']);
+  } finally {
+    await s.close();
+  }
+});
+
+test('/api/mbta/route_patterns with shapes (the route map): proxied, kept as static', async () => {
+  const s = await setup();
+  try {
+    const path = `/api/mbta/route_patterns?${new URLSearchParams(shapesQuery('132', 1))}`;
+    assert.equal((await s.call('GET', path)).status, 200);
+    assert.equal((await s.call('GET', path)).status, 200);
+    assert.deepEqual(s.world.calls, ['/route_patterns']);
   } finally {
     await s.close();
   }

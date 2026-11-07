@@ -1,11 +1,14 @@
 // Refreshes the browser tests' static MBTA data (route list, stop lists) from the live API.
 // Run: NODE_USE_ENV_PROXY=1 node scripts/record-fixtures.mjs   (MBTA_API_KEY optional, never stored)
+// `… record-fixtures.mjs shapes` records only the route map's shapes.
 import { writeFileSync } from 'node:fs';
+import { shapesQuery } from '../core.js';
 
 const API = 'https://api-v3.mbta.com';
 const OUT = new URL('../test/browser/fixtures/', import.meta.url);
 const RAIL = ['Red', 'Mattapan', 'Orange', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue', 'CR-Haverhill'];
 const ROUTES = ['132', '136', '137', ...RAIL];
+const SHAPES = ['132', 'Orange'].flatMap(r => [[r, 0], [r, 1]]);
 const STOPS = ['132', 'Orange', 'Red', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue', 'CR-Haverhill'].flatMap(r => [[r, 0], [r, 1]]);
 // Keyless limit is 20 requests/min: pace the requests unless a key is set.
 const PACE_MS = process.env.MBTA_API_KEY ? 0 : 3500;
@@ -20,6 +23,22 @@ async function get(path, params) {
 }
 const save = (name, doc) => writeFileSync(new URL(name, OUT), JSON.stringify(doc, null, 1) + '\n');
 
+const onlyShapes = process.argv[2] === 'shapes';
+if (!onlyShapes) await recordAll();
+// The route map's shapes (index.html legShapes): patterns with their trip's shape and stops.
+for (const [route, dir] of SHAPES) {
+  const doc = await get('/route_patterns', shapesQuery(route, dir));
+  save(`patterns-${route}-${dir}.json`, {
+    data: doc.data.map(p => ({ type: p.type, id: p.id, attributes: p.attributes, relationships: { representative_trip: { data: p.relationships.representative_trip.data } } })),
+    included: doc.included.map(x => x.type === 'trip'
+      ? { type: 'trip', id: x.id, relationships: { shape: { data: x.relationships.shape.data }, stops: { data: x.relationships.stops.data } } }
+      : x.type === 'shape' ? { type: 'shape', id: x.id, attributes: x.attributes }
+        : { type: 'stop', id: x.id, attributes: x.attributes, relationships: { parent_station: { data: x.relationships?.parent_station?.data ?? null } } }),
+  });
+}
+console.log('fixtures written');
+
+async function recordAll() {
 // Same fields as setup.js; only the routes the tests use.
 const routes = await get('/routes', {
   'filter[type]': '0,1,2,3',
@@ -53,4 +72,4 @@ save('rail-network.json', {
     ? { type: 'trip', id: x.id, relationships: { stops: { data: x.relationships.stops.data } } }
     : { type: 'stop', id: x.id, attributes: x.attributes, relationships: { parent_station: { data: x.relationships?.parent_station?.data ?? null } } }),
 });
-console.log('fixtures written');
+}

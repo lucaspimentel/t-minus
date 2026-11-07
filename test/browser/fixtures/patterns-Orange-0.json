@@ -1,0 +1,466 @@
+{
+ "data": [
+  {
+   "type": "route_pattern",
+   "id": "Orange-3-0",
+   "attributes": {
+    "canonical": true,
+    "sort_order": 100200000,
+    "typicality": 1
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "canonical-Orange-C1-0",
+      "type": "trip"
+     }
+    }
+   }
+  }
+ ],
+ "included": [
+  {
+   "type": "stop",
+   "id": "70001",
+   "attributes": {
+    "latitude": 42.300926,
+    "longitude": -71.114129,
+    "name": "Forest Hills"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-forhl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70002",
+   "attributes": {
+    "latitude": 42.309832,
+    "longitude": -71.108059,
+    "name": "Green Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-grnst",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70004",
+   "attributes": {
+    "latitude": 42.317062,
+    "longitude": -71.104248,
+    "name": "Stony Brook"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-sbmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70006",
+   "attributes": {
+    "latitude": 42.323132,
+    "longitude": -71.099592,
+    "name": "Jackson Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-jaksn",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70008",
+   "attributes": {
+    "latitude": 42.330671,
+    "longitude": -71.096121,
+    "name": "Roxbury Crossing"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-rcmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70010",
+   "attributes": {
+    "latitude": 42.33649,
+    "longitude": -71.089684,
+    "name": "Ruggles"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-rugg",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70012",
+   "attributes": {
+    "latitude": 42.340927,
+    "longitude": -71.084188,
+    "name": "Massachusetts Avenue"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-masta",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70014",
+   "attributes": {
+    "latitude": 42.34735,
+    "longitude": -71.075727,
+    "name": "Back Bay"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-bbsta",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70016",
+   "attributes": {
+    "latitude": 42.349662,
+    "longitude": -71.063917,
+    "name": "Tufts Medical Center"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-tumnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70018",
+   "attributes": {
+    "latitude": 42.352547,
+    "longitude": -71.062752,
+    "name": "Chinatown"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-chncl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70020",
+   "attributes": {
+    "latitude": 42.355111,
+    "longitude": -71.061004,
+    "name": "Downtown Crossing"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-dwnxg",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70022",
+   "attributes": {
+    "latitude": 42.358978,
+    "longitude": -71.057598,
+    "name": "State"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-state",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70024",
+   "attributes": {
+    "latitude": 42.363021,
+    "longitude": -71.05829,
+    "name": "Haymarket"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-haecl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70026",
+   "attributes": {
+    "latitude": 42.36528,
+    "longitude": -71.060205,
+    "name": "North Station"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-north",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70028",
+   "attributes": {
+    "latitude": 42.373622,
+    "longitude": -71.069533,
+    "name": "Community College"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-ccmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70030",
+   "attributes": {
+    "latitude": 42.383975,
+    "longitude": -71.076994,
+    "name": "Sullivan Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-sull",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70032",
+   "attributes": {
+    "latitude": 42.401505,
+    "longitude": -71.077252,
+    "name": "Wellington"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-welln",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70034",
+   "attributes": {
+    "latitude": 42.426677,
+    "longitude": -71.074381,
+    "name": "Malden Center"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-mlmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70036",
+   "attributes": {
+    "latitude": 42.437735,
+    "longitude": -71.070875,
+    "name": "Oak Grove"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-ogmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70278",
+   "attributes": {
+    "latitude": 42.392331,
+    "longitude": -71.077262,
+    "name": "Assembly"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-astao",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "shape",
+   "id": "canonical-903_0018",
+   "attributes": {
+    "polyline": "an_bG|_xpLpBPrCZXBTBP@P@~Dd@dANlATjBd@tDhALDNDhA\\pIbClGjBz@ZhA\\xA`@XJpBl@??ZHpBn@HBfHvBfF~AhDbApA\\bAVND`Er@nALvCVfBLfFDb@?dBAjCEfB?pFDrHF~HFfB?vAC~FFpQJpB?|C@P?`B?V?X?h@B??l@DfEFL@f@BpCDxDFfABfA?lCBdB@fABnC@|C@tO@`ECfCI??|@ElESdCGdCAzA@pEEdBCnBItAAdBA^AT@nAAd@@`A?VAbC?fABzAD??nBDR?Z@v@@`DKtFCn@AZC`@Gr@Q\\MHEb@MzA{@zJeIlBaBhBoBzA}BlAoBrB_EVw@r@oBvAiE??DId@cBxCkGpGmK@Cda@o_@PO??tHkGbCuCh@e@b@Y????`@Sr@IlMg@zGB??T?vC?N@VN`ElDvAvBbBrBtA~A????v@t@hAtAhDbDb@f@t@p@VJj@Nh@@n@Bz@F??RBdD`@|B^XJRLz@`AxBvB|@N??xATNP`HrRJd@BZAf@OzCCbAApFCvG@hC?~F@t@@bB@jAFlAJ~AJf@???@Jb@DLRb@T^v@dA|AxBbB~BnHlJ^f@xAlBJHn@x@rBbClDnEt@fA??Zd@b@n@b@l@nDxEjN`RfAtApCrDb@h@RV??tCxDRTjLzNNRfEnFNN~AhBn@n@NJ`@\\????|@t@dE~CnA|@bAn@n@X`@Vd@R|@^\\Rf@Tp@Xn@R|@T~@ZpA`@l@NZHtEpAHBf@LbHrCvAr@??LFRLf@\\PJvA|@lA~@|AhAvCbCfDpCnA|@hCbBv@b@vAt@lAj@VL??JDd@TtBz@hA^RFvD`AdAZhBl@pA\\??~CfAzAh@vDfBxC`BXNb@T??NJdAj@~CdB|@h@h@Zv@h@fDhBHDnFvCdAn@vC`B~BrAvA~@|CjBrA~@hBhALJl@d@NHNJnDvBhAr@"
+   }
+  },
+  {
+   "type": "trip",
+   "id": "canonical-Orange-C1-0",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "canonical-903_0018",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "70036",
+       "type": "stop"
+      },
+      {
+       "id": "70034",
+       "type": "stop"
+      },
+      {
+       "id": "70032",
+       "type": "stop"
+      },
+      {
+       "id": "70278",
+       "type": "stop"
+      },
+      {
+       "id": "70030",
+       "type": "stop"
+      },
+      {
+       "id": "70028",
+       "type": "stop"
+      },
+      {
+       "id": "70026",
+       "type": "stop"
+      },
+      {
+       "id": "70024",
+       "type": "stop"
+      },
+      {
+       "id": "70022",
+       "type": "stop"
+      },
+      {
+       "id": "70020",
+       "type": "stop"
+      },
+      {
+       "id": "70018",
+       "type": "stop"
+      },
+      {
+       "id": "70016",
+       "type": "stop"
+      },
+      {
+       "id": "70014",
+       "type": "stop"
+      },
+      {
+       "id": "70012",
+       "type": "stop"
+      },
+      {
+       "id": "70010",
+       "type": "stop"
+      },
+      {
+       "id": "70008",
+       "type": "stop"
+      },
+      {
+       "id": "70006",
+       "type": "stop"
+      },
+      {
+       "id": "70004",
+       "type": "stop"
+      },
+      {
+       "id": "70002",
+       "type": "stop"
+      },
+      {
+       "id": "70001",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

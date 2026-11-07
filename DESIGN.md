@@ -66,6 +66,8 @@ ones):
 | Connection lines ("then ● Bus 132 at 6:38pm"), Dynamic Island | "Orange" | none |
 | Riding: ride card, expanded island, both widgets (2026-11-06) | "Orange Line" | the drop-off instead: "to Malden Center" ("to 🚩 Malden Center" at a flag stop) |
 | Riding: the app's timeline, the ridden leg (2026-11-06) | "Orange Line" | none (the leg's last row names the drop-off) |
+| Route map: vehicle badges (2026-11-07) | "OL", "132" (the island's compact label) | none |
+| Route map: stop labels and the caption | the stop's name ("Oak Grove", "Main St @ South St") | none |
 
 Commuter rail (2026-11-01) follows the same two forms: "Haverhill Line" on text lines,
 "CR Haverhill" where tight, "CR" as the compact island badge, 🚆. Its assigned track goes before
@@ -507,6 +509,47 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   amber (`#a35f00`) are darker than the dark theme's; the accent as text uses `--accent-text`
   (`#a85a00` in light), while `#ed8b00` fills (with dark text) stay.
 
+### Route map (2026-11-07)
+
+The trip drawn at true positions, in addition to the timeline (mockups accepted 2026-11-07).
+Web app only (the PWA and the iOS app's WebView); no native surface shows it.
+
+- **Where:** 🗺 in the header, beside ↻, opens a full-screen sheet ("Done" or Escape closes)
+  with the shown trip; the trip doesn't switch while it's open. Setup draws the same map inline:
+  above an expanded planner option's timeline, and under the legs in the trip editor (a static
+  picture, redrawn when a leg changes).
+- **Drawing:** an SVG outline with no street map (equirectangular, north up, in meters from the
+  first boarding stop). Each leg is its route's shape (`route_patterns` with
+  `representative_trip.shape`), trimmed to its boarding and drop-off stops, in the route's
+  color; its stops are small dots, the ends larger and labeled. Two leg ends within 250 m are
+  one transfer: one dot when they share a name, else the next leg's label only ("Oak Grove", not
+  "Washington St opp Oak Grove Sta"). Transfer walks are dashed. A tap (or Enter) on a stop
+  shows its name in the caption; pinch, drag or the wheel zoom and pan, from 150 m across to
+  twice the fit. Marks keep their size in pixels; lines their width.
+- **Walks at the ends:** the sheet draws a dashed walk from the phone's location to the first
+  stop, before boarding only. Saved trips keep no place coordinates (the config reaches the
+  server), so there is no last walk. Planner options draw both from the place's point (an
+  address or "Current location"), held in memory only.
+- **Live while open (the sheet only):** the phone's location (`watchPosition`, cleared on
+  close; denied or unavailable: no dot, no first walk, the caption "Location off"), and every
+  vehicle on the legs' routes and directions (`/vehicles`, `vehiclesQuery`, every 10 s), as a
+  badge in the route's color ("132", "OL"), only between the boarding and drop-off stops
+  (within 150 m of the shape, updated in the last 90 s). The belled or tracked ride's vehicle is
+  larger and outlined. Once riding, finished legs fade.
+- **Data:** a leg's main route only (an `also` route runs the same street between the stops).
+  The pattern is the one serving the boarding stop and then the drop-off (by id or parent
+  station): canonical first, then the most typical, then MBTA sort order. Kept on the phone as
+  `t-minus:shapes:<route>/<dir>` (`trimShapesDoc`: patterns with their polyline and stop ids,
+  stops with name, position and parent; 132 toward Malden 7.6 → 4 KB, Orange toward Forest Hills
+  5.8 → 2.9 KB), 7 days like the stop lists. Without a shape (the MBTA down, nothing kept):
+  straight lines through the leg's stops from setup's kept stop list, else its two ends from
+  the loaded times, with no message.
+- **Privacy:** positions never leave the phone; shape and vehicle requests carry the route and
+  direction only.
+- **Code:** geometry in `core.js` ("route map": `decodePolyline`, `pickPattern`, `trimPath`,
+  `vehiclesOnStretch`, `fitView` / `zoomView` / `panView`, `routeMapModel`); the SVG, gestures
+  and the sheet in `index.html` (`mapWidget`, `openMapSheet`, `routeMapEl` for setup).
+
 ## Configuration schema
 
 ```json
@@ -834,6 +877,12 @@ still holds, to stay well inside it either way:
 - Boarding from location (the iOS app's native code, with GPS on): `/vehicles` for the current
   leg every 10 s, `/predictions` per leg every 60 s, `/schedules` per leg every 30 min, all
   through the proxy (its 5 s cache for `/vehicles`): ~8 requests a minute per phone.
+- Route map (2026-11-07): one `/route_patterns` (`shapesQuery`) per leg's route and direction
+  the first time, kept on the phone for 7 days like the stop lists (planner and editor maps
+  too); while the 🗺 sheet is open, one `/vehicles` per leg every 10 s (6 a minute per leg,
+  12 for a 2-leg trip), through the proxy (its 5 s `vehicles` cache). Keyless and direct, a
+  3-leg trip's polls come near 20 a minute with the sheet open; the sheet is short-lived, and
+  a 429 only skips a round. Nothing once closed.
 - Expanding a row: one `/schedules?filter[trip]=…` per transit leg for its stop counts, once per
   trip and service date (memory); collapsed rows cost nothing.
 - Schedule window: from 30 min ago (for missed rows, with the 15-min refresh) to
@@ -1256,7 +1305,7 @@ cache classes in `core.js`):
   | predictions | `/predictions` | 10 s | 2 min | memory |
   | alerts | `/alerts` | 60 s | 15 min | memory |
   | schedules | `/schedules` | 15 min | 24 h (the key holds `filter[date]`) | memory |
-  | static | `/routes`, `/stops`, `/route_patterns` | a day, then revalidated (`If-Modified-Since`) | no limit | SQLite `mbta_cache` |
+  | static | `/routes`, `/stops`, `/route_patterns` (2026-11-07: also `filter[direction_id]` and `fields[shape]`, the route map's shapes) | a day, then revalidated (`If-Modified-Since`) | no limit | SQLite `mbta_cache` |
 
   Memory holds at most 2,000 copies (oldest dropped; past their stale limit, pruned each
   tick); SQLite the newest 2,000 rows.

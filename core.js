@@ -3725,6 +3725,227 @@ export function nativeBoardingStep(input) {
   return JSON.stringify({ session: s, wants: boardingWants(s, nowMs), actions });
 }
 
+// ---------- route map (DESIGN.md "Route map") ----------
+// An SVG outline of a trip at true positions (no street map): each leg's route shape trimmed to
+// its boarding and drop-off stops, the walks between, the phone's location and the vehicles on
+// the legs. Pure geometry here; index.html draws it. Requests carry route and direction only.
+
+// A leg's shape request: the route's patterns with their representative trip's shape and stops
+// (the main route only; `also` routes run the same street between the leg's stops).
+export function shapesQuery(route, directionId) {
+  return {
+    'filter[route]': route, 'filter[direction_id]': String(directionId), include: 'representative_trip.shape,representative_trip.stops',
+    'fields[route_pattern]': 'typicality,canonical,sort_order', 'fields[trip]': '', 'fields[shape]': 'polyline', 'fields[stop]': 'name,latitude,longitude',
+  };
+}
+
+// A Google encoded polyline (precision 5) → [{ lat, lon }].
+export function decodePolyline(str) {
+  const out = [];
+  let i = 0, lat = 0, lon = 0;
+  while (i < (str?.length ?? 0)) {
+    for (const k of [0, 1]) {
+      let b, shift = 0, r = 0;
+      do { b = str.charCodeAt(i++) - 63; r |= (b & 31) << shift; shift += 5; } while (b >= 32 && i < str.length);
+      const d = r & 1 ? ~(r >> 1) : r >> 1;
+      if (k) lon += d; else lat += d;
+    }
+    out.push({ lat: lat / 1e5, lon: lon / 1e5 });
+  }
+  return out;
+}
+
+const round5 = x => (Number.isFinite(x) ? Math.round(x * 1e5) / 1e5 : null);
+// The shapes doc (shapesQuery) trimmed for keeping on the phone:
+// { patterns: [{ id, canonical, typicality, sort, polyline, stops: [id] }], stops: { id: { name, lat, lon, parent } } }.
+export function trimShapesDoc(doc) {
+  const inc = new Map((doc?.included ?? []).map(x => [`${x.type}/${x.id}`, x]));
+  const stops = {};
+  const patterns = [];
+  for (const p of doc?.data ?? []) {
+    const trip = inc.get(`trip/${p.relationships?.representative_trip?.data?.id}`);
+    const polyline = inc.get(`shape/${trip?.relationships?.shape?.data?.id}`)?.attributes?.polyline;
+    const ids = (trip?.relationships?.stops?.data ?? []).map(s => s.id);
+    if (!polyline || !ids.length) continue;
+    for (const id of ids) {
+      const s = inc.get(`stop/${id}`);
+      if (!s || stops[id]) continue;
+      stops[id] = { name: s.attributes?.name ?? id, lat: round5(s.attributes?.latitude), lon: round5(s.attributes?.longitude), parent: s.relationships?.parent_station?.data?.id ?? null };
+    }
+    const a = p.attributes ?? {};
+    patterns.push({ id: p.id, canonical: a.canonical === true, typicality: a.typicality ?? null, sort: a.sort_order ?? null, polyline, stops: ids });
+  }
+  return { patterns, stops };
+}
+
+// The pattern serving `stop` and then `alight` (a stop id or its parent station's id): canonical
+// first, then the most typical, then MBTA sort order. { pattern, from, to } or null.
+export function pickPattern(shapes, stop, alight) {
+  const is = (id, x) => id === x || shapes?.stops?.[id]?.parent === x;
+  const rank = p => [p.canonical ? 0 : 1, p.typicality ?? 99, p.sort ?? Infinity];
+  let best = null;
+  for (const pattern of shapes?.patterns ?? []) {
+    const from = pattern.stops.findIndex(id => is(id, stop));
+    if (from < 0) continue;
+    const to = pattern.stops.findIndex((id, i) => i > from && is(id, alight));
+    if (to < 0) continue;
+    const r = rank(pattern);
+    const k = best ? r.findIndex((v, i) => v !== best.r[i]) : -1;
+    if (!best || (k >= 0 && r[k] < best.r[k])) best = { pattern, from, to, r };
+  }
+  return best && { pattern: best.pattern, from: best.from, to: best.to };
+}
+
+// Meters east (x) and south (y) of an origin, so the SVG's y grows downward with north up.
+const EARTH_M = 6_371_000;
+export function projector(lat0, lon0) {
+  const k = Math.cos((lat0 * Math.PI) / 180), rad = Math.PI / 180;
+  return {
+    toXY: p => ({ x: EARTH_M * (p.lon - lon0) * rad * k, y: -EARTH_M * (p.lat - lat0) * rad }),
+    toLatLon: q => ({ lat: lat0 - q.y / (EARTH_M * rad), lon: lon0 + q.x / (EARTH_M * rad * k) }),
+  };
+}
+
+// The point of `path` ([{x, y}]) nearest `p`, searching segments from `fromIndex`:
+// on the first one from `fromT`: { index (segment start), t, point, along (meters from the path's
+// start), meters (off the path) }.
+export function nearestOnPath(path, p, fromIndex = 0, fromT = 0) {
+  let along = 0, best = null;
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i], b = path[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy, len = Math.sqrt(len2);
+    if (i >= fromIndex) {
+      const t0 = i === fromIndex ? fromT : 0;
+      const t = len2 ? Math.max(t0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : t0;
+      const point = { x: a.x + t * dx, y: a.y + t * dy };
+      const meters = Math.hypot(p.x - point.x, p.y - point.y);
+      if (!best || meters < best.meters) best = { index: i, t, point, along: along + t * len, meters };
+    }
+    along += len;
+  }
+  if (!best && path.length) {
+    const point = path[path.length - 1];
+    best = { index: path.length - 1, t: 0, point, along, meters: Math.hypot(p.x - point.x, p.y - point.y) };
+  }
+  return best;
+}
+
+// `path` from the point nearest `a` to the point nearest `b` after it (loops and out-and-back
+// routes pass near `b` before `a`): the sub-path with its projected ends, and the ends' `along`.
+export function trimPath(path, a, b) {
+  const na = nearestOnPath(path, a);
+  const nb = nearestOnPath(path, b, na.index, na.t);
+  return { path: [na.point, ...path.slice(na.index + 1, nb.index + 1), nb.point], from: na.along, to: nb.along };
+}
+
+// The vehicles ([{ id, tripId, lat, lon, updatedAt }], projected by `proj`) on the stretch of
+// `path` between `fromAlong` and `toAlong`, fresh and within `maxMeters` of it, with their point.
+export function vehiclesOnStretch(vehicles, path, fromAlong, toAlong, proj, nowMs, maxMeters = 150) {
+  const out = [];
+  for (const v of vehicles ?? []) {
+    if (!(nowMs - v.updatedAt <= VEHICLE_FRESH_SECONDS * 1000)) continue;
+    const n = nearestOnPath(path, proj.toXY(v));
+    if (!n || n.meters > maxMeters || n.along < fromAlong - 1 || n.along > toAlong + 1) continue;
+    out.push({ ...v, point: n.point });
+  }
+  return out;
+}
+
+// The view box ({ x, y, w, h }, meters) around `points`: padded, at least `minSpan` wide and
+// tall, widened or heightened to `aspect` (width / height).
+export function fitView(points, { pad = 0.1, minSpan = 400, aspect = 1 } = {}) {
+  if (!points.length) return { x: -minSpan / 2, y: -minSpan / 2, w: minSpan, h: minSpan / aspect };
+  const xs = points.map(p => p.x), ys = points.map(p => p.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  let w = Math.max((x1 - x0) * (1 + 2 * pad), minSpan), h = Math.max((y1 - y0) * (1 + 2 * pad), minSpan);
+  if (w / h > aspect) h = w / aspect; else w = h * aspect;
+  return { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w, h };
+}
+
+// Pinch and drag limits for a fitted view: zoom in to `minSpan` meters, out to twice the fit,
+// with the center kept within the fit grown by its own size on each side.
+export const viewLimits = (fit, minSpan = 150) => ({ minSpan, maxSpan: fit.w * 2, bounds: { x: fit.x - fit.w, y: fit.y - fit.h, w: fit.w * 3, h: fit.h * 3 } });
+function clampView(v, limits) {
+  if (!limits) return v;
+  const cx = Math.min(Math.max(v.x + v.w / 2, limits.bounds.x), limits.bounds.x + limits.bounds.w);
+  const cy = Math.min(Math.max(v.y + v.h / 2, limits.bounds.y), limits.bounds.y + limits.bounds.h);
+  return { x: cx - v.w / 2, y: cy - v.h / 2, w: v.w, h: v.h };
+}
+// Zooms by `factor` (>1 zooms in) about the point (cx, cy) in view coordinates, which stays put.
+export function zoomView(view, factor, cx, cy, limits) {
+  const aspect = view.w / view.h;
+  let w = view.w / factor;
+  if (limits) w = Math.min(Math.max(w, Math.min(limits.minSpan, limits.maxSpan)), limits.maxSpan);
+  const f = view.w / w, h = w / aspect;
+  return clampView({ x: cx - (cx - view.x) / f, y: cy - (cy - view.y) / f, w, h }, limits);
+}
+// Moves the view by (dx, dy) meters (a drag to the right moves the map right: dx < 0 here).
+export const panView = (view, dx, dy, limits) => clampView({ ...view, x: view.x + dx, y: view.y + dy }, limits);
+
+// Leg ends this close are one transfer: one dot if they share a name, else one label.
+const MERGE_METERS = 250;
+const WALK_GAP_METERS = 25;
+// The map's geometry, in meters from the first leg's boarding stop.
+// legs: [{ route, direction_id, stop, alight, color, label }]; shapes[i]: a trimShapesDoc or
+// null; fallback[i]: [{ id, name, lat, lon }] from boarding to drop-off (no shape), or null;
+// start / end: { lat, lon } (the walks to the first stop and from the last) or null;
+// finished: legs before this one are faded; vehicles[i]: vehiclePositions; mine[i]: a trip id.
+// → { origin, view, legs: [{ color, path, faded }], stops: [{ id, name, x, y, major, label, leg, color }],
+//     walks: [{ from, to, kind }], vehicles: [{ id, x, y, color, label, mine }], here }
+export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1 }) {
+  const raw = legs.map((leg, i) => {
+    const picked = shapes[i] ? pickPattern(shapes[i], leg.stop, leg.alight) : null;
+    if (picked) {
+      const st = picked.pattern.stops.slice(picked.from, picked.to + 1).map(id => ({ id, ...shapes[i].stops[id] })).filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lon));
+      if (st.length >= 2) return { leg, i, line: decodePolyline(picked.pattern.polyline), stops: st };
+    }
+    const fb = (fallback[i] ?? []).filter(s => Number.isFinite(s?.lat) && Number.isFinite(s?.lon));
+    return fb.length >= 2 ? { leg, i, line: null, stops: fb } : null;
+  }).filter(Boolean);
+  const o = raw[0]?.stops[0] ?? start ?? end;
+  if (!o) return { origin: null, view: fitView([], { aspect }), legs: [], stops: [], walks: [], vehicles: [], here: null };
+  const proj = projector(o.lat, o.lon);
+  const out = { origin: { lat: o.lat, lon: o.lon }, legs: [], stops: [], walks: [], vehicles: [], here: null };
+  const drawn = raw.map(r => {
+    const pts = r.stops.map(s => proj.toXY(s));
+    const path = r.line ? trimPath(r.line.map(p => proj.toXY(p)), pts[0], pts.at(-1)).path : pts;
+    const length = path.reduce((m, p, k) => m + (k ? Math.hypot(p.x - path[k - 1].x, p.y - path[k - 1].y) : 0), 0);
+    out.legs.push({ color: r.leg.color ?? null, path, faded: r.i < finished });
+    r.stops.forEach((s, k) => {
+      const major = k === 0 || k === r.stops.length - 1;
+      const p = major ? (k === 0 ? path[0] : path.at(-1)) : pts[k];
+      const close = major ? out.stops.filter(x => x.major && x.leg !== r.i && Math.hypot(x.x - p.x, x.y - p.y) < MERGE_METERS) : [];
+      if (close.some(x => x.name === s.name)) return;
+      for (const x of close) x.label = false; // a transfer's two stops: the next leg's name only
+      out.stops.push({ id: s.id, name: s.name, x: p.x, y: p.y, major, label: major, leg: r.i, color: r.leg.color ?? null });
+    });
+    const label = islandLabel(r.leg);
+    for (const v of vehiclesOnStretch(vehicles[r.i], path, 0, length, proj, nowMs)) {
+      out.vehicles.push({ id: v.id, x: v.point.x, y: v.point.y, color: r.leg.color ?? null, label, mine: !!mine[r.i] && v.tripId === mine[r.i] });
+    }
+    return path;
+  });
+  for (let k = 0; k + 1 < drawn.length; k++) {
+    const a = drawn[k].at(-1), b = drawn[k + 1][0];
+    if (Math.hypot(a.x - b.x, a.y - b.y) > WALK_GAP_METERS) out.walks.push({ from: a, to: b, kind: 'transfer' });
+  }
+  if (start && drawn.length) { const p = proj.toXY(start); out.walks.push({ from: p, to: drawn[0][0], kind: 'start' }); }
+  if (end && drawn.length) out.walks.push({ from: drawn.at(-1).at(-1), to: proj.toXY(end), kind: 'end' });
+  out.vehicles.sort((a, b) => a.mine - b.mine); // yours drawn last, on top
+  out.view = fitView([...drawn.flat(), ...out.walks.flatMap(w => [w.from, w.to])], { aspect });
+  return out;
+}
+// A leg's stops from a kept /stops list (trimStopsDoc; a stop matches by id or child id), from
+// boarding to drop-off: [{ id, name, lat, lon }], or null (the route map's straight-line fallback).
+export function stopListStretch(stopsDoc, stop, alight) {
+  const list = (stopsDoc?.data ?? []).map(s => ({ id: s.id, name: s.attributes?.name ?? s.id, lat: s.attributes?.latitude, lon: s.attributes?.longitude, kids: (s.relationships?.child_stops?.data ?? []).map(c => c.id) }));
+  const at = (x, from) => list.findIndex((s, i) => i >= from && (s.id === x || s.kids.includes(x)));
+  const a = at(stop, 0), b = a < 0 ? -1 : at(alight, a + 1);
+  return b < 0 ? null : list.slice(a, b + 1).map(({ kids, ...s }) => s);
+}
+// The phone's location in the map's coordinates (it stays on the phone).
+export const mapPoint = (model, p) => (model?.origin && p ? projector(model.origin.lat, model.origin.lon).toXY(p) : null);
+
 // ---------- MBTA proxy (server/, `/api/mbta/*`) ----------
 
 // How long the server's copies are fresh, and how old a copy it may still serve when the MBTA
@@ -3738,7 +3959,7 @@ export const CACHE_CLASSES = {
 };
 
 // The paths and parameters the app and setup send (an allowlist), with each path's cache class.
-const FIELD_TYPES = ['prediction', 'schedule', 'trip', 'stop', 'vehicle', 'alert', 'route', 'route_pattern'];
+const FIELD_TYPES = ['prediction', 'schedule', 'trip', 'stop', 'vehicle', 'alert', 'route', 'route_pattern', 'shape'];
 const proxyPath = (cache, filters) => ({ cache, params: new Set([...filters.map(f => `filter[${f}]`), 'include', ...FIELD_TYPES.map(t => `fields[${t}]`)]) });
 export const MBTA_PROXY_PATHS = {
   '/predictions': proxyPath('predictions', ['route', 'direction_id', 'stop', 'trip']),
@@ -3746,7 +3967,7 @@ export const MBTA_PROXY_PATHS = {
   '/alerts': proxyPath('alerts', ['route', 'datetime']),
   '/routes': proxyPath('static', ['type', 'stop']),
   '/stops': proxyPath('static', ['route', 'direction_id', 'latitude', 'longitude', 'radius', 'route_type']),
-  '/route_patterns': proxyPath('static', ['route', 'canonical']),
+  '/route_patterns': proxyPath('static', ['route', 'canonical', 'direction_id']),
   '/vehicles': proxyPath('vehicles', ['route', 'direction_id', 'trip']),
 };
 const MAX_PARAM_LENGTH = 2000;
