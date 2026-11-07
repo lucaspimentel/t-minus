@@ -111,7 +111,7 @@ export function apnsActivityPush({ event, state, nowMs, urgent = false, dismissA
 const STATIC = {
   '/': 'index.html', '/index.html': 'index.html', '/core.js': 'core.js', '/setup.js': 'setup.js', '/sw.js': 'sw.js',
   '/manifest.json': 'manifest.json', '/icons/icon.svg': 'icons/icon.svg', '/icons/icon-192.png': 'icons/icon-192.png',
-  '/icons/icon-512.png': 'icons/icon-512.png',
+  '/icons/icon-512.png': 'icons/icon-512.png', '/basemap.json': 'basemap.json',
 };
 const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
 

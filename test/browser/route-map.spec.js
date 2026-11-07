@@ -4,6 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { openApp, tick, tickTo, commute, planOptions, expandOption } from './helpers.js';
+import { encodePolyline } from '../../core.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -204,4 +205,104 @@ test('setup: a planner option\'s map (both end walks, taps keep the card open); 
   await expect(legs(setup.locator('.route-map'))).toHaveCount(1);
   // Nothing about the place's position is saved with the trip.
   expect(JSON.stringify(await page.evaluate(() => localStorage.getItem('t-minus:config')))).not.toContain('42.4665');
+});
+
+// ---------- the base map (basemap.json) ----------
+// A small base map around the commute (Melrose to State): land, a lake, a river, borders, one
+// faint line of each kind, and names: towns (Boston only zoomed out), neighborhoods (North End
+// overlapping Downtown at the fit), and Arlington just west of the fit.
+const enc = pts => encodePolyline(pts.map(([lat, lon]) => ({ lat, lon })));
+const BASE = {
+  v: 1, credit: 'Base map: test credit', box: [-71.4, 42.2, -70.8, 42.7], detail: [-71.3, 42.25, -70.9, 42.65],
+  coarse: [], land: [enc([[42.25, -71.3], [42.65, -71.3], [42.65, -70.95], [42.25, -70.95]])],
+  lakes: [enc([[42.41, -71.10], [42.415, -71.10], [42.415, -71.09], [42.41, -71.09]])],
+  rivers: [enc([[42.40, -71.12], [42.40, -71.07]])], towns: [enc([[42.44, -71.12], [42.44, -71.02]])], hoods: [enc([[42.36, -71.08], [42.36, -71.04]])],
+  lines: [{ k: 'rt', c: 'DA291C', p: [enc([[42.36, -71.10], [42.37, -71.06]])] }, { k: 'cr', c: '80276C', p: [enc([[42.38, -71.10], [42.45, -71.07]])] }, { k: 'sl', c: '7C878E', p: [enc([[42.35, -71.06], [42.34, -71.04]])] }],
+  names: [
+    { n: 'Malden', k: 't', lat: 42.43, lon: -71.066, a: 13 }, { n: 'Boston', k: 't', lat: 42.335, lon: -71.06, a: 125, sub: 1 },
+    { n: 'Arlington', k: 't', lat: 42.415, lon: -71.14, a: 14 },
+    { n: 'Charlestown', k: 'h', lat: 42.378, lon: -71.06, a: 3.6 }, { n: 'Downtown', k: 'h', lat: 42.3535, lon: -71.06, a: 2.9 },
+    { n: 'North End', k: 'h', lat: 42.3545, lon: -71.059, a: 0.5 },
+  ],
+};
+async function serveBase(page, { fail = false } = {}) {
+  const served = { hits: 0, fail };
+  await page.route('**/basemap.json', route => { served.hits++; return served.fail ? route.abort() : route.fulfill({ json: BASE }); });
+  return served;
+}
+const shownNames = page => svg(page).locator('.map-name').evaluateAll(ts => ts.filter(t => t.closest('g').getAttribute('display') !== 'none').map(t => t.textContent).sort());
+const viewWidth = async page => Number((await svg(page).getAttribute('viewBox')).split(' ')[2]);
+
+test('the base map beneath the trip, fetched once; names: towns, then neighborhoods, larger first, fully inside', async ({ page }) => {
+  const served = await serveBase(page);
+  await openApp(page, { time: '07:00', init: DENIED });
+  await openMap(page);
+  const base = svg(page).locator('> g.map-base');
+  await expect(base).toHaveAttribute('aria-hidden', 'true');
+  expect(await svg(page).evaluate(s => s.firstElementChild.classList.contains('map-base'))).toBe(true); // beneath the trip
+  for (const cls of ['map-water', 'map-land', 'map-lake', 'map-river', 'map-town-line', 'map-hood-line']) await expect(base.locator(`.${cls}`)).toHaveCount(1);
+  expect(await base.locator('.map-faint').evaluateAll(ps => ps.map(p => p.classList[1]))).toEqual(['cr', 'sl', 'rt']);
+  await expect(legs(svg(page))).toHaveCount(2);
+  expect(await viewWidth(page)).toBeLessThan(10_000);
+  expect(await shownNames(page)).toEqual(['Charlestown', 'Downtown', 'Malden']); // not North End (overlaps), Boston (zoomed in), Arlington (cut off)
+  await expect(page.locator('#map-credit')).toHaveText('Base map: test credit');
+  // Fetched once: reopening and setup's maps reuse it.
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await expect(page.locator('#map-credit')).toBeHidden();
+  await openMap(page);
+  await expect(svg(page).locator('.map-base')).toHaveCount(1);
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await page.locator('#open-setup').click();
+  await page.locator('#setup').getByRole('button', { name: /Home to office/ }).first().click();
+  await expect(page.locator('#setup .route-map .map-base')).toHaveCount(1);
+  expect(served.hits).toBe(1);
+});
+
+test('base map names follow the view: zoomed out, Boston instead of neighborhoods; zoomed in, both neighborhoods; panned, the town at the edge', async ({ page }) => {
+  await serveBase(page);
+  await openApp(page, { time: '07:00', init: DENIED });
+  await openMap(page);
+  const box = await svg(page).boundingBox();
+  // Out (the wheel, about the map's middle) past 10 km across.
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < 4 && await viewWidth(page) < 10_000; i++) await page.mouse.wheel(0, 100);
+  expect(await viewWidth(page)).toBeGreaterThan(10_000);
+  const out = await shownNames(page);
+  expect(out).toEqual(expect.arrayContaining(['Boston', 'Malden']));
+  expect(out.filter(n => ['Charlestown', 'Downtown', 'North End'].includes(n))).toEqual([]);
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  // A fresh fit, zoomed in over Downtown: North End separates from it.
+  await openMap(page);
+  const at = await svg(page).evaluate(s => {
+    const g = [...s.querySelectorAll('.map-name')].find(x => x.textContent === 'Downtown').closest('g');
+    const [vx, vy, vw, vh] = s.getAttribute('viewBox').split(' ').map(Number), r = s.getBoundingClientRect();
+    return { x: r.x + ((g.dataset.x - vx) / vw) * r.width, y: r.y + ((g.dataset.y - vy) / vh) * r.height };
+  });
+  await page.mouse.move(at.x, at.y);
+  for (let i = 0; i < 8; i++) await page.mouse.wheel(0, -100);
+  expect(await shownNames(page)).toEqual(expect.arrayContaining(['Downtown', 'North End']));
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  // Another, dragged east: Arlington comes into view.
+  await openMap(page);
+  expect(await shownNames(page)).not.toContain('Arlington');
+  await page.mouse.move(box.x + 100, box.y + 300);
+  await page.mouse.down();
+  for (let i = 1; i <= 14; i++) await page.mouse.move(box.x + 100 + i * 10, box.y + 300);
+  await page.mouse.up();
+  expect(await shownNames(page)).toContain('Arlington');
+});
+
+test('without the base map the map draws as today; the next opening tries again', async ({ page }) => {
+  const served = await serveBase(page, { fail: true });
+  await openApp(page, { time: '07:00', init: DENIED });
+  await openMap(page);
+  await expect(legs(svg(page))).toHaveCount(2);
+  await expect(svg(page).locator('.map-base')).toHaveCount(0);
+  await expect(page.locator('#map-credit')).toBeHidden();
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  served.fail = false;
+  await openMap(page);
+  await expect(svg(page).locator('.map-base')).toHaveCount(1);
+  await expect(page.locator('#map-credit')).toBeVisible();
+  expect(served.hits).toBe(2);
 });

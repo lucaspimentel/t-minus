@@ -200,6 +200,8 @@ for (const scheme of ['light', 'dark']) {
     await page.getByRole('button', { name: 'Route map' }).click();
     await tick(page, 300);
     await expect(page.locator('.map-vehicle')).toHaveCount(1);
+    await expect(page.locator('.map-base')).toHaveCount(1); // the real basemap.json
+    await expect(page.locator('#map-credit')).toBeVisible();
     expect(await violations(page)).toEqual([]);
     await page.getByRole('button', { name: 'Oak Grove', exact: true }).focus();
     await tick(page, 10_000); // a vehicle poll redraws the map
@@ -212,6 +214,7 @@ for (const scheme of ['light', 'dark']) {
     await page.locator('#open-setup').click();
     await page.locator('#setup').getByRole('button', { name: /Home to office/ }).first().click();
     await expect(page.locator('#setup .route-map svg[role="img"]')).toBeVisible();
+    await expect(page.locator('#setup .route-map .map-base')).toHaveCount(1);
     expect(await violations(page)).toEqual([]);
   });
 }

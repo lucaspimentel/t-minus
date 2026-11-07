@@ -32,7 +32,7 @@ leave-times widget posts the app's trips to `POST /api/widget` and gets the show
    `/bin/sh -c "export DD_VERSION=$RAILWAY_GIT_COMMIT_SHA; exec node --import ./server/node_modules/dd-trace/initialize.mjs server/main.mjs"`
    (`node server/main.mjs` runs without Datadog tracing), health check
    `/health`, watch paths `server/**`, `core.js`, `index.html`, `setup.js`, `sw.js`,
-   `manifest.json` and `icons/**` (the server and the app's files). To redeploy without a code
+   `manifest.json`, `basemap.json` and `icons/**` (the server and the app's files). To redeploy without a code
    change, edit `server/deploy-trigger` and push.
 2. **Volume:** right-click the service → Attach volume, mounted at `/data`. Reminders are kept
    there in `reminders.db` (SQLite), with the proxy's static MBTA copies. An old `reminders.json`

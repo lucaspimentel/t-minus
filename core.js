@@ -3946,6 +3946,75 @@ export function stopListStretch(stopsDoc, stop, alight) {
 // The phone's location in the map's coordinates (it stays on the phone).
 export const mapPoint = (model, p) => (model?.origin && p ? projector(model.origin.lat, model.origin.lon).toXY(p) : null);
 
+// [{ lat, lon }] → a Google encoded polyline (precision 5): decodePolyline's inverse.
+export function encodePolyline(points) {
+  let out = '', plat = 0, plon = 0;
+  const one = v => {
+    let x = v < 0 ? ~(v << 1) : v << 1, s = '';
+    while (x >= 0x20) { s += String.fromCharCode((0x20 | (x & 0x1f)) + 63); x >>= 5; }
+    return s + String.fromCharCode(x + 63);
+  };
+  for (const p of points) {
+    const lat = Math.round(p.lat * 1e5), lon = Math.round(p.lon * 1e5);
+    out += one(lat - plat) + one(lon - plon);
+    plat = lat; plon = lon;
+  }
+  return out;
+}
+
+// The base map (basemap.json, scripts/build-basemap.mjs) in a map's coordinates (meters from
+// `origin`, as routeMapModel's): SVG path strings per layer, the water rect, the faint lines in
+// draw order (commuter rail, Silver Line, rapid transit) and the names. Null for an unknown file.
+const BASE_LINE_ORDER = ['cr', 'sl', 'rt'];
+export function basemapLayers(base, origin) {
+  if (base?.v !== 1 || !origin) return null;
+  const proj = projector(origin.lat, origin.lon);
+  const pt = p => { const q = proj.toXY(p); return `${Math.round(q.x)} ${Math.round(q.y)}`; };
+  const path = (list, close) => (Array.isArray(list) ? list : []).filter(x => typeof x === 'string' && x).map(enc => {
+    const pts = decodePolyline(enc);
+    return pts.length < 2 ? '' : `M${pts.map(pt).join('L')}${close ? 'Z' : ''}`;
+  }).join('');
+  const [w, s, e, n] = Array.isArray(base.box) && base.box.length === 4 ? base.box : [0, 0, 0, 0];
+  const a = proj.toXY({ lat: n, lon: w }), b = proj.toXY({ lat: s, lon: e });
+  const lines = (Array.isArray(base.lines) ? base.lines : []).filter(l => BASE_LINE_ORDER.includes(l?.k))
+    .map(l => ({ kind: l.k, color: /^[0-9A-Fa-f]{6}$/.test(l.c ?? '') ? l.c : null, d: path(l.p, false) }))
+    .sort((x, y) => BASE_LINE_ORDER.indexOf(x.kind) - BASE_LINE_ORDER.indexOf(y.kind));
+  const names = (Array.isArray(base.names) ? base.names : []).filter(x => typeof x?.n === 'string' && Number.isFinite(x.lat) && Number.isFinite(x.lon))
+    .map(x => { const q = proj.toXY(x); return { name: x.n, kind: x.k === 'h' ? 'hood' : 'town', x: q.x, y: q.y, area: Number(x.a) || 0, sub: !!x.sub }; });
+  return {
+    water: { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y },
+    coarse: path(base.coarse, true), land: path(base.land, true), lakes: path(base.lakes, true), rivers: path(base.rivers, false),
+    towns: path(base.towns, false), hoods: path(base.hoods, false), lines, names,
+  };
+}
+
+// A base map name's box in px, centered on its point (estimated from its length).
+export const nameBox = (name, kind) => (kind === 'hood' ? { w: name.length * 5.6, h: 10 } : { w: name.length * 7.9, h: 11 });
+// The base map names to draw in `view` (meters) on a `width` × `height` px map: Boston's
+// neighborhoods only under `hoodSpan` meters across (a `sub` town, Boston, only above it); each
+// name fully inside the map; towns, then neighborhoods, larger first, and a name overlapping one
+// already placed is left out (zooming in separates them). → Set of indices into `names`.
+export function basemapNames(names, view, { width, height }, { hoodSpan = 10_000, margin = 2 } = {}) {
+  const shown = new Set();
+  if (!view || !(width > 0) || !(height > 0)) return shown;
+  const ppm = width / view.w;
+  const hoods = view.w < hoodSpan;
+  const placed = [];
+  const order = names.map((n, i) => i).filter(i => (names[i].kind === 'hood' ? hoods : !(names[i].sub && hoods)))
+    .sort((i, j) => (names[i].kind === names[j].kind ? names[j].area - names[i].area : names[i].kind === 'hood' ? 1 : -1));
+  for (const i of order) {
+    const n = names[i];
+    const { w, h } = nameBox(n.name, n.kind);
+    const cx = (n.x - view.x) * ppm, cy = (n.y - view.y) * ppm;
+    const box = { x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2 };
+    if (box.x0 < margin || box.y0 < margin || box.x1 > width - margin || box.y1 > height - margin) continue;
+    if (placed.some(b => b.x0 < box.x1 + 2 && box.x0 - 2 < b.x1 && b.y0 < box.y1 + 2 && box.y0 - 2 < b.y1)) continue;
+    placed.push(box);
+    shown.add(i);
+  }
+  return shown;
+}
+
 // ---------- MBTA proxy (server/, `/api/mbta/*`) ----------
 
 // How long the server's copies are fresh, and how old a copy it may still serve when the MBTA

@@ -20,6 +20,7 @@
     --accent-text: #a85a00; /* the accent as text on white (4.5:1); fills keep --accent */
     --alert-bg: #fff4e0; --alert-border: #f0c070;
     --press: rgba(0, 0, 0, .07); /* pressed overlay */
+    --map-water: #dbe7f0; --map-land: var(--card); --map-line: var(--border); /* the route map's base map */
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -27,6 +28,7 @@
       --green: #4cc47f; --amber: #f0a830; --red: #ff6b6b; --accent: #ed8b00; --accent-text: #ed8b00;
       --alert-bg: #2e2515; --alert-border: #6b5220;
       --press: rgba(255, 255, 255, .09);
+      --map-water: #0c1520; --map-land: #22262c; --map-line: #3a4048;
     }
   }
   * { box-sizing: border-box; }
@@ -440,7 +442,7 @@
   .route-svg[role="img"] { touch-action: auto; }
   .map-caption { margin: 6px 0 0; min-height: 20px; font-size: 14px; color: var(--muted); }
   .map-leg { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-  .map-leg.faded { opacity: .35; }
+  .map-leg.faded { stroke-opacity: .35; }
   .map-walk { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; vector-effect: non-scaling-stroke; }
   .map-stop circle { fill: var(--card); stroke-width: 1.5; }
   .map-stop.major circle { stroke-width: 3; }
@@ -451,6 +453,23 @@
   .map-vehicle text { font-size: 10px; font-weight: 700; }
   .map-vehicle rect { stroke: var(--card); stroke-width: 1.5; }
   .map-vehicle.mine rect { stroke: var(--text); stroke-width: 2.5; }
+  /* The base map: beneath the trip, sizes in px at any zoom, not interactive. */
+  .map-base { pointer-events: none; }
+  .map-water { fill: var(--map-water); }
+  .map-land { fill: var(--map-land); fill-rule: evenodd; }
+  .map-lake { fill: var(--map-water); fill-rule: evenodd; }
+  .map-river, .map-town-line, .map-hood-line, .map-faint { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+  .map-river { stroke: var(--map-water); stroke-width: 1.5; }
+  .map-town-line { stroke: var(--map-line); stroke-width: 1; stroke-dasharray: 4 3; }
+  .map-hood-line { stroke: var(--map-line); stroke-width: 1; stroke-dasharray: 1.5 2.5; }
+  /* stroke-opacity, not opacity: a translucent element is composited as a layer, which left
+     seams between Chromium's raster tiles over the land (2026-11-07). */
+  .map-faint { stroke-width: 2.5; stroke-opacity: .3; }
+  .map-faint.cr { stroke-width: 1.5; stroke-opacity: .35; }
+  .map-name { fill: var(--muted); fill-opacity: .8; text-anchor: middle; }
+  .map-name.town { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+  .map-name.hood { font-size: 10px; font-style: italic; }
+  .map-credit { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
   .map-here .halo { fill: #1a73e8; opacity: .2; }
   .map-here .dot { fill: #1a73e8; stroke: #fff; stroke-width: 2; }
 </style>
@@ -478,13 +497,14 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-07 · 7cbe7feab2</footer>
+    <footer class="version">Version 2026-11-07 · ddd4669029</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
     <div class="map-head"><h2 id="map-title"></h2><button type="button" class="link-btn" id="map-done">Done</button></div>
     <div id="map-body" class="map-body"></div>
     <p id="map-caption" class="map-caption" aria-live="polite"></p>
+    <p id="map-credit" class="map-credit" hidden></p>
   </div>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
@@ -507,9 +527,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS,
-} from './core.js?v=03429d586a';
-import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=096f7d7dd3';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames,
+} from './core.js?v=3134c5b67b';
+import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=e9d951405e';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1468,7 +1488,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=03429d586a'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=3134c5b67b'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2618,6 +2638,53 @@ function textOn(hex) {
 }
 const mapColor = c => (c ? `#${c}` : 'var(--muted)');
 
+// The base map (basemap.json, scripts/build-basemap.mjs): land, water, borders, names and faint
+// lines behind every map. Fetched the first time a map opens (a plain same-origin GET, nothing
+// about the rider); a failure leaves the maps without it until the next opening. Its paths are
+// projected once per map origin (basemapLayers), not on every redraw.
+let basemap = null;
+let basemapLoad = null;
+const basemapWidgets = new Set(); // maps to redraw when it arrives
+const basemapCache = new Map(); // origin → basemapLayers (the last 8)
+function loadBasemap() {
+  if (basemap || basemapLoad) return;
+  basemapLoad = fetch('basemap.json').then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))).then(doc => {
+    if (doc?.v !== 1) return;
+    basemap = doc;
+    for (const w of basemapWidgets) { if (w.svg.isConnected) (w.onBasemap ?? w.redraw)?.(); else basemapWidgets.delete(w); }
+  }).catch(() => {}).finally(() => { basemapLoad = null; });
+}
+function basemapFor(origin) {
+  const k = `${origin.lat},${origin.lon}`;
+  if (!basemapCache.has(k)) {
+    basemapCache.set(k, basemapLayers(basemap, origin));
+    if (basemapCache.size > 8) basemapCache.delete(basemapCache.keys().next().value);
+  }
+  return basemapCache.get(k);
+}
+// The base map's SVG group for a map (each map owns its own: a node is in one SVG only), with
+// its names as marks (sized in px, shown by basemapNames).
+function basemapGroup(layers) {
+  const g = svgEl('g', { class: 'map-base', 'aria-hidden': 'true' });
+  const path = (d, cls, attrs = {}) => d && g.append(svgEl('path', { d, class: cls, ...attrs }));
+  g.append(svgEl('rect', { class: 'map-water', x: layers.water.x, y: layers.water.y, width: layers.water.w, height: layers.water.h }));
+  path(layers.coarse, 'map-land');
+  path(layers.land, 'map-land');
+  path(layers.lakes, 'map-lake');
+  path(layers.rivers, 'map-river');
+  path(layers.towns, 'map-town-line');
+  path(layers.hoods, 'map-hood-line');
+  for (const l of layers.lines) path(l.d, `map-faint ${l.kind}`, { stroke: mapColor(l.color) });
+  const marks = layers.names.map(n => {
+    const m = svgEl('g');
+    m.dataset.x = n.x; m.dataset.y = n.y;
+    m.append(svgEl('text', { class: `map-name ${n.kind}`, y: 4 }, n.name));
+    g.append(m);
+    return m;
+  });
+  return { g, names: layers.names, marks };
+}
+
 // A map widget: `el` (a div with the SVG and, when interactive, a caption) and draw(input, here)
 // (input: routeMapModel's, without `aspect`; here: the phone's { lat, lon } or null). Interactive:
 // pinch / drag / wheel to zoom and pan, stops as buttons whose names show in the caption.
@@ -2629,7 +2696,9 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   el.append(svg);
   const cap = caption ?? (interactive ? Object.assign(document.createElement('p'), { className: 'map-caption' }) : null);
   if (cap && !caption) { cap.setAttribute('aria-live', 'polite'); el.append(cap); }
-  const w = { el, svg, model: null, view: null, fit: null, touched: false, selected: null, marks: [], note: '' };
+  const w = { el, svg, model: null, view: null, fit: null, touched: false, selected: null, marks: [], note: '', base: null };
+  basemapWidgets.add(w);
+  loadBasemap();
   const size = () => ({ width: svg.clientWidth || 340, height: svg.clientHeight || 200 });
   const mpp = () => (w.view ? w.view.w / size().width : 1); // meters per pixel
   function apply() {
@@ -2637,6 +2706,13 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     svg.setAttribute('viewBox', `${w.view.x} ${w.view.y} ${w.view.w} ${w.view.h}`);
     const s = mpp();
     for (const m of w.marks) m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`);
+    if (w.base) {
+      const shown = basemapNames(w.base.names, w.view, size());
+      w.base.marks.forEach((m, i) => {
+        if (shown.has(i)) { m.removeAttribute('display'); m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`); }
+        else m.setAttribute('display', 'none');
+      });
+    }
   }
   function showCaption() {
     if (!cap) return;
@@ -2684,7 +2760,13 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     }
     const p = mapPoint(model, here);
     if (p) { const g = mark(p.x, p.y, 'map-here'); g.append(svgEl('circle', { r: 14, class: 'halo' }), svgEl('circle', { r: 6, class: 'dot' })); parts.push(g); }
-    svg.replaceChildren(...parts);
+    // The base map beneath, built once per origin (a vehicle or location redraw reuses it).
+    const baseKey = model.origin && basemap ? `${model.origin.lat},${model.origin.lon}` : null;
+    if (w.base?.key !== baseKey) {
+      const layers = baseKey && basemapFor(model.origin);
+      w.base = layers ? { key: baseKey, ...basemapGroup(layers) } : null;
+    }
+    svg.replaceChildren(...(w.base ? [w.base.g] : []), ...parts);
     apply();
     showCaption();
     if (focused) svg.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
@@ -2776,6 +2858,8 @@ function drawMapSheet() {
     legs: m.legs, shapes: loadedShapes(m.legs), fallback: m.legs.map((l, i) => mapFallback(l, points[i])),
     start: s?.ride ? null : m.here, finished: phase?.leg ?? 0, vehicles: m.vehicles, mine, nowMs: now,
   }, m.here, m.locationOff ? 'Location off' : '');
+  $('map-credit').textContent = m.widget.base ? basemap.credit ?? '' : '';
+  $('map-credit').hidden = !m.widget.base;
 }
 async function pollMapVehicles() {
   const m = mapSheet;
@@ -2798,6 +2882,7 @@ function openMapSheet() {
   $('map-done').focus();
   drawMapSheet();
   const m = mapSheet;
+  widget.onBasemap = () => { if (mapSheet === m) drawMapSheet(); }; // also shows the credit
   Promise.all(legs.map(legShapes)).then(() => { if (mapSheet === m) drawMapSheet(); });
   if (navigator.geolocation) {
     m.watchId = navigator.geolocation.watchPosition(p => {
@@ -2824,6 +2909,7 @@ function closeMapSheet() {
   $('map-sheet').hidden = true;
   $('map-body').replaceChildren();
   $('map-caption').textContent = '';
+  $('map-credit').hidden = true;
   $('app').hidden = false;
   render();
   $('map-btn').focus();

@@ -546,9 +546,47 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   the loaded times, with no message.
 - **Privacy:** positions never leave the phone; shape and vehicle requests carry the route and
   direction only.
-- **Code:** geometry in `core.js` ("route map": `decodePolyline`, `pickPattern`, `trimPath`,
-  `vehiclesOnStretch`, `fitView` / `zoomView` / `panView`, `routeMapModel`); the SVG, gestures
-  and the sheet in `index.html` (`mapWidget`, `openMapSheet`, `routeMapEl` for setup).
+- **Code:** geometry in `core.js` ("route map": `decodePolyline` / `encodePolyline`,
+  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `fitView` / `zoomView` / `panView`,
+  `routeMapModel`, `basemapLayers`, `basemapNames`); the SVG, gestures and the sheet in
+  `index.html` (`mapWidget`, `openMapSheet`, `routeMapEl` for setup, `loadBasemap`); the base
+  map's build in `scripts/build-basemap.mjs` with its geometry in `scripts/basemap-geo.mjs`.
+
+**Base map** (2026-11-07, mockups accepted 2026-11-07): a minimal Boston map behind all three
+maps (the sheet, the planner's options, the trip editor).
+
+- **Layers, bottom to top:** water; land (the towns clipped to the shoreline, merged into one
+  outline), with lakes and wide rivers cut out in the water color and narrow rivers as thin
+  water lines; town borders, dashed (only edges two towns share, never the coastline); Boston
+  neighborhood borders, dotted; faint lines in their route colors: commuter rail (1.5 px, 35%),
+  then the Silver Line, then rapid transit (2.5 px, 30%); town names (small caps) and Boston
+  neighborhood names (italic), muted; then the trip as before. Colors: `--map-water`,
+  `--map-land`, `--map-line` in both themes. Faint lines use `stroke-opacity`, not `opacity`:
+  a translucent element is composited as a layer, which left seams between Chromium's raster
+  tiles over the land (faded legs too).
+- **Names:** towns at any zoom; Boston's neighborhoods only while the view is under 10 km
+  across, and the name "Boston" only above that; a name is drawn only when it fits inside the
+  map; overlapping names keep the town, then the larger area, and the other shows once zooming in
+  separates them; rechecked on every pan and zoom. Names sit under the trip (not moved aside).
+  Boston's neighborhoods only (Cambridge's official ones are planning names).
+- **Coverage:** detailed (land, water, borders, names) over the bus stops' box padded by 1 km
+  (Bedford to Hull, Brockton to Beverly); coarse land and lakes over 1 km² for the commuter rail
+  stops' box padded by 0.3° (Rhode Island and New Hampshire too). Outside it, the card color.
+- **Sources (public domain):** MassGIS towns (`Basemaps/Mass_Towns_Yellow_Lines_and_Labels`)
+  and water (`AGOL/Hydro_Major`), the City of Boston's BPDA neighborhoods (data.boston.gov),
+  US Census TIGERweb states (coarse land), the MBTA V3 API (extents, line shapes). MassGIS asks
+  for the credit "MassGIS (Bureau of Geographic Information), Commonwealth of Massachusetts
+  EOTSS": the file carries one credit line, shown under the sheet's map once the base map is
+  drawn (and in README).
+- **File:** `basemap.json` at the repo root, built by `NODE_USE_ENV_PROXY=1 node
+  scripts/build-basemap.mjs` (~40 s keyless, about 7 paced MBTA requests) and committed; rebuild
+  when the sources change. Rings and lines are Google polylines (precision 5), simplified to
+  25 m (detailed) and 100 m (coarse): 64 KB, 42 KB gzipped (2026-11-07).
+- **Loading:** fetched the first time a map opens (a plain same-origin GET: nothing about the
+  rider), kept in memory; the maps draw as before until it arrives, then redraw. A failure is
+  retried at the next map opening. The server serves it `no-cache` with an ETag; the service
+  worker keeps it like any same-origin file (not in `SHELL`, not stamped: a rebuild alone doesn't
+  change the footer version). Its paths are projected once per map origin, not on each redraw.
 
 ## Configuration schema
 
@@ -883,6 +921,8 @@ still holds, to stay well inside it either way:
   12 for a 2-leg trip), through the proxy (its 5 s `vehicles` cache). Keyless and direct, a
   3-leg trip's polls come near 20 a minute with the sheet open; the sheet is short-lived, and
   a 429 only skips a round. Nothing once closed.
+- Route map's base map: one same-origin `basemap.json` per page load when a map first opens
+  (revalidated, 304 when unchanged); no MBTA requests.
 - Expanding a row: one `/schedules?filter[trip]=…` per transit leg for its stop counts, once per
   trip and service date (memory); collapsed rows cost nothing.
 - Schedule window: from 30 min ago (for missed rows, with the 15-min refresh) to
@@ -1157,7 +1197,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 - **Deployment:** Railway service sourced from `lucaspimentel/t-minus` @ `main`. Deploy
   settings (build `npm ci --prefix server`, start `node server/main.mjs`, health check
   `/health`, watch paths `server/**`, `core.js`, `index.html`, `setup.js`, `sw.js`,
-  `manifest.json` and `icons/**`) live in the service's Railway settings, not
+  `manifest.json`, `basemap.json` and `icons/**`) live in the service's Railway settings, not
   the repo. Setup steps are in `server/README.md`. `web-push` is the only dependency, in
   `server/package.json`; the app has none.
 
@@ -1166,7 +1206,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 - **One origin:** the Railway service serves the app at `https://t-minus.lucasp.net/` (a custom
   domain) and its API under `/api/`, so the app's requests to its server are same-origin.
 - **The app's files:** an allowlist from the repo root (`/` → `index.html`, `core.js`,
-  `setup.js`, `sw.js`, `manifest.json`, the three icons); anything else is a 404. Read once
+  `setup.js`, `sw.js`, `manifest.json`, the three icons, `basemap.json`); anything else is a 404. Read once
   per process and kept in memory, with a content-hash `ETag` (304 on `If-None-Match`).
 - **`Cache-Control`:** `no-cache` for the page, `sw.js` and `manifest.json` (revalidated each
   time); `public, max-age=31536000, immutable` for `?v=<hash>` modules; a day for icons. The
@@ -1333,7 +1373,8 @@ the setup data is small on the wire. In order, if more people use the app keyles
 - `sw.js`: network-first for same-origin files, revalidating with the server
   (`cache: 'no-cache'`) rather than trusting the browser's HTTP cache; precaches the
   app shell. `api-v3.mbta.com` and the server's `/api/` (reminders, the MBTA proxy) are never
-  cached. The cache is the fallback when the server
+  cached. `basemap.json` (the route map's base map) is cached the same way, on its first fetch,
+  not precached. The cache is the fallback when the server
   answers 5xx (4xx is shown as is), takes over 3 s (the request keeps running and still
   updates the cache), or is unreachable. The 5xx and timeout fallbacks match exactly (with the
   `?v=` query) so a new page never gets an old module; offline ignores the query. Versioned
@@ -1406,7 +1447,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   Xcode distribution logs are an artifact.
 - **Distribution:** TestFlight, internal testing (the author). A build expires 90 days after
   upload (build 2: 2026-10-19), so run the workflow before then if nothing native changed.
-- **Deploys:** Railway's watch paths are an allowlist (`server/**`, the shell files, `icons/**`),
+- **Deploys:** Railway's watch paths are an allowlist (`server/**`, the shell files, `basemap.json`, `icons/**`),
   so `ios/` and `capacitor.config.json` never trigger a deploy.
 
 ### Live Activity for tracked rides (Phase 2, 2026-10-20)

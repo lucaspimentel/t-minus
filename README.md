@@ -62,4 +62,6 @@ CI runs both on every push.
 ## License
 
 MIT, see `LICENSE`. Not affiliated with the MBTA. Transit data from the
-[MBTA V3 API](https://www.mbta.com/developers/v3-api).
+[MBTA V3 API](https://www.mbta.com/developers/v3-api). Route map base map: MassGIS (Bureau of Geographic
+Information), Commonwealth of Massachusetts EOTSS; City of Boston (BPDA neighborhoods); US Census
+Bureau (TIGERweb).

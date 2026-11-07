@@ -561,6 +561,13 @@ test('the app\'s files: an allowlist from the repo root, with cache headers and 
     assert.match(mod.headers.get('content-type'), /text\/javascript/);
     assert.equal((await s.call('GET', '/sw.js', undefined, null)).headers.get('cache-control'), 'no-cache');
     assert.equal((await s.call('GET', '/icons/icon-192.png', undefined, null)).headers.get('cache-control'), 'public, max-age=86400');
+    // The route map's base map (built by scripts/build-basemap.mjs): revalidated, 304 when unchanged.
+    const base = await s.call('GET', '/basemap.json', undefined, null);
+    assert.equal(base.status, 200);
+    assert.equal(base.headers.get('content-type'), 'application/json');
+    assert.equal(base.headers.get('cache-control'), 'no-cache');
+    assert.equal((await base.json()).v, 1);
+    assert.equal((await s.call('GET', '/basemap.json', undefined, null, { 'if-none-match': base.headers.get('etag') })).status, 304);
     for (const p of ['/package.json', '/server/app.mjs', '/.git/config', '/%2e%2e/package.json', '/test/server.test.js', '/DESIGN.md']) {
       assert.equal((await s.call('GET', p, undefined, null)).status, 404, p);
     }

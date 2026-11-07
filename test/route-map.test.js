@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, vehiclesOnStretch,
-  fitView, viewLimits, zoomView, panView, routeMapModel, mapPoint, stopListStretch, proxyRequestError, distanceMeters,
+  fitView, viewLimits, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, proxyRequestError, distanceMeters,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -212,4 +212,57 @@ test('routeMapModel: vehicles on a trimmed shape are measured along the leg, not
   // The leg runs from s2 to s4 (the shape's end): 'after' is ~220 m past it.
   const m = routeMapModel({ legs: [{ stop: 's2', alight: 's4', label: 'Bus 132' }], shapes: [kept], vehicles: [[v('before', 0), v('in', 2), v('in2', 3), v('after', 4, 0.002)]], nowMs: now });
   assert.deepEqual(m.vehicles.map(x => x.id), ['in', 'in2']);
+});
+
+test('encodePolyline: decodePolyline\'s inverse', () => {
+  assert.equal(encodePolyline(decodePolyline('_p~iF~ps|U_ulLnnqC_mqNvxq`@')), '_p~iF~ps|U_ulLnnqC_mqNvxq`@');
+  assert.equal(encodePolyline(LINE), encode(LINE));
+  assert.equal(encodePolyline([]), '');
+});
+
+test('basemapLayers: paths in meters from the origin, the water rect, lines in draw order, names', () => {
+  const o = { lat: 42.4, lon: -71.07 };
+  const sq = encodePolyline([{ lat: 42.4, lon: -71.07 }, { lat: 42.41, lon: -71.07 }, { lat: 42.41, lon: -71.06 }]);
+  const base = {
+    v: 1, box: [-71.08, 42.39, -71.06, 42.42], land: [sq], coarse: [], lakes: [sq, 5], rivers: [sq], towns: [sq], hoods: [],
+    lines: [{ k: 'rt', c: 'DA291C', p: [sq] }, { k: 'cr', c: '80276C', p: [sq] }, { k: 'zz', p: [sq] }, { k: 'sl', c: 'bad', p: [sq] }],
+    names: [{ n: 'Malden', k: 't', lat: 42.4, lon: -71.07, a: 13 }, { n: 'Back Bay', k: 'h', lat: 42.41, lon: -71.07, a: 1.6 }, { n: 'Boston', k: 't', lat: 42.35, lon: -71.06, a: 125, sub: 1 }, { n: 5 }],
+  };
+  const m = basemapLayers(base, o);
+  assert.match(m.land, /^M0 0L0 -1112L\d+ -1112Z$/);
+  assert.equal(m.lakes, m.land); // a bad entry is skipped
+  assert.equal(m.rivers, m.land.slice(0, -1));
+  assert.equal(m.coarse, '');
+  assert.deepEqual(m.lines.map(l => [l.kind, l.color]), [['cr', '80276C'], ['sl', null], ['rt', 'DA291C']]);
+  assert.ok(Math.abs(m.water.x + 822) < 2 && Math.abs(m.water.y + 2224) < 2 && Math.abs(m.water.w - 1644) < 3 && Math.abs(m.water.h - 3336) < 3, JSON.stringify(m.water));
+  assert.deepEqual(m.names.map(n => [n.name, n.kind, n.sub]), [['Malden', 'town', false], ['Back Bay', 'hood', false], ['Boston', 'town', true]]);
+  assert.equal(basemapLayers({ ...base, v: 2 }, o), null);
+  assert.equal(basemapLayers(base, null), null);
+  assert.equal(basemapLayers(null, o), null);
+});
+
+test('basemapNames: neighborhoods only zoomed in, Boston only zoomed out, fully inside, larger first', () => {
+  const size = { width: 300, height: 600 };
+  const view = (w, cx = 0, cy = 0) => ({ x: cx - w / 2, y: cy - w, w, h: w * 2 });
+  const names = [
+    { name: 'Malden', kind: 'town', x: 0, y: -2000, area: 13 },
+    { name: 'Boston', kind: 'town', x: 0, y: 1000, area: 125, sub: true },
+    { name: 'Downtown', kind: 'hood', x: 0, y: 0, area: 2.9 },
+    { name: 'North End', kind: 'hood', x: 150, y: 20, area: 0.5 },
+    { name: 'Medford', kind: 'town', x: -4400, y: -1000, area: 22 },
+  ];
+  const at = (v, opts) => [...basemapNames(names, v, size, opts)].map(i => names[i].name).sort();
+  // 9 km across: neighborhoods; North End overlaps Downtown (smaller, hidden); Medford is cut off.
+  assert.deepEqual(at(view(9000)), ['Downtown', 'Malden']);
+  // 11 km: towns only, Boston too.
+  assert.deepEqual(at(view(11_000)), ['Boston', 'Malden', 'Medford']);
+  // Zoomed in, the two neighborhoods separate.
+  assert.deepEqual(at(view(500)), ['Downtown', 'North End']);
+  // Panned west, Medford fits.
+  assert.ok(at(view(9000, -3000)).includes('Medford'));
+  // A town beats an overlapping neighborhood.
+  const clash = [{ name: 'Chelsea', kind: 'town', x: 0, y: 0, area: 6 }, { name: 'East Boston', kind: 'hood', x: 10, y: 10, area: 12 }];
+  assert.deepEqual([...basemapNames(clash, view(5000), size)], [0]);
+  assert.deepEqual(nameBox('Malden', 'town'), { w: 6 * 7.9, h: 11 });
+  assert.equal(basemapNames(names, null, size).size, 0);
 });
