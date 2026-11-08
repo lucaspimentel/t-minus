@@ -86,6 +86,7 @@ async function lines(kind, routeIds, canonical) {
 const bus = await routeStops('3');
 const detail = pad(bbox(bus.stops), 1000 / 82_000, 1000 / 111_320);
 const cr = await routeStops('2');
+const reach = pad(bbox(cr.stops), 0, 0); // the sheet pans and zooms out over it (2026-11-08)
 const box = pad(bbox(cr.stops), 0.3, 0.3);
 console.log('detail', detail.join(','), 'box', box.join(','));
 
@@ -150,7 +151,7 @@ for (const f of bpda) {
 }
 
 // 7. The file.
-const doc = { v: 1, built: new Date().toISOString().slice(0, 10), credit: CREDIT, box, detail, coarse, land, lakes, rivers, towns: townLines, hoods, lines: faint, names };
+const doc = { v: 1, built: new Date().toISOString().slice(0, 10), credit: CREDIT, box, detail, reach, coarse, land, lakes, rivers, towns: townLines, hoods, lines: faint, names };
 const json = JSON.stringify(doc) + '\n';
 writeFileSync(OUT, json);
 const kb = x => (Buffer.byteLength(JSON.stringify(x)) / 1024).toFixed(1);

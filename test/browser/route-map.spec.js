@@ -237,9 +237,9 @@ const BASE = {
     { n: 'North End', k: 'h', lat: 42.3545, lon: -71.059, a: 0.5 },
   ],
 };
-async function serveBase(page, { fail = false } = {}) {
+async function serveBase(page, { fail = false, base = BASE } = {}) {
   const served = { hits: 0, fail };
-  await page.route('**/basemap.json', route => { served.hits++; return served.fail ? route.abort() : route.fulfill({ json: BASE }); });
+  await page.route('**/basemap.json', route => { served.hits++; return served.fail ? route.abort() : route.fulfill({ json: base }); });
   return served;
 }
 const shownNames = page => svg(page).locator('.map-name').evaluateAll(ts => ts.filter(t => t.closest('g').getAttribute('display') !== 'none').map(t => t.textContent).sort());
@@ -317,4 +317,64 @@ test('without the base map the map draws as today; the next opening tries again'
   await expect(svg(page).locator('.map-base')).toHaveCount(1);
   await expect(page.locator('#map-credit')).toBeVisible();
   expect(served.hits).toBe(2);
+});
+
+// Panning and zooming out (2026-11-08): anywhere commuter rail reaches (the base map's `reach`,
+// 5 km more), and ⤢ back to the trip.
+const REACH = { ...BASE, reach: [-71.35, 42.15, -70.85, 42.65] }; // ~41 × 56 km
+const view = async page => (await svg(page).getAttribute('viewBox')).split(' ').map(Number);
+async function zoomOut(page, n = 30) {
+  const box = await svg(page).boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < n; i++) await page.mouse.wheel(0, 300);
+}
+test('the sheet zooms out to all of commuter rail\'s reach and pans over it; without it, twice the trip', async ({ page }) => {
+  await serveBase(page, { base: REACH });
+  await openApp(page, { time: '07:00', init: DENIED });
+  await openMap(page);
+  const fit = await view(page);
+  await zoomOut(page);
+  const out = await view(page);
+  expect(out[2]).toBeGreaterThan(fit[2] * 2.5); // past today's 2× limit
+  expect(out[2]).toBeGreaterThan(45_000); // the reach's 41 km width with 5 km on each side…
+  expect(out[3]).toBeGreaterThan(60_000); // …and its 56 km height, both in one view
+  expect(out[2]).toBeLessThan(80_000); // but no further
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  // The old file (no `reach`): today's limits.
+  await page.unroute('**/basemap.json');
+  await page.reload();
+  await serveBase(page);
+  await openMap(page);
+  const fit2 = await view(page);
+  await zoomOut(page);
+  expect((await view(page))[2]).toBeCloseTo(fit2[2] * 2, 0);
+});
+
+test('⤢ shows once the view moves and eases back to the trip; with Reduce Motion it jumps', async ({ page }) => {
+  await serveBase(page, { base: REACH });
+  await openApp(page, { time: '07:00', init: DENIED });
+  await openMap(page);
+  const fitBtn = sheet(page).getByRole('button', { name: 'Show the whole trip' });
+  await expect(fitBtn).toBeHidden();
+  const fit = await view(page);
+  await zoomOut(page, 3);
+  await expect(fitBtn).toBeVisible();
+  await fitBtn.click();
+  await tick(page, 50);
+  const mid = await view(page);
+  expect(mid[2]).toBeGreaterThan(fit[2] * 1.01); // still on its way
+  await tick(page, 400);
+  expect(await view(page)).toEqual(fit);
+  await expect(fitBtn).toBeHidden();
+  // A drag shows it too; Reduce Motion: back at once.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const box = await svg(page).boundingBox();
+  await page.mouse.move(box.x + 100, box.y + 300);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(box.x + 100 + i * 10, box.y + 300);
+  await page.mouse.up();
+  await expect(fitBtn).toBeVisible();
+  await fitBtn.click();
+  expect(await view(page)).toEqual(fit);
+  await expect(fitBtn).toBeHidden();
 });

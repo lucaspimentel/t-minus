@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, vehiclesOnStretch,
-  fitView, viewLimits, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
+  fitView, viewLimits, areaRect, easeView, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -144,6 +144,39 @@ test('fitView, zoomView and panView', () => {
   assert.deepEqual(panView(v, 100, -50, lim), { x: 100, y: -300, w: 1000, h: 1000 });
   const far = panView(v, 1e6, 0, lim);
   assert.equal(far.x + far.w / 2, lim.bounds.x + lim.bounds.w);
+});
+
+test('viewLimits with the base map\'s area; areaRect; easeView', () => {
+  const proj = projector(42.36, -71.06);
+  // The commuter rail box (Wickford Junction to Newburyport, Fitchburg to Kingston), 5 km more.
+  const area = areaRect([-71.8, 41.58, -70.62, 42.8], proj);
+  near(area.w, 106_950, 1500); near(area.h, 145_650, 1500);
+  const nw = proj.toXY({ lat: 42.8, lon: -71.8 });
+  near(area.x, nw.x - 5000); near(area.y, nw.y - 5000);
+  assert.equal(areaRect(null, proj), null);
+  assert.equal(areaRect([1, 2, 3], proj), null);
+  assert.equal(areaRect([1, 2, 3, NaN], proj), null);
+  // A 2 km trip: pan anywhere in the area; zoom out until all of it shows, both ways.
+  const fit = { x: -1000, y: -1000, w: 2000, h: 3000 };
+  const lim = viewLimits(fit, { area, aspect: 2 / 3 });
+  assert.deepEqual(lim.bounds, area);
+  assert.equal(lim.maxSpan, area.w); // this portrait map: the width decides
+  assert.equal(viewLimits(fit, { area, aspect: 2 }).maxSpan, area.h * 2); // landscape: the height
+  const out = zoomView(fit, 1e-6, 0, 0, lim);
+  near(out.w, area.w); assert.ok(out.h >= area.h);
+  const north = panView(fit, 0, -1e9, lim);
+  near(north.y + north.h / 2, area.y);
+  // Without the area: today's limits; a trip larger than the area keeps its own.
+  assert.deepEqual(viewLimits(fit), { minSpan: 150, maxSpan: 4000, bounds: { x: -3000, y: -4000, w: 6000, h: 9000 } });
+  const huge = { x: -2e5, y: -2e5, w: 4e5, h: 4e5 };
+  assert.deepEqual(viewLimits(huge, { area }).bounds, { x: -6e5, y: -6e5, w: 12e5, h: 12e5 });
+  assert.equal(viewLimits(huge, { area }).maxSpan, 8e5);
+  // The animation: the ends, eased out (past halfway at the midpoint), clamped.
+  const a = { x: 0, y: 0, w: 100, h: 200 }, b = { x: 100, y: -100, w: 300, h: 600 };
+  assert.deepEqual(easeView(a, b, 0), a);
+  assert.deepEqual(easeView(a, b, 1), b);
+  assert.deepEqual(easeView(a, b, 2), b);
+  assert.ok(easeView(a, b, 0.5).x > 50);
 });
 
 test('routeMapModel: legs from shapes, transfer and end walks, fallbacks, faded legs, vehicles', () => {

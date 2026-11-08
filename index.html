@@ -437,7 +437,15 @@
   .map-body { flex: 1; min-height: 0; display: flex; }
   .map-body .route-map { flex: 1; display: flex; }
   .map-body .route-svg { flex: 1; height: auto; }
-  .route-map { margin: 8px 0; }
+  .route-map { margin: 8px 0; position: relative; }
+  /* The sheet's way back to the trip (2026-11-08): shown once the view moves off the fit. */
+  .map-fit {
+    position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; padding: 0;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text);
+    font: inherit; font-size: 20px; line-height: 1; box-shadow: 0 1px 3px rgb(0 0 0 / .15); cursor: pointer;
+  }
+  .map-fit::before { content: ''; position: absolute; inset: -3px; } /* a 46 px touch area */
+  .map-fit[hidden] { display: none; }
   .route-svg {
     display: block; width: 100%; height: 200px; background: var(--card); border: 1px solid var(--border);
     border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none;
@@ -500,7 +508,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-08 · e245f8ed71</footer>
+    <footer class="version">Version 2026-11-08 · a81ddf3f6b</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -530,9 +538,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
-} from './core.js?v=dceba915f8';
-import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=2ea1270461';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, areaRect, easeView, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
+} from './core.js?v=8da940ff42';
+import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=2b8a7a3d17';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1491,7 +1499,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=dceba915f8'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=8da940ff42'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2705,7 +2713,9 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   loadBasemap();
   const size = () => ({ width: svg.clientWidth || 340, height: svg.clientHeight || 200 });
   const mpp = () => (w.view ? w.view.w / size().width : 1); // meters per pixel
+  let fitBtn = null;
   function apply() {
+    if (fitBtn) fitBtn.hidden = !w.touched;
     if (!w.view) return;
     svg.setAttribute('viewBox', `${w.view.x} ${w.view.y} ${w.view.w} ${w.view.h}`);
     const s = mpp();
@@ -2787,10 +2797,38 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   el.addEventListener('click', e => e.stopPropagation());
   if (!interactive) return w;
 
-  // Taps and keys on stops; drags and pinches move the view.
+  // Taps and keys on stops; drags and pinches move the view: anywhere commuter rail reaches (the
+  // base map's `reach`, 5 km more) once the base map is in, and out until all of it shows.
   const pointers = new Map();
   let moved = 0, dragged = false;
-  const limits = () => viewLimits(w.fit);
+  const limits = () => {
+    const o = w.model?.origin;
+    const area = basemap && o ? areaRect(basemap.reach, projector(o.lat, o.lon)) : null;
+    const { width, height } = size();
+    return viewLimits(w.fit, { area, aspect: width / height });
+  };
+  // ⤢ back to the trip's fit: eased over FIT_MS (a jump with Reduce Motion).
+  const FIT_MS = 250;
+  let fitAnim = 0;
+  fitBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'map-fit', textContent: '⤢', hidden: true });
+  fitBtn.setAttribute('aria-label', 'Show the whole trip');
+  fitBtn.addEventListener('click', () => {
+    if (!w.fit || !w.view) return;
+    const from = w.view, to = w.fit, done = () => { w.view = w.fit; w.touched = false; apply(); };
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { done(); return; }
+    const t0 = performance.now(), id = ++fitAnim;
+    const step = now => {
+      if (id !== fitAnim) return; // a pan or pinch took over
+      const t = (now - t0) / FIT_MS;
+      if (t >= 1) { done(); return; }
+      w.view = easeView(from, to, t);
+      apply();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+  el.append(fitBtn);
+  const stopFit = () => { fitAnim++; };
   const toView = (cx, cy) => { const r = svg.getBoundingClientRect(); return { x: w.view.x + (cx - r.left) * mpp(), y: w.view.y + (cy - r.top) * mpp() }; };
   svg.addEventListener('click', e => {
     const g = e.target.closest?.('[data-stop]');
@@ -2801,6 +2839,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     if (g && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(g.dataset.stop); }
   });
   svg.addEventListener('pointerdown', e => {
+    stopFit();
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1) { moved = 0; dragged = false; }
   });
@@ -2828,6 +2867,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   svg.addEventListener('pointercancel', up);
   svg.addEventListener('wheel', e => {
     if (!w.view) return;
+    stopFit();
     e.preventDefault();
     const p = toView(e.clientX, e.clientY);
     w.view = zoomView(w.view, e.deltaY < 0 ? 1.25 : 0.8, p.x, p.y, limits());

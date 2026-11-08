@@ -203,6 +203,12 @@ for (const scheme of ['light', 'dark']) {
     await expect(page.locator('.map-base')).toHaveCount(1); // the real basemap.json
     await expect(page.locator('#map-credit')).toBeVisible();
     expect(await violations(page)).toEqual([]);
+    // ⤢ once the view moves (2026-11-08).
+    const box = await page.locator('#map-sheet svg').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 300);
+    await expect(page.getByRole('button', { name: 'Show the whole trip' })).toBeVisible();
+    expect(await violations(page)).toEqual([]);
     await page.getByRole('button', { name: 'Oak Grove', exact: true }).focus();
     await tick(page, 10_000); // a vehicle poll redraws the map
     expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('sheet:stop:70036');

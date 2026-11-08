@@ -541,8 +541,13 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   dots); a selected stop always. Two leg ends within 250 m are
   one transfer: one dot when they share a name, else the next leg's label only ("Oak Grove", not
   "Washington St opp Oak Grove Sta"). Transfer walks are dashed. In the sheet, a tap (or Enter) on
-  a stop shows its name in the caption; pinch, drag or the wheel zoom and pan, from 150 m across to
-  twice the fit. Marks keep their size in pixels; lines their width.
+  a stop shows its name in the caption; pinch, drag or the wheel zoom and pan, from 150 m across
+  out to all of commuter rail's reach in one view (the base map's `reach`, the commuter rail
+  stops' box, 5 km more on each side; `areaRect`, `viewLimits`), the view's center anywhere in it
+  (2026-11-08: it stopped one trip-size past the trip and at twice its width, short of the outer
+  towns). Without the base map, the old limits. Once the view moves, ⤢ in the map's top-right
+  corner ("Show the whole trip", 40 px, card style) eases back to the trip's fit in 250 ms
+  (`easeView`; at once with Reduce Motion) and hides; a pan or pinch during it takes over. Marks keep their size in pixels; lines their width.
 - **Walks at the ends:** the sheet draws a dashed walk from the phone's location to the first
   stop, before boarding only. Saved trips keep no place coordinates (the config reaches the
   server), so there is no last walk. Planner options draw both from the place's point (an
@@ -601,7 +606,8 @@ maps (the sheet, the planner's options, the trip editor).
 - **File:** `basemap.json` at the repo root, built by `NODE_USE_ENV_PROXY=1 node
   scripts/build-basemap.mjs` (~40 s keyless, about 7 paced MBTA requests) and committed; rebuild
   when the sources change. Rings and lines are Google polylines (precision 5), simplified to
-  25 m (detailed) and 100 m (coarse): 110 KB, 69 KB gzipped (2026-11-08; 42 KB gzipped with
+  25 m (detailed) and 100 m (coarse), with `reach` (the commuter rail stops' box, for the
+  sheet's pan and zoom limits): 110 KB, 69 KB gzipped (2026-11-08; 42 KB gzipped with
   Massachusetts coarse land only and no outer towns, 2026-11-07).
 - **Loading:** fetched the first time a map opens (a plain same-origin GET: nothing about the
   rider), kept in memory; the maps draw as before until it arrives, then redraw. A failure is

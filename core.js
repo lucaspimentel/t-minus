@@ -3904,8 +3904,30 @@ export function fitView(points, { pad = 0.1, minSpan = 400, aspect = 1 } = {}) {
 }
 
 // Pinch and drag limits for a fitted view: zoom in to `minSpan` meters, out to twice the fit,
-// with the center kept within the fit grown by its own size on each side.
-export const viewLimits = (fit, minSpan = 150) => ({ minSpan, maxSpan: fit.w * 2, bounds: { x: fit.x - fit.w, y: fit.y - fit.h, w: fit.w * 3, h: fit.h * 3 } });
+// with the center kept within the fit grown by its own size on each side. With `area` (the
+// region the base map covers, areaRect; 2026-11-08): the center anywhere in it too, and zooming
+// out until all of it fits a view of `aspect` (width / height).
+export function viewLimits(fit, { minSpan = 150, area = null, aspect = fit.w / fit.h } = {}) {
+  const own = { x: fit.x - fit.w, y: fit.y - fit.h, w: fit.w * 3, h: fit.h * 3 };
+  if (!area) return { minSpan, maxSpan: fit.w * 2, bounds: own };
+  const x0 = Math.min(own.x, area.x), y0 = Math.min(own.y, area.y);
+  const x1 = Math.max(own.x + own.w, area.x + area.w), y1 = Math.max(own.y + own.h, area.y + area.h);
+  return { minSpan, maxSpan: Math.max(fit.w * 2, area.w, area.h * aspect), bounds: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } };
+}
+// The base map's `reach` ([w, s, e, n], degrees: the commuter rail stops' box) in a map's meters
+// (`proj`), grown by `margin` meters on each side. Null without a valid reach.
+export function areaRect(reach, proj, margin = 5000) {
+  if (!Array.isArray(reach) || reach.length !== 4 || !reach.every(Number.isFinite)) return null;
+  const [w, s, e, n] = reach;
+  const a = proj.toXY({ lat: n, lon: w }), b = proj.toXY({ lat: s, lon: e });
+  return { x: a.x - margin, y: a.y - margin, w: b.x - a.x + 2 * margin, h: b.y - a.y + 2 * margin };
+}
+// A view `t` (0..1) of the way from `from` to `to`, eased out (the fit button's animation).
+export function easeView(from, to, t) {
+  const k = 1 - (1 - Math.min(Math.max(t, 0), 1)) ** 3;
+  const mix = key => from[key] + (to[key] - from[key]) * k;
+  return { x: mix('x'), y: mix('y'), w: mix('w'), h: mix('h') };
+}
 function clampView(v, limits) {
   if (!limits) return v;
   const cx = Math.min(Math.max(v.x + v.w / 2, limits.bounds.x), limits.bounds.x + limits.bounds.w);
