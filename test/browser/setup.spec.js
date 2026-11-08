@@ -82,6 +82,10 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   const listed = () => setup(page).locator('.section-head, .item').allInnerTexts().then(t => t.map(x => x.replace(/\s+/g, ' ').trim()));
   await expect.poll(async () => (await listed())[0]).toBe('toward Redstone Shopping Center'); // once the stops load
   expect((await listed()).filter(x => x.startsWith('Malden Center'))).toHaveLength(1);
+  // Rail connections on the board list too (2026-11-08): each side of the street at Oak Grove.
+  await setup(page).locator('#picker-search').fill('Oak Grove');
+  await expect(setup(page).locator('.item', { hasText: 'Washington St opp Oak Grove Sta' }).locator('.conn')).toHaveText(['Orange', 'CR Haverhill']);
+  await expect(setup(page).locator('.item', { hasText: 'Washington St @ Oak Grove Sta' }).locator('.conn')).toHaveText(['Orange', 'CR Haverhill']);
   await setup(page).locator('#picker-search').fill('Main St @ South');
   // No direction step: stops on each side of the street are listed under their direction.
   await expect(setup(page).locator('.section-head')).toHaveText(['toward Redstone Shopping Center', 'toward Malden Center Station']);

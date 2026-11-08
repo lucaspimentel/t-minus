@@ -12,7 +12,7 @@ import {
   validAutoBell, bostonMs, autoBellNext, autoBellRow, autoBellLabel, autoBellTrips,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, stopCountTrip, stopCountText, rideLine,
   legQuery, predictionQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
-  lineLabel, toward, vehicleArrow, withoutArrived, stopConnections,
+  lineLabel, toward, vehicleArrow, withoutArrived, stopConnections, groupConnections, rowConnections,
   shownTrip, widgetRequest, widgetRequestError, scheduleTimingLeg, widgetView, WIDGET_HORIZON_MIN, widgetState, widgetFollow,
   leavePhase, leaveActivityState, modeEmoji, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, LEAVE_CARD_EARLY_MIN, LEAVE_CARD_MAX_MIN, leaveCardEarly, leaveStartText, firstVehicleLine,
 } from '../core.js';
@@ -1827,6 +1827,28 @@ test('stopConnections: each station tags only the nearest stop of the list (or i
   assert.equal(stopConnections([stop('x', 42.3627, -71.0624)], rail).size, 0);
   // A station in the list: its lines, branches merged.
   assert.deepEqual(stopConnections([stop('place-haecl')], rail).get('place-haecl'), [{ label: 'Green C/D', color: '00843D' }]);
+});
+
+test('groupConnections, rowConnections: board lists tag each side of the street; a paired row once', () => {
+  const st = (id, lat, lon) => ({ id, lat, lon });
+  const rail = [
+    { route: 'Orange', label: 'Orange', color: 'ED8B00', stops: [st('place-ogmnl', 42.437735, -71.070875)] },
+    { route: 'Blue', label: 'Blue', color: '003DA5', stops: [st('place-wondl', 42.41342, -70.991648)] },
+  ];
+  const stop = (id, lat, lon) => ({ id, attributes: { latitude: lat, longitude: lon } });
+  // Both sides of the street near Oak Grove: one in each direction's own list.
+  const in0 = stop('5991', 42.436927, -71.071292), in1 = stop('5990', 42.438768, -71.071435);
+  const both = [stop('w', 42.4134, -70.9917)];
+  const conn = groupConnections({ both, only: [[in0], [in1]] }, rail);
+  assert.deepEqual(conn.get('5991'), [{ label: 'Orange', color: 'ED8B00' }]);
+  assert.deepEqual(conn.get('5990'), [{ label: 'Orange', color: 'ED8B00' }]);
+  assert.deepEqual(conn.get('w'), [{ label: 'Blue', color: '003DA5' }]); // found in both directions, listed once
+  // stopConnections over the whole list would have tagged one side only.
+  assert.equal(stopConnections([...both, in0, in1], rail).has('5990'), false);
+  assert.equal(groupConnections({ both, only: [[in0], [in1]] }, rail, ['Orange', 'Blue']).size, 0);
+  // A paired row: each line once, in order.
+  assert.deepEqual(rowConnections(conn, ['5991', '5990', 'w', 'none']), [{ label: 'Orange', color: 'ED8B00' }, { label: 'Blue', color: '003DA5' }]);
+  assert.deepEqual(rowConnections(conn, []), []);
 });
 
 test('statusProblem: errors, the rate limit and notices, without times', () => {

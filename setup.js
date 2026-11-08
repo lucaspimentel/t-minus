@@ -4,11 +4,11 @@
 // and the setup-time requests.
 import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
-  searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, servesInOrder, commonLabel, legRoutes,
+  searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, groupConnections, rowConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=1c306e45c1';
+} from './core.js?v=dceba915f8';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -1262,14 +1262,19 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     if (picker.loading && picker.alight) return [waitLine('Checking other routes…')];
     if (picker.loading || !docs[0] || !docs[1]) return [picker.error ? h('div', { class: 'muted' }, picker.error) : waitLine('Loading stops…')];
     const toward = d => `toward ${destination(picker.route.id, d)}`;
+    // The board and planner lists tag each stop with its rail lines too (2026-11-08), like the
+    // drop-off list (loaded in the background; none if that fails).
+    if (!railStops) loadRailNetwork().then(() => { if (['board', 'alight'].includes(picker?.step)) render(); }, () => {});
     if (picker.step === 'board') {
       // Stops served both ways first, then each direction's own (the two sides of a street).
       if (picker.planField) return planStopRows(docs);
       const { both, only } = boardGroups(...docs);
+      // Tags from the whole list, so they don't move while searching.
+      const conn = groupConnections({ both, only }, railStops, [picker.route.id]);
       const pick = s => h('button', { type: 'button', class: 'item', onclick: () => {
         picker = { ...picker, board: s.id, step: 'alight', query: '' };
         render();
-      } }, s.attributes?.name ?? s.id);
+      } }, s.attributes?.name ?? s.id, ...lineTags(conn.get(s.id) ?? []));
       const sections = [{ head: null, stops: searchStops(both, q) },
         ...only.map((list, d) => ({ head: heading(toward(d)), stops: searchStops(list, q) }))].filter(s => s.stops.length);
       const here = picker.here;
@@ -1285,7 +1290,6 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     }
     // Drop-off: the stops after the board stop, per direction it serves (one at the end of a
     // line), each with the rail lines there (loaded in the background; none if that fails).
-    if (!railStops) loadRailNetwork().then(() => { if (picker?.step === 'alight') render(); }, () => {});
     // A rail route's per-direction stop list merges its branches: keep only the stations the
     // network says are reachable from the board stop on this route (no Ashmont → Quincy).
     const onNetwork = railNet?.lines.some(l => l.id === picker.route.id);
@@ -1308,7 +1312,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   function planStopRows(docs) {
     const r = picker.route;
     const groups = picker.planField === 'to' ? dropOffGroups(...docs) : boardGroups(...docs);
-    const byId = new Map([...groups.both, ...groups.only.flat()].map(s => [s.id, s]));
+    const all = [...groups.both, ...groups.only.flat()];
+    const byId = new Map(all.map(s => [s.id, s]));
+    const conn = groupConnections(groups, railStops, [r.id]);
     const q = picker.query.trim().toLowerCase();
     let rows = stopPairs(groups).filter(row => !q || (row.names ?? [row.name]).some(n => n.toLowerCase().includes(q)));
     const here = picker.here;
@@ -1317,7 +1323,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     return rows.map(row => {
       const note = row.both ? ' · both sides' : row.toward != null ? ` · toward ${destination(r.id, row.toward)} only` : '';
       const b = h('button', { type: 'button', class: 'item', onclick: () => pickPlace({ id: row.ids.join(','), name: row.name, routes: [{ id: r.id, label: shortRouteLabel(r), color: r.attributes?.color }] }) },
-        row.name, note && h('span', { class: 'muted' }, note));
+        row.name, note && h('span', { class: 'muted' }, note), ...lineTags(rowConnections(conn, row.ids)));
       return here && Number.isFinite(row.m) ? withDist(b, h('span', { class: 'dist' }, formatDistance(row.m))) : b;
     });
   }

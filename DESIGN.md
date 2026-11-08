@@ -786,7 +786,10 @@ maps (the sheet, the planner's options, the trip editor).
   D/E" (`commonLabel`); two or more commuter rail lines are "Commuter Rail" (2026-11-02: South
   Station's twelve made one tag wider than the screen, and iOS enlarged every font on the page;
   `text-size-adjust: 100%` and wrapping tags guard against the next one). One line keeps its
-  name ("CR Fitchburg").
+  name ("CR Fitchburg"). The board list ("Where do you board?") and the planner's From / To
+  stop list for a route tag their stops the same way (2026-11-08; they had none): per direction
+  (`groupConnections`: each side of a street gets the stations near it, a stop served both ways
+  once), and a planner row standing for both sides lists each line once (`rowConnections`).
 - Rail network (`railNetwork`): one `/route_patterns?filter[route]=<rail routes>&filter[canonical]=true
   &include=representative_trip.stops` request (~100 KB; 18 patterns, each branch and direction,
   stations in order via the platforms' `parent_station`), cached in `localStorage`

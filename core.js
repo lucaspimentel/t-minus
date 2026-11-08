@@ -1015,6 +1015,29 @@ export function stopConnections(stops, railStops, exclude = []) {
   return new Map([...tags].map(([id, byColor]) => [id, mergedLines(byColor)]));
 }
 
+// Tags for a board list ({ both, only: [dir0, dir1] }, boardGroups / dropOffGroups): per
+// direction, so each side of a street gets the stations near it (stopConnections tags only the
+// nearest stop of a list); a stop served both ways gets both directions' lines, once each.
+export function groupConnections(groups, railStops, exclude = []) {
+  const out = new Map();
+  for (const own of groups.only) {
+    for (const [id, lines] of stopConnections([...groups.both, ...own], railStops, exclude)) {
+      out.set(id, rowConnections(new Map([[0, out.get(id) ?? []], [1, lines]]), [0, 1]));
+    }
+  }
+  return out;
+}
+
+// One list row's tags when it stands for several stops (the planner's two sides of a street,
+// stopPairs): each stop's lines from stopConnections, once each, in order.
+export function rowConnections(conn, ids) {
+  const seen = new Set();
+  return ids.flatMap(id => conn.get(id) ?? []).filter(c => {
+    const k = `${c.color}|${c.label}`;
+    return !seen.has(k) && seen.add(k);
+  });
+}
+
 // The return trip's name: "A → B" or "A to B" (one separator) becomes "B → A"; any other name
 // gets " (return)"; a blank one stays blank (the editor suggests one from the stops).
 export function returnName(name) {

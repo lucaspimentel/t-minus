@@ -68,6 +68,9 @@ test('setup: a route\'s stop to a station; the pick opens in the editor with the
   // The two sides of a street are one row; a stop without a partner says which way it goes.
   await expect(setup(page).locator('.list .item', { hasText: 'Main St @ South St' })).toHaveText(['Main St @ South St · both sides']);
   await expect(setup(page).locator('.list .item', { hasText: '349 Washington St' })).toHaveText(['349 Washington St · toward Redstone Shopping Center only']);
+  // Rail connections (2026-11-08): a row near a station lists its lines, once for both sides.
+  await expect(setup(page).locator('.list .item', { hasText: 'Oak Grove' }).locator('.conn')).toHaveText(['Orange', 'CR Haverhill']);
+  await expect(setup(page).locator('.list .item', { hasText: 'Main St @ South St' }).locator('.conn')).toHaveCount(0);
   await setup(page).locator('.list .item', { hasText: 'Main St @ South St' }).click();
   await expect(setup(page).locator('#plan-from')).toHaveText(/^Main St @ South St\s*Bus 132\s*Change$/);
   await pickStation(page, 'to', 'state', 'State');
