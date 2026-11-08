@@ -169,7 +169,7 @@ const PLAN = {
   }],
 };
 
-test('setup: a planner option\'s map (both end walks, taps keep the card open); the trip editor\'s', async ({ page }) => {
+test('setup: a planner option\'s map (a picture with both end walks; taps keep the card open); the trip editor\'s', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await page.route(/\/api\/places\?/, route => route.fulfill({ json: { places: [{ ...PLAN_FROM, detail: 'Melrose' }] } }));
   await page.route(/\/api\/plan\?/, route => route.fulfill({ json: PLAN }));
@@ -190,9 +190,16 @@ test('setup: a planner option\'s map (both end walks, taps keep the card open); 
   // Above the timeline, with dashed walks from the place and at the end (State's own position).
   expect(await planOptions(page).first().evaluate(c => [...c.children].map(x => x.className).filter(n => /route-map|timeline/.test(n)))).toEqual(['route-map', 'timeline']);
   await expect(map.locator('.map-walk[data-kind="start"]')).toHaveCount(1);
-  // Taps and drags on the map don't collapse the card.
-  await map.getByRole('button', { name: 'Oak Grove', exact: true }).click();
-  await expect(map.locator('.map-caption')).toHaveText('Oak Grove');
+  // A picture, as in the trip editor (2026-11-08): no stop buttons, no caption, no zoom.
+  await expect(map.locator('svg')).toHaveAttribute('role', 'img');
+  await expect(map.getByRole('button')).toHaveCount(0);
+  await expect(map.locator('.map-caption')).toHaveCount(0);
+  const box = await map.locator('svg').getAttribute('viewBox');
+  await map.locator('svg').hover();
+  await page.mouse.wheel(0, -300);
+  await expect(map.locator('svg')).toHaveAttribute('viewBox', box);
+  // A tap on the map doesn't collapse the card.
+  await map.locator('svg').click();
   await expect(planOptions(page).first().locator('.row-toggle')).toHaveAttribute('aria-expanded', 'true');
   // Saving opens the trip editor: a static map under the legs; removing a leg redraws it.
   await planOptions(page).first().locator('.row-foot').getByRole('button', { name: 'Save trip', exact: true }).click();

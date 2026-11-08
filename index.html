@@ -500,7 +500,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-08 · 6fe5b98dc2</footer>
+    <footer class="version">Version 2026-11-08 · e245f8ed71</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -532,7 +532,7 @@ import {
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
 } from './core.js?v=dceba915f8';
-import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=d7c038a588';
+import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=2ea1270461';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -2783,6 +2783,8 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     if (focused) svg.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
   };
   new ResizeObserver(() => { if (!w.touched && w.redraw) w.redraw(); else apply(); }).observe(svg);
+  // Inside an option card: a tap on the map doesn't toggle the card (a picture too).
+  el.addEventListener('click', e => e.stopPropagation());
   if (!interactive) return w;
 
   // Taps and keys on stops; drags and pinches move the view.
@@ -2832,8 +2834,8 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     w.touched = true;
     apply();
   }, { passive: false });
-  // Inside an option card: taps and drags on the map don't toggle the card.
-  for (const ev of ['click', 'pointerdown', 'touchstart']) el.addEventListener(ev, e => e.stopPropagation(), { passive: true });
+  // Drags don't reach the card either.
+  for (const ev of ['pointerdown', 'touchstart']) el.addEventListener(ev, e => e.stopPropagation(), { passive: true });
   return w;
 }
 

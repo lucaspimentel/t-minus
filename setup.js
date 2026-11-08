@@ -674,10 +674,11 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const card = h('li', { class: 'row option', onclick: () => { const opened = (p.plan.open ??= new Set()); if (!opened.delete(k)) opened.add(k); render(); } }, toggle);
       if (open) {
         const legs = o.legs.map((l, i) => ({ ...tags[i], from: board(l), to: alight(l) }));
-        // The route map, both end walks from a place's point (kept here, never saved).
+        // The route map, both end walks from a place's point (kept here, never saved): a picture,
+        // as in the trip editor (2026-11-08; only the 🗺 sheet pans and zooms).
         const end = id => { const st = railNet && networkStation(railNet, id); return st ? { lat: st.lat, lon: st.lon, name: st.name } : null; };
         card.append(routeMap?.(o.legs.map((l, i) => ({ route: l.route, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: tags[i].color, label: tags[i].label })),
-          { start: p.from.point ?? null, end: p.to.point ?? null, points: o.legs.map(l => ({ board: end(l.stop), alight: end(l.alight) })) }, `option:${k}`) ?? '');
+          { start: p.from.point ?? null, end: p.to.point ?? null, points: o.legs.map(l => ({ board: end(l.stop), alight: end(l.alight) })), static: true }, `option:${k}`) ?? '');
         card.append(timeline?.(optionSteps(o, { walkBefore: wb, walkAfter: wa, slack: app.stopSlackMinutes, legs }), `option:${k}`) ?? '',
           h('div', { class: 'row-foot' },
             o.arrive != null && h('button', { type: 'button', class: 'track-btn', 'data-focus': `pick:${k}:departures`, onclick: e => { e.stopPropagation(); pick(o, 'departures'); } }, 'See departures'),

@@ -527,9 +527,11 @@ The trip drawn at true positions, in addition to the timeline (mockups accepted 
 Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 
 - **Where:** 🗺 in the header, beside ↻, opens a full-screen sheet ("Done" or Escape closes)
-  with the shown trip; the trip doesn't switch while it's open. Setup draws the same map inline:
-  above an expanded planner option's timeline, and under the legs in the trip editor (a static
-  picture, redrawn when a leg changes).
+  with the shown trip; the trip doesn't switch while it's open. Setup draws the same map inline,
+  as a static picture fitted to the trip: above an expanded planner option's timeline, and under
+  the legs in the trip editor (redrawn when a leg changes). Only the sheet pans and zooms
+  (2026-11-08: the planner's map did too, the editor's didn't; both are pictures now, so the page
+  scrolls over them).
 - **Drawing:** an SVG outline with no street map (equirectangular, north up, in meters from the
   first boarding stop). Each leg is its route's shape (`route_patterns` with
   `representative_trip.shape`), trimmed to its boarding and drop-off stops, in the route's
@@ -538,8 +540,8 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   (`stopsToShow`, rechecked on zoom; 2026-11-07: the small setup maps were a string of bus-stop
   dots); a selected stop always. Two leg ends within 250 m are
   one transfer: one dot when they share a name, else the next leg's label only ("Oak Grove", not
-  "Washington St opp Oak Grove Sta"). Transfer walks are dashed. A tap (or Enter) on a stop
-  shows its name in the caption; pinch, drag or the wheel zoom and pan, from 150 m across to
+  "Washington St opp Oak Grove Sta"). Transfer walks are dashed. In the sheet, a tap (or Enter) on
+  a stop shows its name in the caption; pinch, drag or the wheel zoom and pan, from 150 m across to
   twice the fit. Marks keep their size in pixels; lines their width.
 - **Walks at the ends:** the sheet draws a dashed walk from the phone's location to the first
   stop, before boarding only. Saved trips keep no place coordinates (the config reaches the
