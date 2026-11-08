@@ -136,12 +136,14 @@ struct LegsBar: View {
 
 // Every card (leave and walk 2026-10-29, ride 2026-10-31), like the medium Home Screen widget:
 // "Leave in 28 min · 7:39am" / "Get off in 5 stops · 9 min", "● Bus 132 toward Malden   arrive
-// 8:25am", a note ("At the stop ~7:44am · 4 min to spare", amber when late; the transfer's spare),
-// the connection ("then ● Bus 132 6:38pm · 4 min to spare", amber when tight or missed), the legs.
+// 8:25am", a note ("At the stop ~7:44am · 2 min late", red with `late`; the transfer's spare,
+// amber when tight), the connection ("then ● Bus 132 6:38pm · 4 min to spare"; "No connection
+// after 6:31pm" red with `nextLate`), the legs.
 // While riding with `dropOff` (2026-11-06): "● Orange Line to Malden Center", then "then ● Bus 132
 // at 6:38pm" (the time amber or red, `thenState`) with the arrival on its right, or "Arrive
 // 7:21pm" alone on the last leg.
-// The headline is amber with `warn`, except while riding (the connection line says it).
+// The headline (2026-11-08): muted once gone, plain while riding (the connection line says it),
+// red with `late` (too late at your pace), amber with `warn` (at risk).
 // Dimmed (Always-On), the headline shows the time instead of the countdown (dimmedHead).
 // The Lock Screen card under its header; the expanded island under the island's top row.
 struct LeaveBody: View {
@@ -152,7 +154,7 @@ struct LeaveBody: View {
         VStack(alignment: .leading, spacing: 3) {
             // Its full height: with a note below, the stack squeezed it to its minimum scale (only
             // the width may shrink it).
-            headline.font(.title3.weight(.bold)).foregroundStyle(state.warn && state.phase != "riding" ? amber : text).lineLimit(1).minimumScaleFactor(0.7)
+            headline.font(.title3.weight(.bold)).foregroundStyle(headColor).lineLimit(1).minimumScaleFactor(0.7)
                 .fixedSize(horizontal: false, vertical: true)
             let drop = state.dropOff ?? ""
             let right = state.right ?? ""
@@ -172,7 +174,7 @@ struct LeaveBody: View {
                 .font(.subheadline)
             }
             if let note = state.note, !note.isEmpty {
-                Text(note).font(.subheadline).foregroundStyle(state.warn ? amber : text).lineLimit(2)
+                Text(note).font(.subheadline).foregroundStyle(state.late == true ? red : state.warn ? amber : text).lineLimit(2)
             }
             if !drop.isEmpty {
                 // The third line: the connection with the arrival on its right, or the arrival alone.
@@ -180,7 +182,7 @@ struct LeaveBody: View {
                     if hasThen {
                         ThenLine(legs: state.then ?? [], text: state.thenText ?? "", muted: muted,
                                  textColor: thenTimeColor(state.thenState, amber: amber, red: red))
-                            .foregroundStyle(state.nextWarn == true && (state.thenState ?? "").isEmpty ? amber : text)
+                            .foregroundStyle(state.nextWarn == true && (state.thenState ?? "").isEmpty ? (state.nextLate == true ? red : amber) : text)
                         Spacer(minLength: 8)
                         if !right.isEmpty { Text(right).foregroundStyle(muted).lineLimit(1).fixedSize() }
                     } else if !right.isEmpty {
@@ -190,7 +192,7 @@ struct LeaveBody: View {
                 .font(.subheadline)
             } else if hasThen {
                 ThenLine(legs: state.then ?? [], text: state.thenText ?? "", muted: muted)
-                    .font(.subheadline).foregroundStyle(state.nextWarn == true ? amber : text)
+                    .font(.subheadline).foregroundStyle(state.nextWarn == true ? (state.nextLate == true ? red : amber) : text)
             }
             if state.phase == "ask", let dep = state.askDep {
                 AnswerButtons(dep: dep, text: text, track: track).padding(.top, 6)
@@ -198,6 +200,13 @@ struct LeaveBody: View {
                 LegsBar(legs: state.legs, track: track).padding(.top, 6)
             }
         }
+    }
+
+    private var headColor: Color {
+        if state.phase == "gone" { return muted }
+        if state.phase == "riding" { return text }
+        if state.late == true { return red }
+        return state.warn ? amber : text
     }
 
     private var headline: Text {
@@ -329,7 +338,7 @@ struct IslandTrailing: View {
         // Fixed (sized for "🚌 59 min") so the island doesn't resize as it counts down.
         .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6)
         .frame(width: 88, alignment: .trailing)
-        .foregroundStyle(state.warn ? Color(hex: "F0A830") : .white)
+        .foregroundStyle(state.late == true ? Color(hex: "FF6B6B") : state.warn ? Color(hex: "F0A830") : .white)
     }
 
     @ViewBuilder private var legacy: some View {
@@ -345,7 +354,7 @@ struct IslandTrailing: View {
                 }
             }
             .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6)
-            .foregroundStyle(state.warn ? Color(hex: "F0A830") : .white)
+            .foregroundStyle(state.late == true ? Color(hex: "FF6B6B") : state.warn ? Color(hex: "F0A830") : .white)
         } else if state.phase == "riding" && state.stops > 0 {
             Text("\(state.stops) stop\(state.stops == 1 ? "" : "s")").font(.subheadline.weight(.semibold))
         } else if let countdown = shortCountdown(state) {

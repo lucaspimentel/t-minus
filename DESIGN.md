@@ -49,9 +49,19 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 
 The same ride on every surface follows CLAUDE.md "UI rules". Which time each phase shows (done,
 2026-10-27): the leave-by while there's time to walk; from the leave-by on, or once walking, the
-first vehicle's departure, counted down to (the red row; the widget's and the leave card's
-"Departs in 7 min · 7:48am", 2026-10-29: they no longer say "Leave now"; the app row and the
-push still do).
+first vehicle's departure, counted down to (the app row's hurry state and the widget's and the
+leave card's "Departs in 7 min · 7:48am", 2026-10-29; the app row said "Hurry · 5 min" until
+2026-11-08). "Leave now" is only in the bell's push and the compact island's word.
+
+Colors (2026-11-08; CLAUDE.md "UI rules"): amber is at risk but catchable (the 3 min before the
+leave-by, past it until the last chance, a tight connection); red is too late at your pace (past
+the last chance while the vehicle hasn't left, a late walk, a missed or no connection); gray is
+gone. The app row, the ride bar, the leave, walk and ride cards, the Dynamic Island and both
+widgets switch at the same moments. Native views read `late` (RideState and widget entries:
+the headline and note red), `nextLate` (RideState) / `thenLate` (widget entries: the whole "No
+connection after" line red), and show the leave card's `gone` phase muted; older builds (54 and
+before) ignore them and keep amber (`warn`, `nextWarn`, `thenWarn` and `thenState` are
+unchanged).
 
 Vehicle names and headsigns (`lineLabel` + `toward` on full text lines, `vehicleArrow` on tight
 ones):
@@ -250,14 +260,15 @@ unavailable: fallback, and the status line adds "Location off".
 |---|---|---|
 | Green | `now < leave_by - 3 min` | "Leave in 12 min", leave-by time on the right |
 | Amber | `leave_by - 3 min <= now < leave_by` | "Leave in 2 min" (the color carries the urgency) |
-| Red | `leave_by <= now < last_chance` | "Hurry · 5 min" (to the first departure), first-leg departure on the right (2026-10-27: the leave-by, then the departure, on every surface; CLAUDE.md "UI rules") |
-| Missed | `last_chance <= now < first_leg.departure + 5 min` | Amber "Departs in 2 min" at full size (can no longer be reached at your pace, still to leave; `.departs`, 2026-10-21, like the leave card; screen readers hear the same), then gray and smaller "Missed · left 3 min ago"; first-leg departure on the right |
+| Hurry | `leave_by <= now < last_chance` | Amber "Departs in 5 min" (to the first departure), first-leg departure on the right (2026-10-27: the leave-by, then the departure, on every surface; CLAUDE.md "UI rules"). Red "Hurry · 5 min" (state `red`) until 2026-11-08 |
+| Missed | `last_chance <= now < first_leg.departure + 5 min` | Red "Departs in 2 min" at full size (can no longer be reached at your pace, still to leave; `.departs`, 2026-10-21, like the leave card; screen readers hear the same; amber until 2026-11-08), then gray and smaller "Missed · left 3 min ago"; first-leg departure on the right |
 | Hidden | `now >= first_leg.departure + 5 min` | Row removed |
 
 Only the target row is green (2026-11-04, the same in every mode): the ride the app answers with,
-the first row still to catch (green, amber, red or en route; `targetRow`), or the belled one.
-Later rows in the green state are neutral (the plain border, the text color). Amber and red show
-on any row at their thresholds, the belled row included (its outline stays green).
+the first row still to catch (green, amber, hurry or en route; `targetRow`), or the belled one.
+Later rows in the green state are neutral (the plain border, the text color). Amber (amber,
+hurry) and red (missed, still to leave) show on any row at their thresholds, the belled row
+included (its outline stays green).
 
 A missed row's collapsed line shows the first leg (the one missed) instead of the timing leg.
 Live predictions disappear once a vehicle leaves its stop, so the last live times seen while
@@ -316,7 +327,8 @@ For leaving earlier or later than leave-by. A bar under the trip buttons always 
     live drop-off arrival, which the timeline shows); with only the drop-off left, "Next stop:
     get off", or "Get off here" while stopped there (`getOffText`); in the transfer (before
     leg i departs), a departure row's headline: "Orange in 9 min" with "7:31am" on the right
-    (amber, with the card's edge, when the outlook below is a warning); "Walking · arrive 7:56am" (after the last arrival), "Arrived
+    (amber, with the card's edge, when the connection below is tight; red when it's missed or
+    none, 2026-11-08, the outlook line too); "Walking · arrive 7:56am" (after the last arrival), "Arrived
     ~7:56am" (5 min, with Done), then back to the list.
   - The timeline (no first walk) with the current step bold; it ends with the arrival time
     (no separate "arrive" line under the headline).
@@ -496,7 +508,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - **Announcements** (`#announce`, a visually hidden polite `role=status`):
   - status problems, once each as they appear (`statusProblem`: error, Stale, Rate limited,
     the save notice, Location off, Saved copy); not "Updated …" nor the retry countdown;
-  - the first row's leave state changing (green → amber → red → missed), e.g. "Hurry · 5 min ·
+  - the first row's leave state changing (green → amber → hurry → missed), e.g. "Departs in 5 min ·
     7:08am" (the departure); a new first row (one left, another trip) only resets the baseline.
   - The "New version available" card is a `role=status` too; toasts already were.
 - A visually hidden `<h1>T-Minus</h1>` names the page.
@@ -1466,7 +1478,8 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   the old card lacked); the connection "then ● Bus 132 6:38pm · 4 min to spare" ("· tight",
   "(missed 6:38pm)" amber; "No connection after 6:31pm"; the headline stays white while riding).
   The transfer: "Bus 132 in 6 min · 6:38pm", the line, the note "4 min to spare" / "tight" /
-  "Missed the 6:38pm" (amber, the headline too). The final walk: "Arrive in 5 min · 7:21pm";
+  "Missed the 6:38pm" (amber, the headline too; from 2026-11-08 and the build after 54, a missed
+  or no connection is red, `late`, and tight stays amber). The final walk: "Arrive in 5 min · 7:21pm";
   then "Arrived · 7:21pm". The compact island: the mode emoji and "5 stops", "next", "here", or
   the countdown (no stop list, the transfer, the walk). The leave and walk cards also show the
   later legs ("then ● Bus 132"); the question reads "Did you get on? · left 6:15pm" with the
@@ -1476,7 +1489,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   to Malden Center" (`dropOff`; a commuter rail flag stop "to 🚩 Malden Center", the flag before
   the name so a long one can't cut it; without a stop list, the old line). The arrival moves to the third line:
   "then ● Bus 132 at 6:38pm" with "arrive 7:52pm" on its right (the spare is gone: the time is
-  amber when tight, red when missed, `thenState`; "No connection after 6:31pm" stays amber), or
+  amber when tight, red when missed, `thenState`; "No connection after 6:31pm" amber, red from 2026-11-08 with `nextLate`), or
   "Arrive 7:21pm" alone on the last leg. The medium widget matches; the small one reads "● Bus
   132" / "to Washington St opp…" / "arrive 6:52pm" (the arrival amber or red). The app's timeline
   drops the ridden leg's "toward" line: its last row names the drop-off, once per surface.
@@ -1557,12 +1570,14 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   Malden"; its departure time only from the leave-by on, 2026-10-27), "Leave by 7:39am · arrive
   8:25am"; a moved leave-by in amber with "Leave by 7:36am (was 7:39am)"; "Leave now · departs in
   7 minutes" (amber, to the departure) with "Bus 132 toward Malden at 7:48am" and "Arrive
-  8:25am"; "Departs in 2 minutes" (amber, to the departure), the same two lines;
+  8:25am"; "Departs in 2 minutes" (amber, to the departure; red from 2026-11-08, `late`: past
+  the last chance), the same two lines;
   at the departure "Did you get on?" / "Bus 132 toward Malden left at 7:48am" / "Tap to answer"
   (island "Got on?"; tap opens the app), ended when answered or after 30 min. "Ride cancelled"
   / "Open the app for the next one.", dismissed after 2 min. The legs bar shows the trip, empty.
 - **Dynamic Island:** compact: the route's dot and label, then the countdown alone, "9 min"
-  ("<1 min" in the last 80 s; amber when too late; the walk card's in white, amber when late: it
+  ("<1 min" in the last 80 s; amber past the leave-by, red past the last chance, 2026-11-08; the
+  walk card's in white, red when late (amber in build 54 and before): it
   counts down to the departure, not a walk), or the word when there's none ("Leave 7:39am" early,
   "Leave now", "Got on?"); expanded: the card. 2026-10-29: "Leave 28 minutes" stretched the
   island across the screen, hiding the clock, so the word moved to the expanded view and the
@@ -1577,8 +1592,10 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   smaller); "● Bus 132 toward Malden   arrive 8:25am" ("→" where "toward" doesn't fit; the
   arrival never cut); a note only for extra state ("Moved (was 7:36am)" amber, the walk card's
   "At the stop ~7:45am · 3 min to spare", "Open the app for the next one."); the legs bar. Past
-  the leave-by: "Departs in 7 min · 7:48am" (amber), no "Leave now"; the walk card the same.
-  "Did you get on?" / "● Bus 132 toward Malden   left 7:48am"; "Missed · left 7:48am";
+  the leave-by: "Departs in 7 min · 7:48am" (amber; red past the last chance, 2026-11-08), no
+  "Leave now"; the walk card the same (red when late). "Did you get on?" / "● Bus 132 toward
+  Malden   left 7:48am"; "Missed · left 7:48am" (muted by its `gone` phase from the build after
+  54; amber before);
   "Ride cancelled" (no vehicle line). The expanded island's top row is the trip name and
   "T-Minus" (it repeated the route and the countdown or time beside the headline). Compact
   island: "🚶 28 min" to the leave-by ("🚶 7:39am" an hour+ ahead), the vehicle's emoji past it
@@ -1589,7 +1606,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
 - **Walk card:** "Leaving now" / "At the stop" with the bell mark its reminder `started` (without
   the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Departs in 6
   min · 6:15pm" (`head`; builds before 35 show the `title` "Bus 132 in 6 minutes"), "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once there; "2 min late" in
-  amber), "Arrive 8:25am" (`walkActivityState`; on both cards "~" only when a leg is a headway estimate), updated by the app while open, no alerts.
+  red, 2026-11-08; amber in build 54 and before), "Arrive 8:25am" (`walkActivityState`; on both cards "~" only when a leg is a headway estimate), updated by the app while open, no alerts.
   A missed departure turns it into the boarding question (app and server). Boarding ends it just before the ride card starts; Cancel or the vehicle leaving end it. Known
   limit: with the app closed it isn't updated (stale 2 min after its countdown; ended at the next
   open).
@@ -1721,9 +1738,10 @@ getting off (`core.js` "Boarding from location", `BoardingLocation.swift`). The 
   question, "Leaving now" / "At the stop", the bell), on that state's trip whatever the trip
   choice: the belled ride only (its leave-by, then "Did you get on? · left 6:15pm" for
   `ASK_MINUTES`); walking, the walk card's "Departs in 6 min · 6:15pm" with "At the stop ~6:13pm
-  · 2 min to spare" (amber when late); riding, the ride card's lines (Live Activity above): "Get
+  · 2 min to spare" (red when late, 2026-11-08; amber before); riding, the ride card's lines (Live Activity above): "Get
   off in 5 stops · 9 min", the line with the arrival, the connection on its own line on the
-  medium size (the arrival amber on the small one when it's tight or missed); the transfer, the
+  medium size (the arrival on the small one amber when it's tight, red when missed or
+  none, `thenState` / `thenLate`); the transfer, the
   final walk, "Arrived" for 5 min; then leave times. The request carries the state (the trip's
   index and name, the kind, the at-stop time, the target's key and legs, the question, the
   ride's legs with their trip ids, times to the minute so polls don't rewrite it); the app
@@ -1752,7 +1770,8 @@ getting off (`core.js` "Boarding from location", `BoardingLocation.swift`). The 
   rules"): per row, more than 60 min before the leave-by "Leave 5:12pm" with no countdown (a
   next-day row: "No more today" / "First 5:12am"); then "Leave 7:42am" / "in 9 min", one entry a
   minute (rounded down like the page's; iOS's own countdown formats can't say "9 min"); from the
-  leave-by "Departs" / "in 7 min" (amber) until the departure (2026-10-29: no "Leave now" until
+  leave-by "Departs" / "in 7 min" (amber; from the last chance red, `late`, 2026-11-08: an entry
+  at the last chance, the same countdown) until the departure (2026-10-29: no "Leave now" until
   the last chance, as the leave card; the circular size shows "7m", not "now"); then the next row. Past the leave-by the vehicle line gets the departure ("Bus
   132 → Malden at 7:48am") and the medium's first row shows it in amber. Entries run 2 h ahead at most;
   past the last one (`end`), "Open T-Minus" / "for new times". No trips: "Plan a trip in
@@ -1782,7 +1801,8 @@ getting off (`core.js` "Boarding from location", `BoardingLocation.swift`). The 
   Groups (401 on `/appGroups`); profiles already allow the team's keychain groups. Builds without
   `widgetSave`: nothing written, nothing logged.
 - **Home Screen layouts (2026-10-29, build 31 on; the phone cut "Orange → Forest H…"):** small:
-  the trip name, the countdown ("Leave in 5 min"; "Departs in 2 min" amber past the leave-by), its
+  the trip name, the countdown ("Leave in 5 min"; "Departs in 2 min" amber past the leave-by, red past the
+  last chance), its
   time under it ("12:17am", the leave-by; "12:20am", the departure), then ● "Orange Line" and
   "toward Forest Hills" on up to two lines; no arrival. Medium: "Leave in 5 min · 12:17am", ●
   "Orange Line toward Forest Hills" ("→" where it doesn't fit) with the first ride's arrival, then

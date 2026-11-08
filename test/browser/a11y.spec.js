@@ -31,7 +31,7 @@ for (const scheme of ['light', 'dark']) {
     expect(await violations(page)).toEqual([]);
     await page.locator('.row-toggle').first().click();
     expect(await violations(page)).toEqual([]);
-    for (const t of ['06:59:30', '07:02:30', '07:03:30']) { // amber, red, missed
+    for (const t of ['06:59:30', '07:02:30', '07:03:30']) { // amber, hurry, missed (red)
       await tickTo(page, t);
       expect(await violations(page)).toEqual([]);
     }
@@ -127,7 +127,7 @@ test('leave-state changes and status problems are announced', async ({ page }) =
   await tickTo(page, '06:59:30');
   await expect(announced).toHaveText('Leave in 2 min · 7:02am');
   await tickTo(page, '07:02:30');
-  await expect(announced).toHaveText('Hurry · 5 min · 7:08am');
+  await expect(announced).toHaveText('Departs in 5 min · 7:08am');
   mbta.mode = '503';
   await page.locator('#refresh').click();
   await expect(announced).toHaveText('Stale (HTTP 503)');

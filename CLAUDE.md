@@ -60,8 +60,10 @@ ride, and against these rules:
   goes with the first leg only, and only before boarding: while riding, the cards and widgets say
   "Orange Line to Malden Center" (the drop-off), and the app's timeline drops the ridden leg's headsign.
   DESIGN.md "Surface wording" lists each surface.
-- Color carries state: amber/red mean late or at risk, at the same thresholds on every surface;
-  the color and the time say it, without a separate warning line.
+- Color carries state: amber means at risk but catchable (the leave-by near or past, a tight
+  connection); red means too late at your pace (past the last chance, a late walk, a missed or no
+  connection); gray means gone. The same thresholds on every surface; the color and the time say
+  it, without a separate warning line.
 
 ## Commands
 

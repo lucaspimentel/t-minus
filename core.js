@@ -1818,7 +1818,7 @@ export function rowState(nowMs, row) {
 // (not missed, hidden or without a connection). Null when there is none.
 export function targetRow(rows, nowMs, pinnedKey = null) {
   if (pinnedKey != null) return rows.find(r => r.key === pinnedKey && !r.nextDay) ?? null;
-  return rows.find(r => ['green', 'amber', 'red', 'enroute'].includes(rowState(nowMs, r))) ?? null;
+  return rows.find(r => ['green', 'amber', 'hurry', 'enroute'].includes(rowState(nowMs, r))) ?? null;
 }
 
 // "Leaving now" (at the stop after the walk) or "At the stop" (now). `at` is the first tap,
@@ -2312,15 +2312,16 @@ export function transferOutlook(ride, phase, vehiclesByLeg, transfers, nowMs) {
 // The outlook line: "Then Orange Line toward Forest Hills 7:31am · 4 min to spare" / "· tight" (under 2 min) /
 // "(missed 7:31am)" after a re-plan (`ride.missed`) / "No connection after 7:26am".
 // `transfer`: in the transfer, under the "Orange in 4 min" headline: "Toward Forest Hills · 4 min to spare".
+// `warn`: amber (tight) or red (`late`: missed, none).
 export function outlookText(outlook, ride, nowMs, { transfer = false } = {}) {
   if (!outlook) return null;
-  if (outlook.none) return { text: `No connection after ${formatTime(outlook.needed, nowMs)}`, warn: true };
+  if (outlook.none) return { text: `No connection after ${formatTime(outlook.needed, nowMs)}`, warn: true, late: true };
   const leg = outlook.legs[outlook.leg];
   const head = transfer ? towardOnly(leg) : `Then ${lineToward(leg)} at ${legTime(leg, leg.dep, nowMs)}`;
   const missed = outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null);
-  if (missed != null) return { text: `${head} (missed ${formatTime(missed, nowMs)})`, warn: true };
-  if (outlook.margin < 2 * MIN) return { text: `${head} · tight`, warn: true };
-  return { text: `${head} · ${formatCountdown(outlook.margin)} to spare`, warn: false };
+  if (missed != null) return { text: `${head} (missed ${formatTime(missed, nowMs)})`, warn: true, late: true };
+  if (outlook.margin < 2 * MIN) return { text: `${head} · tight`, warn: true, late: false };
+  return { text: `${head} · ${formatCountdown(outlook.margin)} to spare`, warn: false, late: false };
 }
 
 // How far back "Show previous rides" and "On a different train?" look.
@@ -2411,14 +2412,16 @@ export function enRouteStatus(state, nowMs) {
   return `Walking · at the stop ~${formatTime(state.atStop, nowMs)}`;
 }
 
-// green until 3 min before leave-by, amber until leave-by, red ("Hurry") until the last chance,
-// then gray ("Missed") until MISSED_MINUTES after the first vehicle departs.
+// green until 3 min before leave-by, amber until leave-by, then 'hurry' until the last chance
+// (amber, "Departs in", counting to the first departure; 'red' "Hurry · 5 min" until 2026-11-08),
+// then 'missed' (red "Departs in" until the vehicle leaves, then gray "Missed · left") until
+// MISSED_MINUTES after the first vehicle departs.
 export function countdownState(nowMs, leaveBy, lastChance, firstDep) {
   if (nowMs >= lastChance) return nowMs < firstDep + MISSED_MINUTES * MIN ? 'missed' : 'hidden';
   if (leaveBy == null) return 'none';
   if (nowMs < leaveBy - 3 * MIN) return 'green';
   if (nowMs < leaveBy) return 'amber';
-  return 'red';
+  return 'hurry';
 }
 
 // Today's rows first; remaining slots filled from the next service day.
@@ -2535,7 +2538,10 @@ export function islandLabel(leg) {
 // (transferOutlook) carries the server's re-planned legs; `stops`:
 // rideStops() for the leg being ridden, or null. Times are Unix seconds (ActivityKit would read a
 // pushed Date as seconds since 2001). `until` is the countdown's end (0: none), `stops` the stops
-// left (-1: unknown), `warn` the amber style (a missed or no connection), `legs` the progress bar.
+// left (-1: unknown), `warn` the amber style (a missed or no connection; kept for older builds),
+// `late` (the build after 54) red instead: the headline and the note (a late walk, past the last
+// chance, a missed or no connection), `nextLate` the "No connection after" line red; `legs` the
+// progress bar. `phase` 'gone' is shown muted by the build after 54 (`warn` stays for older ones).
 // `soon`: the countdown is in its last LIVE_SOON_MS: the card shows "<1 minute" (iOS counts down
 // whole minutes by itself but can't say "<1 minute"; the times aren't accurate to the second
 // anyway). Set early enough for the server's next poll to deliver it before "0 minutes".
@@ -2546,7 +2552,7 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
   const t = ms => formatTime(ms, nowMs);
   const eta = legs[legs.length - 1].arr + walkAfter * MIN;
   const out = {
-    phase: phase.kind, warn: false, color: '', label: '', title: '', until: 0, stops: -1, sub: '', next: '',
+    phase: phase.kind, warn: false, late: false, nextLate: false, color: '', label: '', title: '', until: 0, stops: -1, sub: '', next: '',
     legs: legs.map(l => ({ color: l.color ?? '', dep: sec(l.dep), arr: sec(l.arr) })),
   };
   const withLeg = leg => Object.assign(out, { color: leg.color ?? '', label: islandLabel(leg) });
@@ -2554,7 +2560,10 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
     const o = outlookText(outlook, ride, nowMs);
     const missed = outlook?.missedDep != null || (outlook && ride.missed?.leg === outlook.leg);
     // `nextWarn`: the line itself amber ("· tight", missed, none; builds before it: white).
-    if (o) { out.next = o.text; out.nextWarn = o.warn; out.warn = !!(outlook.none || missed); } else out.next = `Arrive ~${t(eta)}`;
+    if (o) {
+      out.next = o.text; out.nextWarn = o.warn; out.warn = !!(outlook.none || missed);
+      out.late = !!(outlook.none || missed); // `nextLate`: rideCardFields
+    } else out.next = `Arrive ~${t(eta)}`;
   };
   // The leave card's layout (2026-10-31; CLAUDE.md "UI rules"): see rideCardFields.
   const fields = rideCardFields(ride, legs, phase, stops, outlook, eta, nowMs);
@@ -2576,7 +2585,7 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
       const leg = legs[phase.leg];
       withLeg(leg);
       if (outlook?.none) {
-        Object.assign(out, { warn: true, title: `No connection after ${t(outlook.needed)}`, next: 'Open the app for another way.' });
+        Object.assign(out, { warn: true, late: true, title: `No connection after ${t(outlook.needed)}`, next: 'Open the app for another way.' });
         break;
       }
       const missed = outlook?.missedDep ?? (ride.missed?.leg === phase.leg ? ride.missed.dep : null);
@@ -2588,6 +2597,7 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
       const tight = missed == null && outlook && outlook.margin < 2 * MIN;
       if (missed == null && outlook) out.sub += tight ? ' · tight' : ` · ${formatCountdown(outlook.margin)} to spare`;
       out.warn = missed != null || !!tight;
+      out.late = missed != null; // red; tight stays amber
       out.next = `Arrive ~${t(eta)}`;
       break;
     }
@@ -2609,14 +2619,14 @@ export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs)
 // `headsign`) with the trip's arrival (`right`); while riding, `dropOff` in the headsign's place
 // ("to Malden Center"; the arrival then on the third line); `note` (the transfer's spare); the
 // connection (`then`, `thenText`, `nextWarn`, `thenState`): "then ● Bus 132 at 6:38pm", the time
-// amber when tight, red when missed; the
+// amber when tight, red when missed; "No connection after 6:31pm" red with `nextLate`; the
 // compact island's `emoji` and `islandText` ("5 stops", "next", "here"; '' for the countdown).
 function rideCardFields(ride, legs, phase, stops, outlook, eta, nowMs) {
   const t = ms => formatTime(ms, nowMs);
   const arrive = `arrive ${legs.some(l => l.every) ? '~' : ''}${t(eta)}`;
   const out = {
     head: '', countTo: 0, countAfter: false, headTime: '', long: '', headsign: '', right: '', note: '', emoji: '', islandText: '',
-    then: [], thenText: '', thenState: '', nextWarn: false, dropOff: '',
+    then: [], thenText: '', thenState: '', nextWarn: false, nextLate: false, dropOff: '',
   };
   const line = (leg, long) => Object.assign(out, { long, headsign: leg.headsign ?? '', right: arrive, emoji: modeEmoji(leg) });
   const missedDep = outlook && (outlook.missedDep ?? (ride.missed?.leg === outlook.leg ? ride.missed.dep : null));
@@ -2637,7 +2647,7 @@ function rideCardFields(ride, legs, phase, stops, outlook, eta, nowMs) {
       else if (n) Object.assign(out, { head: `Get off in ${stopCountText(n)}`, countTo: Math.round(leg.arr / 1000), countAfter: true, islandText: stopCountText(n) });
       else Object.assign(out, { head: 'Get off in', countTo: Math.round(leg.arr / 1000) });
       out.note = trainAlert(leg);
-      if (outlook?.none) Object.assign(out, { thenText: `No connection after ${t(outlook.needed)}`, nextWarn: true });
+      if (outlook?.none) Object.assign(out, { thenText: `No connection after ${t(outlook.needed)}`, nextWarn: true, nextLate: true });
       else if (outlook) {
         const next = outlook.legs[outlook.leg];
         const at = legTime(next, next.dep, nowMs);
@@ -2710,7 +2720,7 @@ export const WALK_EMOJI = '🚶';
 function leaveCardBase(row, nowMs) {
   const first = row.legs[0];
   return {
-    phase: '', warn: false, color: first.color ?? '', label: islandLabel(first), title: '', until: 0, stops: -1,
+    phase: '', warn: false, late: false, color: first.color ?? '', label: islandLabel(first), title: '', until: 0, stops: -1,
     sub: lineToward(first), next: '', legs: row.legs.map(l => ({ color: l.color ?? '', dep: Math.round(l.dep / 1000), arr: Math.round(l.arr / 1000) })),
     island: '', join: ' ',
     head: '', countTo: 0, headTime: '', long: withTrack(first), headsign: first.headsign ?? '', right: '', note: '', emoji: '',
@@ -2731,7 +2741,9 @@ const departsHead = (row, nowMs) => ({
   head: 'Departs in', countTo: Math.round(row.firstDep / 1000), headTime: legTime(row.legs[0], row.firstDep, nowMs),
   right: `arrive ${etaTime(row, nowMs)}`, emoji: modeEmoji(row.legs[0]), note: trainAlert(row.legs[0]),
 });
-// `was`: the leave-by last notified before it moved (amber until the next change).
+// `was`: the leave-by last notified before it moved (amber until the next change). `warn`: amber
+// (moved, past the leave-by); `late` (the build after 54): red, past the last chance ('departs').
+// 'gone' keeps `warn` for older builds; the build after 54 shows it muted by phase.
 export function leaveActivityState(row, nowMs, { was = null } = {}) {
   const t = ms => formatTime(ms, nowMs);
   const sec = ms => Math.round(ms / 1000);
@@ -2761,7 +2773,7 @@ export function leaveActivityState(row, nowMs, { was = null } = {}) {
       });
       break;
     case 'departs':
-      Object.assign(out, { phase: 'departs', title: 'Departs in', until: sec(row.firstDep), warn: true, island: 'Departs', sub: firstVehicleLine(row, nowMs), next: `Arrive ${etaTime(row, nowMs)}`, ...departsHead(row, nowMs) });
+      Object.assign(out, { phase: 'departs', title: 'Departs in', until: sec(row.firstDep), warn: true, late: true, island: 'Departs', sub: firstVehicleLine(row, nowMs), next: `Arrive ${etaTime(row, nowMs)}`, ...departsHead(row, nowMs) });
       break;
     default: {
       const first = row.legs[0];
@@ -2775,7 +2787,7 @@ export function leaveActivityState(row, nowMs, { was = null } = {}) {
 export function leaveCancelledState(last) {
   const base = last ?? { color: '', label: '', stops: -1, legs: [] };
   return {
-    ...base, phase: 'cancelled', title: 'Ride cancelled', sub: '', next: 'Open the app for the next one.', until: 0, warn: false, soon: false, island: '', join: ' · ',
+    ...base, phase: 'cancelled', title: 'Ride cancelled', sub: '', next: 'Open the app for the next one.', until: 0, warn: false, late: false, nextLate: false, soon: false, island: '', join: ' · ',
     head: 'Ride cancelled', countTo: 0, headTime: '', long: '', headsign: '', right: '', note: 'Open the app for the next one.', emoji: '',
   };
 }
@@ -2789,7 +2801,7 @@ export function walkActivityState(row, enRoute, nowMs) {
   const margin = spare < 0 ? `${-spare} min late` : `${spare} min to spare`;
   const sub = enRoute.kind === 'leaving' && nowMs < enRoute.atStop ? `At the stop ~${t(enRoute.atStop)} · ${margin}` : `At the stop since ${t(enRoute.atStop)} · ${margin}`;
   Object.assign(out, {
-    phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, island: 'Departs', sub, next: `Arrive ${etaTime(row, nowMs)}`,
+    phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, late: spare < 0, island: 'Departs', sub, next: `Arrive ${etaTime(row, nowMs)}`,
     ...departsHead(row, nowMs), note: sub,
   });
   return withSoon(out, nowMs);
@@ -2940,7 +2952,8 @@ export const WIDGET_RIDE_REFRESH_MIN = 5; // while following a ride (at each sto
 // LEAVE_CARD_EARLY_MIN before), then "Departs in" until the departure (no "Leave now": the leave
 // card's wording; the app row and the push keep it), then the next row. Times follow CLAUDE.md
 // "UI rules": the leave-by, then from the leave-by on the departure (`line` "Bus 132 → Malden at
-// 7:48am", `rowTime` the first row's time, amber), counted down to. `head`: the countdown ("Leave
+// 7:48am", `rowTime` the first row's time, amber; red with `late` past the last chance), counted
+// down to. `head`: the countdown ("Leave
 // in 9 min", "Leave in 1h 06m" an hour+ out, "Departs in 4 min"), `headTime` the time beside it
 // ("12:17am" the leave-by, "12:20am" the departure past it; '' with no row). Times carry no
 // weekday ("Leave 5:57am" late at night, "arrive 12:08am"). Per row `long` ("Orange Line"),
@@ -2967,9 +2980,9 @@ export function widgetView(tripName, rows, nowMs, follow = null) {
     };
   });
   const view = { name: tripName ?? '', rows: lines, entries: [], end: null, refresh: sec(nowMs + WIDGET_REFRESH_MIN * MIN) };
-  const empty = (title, next = '') => ({ row: -1, title, count: '', headTime: '', warn: false, next });
+  const empty = (title, next = '') => ({ row: -1, title, count: '', headTime: '', warn: false, late: false, next });
   if (tripName == null) { view.entries.push({ at: sec(nowMs), ...empty('Plan a trip in T-Minus') }); return view; }
-  const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, ...e });
+  const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, late: false, ...e });
   // One entry a minute from `from` until `until`, counting down to `to`.
   const countdown = (from, until, to, i, make) => {
     for (let at = from; at < until && at < horizon;) {
@@ -2984,12 +2997,16 @@ export function widgetView(tripName, rows, nowMs, follow = null) {
     if (start >= horizon) return;
     const L = lines[i];
     const leave = `Leave ${t(r.leaveBy)}`;
-    const late = { warn: true, next: L.arriveTitle, line: `${L.line} at ${deps[i]}`, rowTime: deps[i] };
+    const past = { warn: true, next: L.arriveTitle, line: `${L.line} at ${deps[i]}`, rowTime: deps[i] };
     const countFrom = r.leaveBy - LEAVE_CARD_EARLY_MIN * MIN + 1000; // from "in 59 min"
     if (r.nextDay && start < countFrom) add(start, i, { ...empty('No more today', `First ${formatTime(r.leaveBy)}`), row: -1 });
     else countdown(start, countFrom, r.leaveBy, i, count => ({ title: leave, count: '', head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle }));
     countdown(Math.max(start, countFrom), r.leaveBy, r.leaveBy, i, count => ({ title: leave, count, head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle }));
-    countdown(Math.max(start, r.leaveBy), r.firstDep, r.firstDep, i, count => ({ ...late, title: 'Departs', count, head: `Departs ${count}`, headTime: deps[i] }));
+    // Amber until the last chance, then red (`late`, the build after 54; `warn` stays for older ones).
+    const departs = extra => count => ({ ...past, ...extra, title: 'Departs', count, head: `Departs ${count}`, headTime: deps[i] });
+    const lastChance = Math.min(Math.max(r.lastChance, r.leaveBy), r.firstDep);
+    countdown(Math.max(start, r.leaveBy), lastChance, r.firstDep, i, departs({}));
+    countdown(Math.max(start, lastChance), r.firstDep, r.firstDep, i, departs({ late: true }));
     start = Math.max(start, r.firstDep);
     end = start;
   });
@@ -3013,9 +3030,10 @@ export function widgetView(tripName, rows, nowMs, follow = null) {
 // leg ridden then). Each entry: `head` (with the countdown: "Departs in 6 min", "Get off in 5
 // stops"), `headTime` ("6:15pm", or the countdown after a stop count: "9 min"), `long`,
 // `headsign` (riding: `dropOff` instead), `color`, `arrive` (the trip's), `note` (amber with
-// `warn`), `then` / `thenText` (amber with `thenWarn`, the time red with `thenState` 'missed';
-// the small size's arrival too). The headline is amber with `warn` (late,
-// a tight or missed transfer; not while riding: the connection line says it). `end`: the ride's
+// `warn`, red with `late`), `then` / `thenText` (amber with `thenWarn`, the time red with
+// `thenState` 'missed', the whole line red with `thenLate`: no connection; the small size's
+// arrival too). The headline is amber with `warn` (a tight transfer), red with `late` (a late
+// walk, a missed or no connection; not while riding: the connection line says it). `end`: the ride's
 // end (5 min after the arrival), the question's or the departure; `refresh`: every
 // WIDGET_RIDE_REFRESH_MIN, at each stop once 3 are left, and at each phase.
 function widgetFollowView(tripName, follow, nowMs) {
@@ -3047,7 +3065,7 @@ function widgetFollowView(tripName, follow, nowMs) {
         st = l.length ? { vehicle: l.length === 1 ? stops.vehicle : null, stops: l } : { vehicle: null, stops: stops.stops.slice(-1) };
       }
       const o = outlook && ((phase.kind === 'riding' && outlook.leg === phase.leg + 1) || (phase.kind === 'transfer' && outlook.leg === phase.leg)) ? outlook : null;
-      return { ...liveActivityState(ride, phase, st, o, walkAfter, t), ...(phase.kind === 'riding' && { warn: false }) };
+      return { ...liveActivityState(ride, phase, st, o, walkAfter, t), ...(phase.kind === 'riding' && { warn: false, late: false }) };
     };
     // Every stop once 3 are left (the count matters most at the end).
     const n = stops ? left(nowMs).length : 0;
@@ -3060,10 +3078,10 @@ function widgetFollowView(tripName, follow, nowMs) {
     const left = st.countTo > 0 && st.countTo * 1000 > t ? formatCountdown(st.countTo * 1000 - t) : '';
     const head = st.countAfter ? st.head : [st.head, left].filter(Boolean).join(' ');
     return {
-      at: sec(t), row: -1, title: head, count: '', next: '', warn: !!st.warn, head, headTime: st.countAfter ? left : st.headTime ?? '',
+      at: sec(t), row: -1, title: head, count: '', next: '', warn: !!st.warn, late: !!st.late, head, headTime: st.countAfter ? left : st.headTime ?? '',
       long: st.long ?? '', headsign: st.headsign ?? '', color: st.color ?? '', arrive: st.right ?? '', note: st.note ?? '',
       then: st.then ?? [], thenText: st.thenText ?? '', thenWarn: !!st.nextWarn, ...(st.askDep && { dep: st.askDep }),
-      ...(st.dropOff && { dropOff: st.dropOff }), ...(st.thenState && { thenState: st.thenState }),
+      ...(st.dropOff && { dropOff: st.dropOff }), ...(st.thenState && { thenState: st.thenState }), ...(st.nextLate && { thenLate: true }),
     };
   };
   for (let t = nowMs; t < until && t < horizon;) {
@@ -3255,15 +3273,15 @@ export function rowAriaLabel(countdown, at, eta, reminder = false, details = [])
 }
 
 // Headline for a departure row, given its rowState and the time left until leave-by
-// (green, amber), the last chance (red), or the first departure (missed, en route: "Departs in",
-// the vehicle is in the leg strip; 2026-11-04, was "Bus 132 in").
+// (green, amber) or the first departure (hurry, missed, en route: "Departs in", the vehicle is in
+// the leg strip; 2026-11-04, was "Bus 132 in"; hurry was "Hurry · 5 min" until 2026-11-08).
 export function countdownLabel(state, msLeft) {
   switch (state) {
+    case 'hurry':
     case 'enroute': return `Departs in ${formatCountdown(msLeft)}`;
     case 'green':
     case 'amber': return `Leave in ${formatCountdown(msLeft)}`;
-    case 'red': return `Hurry · ${formatCountdown(msLeft)}`;
-    // msLeft: until the first vehicle departs (negative once it has); the row is amber until then.
+    // msLeft: until the first vehicle departs (negative once it has); the row is red until then.
     case 'missed': return msLeft > 0 ? `Departs in ${formatCountdown(msLeft)}` : `Missed · left ${formatCountdown(-msLeft)} ago`;
     default: return 'No connection';
   }

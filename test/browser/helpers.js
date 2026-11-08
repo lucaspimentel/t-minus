@@ -151,3 +151,13 @@ export function crCommute() {
     ],
   };
 }
+
+// The computed color of a custom property ("--green") as getComputedStyle reports colors.
+export const cssColor = (page, v) => page.evaluate(v => {
+  const d = document.createElement('div');
+  d.style.color = `var(${v})`;
+  document.body.append(d);
+  const c = getComputedStyle(d).color;
+  d.remove();
+  return c;
+}, v);

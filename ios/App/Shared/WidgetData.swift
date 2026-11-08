@@ -81,6 +81,11 @@ struct WidgetView: Codable, Hashable {
         var dropOff: String? = nil   // riding (2026-11-06): "Malden Center" in the headsign's place
         var thenState: String? = nil // "tight" (the time amber), "missed" (red)
         var dep: Double? = nil       // "Did you get on?": the asked departure, for Yes / Missed it (medium)
+        // Red (2026-11-08; absent from older answers): `late` the headline and the note (past the
+        // last chance, a late walk, a missed or no connection), `thenLate` the whole connection
+        // line ("No connection after 6:31pm").
+        var late: Bool? = nil
+        var thenLate: Bool? = nil
     }
     var name: String
     var rows: [Row]

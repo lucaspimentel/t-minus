@@ -3,7 +3,7 @@
 // (leave-by 6 min earlier: 5-min walk + 1 min early at the stop), arriving 7:57, 8:28…
 // openApp waits 1 s after the first rows, hence "6 min" at 6:55 for a 7:02 leave-by.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, rowHeads, commute, CONFIG } from './helpers.js';
+import { openApp, tick, tickTo, rowHeads, commute, CONFIG, cssColor } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -76,15 +76,6 @@ test('before stop names are known, the timeline keeps its shape with "—"', asy
   await expect(first.locator('.timeline .step.stop .t')).toHaveText(['7:08am', '7:22am', '~7:32am', '~7:47am']);
 });
 
-// The computed color of a custom property ("--green") as getComputedStyle reports colors.
-const cssColor = (page, v) => page.evaluate(v => {
-  const d = document.createElement('div');
-  d.style.color = `var(${v})`;
-  document.body.append(d);
-  const c = getComputedStyle(d).color;
-  d.remove();
-  return c;
-}, v);
 
 test('only the target ride is green; later rows are neutral', async ({ page }) => {
   await openApp(page, { time: '06:55' });
@@ -104,7 +95,7 @@ test('only the target ride is green; later rows are neutral', async ({ page }) =
   await expect(second.locator('.big')).toHaveCSS('color', green);
 });
 
-test('a belled row turning amber or red shows amber or red, not green', async ({ page }) => {
+test('a belled row past its leave-by, or missed but still to leave, shows amber or red, not green', async ({ page }) => {
   await openApp(page, { time: '06:55' });
   await page.locator('.row-toggle').first().click();
   await page.getByRole('button', { name: 'Track', exact: true }).click();
@@ -114,7 +105,10 @@ test('a belled row turning amber or red shows amber or red, not green', async ({
   await expect(first).toHaveClass(/\bamber\b.*\bcatch\b.*\btracked\b/);
   await expect(first.locator('.big')).toHaveCSS('color', await cssColor(page, '--amber'));
   await tickTo(page, '07:02:30');
-  await expect(first).toHaveClass(/\bred\b/);
+  await expect(first).toHaveClass(/\bhurry\b/);
+  await expect(first.locator('.big')).toHaveCSS('color', await cssColor(page, '--amber'));
+  await tickTo(page, '07:03:30');
+  await expect(first).toHaveClass(/\bmissed\b.*\bdeparts\b/);
   await expect(first.locator('.big')).toHaveCSS('color', await cssColor(page, '--red'));
 });
 
@@ -149,7 +143,7 @@ for (const width of [390, 360]) {
   });
 }
 
-test('countdown goes green → amber → red → missed, and the missed row leaves after 5 min', async ({ page }) => {
+test('countdown goes green → amber → hurry (amber) → missed (red, then gray), and the missed row leaves after 5 min', async ({ page }) => {
   await openApp(page, { time: '06:55' });
   const first = page.locator('.row').first();
   await expect(first).toHaveClass(/\bgreen\b/);
@@ -157,19 +151,25 @@ test('countdown goes green → amber → red → missed, and the missed row leav
   await expect(first).toHaveClass(/\bamber\b/);
   await expect(first.locator('.big')).toContainText('Leave in 2 min');
   await tickTo(page, '07:02:30');
-  await expect(first).toHaveClass(/\bred\b/);
+  await expect(first).toHaveClass(/\bhurry\b/);
   // Past the leave-by: counting to the first departure, and showing it (CLAUDE.md "UI rules").
-  await expect(first.locator('.big')).toContainText('Hurry · 5 min');
+  await expect(first.locator('.big')).toContainText('Departs in 5 min');
   await expect(first.locator('.big')).toContainText('7:08am');
+  const amber = await cssColor(page, '--amber'), red = await cssColor(page, '--red');
+  await expect(first.locator('.big')).toHaveCSS('color', amber);
+  await expect(first).toHaveCSS('border-left-color', amber);
   await tickTo(page, '07:03:30');
   await expect(first).toHaveClass(/\bmissed\b/);
   await expect(first).toHaveClass(/\bdeparts\b/);
   await expect(first.locator('.big')).toContainText('Departs in 4 min');
   await expect(first.locator('.big')).toHaveCSS('font-size', '28px'); // full size while still to leave
+  await expect(first.locator('.big')).toHaveCSS('color', red);
+  await expect(first).toHaveCSS('border-left-color', red);
   await tickTo(page, '07:10');
   await expect(first.locator('.big')).toContainText('Missed · left 2 min ago');
   await expect(first).not.toHaveClass(/\bdeparts\b/);
   await expect(first.locator('.big')).toHaveCSS('font-size', '20px');
+  await expect(first.locator('.big')).toHaveCSS('color', await cssColor(page, '--muted'));
   await tickTo(page, '07:13:30');
   await expect(page.locator('.row.missed')).toHaveCount(0);
   await expect(first.locator('.big')).toContainText('7:30am');

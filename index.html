@@ -113,11 +113,11 @@
     border-radius: 12px; padding: 12px 14px;
   }
   /* Only the target (.catch: the ride the app answers with, or the belled one) is green, in every
-     mode; later reachable rows are neutral (the .row border, the text color). Amber and red keep
-     their color on any row; .catch never overrides them. */
+     mode; later reachable rows are neutral (the .row border, the text color). Amber (to the last chance)
+     and red (missed, still to leave) keep their color on any row; .catch never overrides them. */
   .row.catch.green, .row.catch.enroute { border-left-color: var(--green); }
   .row.amber { border-left-color: var(--amber); }
-  .row.red { border-left-color: var(--red); }
+  .row.hurry { border-left-color: var(--amber); }
   .big {
     display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px;
     font-size: 28px; font-weight: 700;
@@ -134,7 +134,7 @@
   .step .t, .big .at { font-variant-numeric: tabular-nums; }
   .catch.green .big, .catch.enroute .big { color: var(--green); }
   .amber .big { color: var(--amber); }
-  .red .big { color: var(--red); }
+  .hurry .big { color: var(--amber); }
   .row.missed { border-left-color: var(--muted); }
   .row.prev { border-left-color: var(--muted); }
   .row.prev + .row:not(.prev) { margin-top: 22px; } /* previous rides apart from the rest */
@@ -145,9 +145,9 @@
   }
   .list-item.pair { display: flex; gap: 8px; } /* "Show more rides" beside "Show fewer rides" */
   .missed .big { color: var(--muted); font-size: 20px; }
-  .row.missed.departs { border-left-color: var(--amber); }
+  .row.missed.departs { border-left-color: var(--red); }
   /* Still to leave (often the ride being headed for): full size; smaller once gone. */
-  .missed.departs .big { color: var(--amber); font-size: 28px; }
+  .missed.departs .big { color: var(--red); font-size: 28px; }
   .none .big { color: var(--muted); font-size: 20px; }
   .detail { color: var(--muted); font-size: 14px; }
   .dot {
@@ -180,7 +180,9 @@
   .row.ride { cursor: default; border-left-color: var(--green); }
   .row.ride.arrived { border-left-color: var(--border); }
   .row.ride.amber { border-left-color: var(--amber); }
-  .row.ride:not(.amber) .big { color: var(--green); }
+  .row.ride.red { border-left-color: var(--red); }
+  .row.ride.red .big { color: var(--red); }
+  .row.ride:not(.amber):not(.red) .big { color: var(--green); }
   .ride-head { font-size: 20px; font-weight: 700; color: var(--green); }
   .row.ride.arrived .ride-head { color: var(--text); }
   .step.current { color: var(--text); font-weight: 600; }
@@ -204,6 +206,7 @@
   .summary .bell svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .ride-outlook { margin-top: 6px; font-size: 14px; color: var(--muted); }
   .ride-outlook.warn { color: var(--amber); font-weight: 600; }
+  .ride-outlook.late { color: var(--red); }
   /* Ride card: the stops left along the ridden leg's bar (small dots), and the vehicle on it. */
   .tl-leg .step.mid::after { top: 0; bottom: 0; }
   .step.mid { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding-top: 2px; padding-bottom: 2px; }
@@ -497,7 +500,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-07 · b85651eb40</footer>
+    <footer class="version">Version 2026-11-07 · ca5ffc84a1</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -528,8 +531,8 @@ import {
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
-} from './core.js?v=9e54979b33';
-import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=2a5b3cc535';
+} from './core.js?v=1c306e45c1';
+import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=19074e7e20';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -974,13 +977,13 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   const state = prev ? 'prev' : rowState(now, r);
   if (state === 'hidden') return null;
   const tracked = pinnedKey != null && isCatch;
-  // Missed but still to leave ("Departs in 2 min"): amber until the vehicle leaves.
+  // Missed but still to leave ("Departs in 2 min"): red until the vehicle leaves.
   const departs = state === 'missed' && r.firstDep > now;
   const li = el('li', `row ${state}${departs ? ' departs' : ''}${isCatch ? ' catch' : ''}${tracked ? ' tracked' : ''}`);
   const head = el('div', 'big');
-  // The leave-by until it passes, then the first departure (CLAUDE.md "UI rules"): red, missed
+  // The leave-by until it passes, then the first departure (CLAUDE.md "UI rules"): hurry, missed
   // and en route count to/from it.
-  const firstLeg = state === 'red' || state === 'missed' || state === 'enroute' || prev;
+  const firstLeg = state === 'hurry' || state === 'missed' || state === 'enroute' || prev;
   const target = firstLeg ? r.firstDep : r.leaveBy;
   const key = prev ? `prev:${r.key}` : rowKey(r);
   const reminder = prev ? null : reminderFor(r);
@@ -1488,7 +1491,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=9e54979b33'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=1c306e45c1'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2117,15 +2120,15 @@ function announce(text) {
   $('announce').textContent = text;
 }
 
-// The first row's leave state changing (green → amber → red → missed), e.g. "Hurry · 2 min ·
-// 7:06am". A different first row (it left, or another trip) only resets the baseline.
+// The first row's leave state changing (green → amber → hurry → missed), e.g. "Departs in 5 min ·
+// 7:08am". A different first row (it left, or another trip) only resets the baseline.
 let lastLeave = null;
 function announceLeaveState(r, now) {
   if (!r) { lastLeave = null; return; }
   const state = rowState(now, r);
   const key = `${tripIdx}/${rowKey(r)}`;
   if (lastLeave?.key === key && lastLeave.state !== state) {
-    const target = state === 'red' || state === 'missed' || state === 'enroute' ? r.firstDep : r.leaveBy;
+    const target = state === 'hurry' || state === 'missed' || state === 'enroute' ? r.firstDep : r.leaveBy;
     announce(`${countdownLabel(state, target - now)} · ${formatTime(target, now)}`);
   }
   lastLeave = { key, state };
@@ -2285,9 +2288,10 @@ function renderRideCard(s, now) {
   const { phase, stops, outlook: o, walkAfter } = rideCardData(s, now);
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
   const transfer = phase.kind === 'transfer';
-  // The next connection: spare time, tight, re-planned after a miss, or none (amber card then).
+  // The next connection: spare time, tight (amber card then), re-planned after a miss, or none (red).
   const outlook = outlookText(o, ride, now, { transfer });
-  const li = el('li', `row ride${phase.kind === 'arrived' ? ' arrived' : ''}${transfer && outlook?.warn ? ' amber' : ''}`);
+  const edge = transfer && outlook?.late ? ' red' : transfer && outlook?.warn ? ' amber' : '';
+  const li = el('li', `row ride${phase.kind === 'arrived' ? ' arrived' : ''}${edge}`);
   const head = rideHeadline(phase, ride, now, stops);
   // In the transfer, a departure row's headline: "Bus 132 in 9 min" with the time on the right.
   if (transfer) {
@@ -2295,7 +2299,7 @@ function renderRideCard(s, now) {
     big.append(el('span', null, head.text), el('span', 'at', head.at));
     li.append(big);
   } else li.append(el('div', 'ride-head', head));
-  if (outlook) li.append(el('div', `ride-outlook${outlook.warn ? ' warn' : ''}`, outlook.text));
+  if (outlook) li.append(el('div', `ride-outlook${outlook.warn ? ' warn' : ''}${outlook.late ? ' late' : ''}`, outlook.text));
   // Timeline with the current step: the leg being ridden, the transfer before a leg, or the
   // final walk.
   // The timeline's legs with their trains' alerts (shown only, not kept on the ride).

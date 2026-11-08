@@ -24,6 +24,8 @@ private extension LeaveContent {
     var thenWarn: Bool { entry?.thenWarn ?? false }
     var dropOff: String { entry?.dropOff ?? "" }
     var thenState: String? { entry?.thenState }
+    var late: Bool { entry?.late ?? false }         // red (2026-11-08): too late at your pace
+    var thenLate: Bool { entry?.thenLate ?? false } // red: no connection
     var askDep: Double? { entry?.dep }
     // A countdown to show (else "No more today", "Plan a trip", "Open T-Minus").
     var isHome: Bool { entry?.head != nil }
@@ -77,13 +79,14 @@ struct LineToward: View {
 
 // Home Screen small (2026-10-29; 2026-10-31 the arrival): the countdown on two lines ("Leave in 5
 // min" / "12:17am", "Get off in 5 stops" / "9 min"), then the line, its direction and the
-// trip's arrival (amber when the connection is tight or missed: no room for its line).
+// trip's arrival (amber when the connection is tight, red when missed or none: no room for its
+// line). The headline red with `late`, amber with `warn`.
 private struct SmallHome: View {
     let content: LeaveContent
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         let th = Theme.of(scheme)
-        let tint = content.warn ? th.amber : th.text
+        let tint = content.late ? th.red : content.warn ? th.amber : th.text
         VStack(alignment: .leading, spacing: 2) {
             Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
             Text(content.entry?.head ?? "").font(.title3.weight(.bold)).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.6)
@@ -104,7 +107,7 @@ private struct SmallHome: View {
                 }
             }
             if !content.arrive.isEmpty {
-                Text(content.arrive).foregroundStyle(thenTimeColor(content.thenState, amber: th.amber, red: th.red) ?? (content.thenWarn ? th.amber : th.muted)).lineLimit(1)
+                Text(content.arrive).foregroundStyle(thenTimeColor(content.thenState, amber: th.amber, red: th.red) ?? (content.thenLate ? th.red : content.thenWarn ? th.amber : th.muted)).lineLimit(1)
             }
         }
         .font(.caption)
@@ -114,8 +117,9 @@ private struct SmallHome: View {
 
 // Home Screen medium (2026-10-29; one ride 2026-10-30; followed rides 2026-10-31): "Leave in 5 min
 // · 12:17am" (or "Get off in 5 stops · 9 min"), the line and direction in full ("→" only where
-// "toward" doesn't fit), then at the bottom the note (amber with `warn`), the connection on its
-// own line ("then ● Bus 132 6:38pm · 4 min to spare", amber when tight or missed; riding with
+// "toward" doesn't fit), then at the bottom the note (red with `late`, amber with `warn`, like the
+// headline), the connection on its own line ("then ● Bus 132 6:38pm · 4 min to spare", amber when
+// tight or missed, "No connection after 6:31pm" red with `thenLate`; riding with
 // `dropOff`, 2026-11-06: "● Bus 132 to Malden Center" and "then ● Orange at 6:38pm" beside the
 // arrival, the time amber or red), and the later
 // legs ("then ● Bus 132", when there's no connection line) with the arrival (never cut). "Did you
@@ -125,7 +129,7 @@ private struct MediumHome: View {
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         let th = Theme.of(scheme)
-        let tint = content.warn ? th.amber : th.text
+        let tint = content.late ? th.red : content.warn ? th.amber : th.text
         let time = content.entry?.headTime ?? ""
         VStack(alignment: .leading, spacing: 2) {
             Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
@@ -167,7 +171,7 @@ private struct MediumHome: View {
                 if !content.thenText.isEmpty || !content.thenLegs.isEmpty {
                     ThenLine(legs: content.thenLegs, text: content.thenText, muted: th.muted,
                              textColor: thenTimeColor(content.thenState, amber: th.amber, red: th.red))
-                        .foregroundStyle(content.thenWarn && content.thenState == nil ? th.amber : th.text)
+                        .foregroundStyle(content.thenWarn && content.thenState == nil ? (content.thenLate ? th.red : th.amber) : th.text)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text(content.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize()
                 } else {
@@ -181,7 +185,7 @@ private struct MediumHome: View {
 
     @ViewBuilder private func legacyBottom(_ th: Theme) -> some View {
         if !content.thenText.isEmpty {
-            ThenLine(legs: content.thenLegs, text: content.thenText, muted: th.muted).foregroundStyle(content.thenWarn ? th.amber : th.text)
+            ThenLine(legs: content.thenLegs, text: content.thenText, muted: th.muted).foregroundStyle(content.thenWarn ? (content.thenLate ? th.red : th.amber) : th.text)
         }
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Group {

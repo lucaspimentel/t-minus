@@ -3,7 +3,7 @@
 // Timeline used below (home to office): bus 132 7:08 → 7:22 (via Pond St 7:12), 5-min
 // transfer, Orange 7:32 → 7:47 (every 6 min), 10-min walk → arrive 7:57.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding, CONFIG } from './helpers.js';
+import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding, CONFIG, cssColor } from './helpers.js';
 import { series } from './fake-mbta.js';
 
 test.beforeEach(({ page }) => {
@@ -87,6 +87,7 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await transferHead(page, '~7:32am');
   await expect(card(page).locator('.ride-outlook')).toHaveText('Toward Forest Hills · 5 min to spare');
   await expect(card(page)).not.toHaveClass(/amber/);
+  await expect(card(page)).not.toHaveClass(/\bred\b/);
   // The bus leg is done; the transfer and the Orange boarding stop are current.
   expect(await cls(tl.locator('.step'))).toEqual(['done', 'done', 'done', 'current', 'current', '', '', '', '']);
   await tickTo(page, '07:33');
@@ -129,17 +130,25 @@ test('a bus running late: under the transfer time is tight; leaving before the a
   await offAt(page, '7:30am');
   await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills at ~7:32am · tight');
   await expect(card(page).locator('.ride-outlook')).toHaveClass(/warn/);
+  await expect(card(page).locator('.ride-outlook')).not.toHaveClass(/late/);
+  await expect(card(page).locator('.ride-outlook')).toHaveCSS('color', await cssColor(page, '--amber'));
   // 11 min late: off at 7:33, after the 7:32 leaves: re-planned from 7:38 (7:33 + 5).
   bus.live = { delay: 11, stops: ['5991'] };
   await tickTo(page, '07:12');
   await offAt(page, '7:33am');
   await expect(card(page).locator('.ride-outlook')).toHaveText('Then Orange Line toward Forest Hills at ~7:38am (missed 7:32am)');
-  await expect(card(page).locator('.ride-outlook')).toHaveClass(/warn/);
-  // In the transfer: the countdown to the re-planned train, the card amber.
+  await expect(card(page).locator('.ride-outlook')).toHaveClass(/\blate\b/);
+  const red = await cssColor(page, '--red');
+  await expect(card(page).locator('.ride-outlook')).toHaveCSS('color', red);
+  // In the transfer: the countdown to the re-planned train, the card red (missed; tight is amber).
   await tickTo(page, '07:34');
   await transferHead(page, '~7:38am');
   await expect(card(page).locator('.ride-outlook')).toHaveText('Toward Forest Hills (missed 7:32am)');
-  await expect(card(page)).toHaveClass(/amber/);
+  await expect(card(page)).toHaveClass(/\bred\b/);
+  await expect(card(page)).not.toHaveClass(/amber/);
+  await expect(card(page)).toHaveCSS('border-left-color', red);
+  await expect(card(page).locator('.big')).toHaveCSS('color', red);
+  await expect(card(page).locator('.ride-outlook')).toHaveCSS('color', red);
 });
 
 // The 7:08 bus running 8 min late at every stop: leaves Main St at 7:16, off at 7:30. Once it

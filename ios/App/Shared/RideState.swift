@@ -11,8 +11,8 @@ struct RideState: Codable, Hashable {
         var arr: Double
     }
 
-    var phase: String   // riding, transfer, walking, arrived; leave, now, departs, gone, cancelled, walk
-    var warn: Bool      // a missed or no connection (amber)
+    var phase: String   // riding, transfer, walking, arrived; leave, now, departs, gone (shown muted), cancelled, walk
+    var warn: Bool      // amber: at risk (older builds: also a missed or no connection, past the last chance, gone)
     var color: String   // the route's hex color, "" for none
     var label: String   // the Dynamic Island's route label ("OL", "132", "🚶")
     var title: String
@@ -56,6 +56,11 @@ struct RideState: Codable, Hashable {
     // amber when `thenState` is "tight", red when "missed". Absent from older servers.
     var dropOff: String? = nil
     var thenState: String? = nil
+    // Red (2026-11-08; absent from older servers): `late` the headline and the note (too late at
+    // your pace: past the last chance, a late walk, a missed or no connection; `warn` is set too,
+    // for older builds), `nextLate` the whole "No connection after 6:31pm" line.
+    var late: Bool? = nil
+    var nextLate: Bool? = nil
     // "Did you get on?" (2026-10-31): the asked departure (Unix seconds) for the Yes / Missed it
     // links (answerURL), in place of the legs bar.
     var askDep: Double? = nil

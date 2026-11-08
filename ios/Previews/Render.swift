@@ -18,12 +18,13 @@ private let trip = legs((orange, -8, 6), (bus, 14, 44)) // 14 and 30 min: propor
 private func ride(_ phase: String, _ head: String, countTo: Double = 0, after: Bool = false, time: String = "", warn: Bool = false,
                   long: String = "Orange Line", headsign: String = "Oak Grove", color: String = orange, right: String = "arrive 7:21pm", note: String = "",
                   then: [(String, String)] = [], thenText: String = "", nextWarn: Bool = false, emoji: String = "🚇", island: String = "",
-                  dropOff: String = "", thenState: String = "", legs: [RideState.Leg] = trip) -> RideState {
+                  dropOff: String = "", thenState: String = "", legs: [RideState.Leg] = trip, late: Bool = false, nextLate: Bool = false) -> RideState {
     var st = RideState(phase: phase, warn: warn, color: color, label: color == bus ? "132" : color.isEmpty ? "" : "OL", title: head, until: countTo, stops: -1,
                        sub: "", next: "", legs: legs, soon: false, nextWarn: nextWarn)
     st.head = head; st.countTo = countTo; st.countAfter = after; st.headTime = time; st.long = long; st.headsign = headsign; st.right = right
     st.note = note; st.emoji = emoji; st.islandText = island; st.then = then.map { RideState.ThenLeg(label: $0.0, color: $0.1) }; st.thenText = thenText
     if !dropOff.isEmpty { st.dropOff = dropOff; st.headsign = ""; st.thenState = thenState }
+    st.late = late; st.nextLate = nextLate
     return st
 }
 private let busNext = [("Bus 132", bus)]
@@ -35,7 +36,7 @@ private let samples: [(String, RideState)] = [
     ("Riding, tight connection", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, then: busNext, thenText: "at 6:38pm", nextWarn: true, island: "5 stops",
                                       dropOff: "Oak Grove", thenState: "tight")),
     ("Riding, missed connection", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, warn: true, right: "arrive 7:41pm", then: busNext,
-                                       thenText: "at 6:58pm", nextWarn: true, island: "5 stops", dropOff: "Oak Grove", thenState: "missed")),
+                                       thenText: "at 6:58pm", nextWarn: true, island: "5 stops", dropOff: "Oak Grove", thenState: "missed", late: true)),
     ("Next stop", ride("riding", "Get off next stop", countTo: now + 120, after: true, then: busNext, thenText: "at 6:38pm", island: "next", dropOff: "Oak Grove")),
     ("Get off here", ride("riding", "Get off here", then: busNext, thenText: "at 6:38pm", island: "here", dropOff: "Oak Grove")),
     ("Riding, last leg, long stop name", ride("riding", "Get off in 9 stops", countTo: now + 840, after: true, long: "Bus 132", color: bus, right: "arrive 6:52pm", emoji: "🚌",
@@ -48,21 +49,25 @@ private let samples: [(String, RideState)] = [
     ("Transfer, tight", ride("transfer", "Bus 132 in", countTo: now + 120, time: "6:38pm", warn: true, long: "Bus 132", headsign: "Redstone", color: bus, note: "tight",
                              emoji: "🚌", legs: atTransfer)),
     ("Missed connection", ride("transfer", "Bus 132 in", countTo: now + 420, time: "6:58pm", warn: true, long: "Bus 132", headsign: "Redstone", color: bus,
-                               right: "arrive 7:41pm", note: "Missed the 6:38pm", emoji: "🚌", legs: atTransfer)),
+                               right: "arrive 7:41pm", note: "Missed the 6:38pm", emoji: "🚌", legs: atTransfer, late: true)),
     ("No connection", ride("transfer", "No connection after 6:31pm", warn: true, long: "", color: bus, right: "", note: "Open the app for another way.", emoji: "",
-                           legs: atTransfer)),
+                           legs: atTransfer, late: true)),
     ("Walking", ride("walking", "Arrive in", countTo: now + 300, time: "7:21pm", long: "", color: "", right: "", emoji: "🚶", legs: legs((orange, -30, -16), (bus, -12, -1)))),
     ("Arrived", ride("arrived", "Arrived", time: "7:21pm", long: "", color: "", right: "", emoji: "", legs: legs((orange, -30, -16), (bus, -12, -4)))),
+    // 2026-11-08: no connection ahead: the whole line red (`nextLate`), the headline plain.
+    ("Riding, no connection", ride("riding", "Get off in 5 stops", countTo: now + 540, after: true, warn: true, thenText: "No connection after 6:31pm", nextWarn: true,
+                                   island: "5 stops", dropOff: "Oak Grove", late: true, nextLate: true)),
 ]
 
 // Leave cards (Phase 3a; the layout of 2026-10-29): Home to office, the 7:48 bus 132.
 private let ahead = legs((bus, 9, 23), (orange, 27, 36))
 private func leave(_ phase: String, _ head: String, countTo: Double = 0, time: String = "", warn: Bool = false, right: String = "arrive 8:25am",
-                   note: String = "", emoji: String = "🚶", island: String = "", long: String = "Bus 132", soon: Bool = false) -> RideState {
+                   note: String = "", emoji: String = "🚶", island: String = "", long: String = "Bus 132", soon: Bool = false, late: Bool = false) -> RideState {
     var st = RideState(phase: phase, warn: warn, color: bus, label: "132", title: head, until: countTo, stops: -1, sub: "", next: "", legs: ahead,
                        soon: soon, island: island, join: " ")
     st.head = head; st.countTo = countTo; st.headTime = time; st.long = long; st.headsign = long.isEmpty ? "" : "Malden"
     st.right = right; st.note = note; st.emoji = emoji; st.then = long.isEmpty ? [] : [RideState.ThenLeg(label: "Orange", color: orange)]
+    st.late = late
     return st
 }
 private let leaveSamples: [(String, RideState)] = [
@@ -72,10 +77,11 @@ private let leaveSamples: [(String, RideState)] = [
     ("Leave in 28 min", leave("leave", "Leave in", countTo: now + 28 * 60 + 30, time: "7:58am", right: "arrive 8:44am")),
     ("Leave in <1 minute", leave("leave", "Leave in", countTo: now + 50, time: "7:39am", soon: true)),
     ("Past the leave-by", leave("now", "Departs in", countTo: now + 420, time: "7:48am", warn: true, emoji: "🚌")),
-    ("Departs in (subway)", { var st = leave("departs", "Departs in", countTo: now + 120, time: "7:48am", warn: true, emoji: "🚇", long: "Orange Line")
+    // 2026-11-08: amber to the last chance ("now"), red past it ("departs", `late`), muted once gone.
+    ("Departs in (subway), too late", { var st = leave("departs", "Departs in", countTo: now + 120, time: "7:48am", warn: true, emoji: "🚇", long: "Orange Line", late: true)
         st.color = orange; st.label = "OL"; st.headsign = "Forest Hills"; return st }()),
     ("Walk card", leave("walk", "Departs in", countTo: now + 360, time: "7:48am", note: "At the stop ~7:45am · 3 min to spare", emoji: "🚌")),
-    ("Walk card, late", leave("walk", "Departs in", countTo: now + 120, time: "7:48am", warn: true, note: "At the stop ~7:50am · 2 min late", emoji: "🚌")),
+    ("Walk card, late", leave("walk", "Departs in", countTo: now + 120, time: "7:48am", warn: true, note: "At the stop ~7:50am · 2 min late", emoji: "🚌", late: true)),
     ("Did you get on? (at the departure; Yes / Missed it)", { var st = leave("ask", "Did you get on?", time: "left 7:48am", emoji: "", island: "Got on?")
         st.askDep = now - 60; return st }()),
     ("Missed (the end)", leave("gone", "Missed · left 7:48am", warn: true, right: "", emoji: "")),
@@ -169,7 +175,9 @@ private struct Sheet: View {
             }
             Dimmed(tripName: "Office → Home", list: rideDimmed)
             Text("Dynamic Island: compact (riding, next stop, here, no stop list, transfer, walking), expanded, minimal").font(.caption).foregroundStyle(.white)
-            ForEach([samples[0].1, samples[3].1, samples[4].1, samples[5].1, samples[6].1, samples[10].1], id: \.self) { state in
+            // Then the leave cards past the leave-by: amber, red too late, red walking late.
+            ForEach([samples[0].1, samples[3].1, samples[4].1, samples[5].1, samples[6].1, samples[10].1,
+                     leaveSamples[5].1, leaveSamples[6].1, leaveSamples[8].1], id: \.self) { state in
                 HStack { IslandLeading(state: state); Spacer(); IslandTrailing(state: state) }
                     .padding(.horizontal, 14).frame(width: 250, height: 37)
                     .background(.black).clipShape(Capsule()).foregroundStyle(.white)
@@ -202,22 +210,24 @@ private func hrow(_ time: String, _ arrive: String, long: String, short: String,
     WidgetView.Row(time: time, vehicle: short, short: short, color: color, label: label, line: short, arrive: "arrive \(arrive)", arriveTitle: "Arrive \(arrive)",
                    long: long, headsign: headsign, then: then.map { WidgetView.Row.Leg(label: $0.0, color: $0.1) })
 }
-private func hent(_ head: String, _ headTime: String, warn: Bool = false) -> WidgetView.Entry {
-    WidgetView.Entry(at: 0, row: 0, title: head, count: "", warn: warn, next: "", head: head, headTime: headTime)
+private func hent(_ head: String, _ headTime: String, warn: Bool = false, late: Bool = false) -> WidgetView.Entry {
+    var e = WidgetView.Entry(at: 0, row: 0, title: head, count: "", warn: warn, next: "", head: head, headTime: headTime)
+    e.late = late
+    return e
 }
 // A followed ride (2026-10-31): the entry's own line, arrival, note and connection.
 private func fent(_ head: String, _ headTime: String = "", warn: Bool = false, long: String = "Orange Line", headsign: String = "Oak Grove", color: String = orange,
                   arrive: String = "arrive 7:21pm", note: String = "", then: [(String, String)] = [("Bus 132", bus)], thenText: String = "", thenWarn: Bool = false,
-                  dep: Double? = nil, dropOff: String? = nil, thenState: String? = nil) -> LeaveContent {
+                  dep: Double? = nil, dropOff: String? = nil, thenState: String? = nil, late: Bool = false, thenLate: Bool = false) -> LeaveContent {
     var e = WidgetView.Entry(at: 0, row: -1, title: head, count: "", warn: warn, next: "", head: head, headTime: headTime)
     e.long = long; e.headsign = dropOff == nil ? headsign : ""; e.color = color; e.arrive = arrive; e.note = note
     e.then = then.map { RideState.ThenLeg(label: $0.0, color: $0.1) }; e.thenText = thenText; e.thenWarn = thenWarn; e.dep = dep
-    e.dropOff = dropOff; e.thenState = thenState
+    e.dropOff = dropOff; e.thenState = thenState; e.late = late; e.thenLate = thenLate
     return LeaveContent(name: "Office → Home", entry: e, rows: [])
 }
 private let followSamples: [(String, LeaveContent)] = [
     ("Walking to the stop", fent("Departs in 6 min", "6:15pm", note: "At the stop ~6:13pm · 2 min to spare")),
-    ("Walking, late", fent("Departs in 3 min", "6:15pm", warn: true, note: "At the stop ~6:17pm · 2 min late")),
+    ("Walking, late", fent("Departs in 3 min", "6:15pm", warn: true, note: "At the stop ~6:17pm · 2 min late", late: true)),
     ("Did you get on? (Yes / Missed it on medium)", fent("Did you get on?", "left 6:15pm", dep: now - 60)),
     ("Riding", fent("Get off in 5 stops", "9 min", thenText: "at 6:38pm", dropOff: "Oak Grove")),
     ("Riding, tight", fent("Get off in 5 stops", "9 min", thenText: "at 6:38pm", thenWarn: true, dropOff: "Oak Grove", thenState: "tight")),
@@ -230,6 +240,9 @@ private let followSamples: [(String, LeaveContent)] = [
     ("Transfer, tight", fent("Bus 132 in 2 min", "6:38pm", warn: true, long: "Bus 132", headsign: "Redstone", color: bus, note: "tight", then: [])),
     ("Walking to the destination", fent("Arrive in 5 min", "7:21pm", long: "", headsign: "", color: "", arrive: "", then: [])),
     ("Arrived", fent("Arrived", "7:21pm", long: "", headsign: "", color: "", arrive: "", then: [])),
+    ("Riding, no connection", fent("Get off in 5 stops", "9 min", then: [], thenText: "No connection after 6:31pm", thenWarn: true, dropOff: "Oak Grove", thenLate: true)),
+    ("Missed connection", fent("Bus 132 in 7 min", "6:58pm", warn: true, long: "Bus 132", headsign: "Redstone", color: bus, arrive: "arrive 7:41pm",
+                               note: "Missed the 6:38pm", then: [], late: true)),
 ]
 private let ol = { (t: String, a: String) in hrow(t, a, long: "Orange Line", short: "Orange", headsign: "Forest Hills", color: orange, label: "OL") }
 private let rl = { (t: String, a: String, h: String) in hrow(t, a, long: "Red Line", short: "Red", headsign: h, color: "DA291C", label: "RL") }
@@ -239,6 +252,7 @@ private let orangeRows = [hrow("6:33pm", "7:21pm", long: "Orange Line", short: "
 private let homeSamples: [(String, LeaveContent)] = [
     ("Leave in (two legs)", LeaveContent(name: "Office → Home", entry: hent("Leave in 17 min", "6:33pm"), rows: orangeRows)),
     ("Departs", LeaveContent(name: "Office → Home", entry: hent("Departs in 7 min", "6:43pm", warn: true), rows: orangeRows)),
+    ("Departs, too late", LeaveContent(name: "Office → Home", entry: hent("Departs in 2 min", "6:43pm", warn: true, late: true), rows: orangeRows)),
     ("Widest countdown", LeaveContent(name: "Office → Home", entry: hent("Leave in 59 min", "6:33pm"), rows: orangeRows)),
     ("Three legs", LeaveContent(name: "Home → Airport", entry: hent("Leave in 9 min", "7:42am"),
         rows: [hrow("7:42am", "8:51am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132",
