@@ -66,3 +66,22 @@ test('areas, label points, names', () => {
   assert.equal(titleCase('NORTH READING'), 'North Reading');
   assert.equal(titleCase('BOSTON'), 'Boston');
 });
+
+// The committed file (scripts/build-basemap.mjs, 2026-11-08): Massachusetts towns across
+// commuter rail's reach, not only the bus service area.
+test('basemap.json: town borders, names and coastline outside the detailed area', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { decodePolyline } = await import('../core.js');
+  const base = JSON.parse(readFileSync(new URL('../basemap.json', import.meta.url), 'utf8'));
+  const [w, s, e, n] = base.detail;
+  const outside = ({ lat, lon }) => lat > n || lat < s || lon > e || lon < w;
+  const names = new Map(base.names.map(x => [x.n, x]));
+  for (const town of ['Gloucester', 'Newburyport', 'Worcester', 'Fitchburg', 'Fall River', 'Attleboro', 'Plymouth']) {
+    assert.ok(names.has(town) && outside(names.get(town)) && names.get(town).k === 't', town);
+  }
+  assert.ok(names.has('Malden') && !outside(names.get('Malden'))); // the detailed area's, still there
+  const pts = list => list.flatMap(decodePolyline);
+  assert.ok(pts(base.towns).some(p => p.lat > n + 0.1), 'borders north of the detailed area');
+  assert.ok(pts(base.coarse).some(p => p.lat > 42.6 && p.lon > -70.7), 'Cape Ann land');
+  assert.equal(new Set(base.names.map(x => `${x.k}:${x.n}`)).size, base.names.length); // one name per town
+});

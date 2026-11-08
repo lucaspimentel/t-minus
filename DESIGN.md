@@ -587,18 +587,22 @@ maps (the sheet, the planner's options, the trip editor).
   separates them; rechecked on every pan and zoom. Names sit under the trip (not moved aside).
   Boston's neighborhoods only (Cambridge's official ones are planning names).
 - **Coverage:** detailed (land, water, borders, names) over the bus stops' box padded by 1 km
-  (Bedford to Hull, Brockton to Beverly); coarse land and lakes over 1 km² for the commuter rail
-  stops' box padded by 0.3° (Rhode Island and New Hampshire too). Outside it, the card color.
+  (Bedford to Hull, Brockton to Beverly); coarse over the commuter rail stops' box padded by 0.3°:
+  Massachusetts towns' land (their shoreline), borders and names, simplified to 100 m (2026-11-08:
+  the sheet showed blank land and no names north of Danvers; mockups of 100 m and 200 m, 100 m
+  chosen), the land of Rhode Island, New Hampshire and Connecticut (no towns), and lakes over 1 km²;
+  no rivers. Outside it, the card color.
 - **Sources (public domain):** MassGIS towns (`Basemaps/Mass_Towns_Yellow_Lines_and_Labels`)
   and water (`AGOL/Hydro_Major`), the City of Boston's BPDA neighborhoods (data.boston.gov),
-  US Census TIGERweb states (coarse land), the MBTA V3 API (extents, line shapes). MassGIS asks
+  US Census TIGERweb states (the coarse land of RI, NH and CT), the MBTA V3 API (extents, line shapes). MassGIS asks
   for the credit "MassGIS (Bureau of Geographic Information), Commonwealth of Massachusetts
   EOTSS": the file carries one credit line, shown under the sheet's map once the base map is
   drawn (and in README).
 - **File:** `basemap.json` at the repo root, built by `NODE_USE_ENV_PROXY=1 node
   scripts/build-basemap.mjs` (~40 s keyless, about 7 paced MBTA requests) and committed; rebuild
   when the sources change. Rings and lines are Google polylines (precision 5), simplified to
-  25 m (detailed) and 100 m (coarse): 64 KB, 42 KB gzipped (2026-11-07).
+  25 m (detailed) and 100 m (coarse): 110 KB, 69 KB gzipped (2026-11-08; 42 KB gzipped with
+  Massachusetts coarse land only and no outer towns, 2026-11-07).
 - **Loading:** fetched the first time a map opens (a plain same-origin GET: nothing about the
   rider), kept in memory; the maps draw as before until it arrives, then redraw. A failure is
   retried at the next map opening. The server serves it `no-cache` with an ETag; the service

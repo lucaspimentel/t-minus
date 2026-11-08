@@ -1,6 +1,7 @@
 // Builds basemap.json, the route map's background (DESIGN.md "Route map", Base map): land and
 // water, town and Boston neighborhood borders and names, and faint subway, Silver Line and
-// commuter rail lines. Detailed for the bus service area, coarse land for commuter rail's reach.
+// commuter rail lines. Detailed for the bus service area; for commuter rail's reach, coarser
+// Massachusetts towns (land, borders, names; 2026-11-08) and the neighboring states' land.
 // Run: NODE_USE_ENV_PROXY=1 node scripts/build-basemap.mjs   (MBTA_API_KEY optional, never stored)
 // Sources: MassGIS (towns, water), City of Boston (BPDA neighborhoods), US Census TIGERweb
 // (coarse land: MA, RI, NH, CT), the MBTA V3 API (extents, line shapes). Commit basemap.json.
@@ -95,8 +96,10 @@ const faint = [
   ...await lines('rt', ['Red', 'Mattapan', 'Orange', 'Blue', 'Green-B', 'Green-C', 'Green-D', 'Green-E'], true),
 ];
 
-// 3. Towns: one land outline, the borders between towns, a name per town.
-const towns = await arcgis(TOWNS, detail, { outFields: 'TOWN' });
+// 3. Towns: one land outline, the borders between towns, a name per town. Fetched over the
+// whole box (every Massachusetts town commuter rail reaches): detailed inside `detail`, coarse
+// outside it (step 5).
+const towns = await arcgis(TOWNS, box, { outFields: 'TOWN' });
 const merged = dissolve(towns, f => f.properties.TOWN);
 const land = merged.outline.flatMap(r => { const c = clipRing(simplifyRing(r, DETAIL_M), detail); return ringOk(c) ? [enc(c)] : []; });
 const townLines = merged.borders.flatMap(l => clipLine(simplify(l, DETAIL_M), detail)).map(enc);
@@ -109,7 +112,7 @@ const inRect = ([x, y], [w, s, e, n]) => x >= w && x <= e && y >= s && y <= n;
 const names = [];
 for (const [town, polys] of byTown) {
   const [lon, lat] = labelPoint(polys);
-  if (!inRect([lon, lat], detail)) continue;
+  if (!inRect([lon, lat], box)) continue;
   names.push({ n: titleCase(town), k: 't', lat: round5(lat), lon: round5(lon), a: Math.round(areaKm2(polys) * 100) / 100, ...(town === 'BOSTON' && { sub: 1 }) });
 }
 function round5(x) { return Math.round(x * 1e5) / 1e5; }
@@ -122,12 +125,14 @@ const riverFeatures = await arcgis(`${HYDRO}/1/query`, detail, { outFields: 'OBJ
 const rivers = riverFeatures.flatMap(f => (f.geometry.type === 'LineString' ? [f.geometry.coordinates] : f.geometry.coordinates))
   .flatMap(l => clipLine(simplify(l, DETAIL_M), detail)).map(enc);
 
-// 5. Coarse tier: state land outside the detailed rect (with a 50 m overlap), and big lakes.
+// 5. Coarse tier, outside the detailed rect (with a 50 m overlap): Massachusetts from its towns
+// (the shoreline, the borders between towns), the other states' land from the Census; big lakes.
 const inner = pad(detail, -50 / 82_000, -50 / 111_320);
-const states = await arcgis(TIGER, box, { where: "STUSAB IN ('MA','RI','NH','CT')", outFields: 'STUSAB', geometryPrecision: '5' });
 const strips = outsideStrips(box, inner);
-const coarse = states.flatMap(f => ringsOf(f.geometry)).map(r => simplifyRing(r, COARSE_M))
-  .flatMap(r => strips.map(st => clipRing(r, st))).filter(ringOk).map(enc);
+const outside = rings => rings.map(r => simplifyRing(r, COARSE_M)).flatMap(r => strips.map(st => clipRing(r, st))).filter(ringOk).map(enc);
+const states = await arcgis(TIGER, box, { where: "STUSAB IN ('RI','NH','CT')", outFields: 'STUSAB', geometryPrecision: '5' });
+const coarse = [...outside(merged.outline), ...outside(states.flatMap(f => ringsOf(f.geometry)))];
+townLines.push(...merged.borders.map(l => simplify(l, COARSE_M)).flatMap(l => strips.flatMap(st => clipLine(l, st))).filter(l => l.length >= 2).map(enc));
 const bigLakes = await arcgis(`${HYDRO}/2/query`, box, { where: `SQ_METERS>=${MIN_COARSE_LAKE_M2}`, outFields: 'OBJECTID' });
 for (const f of bigLakes) {
   if (lakeIds.has(f.properties.OBJECTID)) continue;
