@@ -4104,7 +4104,7 @@ export function encodePolyline(points) {
 }
 
 // The base map (basemap.json, scripts/build-basemap.mjs) in a map's coordinates (meters from
-// `origin`, as routeMapModel's): SVG path strings per layer, the water rect, the faint lines in
+// `origin`, as routeMapModel's): SVG path strings per layer (green: parks, '' in older files), the water rect, the faint lines in
 // draw order (commuter rail, Silver Line, rapid transit) and the names. Null for an unknown file.
 const BASE_LINE_ORDER = ['cr', 'sl', 'rt'];
 export function basemapLayers(base, origin) {
@@ -4124,7 +4124,7 @@ export function basemapLayers(base, origin) {
     .map(x => { const q = proj.toXY(x); return { name: x.n, kind: x.k === 'h' ? 'hood' : 'town', x: q.x, y: q.y, area: Number(x.a) || 0, sub: !!x.sub }; });
   return {
     water: { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y },
-    coarse: path(base.coarse, true), land: path(base.land, true), lakes: path(base.lakes, true), rivers: path(base.rivers, false),
+    coarse: path(base.coarse, true), land: path(base.land, true), green: path(base.green, true), lakes: path(base.lakes, true), rivers: path(base.rivers, false),
     towns: path(base.towns, false), hoods: path(base.hoods, false), lines, names,
   };
 }

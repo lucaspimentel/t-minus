@@ -21,6 +21,7 @@
     --alert-bg: #fff4e0; --alert-border: #f0c070;
     --press: rgba(0, 0, 0, .07); /* pressed overlay */
     --map-water: #dbe7f0; --map-land: var(--card); --map-line: var(--border); /* the route map's base map */
+    --map-green: #e4efdc; /* parks: softer in light, stronger in dark (2026-11-09) */
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -28,7 +29,7 @@
       --green: #4cc47f; --amber: #f0a830; --red: #ff6b6b; --accent: #ed8b00; --accent-text: #ed8b00;
       --alert-bg: #2e2515; --alert-border: #6b5220;
       --press: rgba(255, 255, 255, .09);
-      --map-water: #0c1520; --map-land: #22262c; --map-line: #3a4048;
+      --map-water: #0c1520; --map-land: #22262c; --map-line: #3a4048; --map-green: #25362a;
     }
   }
   * { box-sizing: border-box; }
@@ -478,6 +479,7 @@
   .map-base { pointer-events: none; }
   .map-water { fill: var(--map-water); }
   .map-land { fill: var(--map-land); fill-rule: evenodd; }
+  .map-green { fill: var(--map-green); fill-rule: evenodd; }
   .map-lake { fill: var(--map-water); fill-rule: evenodd; }
   .map-river, .map-town-line, .map-hood-line, .map-faint { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
   .map-river { stroke: var(--map-water); stroke-width: 1.5; }
@@ -518,7 +520,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-09 · b1896a289c</footer>
+    <footer class="version">Version 2026-11-09 · 9703c29c9a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -549,8 +551,8 @@ import {
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
-} from './core.js?v=5e0c05695e';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=ba9531488d';
+} from './core.js?v=29140a1d6f';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=8b037c4a12';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1507,7 +1509,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=5e0c05695e'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=29140a1d6f'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2664,8 +2666,8 @@ function textOn(hex) {
 }
 const mapColor = c => (c ? `#${c}` : 'var(--muted)');
 
-// The base map (basemap.json, scripts/build-basemap.mjs): land, water, borders, names and faint
-// lines behind every map. Fetched the first time a map opens (a plain same-origin GET, nothing
+// The base map (basemap.json, scripts/build-basemap.mjs): land, green areas, water, borders, names
+// and faint lines behind every map. Fetched the first time a map opens (a plain same-origin GET, nothing
 // about the rider); a failure leaves the maps without it until the next opening. Its paths are
 // projected once per map origin (basemapLayers), not on every redraw.
 let basemap = null;
@@ -2696,6 +2698,7 @@ function basemapGroup(layers) {
   g.append(svgEl('rect', { class: 'map-water', x: layers.water.x, y: layers.water.y, width: layers.water.w, height: layers.water.h }));
   path(layers.coarse, 'map-land');
   path(layers.land, 'map-land');
+  path(layers.green, 'map-green');
   path(layers.lakes, 'map-lake');
   path(layers.rivers, 'map-river');
   path(layers.towns, 'map-town-line');

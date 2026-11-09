@@ -335,7 +335,7 @@ test('basemapLayers: paths in meters from the origin, the water rect, lines in d
   const o = { lat: 42.4, lon: -71.07 };
   const sq = encodePolyline([{ lat: 42.4, lon: -71.07 }, { lat: 42.41, lon: -71.07 }, { lat: 42.41, lon: -71.06 }]);
   const base = {
-    v: 1, box: [-71.08, 42.39, -71.06, 42.42], land: [sq], coarse: [], lakes: [sq, 5], rivers: [sq], towns: [sq], hoods: [],
+    v: 1, box: [-71.08, 42.39, -71.06, 42.42], land: [sq], green: [sq], coarse: [], lakes: [sq, 5], rivers: [sq], towns: [sq], hoods: [],
     lines: [{ k: 'rt', c: 'DA291C', p: [sq] }, { k: 'cr', c: '80276C', p: [sq] }, { k: 'zz', p: [sq] }, { k: 'sl', c: 'bad', p: [sq] }],
     names: [{ n: 'Malden', k: 't', lat: 42.4, lon: -71.07, a: 13 }, { n: 'Back Bay', k: 'h', lat: 42.41, lon: -71.07, a: 1.6 }, { n: 'Boston', k: 't', lat: 42.35, lon: -71.06, a: 125, sub: 1 }, { n: 5 }],
   };
@@ -344,6 +344,8 @@ test('basemapLayers: paths in meters from the origin, the water rect, lines in d
   assert.equal(m.lakes, m.land); // a bad entry is skipped
   assert.equal(m.rivers, m.land.slice(0, -1));
   assert.equal(m.coarse, '');
+  assert.equal(m.green, m.land); // parks: closed like the land
+  assert.equal(basemapLayers({ ...base, green: undefined }, o).green, ''); // a file from before 2026-11-09
   assert.deepEqual(m.lines.map(l => [l.kind, l.color]), [['cr', '80276C'], ['sl', null], ['rt', 'DA291C']]);
   assert.ok(Math.abs(m.water.x + 822) < 2 && Math.abs(m.water.y + 2224) < 2 && Math.abs(m.water.w - 1644) < 3 && Math.abs(m.water.h - 3336) < 3, JSON.stringify(m.water));
   assert.deepEqual(m.names.map(n => [n.name, n.kind, n.sub]), [['Malden', 'town', false], ['Back Bay', 'hood', false], ['Boston', 'town', true]]);

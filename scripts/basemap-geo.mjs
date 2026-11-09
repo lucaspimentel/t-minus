@@ -162,6 +162,27 @@ export function outsideStrips([W, S, E, N], [w, s, e, n]) {
   return [[W, S, w, N], [e, S, E, N], [w, S, e, s], [w, n, e, N]].filter(([a, b, c, d]) => c > a && d > b);
 }
 
+// Tiers of detail (2026-11-09): `tiers` is [{ rects: [rect], eps }], rects that share edges
+// exactly and don't overlap, so abutting pieces fill one path without a gap or an evenodd hole.
+// A ring is simplified once per tier, then clipped to each of its rects; `keep` filters pieces.
+export function tierRings(rings, tiers, keep = r => r.length >= 3) {
+  const out = [];
+  for (const r of rings) for (const { rects, eps } of tiers) {
+    const sr = simplifyRing(r, eps);
+    for (const rect of rects) { const c = clipRing(sr, rect); if (keep(c)) out.push(c); }
+  }
+  return out;
+}
+// Lines the same way: split where they cross from one tier's rects to another's.
+export function tierLines(lines, tiers) {
+  const out = [];
+  for (const l of lines) for (const { rects, eps } of tiers) {
+    const sl = simplify(l, eps);
+    for (const rect of rects) out.push(...clipLine(sl, rect));
+  }
+  return out;
+}
+
 // Area in km² (shoelace in meters; holes, listed after their outer ring, subtract).
 export function ringArea(ring) {
   const { kx, ky } = toMeters(ring[0][1]);

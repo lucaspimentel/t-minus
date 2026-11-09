@@ -2,7 +2,7 @@
 // land and shared borders, clipping, label points and areas.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { simplify, simplifyRing, dissolve, clipRing, clipLine, outsideStrips, ringArea, areaKm2, labelPoint, titleCase, toMeters } from '../scripts/basemap-geo.mjs';
+import { simplify, simplifyRing, dissolve, clipRing, clipLine, outsideStrips, ringArea, areaKm2, labelPoint, titleCase, toMeters, tierRings, tierLines } from '../scripts/basemap-geo.mjs';
 
 // A square `km` on a side at (lon0, lat0) as a closed GeoJSON ring.
 const { kx, ky } = toMeters(42.4);
@@ -102,4 +102,37 @@ test('basemap.json: Spot Pond is water', async () => {
   const spot = { lat: 42.4557, lon: -71.0967 }; // its centroid
   assert.ok(base.lakes.some(l => inside(decodePolyline(l), spot)), 'Spot Pond');
   assert.ok(!base.lakes.some(l => inside(decodePolyline(l), { lat: 42.4655, lon: -71.0990 })), 'Melrose, not water');
+});
+
+// Tiers: an inner rect at 5 m and the strips around it inside an outer rect at 20 m.
+const tierSet = (inner, outer) => [{ rects: [inner], eps: 5 }, { rects: outsideStrips(outer, inner), eps: 20 }];
+
+test('tierRings: a square across the inner rect\'s edge gives two pieces sharing that edge exactly', () => {
+  const s = sq(-71.01, 42.4, 2); // ~2 km square
+  const edge = -71.0; // inner rect's west edge cuts it
+  const inner = [edge, 42.3, -70.9, 42.5], outer = [-71.2, 42.2, -70.8, 42.6];
+  const pieces = tierRings([s.slice(0, -1)], tierSet(inner, outer));
+  assert.equal(pieces.length, 2);
+  for (const p of pieces) assert.ok(p.some(([x]) => x === edge), 'each piece runs along the shared edge');
+  const area = r => Math.abs(ringArea(r));
+  assert.ok(Math.abs(area(pieces[0]) + area(pieces[1]) - area(s.slice(0, -1))) < 1e-9); // nothing lost or doubled
+});
+
+test('tierRings / tierLines: a vertex 10 m off is kept in the 5 m tier, dropped in the 20 m tier', () => {
+  const { kx: x, ky: y } = toMeters(42.4);
+  const line = lon0 => [[lon0, 42.4], [lon0 + 500 / x, 42.4 + 10 / y], [lon0 + 1000 / x, 42.4]];
+  const inner = [-71.0, 42.3, -70.9, 42.5], outer = [-71.2, 42.2, -70.8, 42.6];
+  const t = tierSet(inner, outer);
+  assert.deepEqual(tierLines([line(-70.98)], t).map(l => l.length), [3]); // inside: 5 m
+  assert.deepEqual(tierLines([line(-71.15)], t).map(l => l.length), [2]); // outside: 20 m
+  const ring = lon0 => [...line(lon0), [lon0 + 1000 / x, 42.41], [lon0, 42.41]];
+  assert.equal(tierRings([ring(-70.98)], t)[0].length, 5);
+  assert.equal(tierRings([ring(-71.15)], t)[0].length, 4);
+});
+
+test('tierLines: a line crossing from the inner rect into a strip is split in two at the edge', () => {
+  const inner = [-71.0, 42.3, -70.9, 42.5], outer = [-71.2, 42.2, -70.8, 42.6];
+  const parts = tierLines([[[-71.1, 42.4], [-70.95, 42.4]]], tierSet(inner, outer));
+  assert.equal(parts.length, 2);
+  assert.ok(parts.every(p => p.some(([px]) => px === -71.0)));
 });

@@ -3,7 +3,7 @@
 // editor draw the same map inline. Shapes come from the recorded patterns (fake-mbta.js).
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { openApp, tick, tickTo, commute, planOptions, expandOption } from './helpers.js';
+import { openApp, tick, tickTo, commute, planOptions, expandOption, cssColor } from './helpers.js';
 import { encodePolyline } from '../../core.js';
 
 test.beforeEach(({ page }) => {
@@ -267,6 +267,7 @@ const enc = pts => encodePolyline(pts.map(([lat, lon]) => ({ lat, lon })));
 const BASE = {
   v: 1, credit: 'Base map: test credit', box: [-71.4, 42.2, -70.8, 42.7], detail: [-71.3, 42.25, -70.9, 42.65],
   coarse: [], land: [enc([[42.25, -71.3], [42.65, -71.3], [42.65, -70.95], [42.25, -70.95]])],
+  green: [enc([[42.42, -71.11], [42.43, -71.11], [42.43, -71.09], [42.42, -71.09]])],
   lakes: [enc([[42.41, -71.10], [42.415, -71.10], [42.415, -71.09], [42.41, -71.09]])],
   rivers: [enc([[42.40, -71.12], [42.40, -71.07]])], towns: [enc([[42.44, -71.12], [42.44, -71.02]])], hoods: [enc([[42.36, -71.08], [42.36, -71.04]])],
   lines: [{ k: 'rt', c: 'DA291C', p: [enc([[42.36, -71.10], [42.37, -71.06]])] }, { k: 'cr', c: '80276C', p: [enc([[42.38, -71.10], [42.45, -71.07]])] }, { k: 'sl', c: '7C878E', p: [enc([[42.35, -71.06], [42.34, -71.04]])] }],
@@ -292,7 +293,15 @@ test('the base map beneath the trip, fetched once; names: towns, then neighborho
   const base = svg(page).locator('> g.map-base');
   await expect(base).toHaveAttribute('aria-hidden', 'true');
   expect(await svg(page).evaluate(s => s.firstElementChild.classList.contains('map-base'))).toBe(true); // beneath the trip
-  for (const cls of ['map-water', 'map-land', 'map-lake', 'map-river', 'map-town-line', 'map-hood-line']) await expect(base.locator(`.${cls}`)).toHaveCount(1);
+  for (const cls of ['map-water', 'map-land', 'map-green', 'map-lake', 'map-river', 'map-town-line', 'map-hood-line']) await expect(base.locator(`.${cls}`)).toHaveCount(1);
+  // Parks above the land, beneath the water and borders, in --map-green (soft in light, stronger in dark).
+  expect(await base.evaluate(g => [...g.children].map(c => c.getAttribute('class')).slice(0, 4))).toEqual(['map-water', 'map-land', 'map-green', 'map-lake']);
+  const greenFill = () => base.locator('.map-green').evaluate(p => getComputedStyle(p).fill);
+  expect(await greenFill()).toBe(await cssColor(page, '--map-green'));
+  expect(await greenFill()).toBe('rgb(228, 239, 220)');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  expect(await greenFill()).toBe('rgb(37, 54, 42)');
+  await page.emulateMedia({ colorScheme: 'light' });
   expect(await base.locator('.map-faint').evaluateAll(ps => ps.map(p => p.classList[1]))).toEqual(['cr', 'sl', 'rt']);
   await expect(legs(svg(page))).toHaveCount(2);
   expect(await viewWidth(page)).toBeLessThan(10_000);

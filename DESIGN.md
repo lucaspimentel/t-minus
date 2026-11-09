@@ -611,12 +611,13 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 maps (the sheet, the planner's options, the trip editor).
 
 - **Layers, bottom to top:** water; land (the towns clipped to the shoreline, merged into one
-  outline), with lakes and wide rivers cut out in the water color and narrow rivers as thin
-  water lines; town borders, dashed (only edges two towns share, never the coastline); Boston
+  outline); green areas (parks and reservations, 2026-11-09, mockups of two shades: `--map-green`,
+  #e4efdc light, #25362a dark), with lakes and wide rivers cut out in the water color above
+  them and narrow rivers as thin water lines; town borders, dashed (only edges two towns share, never the coastline); Boston
   neighborhood borders, dotted; faint lines in their route colors: commuter rail (1.5 px, 35%),
   then the Silver Line, then rapid transit (2.5 px, 30%); town names (small caps) and Boston
   neighborhood names (italic), muted; then the trip as before. Colors: `--map-water`,
-  `--map-land`, `--map-line` in both themes. Faint lines use `stroke-opacity`, not `opacity`:
+  `--map-land`, `--map-green`, `--map-line` in both themes. Faint lines use `stroke-opacity`, not `opacity`:
   a translucent element is composited as a layer, which left seams between Chromium's raster
   tiles over the land (faded legs too).
 - **Names:** towns at any zoom; Boston's neighborhoods only while the view is under 10 km
@@ -624,8 +625,13 @@ maps (the sheet, the planner's options, the trip editor).
   map; overlapping names keep the town, then the larger area, and the other shows once zooming in
   separates them; rechecked on every pan and zoom. Names sit under the trip (not moved aside).
   Boston's neighborhoods only (Cambridge's official ones are planning names).
-- **Coverage:** detailed (land, water, borders, names) over the bus stops' box padded by 1 km
-  (Bedford to Hull, Brockton to Beverly); coarse over the commuter rail stops' box padded by 0.3°:
+- **Coverage, three tiers** (2026-11-09; every layer follows its tier): **inner**, 5 m, a fixed
+  rect each edge 1 km past an anchor: Boston College (west), Fields Corner (south), Wonderland
+  (east) and the 132's Main St @ South St (north), about 16 × 21 km (`INNER` in the build);
+  **middle**, 20 m, the rest of the bus stops' box padded by 1 km (Bedford to Hull, Brockton to
+  Beverly), land, water, green, borders and names; the inner and middle pieces are clipped to
+  rects that share edges exactly, so they abut in one path with no gap and no evenodd hole;
+  green only in these two; **outer**, coarse, 100 m, over the commuter rail stops' box padded by 0.3°:
   Massachusetts towns' land (their shoreline), borders and names, simplified to 100 m (2026-11-08:
   the sheet showed blank land and no names north of Danvers; mockups of 100 m and 200 m, 100 m
   chosen), the land of Rhode Island, New Hampshire and Connecticut (no towns), and lakes over 1 km²;
@@ -634,16 +640,22 @@ maps (the sheet, the planner's options, the trip editor).
   lakes and wide rivers (`AGOL/Hydro_100k`, USGS 1:100,000; 2026-11-09: `Hydro_Major`'s hand-picked
   set had no Spot Pond nor the Middlesex Fells reservoirs) and narrow rivers (`AGOL/Hydro_Major`;
   Hydro_100k's adds three times the streams), the City of Boston's BPDA neighborhoods (data.boston.gov),
-  US Census TIGERweb states (the coarse land of RI, NH and CT), the MBTA V3 API (extents, line shapes). MassGIS asks
+  US Census TIGERweb states (the coarse land of RI, NH and CT), the MBTA V3 API (extents, line shapes),
+  MassGIS open space (`AGOL/openspace`, Protected and Recreational OpenSpace; green areas: full
+  public access, any purpose but agriculture, water supply, flood control and underwater, so the
+  Public Garden, filed as "Other", stays; a site is the parcels sharing a town and name, kept
+  when they total 20 acres or more, then merged into one outline; a paged query, ~9,300 parcels). MassGIS asks
   for the credit "MassGIS (Bureau of Geographic Information), Commonwealth of Massachusetts
   EOTSS": the file carries one credit line, shown under the sheet's map once the base map is
   drawn (and in README).
 - **File:** `basemap.json` at the repo root, built by `NODE_USE_ENV_PROXY=1 node
-  scripts/build-basemap.mjs` (~40 s keyless, about 7 paced MBTA requests) and committed; rebuild
-  when the sources change. Rings and lines are Google polylines (precision 5), simplified to
-  10 m (detailed; 25 m until 2026-11-09 turned the piers into spikes at the sheet's zoom) and
-  100 m (coarse), with `reach` (the commuter rail stops' box, for the sheet's pan and zoom
-  limits): 148 KB, 94 KB gzipped (2026-11-09, the detailed tier at 10 m; 75 KB gzipped at 25 m
+  scripts/build-basemap.mjs` (~1 min keyless, about 7 paced MBTA requests) and committed; rebuild
+  when the sources change. Rings and lines are Google polylines (precision 5), simplified per
+  tier (5 m inner, 20 m middle, 100 m outer; before 2026-11-09 one detailed tier at 10 m, and
+  25 m before that, which turned the piers into spikes at the sheet's zoom), with `reach` (the
+  commuter rail stops' box, for the sheet's pan and zoom limits), `inner` (the inner rect, for
+  reference) and `green`: 215 KB, 140 KB gzipped (2026-11-09, three tiers and green areas, green
+  75 KB of it; 94 KB gzipped with one 10 m tier and no green; 75 KB gzipped at 25 m
   with Hydro_100k's lakes; 69 KB
   gzipped before them, 2026-11-08; 42 KB with Massachusetts coarse land only and no outer towns,
   2026-11-07).
