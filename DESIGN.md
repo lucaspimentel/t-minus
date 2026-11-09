@@ -443,8 +443,11 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   Arrive). The ride card shows Arrive but no Leave.
   A muted ▾ at the bottom-right of a collapsed row
   (after the arrival) hints at this; expanded rows show ▴ in the same corner, on the "Track
-  this trip" line. Expanded rows are remembered
-  by the timing vehicle's trip id while the page is open.
+  this trip" line. The expanded row is remembered
+  by the timing vehicle's trip id while the page is open. One at a time (2026-11-09): expanding a
+  row collapses the other (tapping the open one collapses it), and the page scrolls so the tapped
+  row stays where it was on screen (`keepInPlace`) when the collapsed one was above it. The
+  planner's option cards work the same way.
 - Pressed feedback: buttons darken and shrink to 97% while pressed; rows only darken (an
   inset overlay, `--press`). iOS's gray tap highlight is off.
 - Status line (per trip; at the bottom, centered just above the version since 2026-10-12, errors
@@ -2062,7 +2065,7 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
   - A leg's stops are named by their station when they have one (rail platforms, busway berths).
   - Each option is a card like a main-list row (2026-10-13, from mockups; before: text
     itinerary rows). Collapsed (all, at first): "~54 min" and the route strip ("● Bus 132 —
-    ● Orange"). A tap expands it to the timeline the rows use (`optionSteps` → `renderTimeline`,
+    ● Orange"). A tap expands it (one option at a time, like the rows) to the timeline the rows use (`optionSteps` → `renderTimeline`,
     passed to setup as `timeline`): Leave, the walk, each ride's bar from its boarding stop to its
     drop-off, "Walk 3 min to transfer" ("Transfer" in a station), the walk, Arrive; untimed, no
     times, durations or badges. The card's buttons pick it ("See departures" when timed, "Save

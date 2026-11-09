@@ -29,6 +29,15 @@ export const SAVED_TTL = 7 * 24 * 60 * 60_000;
 // Data kept on the phone (localStorage `{ at, data }`): the saved copy at once, and past `ttl`
 // a fresh one fetched in the background for next time (a failure there is ignored). Without a
 // copy, the fetch is awaited and saved. Storage errors (quota, private mode) are ignored.
+// Runs redraw(), then scrolls the page so the tapped element (found again by find()) stays where it
+// was on screen: expanding one row collapses another above it (one expanded at a time, 2026-11-09).
+export function keepInPlace(el, redraw, find) {
+  const before = el.getBoundingClientRect().top;
+  redraw();
+  const after = find()?.getBoundingClientRect().top;
+  if (after != null && after !== before) window.scrollBy(0, after - before);
+}
+
 export function keptCopy(key, ttl, fetcher) {
   let copy = null;
   try { copy = JSON.parse(localStorage.getItem(key)); } catch {}
@@ -659,7 +668,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const board = l => (local ? stationName(l.stop) : l.stopName ?? l.stop);
       const alight = l => (local ? stationName(l.alight) : l.alightName ?? l.alight);
       const k = optionKey(o);
-      const open = !!p.plan.open?.has(k); // expanded (p.plan.open: optionKeys)
+      const open = p.plan.open === k; // expanded (p.plan.open: one optionKey, 2026-11-09)
       const tags = o.legs.map(l => routeLook([l.route, ...l.also], local ? lineOf(l.route)?.color : null));
       const now = Date.now();
       const inMin = o.leave != null && Math.round((o.leave - now) / 60_000);
@@ -671,7 +680,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       const toggle = h('button', { type: 'button', class: 'row-toggle', 'aria-expanded': String(open), 'data-focus': `option:${k}` }, ...head,
         !open && h('div', { class: 'strip' }, ...tags.flatMap(t => [h('span', { class: 'seg' }), h('span', { class: 'stop' }, dot(t.color), t.label)]), h('span', { class: 'seg' })),
         !open && h('div', { class: 'detail summary' }, first ? h('span', { class: `badge ${first.source}` }, sourceText(first)) : h('span'), h('span', { class: 'chev' }, '▾')));
-      const card = h('li', { class: 'row option', onclick: () => { const opened = (p.plan.open ??= new Set()); if (!opened.delete(k)) opened.add(k); render(); } }, toggle);
+      const card = h('li', { class: 'row option', onclick: () => keepInPlace(card, () => { p.plan.open = open ? null : k; render(); }, () => root.querySelector(`[data-focus="${CSS.escape(`option:${k}`)}"]`)?.closest('li')) }, toggle);
       if (open) {
         const legs = o.legs.map((l, i) => ({ ...tags[i], from: board(l), to: alight(l) }));
         // The route map, both end walks from a place's point (kept here, never saved): a picture,

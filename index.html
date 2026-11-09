@@ -518,7 +518,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-09 · 984161e1a1</footer>
+    <footer class="version">Version 2026-11-09 · b1896a289c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -550,7 +550,7 @@ import {
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
 } from './core.js?v=5e0c05695e';
-import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=faed4b0c5e';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=ba9531488d';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1012,7 +1012,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   head.append(el('span', null, label), ' ', el('span', 'at', formatTime(target, now)));
   // The head (and the collapsed summary) is the row's expand button; a tap anywhere on the row
   // still toggles it (the button's click bubbles to the row).
-  const expanded = expandedRows.has(key);
+  const expanded = expandedRow === key;
   const toggle = el('button', 'row-toggle');
   toggle.type = 'button';
   toggle.dataset.focus = `row:${key}`;
@@ -1024,10 +1024,8 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
   toggle.setAttribute('aria-label', rowAriaLabel(label, formatTime(target, now), legTime(lastLeg, r.eta, now), !!reminder, details));
   toggle.append(head, ' ');
   li.append(toggle);
-  li.onclick = () => {
-    if (!expandedRows.delete(key)) expandedRows.add(key);
-    render();
-  };
+  li.onclick = () => keepInPlace(li, () => { expandedRow = expanded ? null : key; render(); },
+    () => document.querySelector(`[data-focus="${CSS.escape(`row:${key}`)}"]`)?.closest('li'));
   if (!expanded) {
     // Collapsed: the live/scheduled badge of the timing leg, and the arrival under the leave
     // time. Tap to expand for the legs.
@@ -1939,8 +1937,9 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
   return timeline;
 }
 
-// Rows expanded by a tap, by row key (the timing vehicle's trip id; next-day ids repeat).
-const expandedRows = new Set();
+// The row expanded by a tap, by row key (the timing vehicle's trip id; next-day ids repeat).
+// One at a time (2026-11-09): expanding a row collapses the other.
+let expandedRow = null;
 const rowKey = r => `${r.key}${r.nextDay ? '@next' : ''}`;
 
 let lastProblem = '';

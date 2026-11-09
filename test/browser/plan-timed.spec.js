@@ -74,6 +74,24 @@ test('Plan a trip…: timed options, best 3, not refreshed', async ({ page }) =>
   await expect(page.locator('#oneoff')).toBeVisible();
 });
 
+test('one expanded option at a time', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 500 });
+  await openApp(page, { time: '07:00' });
+  await stubPlan(page, [FIRST]);
+  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await pickStation(page, 'from', 'oak gr', 'Oak Grove');
+  await pickStation(page, 'to', 'state', 'State');
+  await expandOption(page, 0);
+  await page.evaluate(() => document.querySelectorAll('#setup .option')[1].scrollIntoView({ block: 'end' }));
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  const before = (await options(page).nth(1).boundingBox()).y;
+  await expandOption(page, 1);
+  await expect(options(page).nth(0).locator('.row-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await expect(options(page).nth(1).locator('.row-toggle')).toHaveAttribute('aria-expanded', 'true');
+  await expect(setup(page).locator('.option .timeline')).toHaveCount(1);
+  expect(Math.abs((await options(page).nth(1).boundingBox()).y - before)).toBeLessThan(2);
+});
+
 test('a closed search never redraws over a later one', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   const calls = await stubPlan(page, [FIRST]);

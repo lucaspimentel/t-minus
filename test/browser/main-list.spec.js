@@ -50,6 +50,29 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   await expect(first.locator('.timeline')).toHaveCount(0);
 });
 
+test('one expanded row at a time; the tapped row stays where it was on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 500 });
+  await openApp(page, { time: '06:55' });
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10)); // no once-a-second redraw between the measures
+  const row = i => page.locator('#rows .row').nth(i);
+  const open = i => row(i).locator('.row-toggle');
+  await row(0).click();
+  await expect(open(0)).toHaveAttribute('aria-expanded', 'true');
+  // The next row, below the expanded one: scrolled into view, then tapped.
+  await page.evaluate(() => document.querySelectorAll('#rows .row')[1].scrollIntoView({ block: 'center' }));
+  const top = () => page.evaluate(() => document.querySelectorAll('#rows .row')[1].getBoundingClientRect().top);
+  const before = await top();
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await row(1).locator('.row-toggle').click();
+  await expect(open(1)).toHaveAttribute('aria-expanded', 'true');
+  await expect(open(0)).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('#rows .timeline')).toHaveCount(1);
+  await expect.poll(async () => Math.abs(await top() - before)).toBeLessThan(2);
+  // Tapping the open one collapses it: none expanded.
+  await row(1).locator('.row-toggle').click();
+  await expect(page.locator('#rows .timeline')).toHaveCount(0);
+});
+
 test('an expanded row\'s rides show their stop count, fetched once per trip on expand', async ({ page }) => {
   const scenario = commute();
   // Orange from Oak Grove with Malden Center, Wellington and Assembly before State: 4 stops.
