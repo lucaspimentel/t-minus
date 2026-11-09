@@ -91,10 +91,20 @@ test('the phone\'s location, already granted: the dot in the fit, no walk to the
   const fitBtn = sheet(page).getByRole('button', { name: 'Show the whole trip' });
   await expect(fitBtn).toBeHidden();
   await locateBtn(sheet(page)).click();
+  await tick(page, 50);
+  const moving = await inView(); // eased like ⤢ (2026-11-09): on its way
+  expect(Math.abs(moving.y - 0.5)).toBeGreaterThan(0.02);
   await tick(page, 300);
   const centered = await inView();
   expect(centered.x).toBeCloseTo(0.5, 2); expect(centered.y).toBeCloseTo(0.5, 2);
   await expect(fitBtn).toBeVisible();
+  // With Reduce Motion: at once.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await fitBtn.click();
+  await locateBtn(sheet(page)).click();
+  await tick(page, 20);
+  const now = await inView();
+  expect(now.x).toBeCloseTo(0.5, 2); expect(now.y).toBeCloseTo(0.5, 2);
 });
 
 test('location not granted: no prompt on opening, no dot; locate asks, and "Location off" once denied', async ({ page }) => {

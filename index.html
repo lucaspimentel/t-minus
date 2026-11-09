@@ -513,7 +513,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-08 · fb25520224</footer>
+    <footer class="version">Version 2026-11-08 · d3bf15fb3c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -2830,14 +2830,28 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     b.addEventListener('click', e => { e.stopPropagation(); w.onLocate?.(); });
     tools.append(b);
   }
-  // You in the middle, the trip still in view (centerOn).
+  // Moves the view to `to`, eased over FIT_MS (a jump with Reduce Motion), then `done`. A pan,
+  // pinch or another move takes over (fitAnim).
+  const animateTo = (to, done) => {
+    const id = ++fitAnim;
+    if (!w.view || matchMedia('(prefers-reduced-motion: reduce)').matches) { w.view = to; done(); apply(); return; }
+    const from = w.view, t0 = performance.now();
+    const step = now => {
+      if (id !== fitAnim) return;
+      const t = (now - t0) / FIT_MS;
+      if (t >= 1) { w.view = to; done(); apply(); return; }
+      w.view = easeView(from, to, t);
+      apply();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
+  // Locate: you in the middle, the trip still in view (centerOn); eased like ⤢ (2026-11-09).
   w.centerOn = here => {
     const p = mapPoint(w.model, here);
     if (!p || !w.fit) return;
-    fitAnim++;
-    w.view = interactive ? panView(centerOn(w.fit, p), 0, 0, limits()) : centerOn(w.fit, p);
-    w.touched = true;
-    apply();
+    w.touched = true; // ⤢ at once; a redraw meanwhile keeps the view
+    animateTo(interactive ? panView(centerOn(w.fit, p), 0, 0, limits()) : centerOn(w.fit, p), () => {});
   };
   fitBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-fit', textContent: '⤢', hidden: true });
   fitBtn.setAttribute('aria-label', 'Show the whole trip');
@@ -2845,18 +2859,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   fitBtn.addEventListener('click', e => {
     e.stopPropagation();
     if (!w.fit || !w.view) return;
-    const from = w.view, to = w.fit, done = () => { w.view = w.fit; w.touched = false; apply(); };
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { done(); return; }
-    const t0 = performance.now(), id = ++fitAnim;
-    const step = now => {
-      if (id !== fitAnim) return; // a pan or pinch took over
-      const t = (now - t0) / FIT_MS;
-      if (t >= 1) { done(); return; }
-      w.view = easeView(from, to, t);
-      apply();
-      requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
+    animateTo(w.fit, () => { w.touched = false; });
   });
   tools.append(fitBtn);
   el.append(tools);

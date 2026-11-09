@@ -562,7 +562,8 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   Already granted (the Permissions API): the dot, live (`watchPosition`, cleared on close). Not
   granted: no dot until locate. Locate (an arrow, top-right above ⤢, card style, "Center on my
   location") asks the first time (`getCurrentPosition`, then the watch) and centers on you with
-  the whole trip still in view (`centerOn`; ⤢ then shows, on the picture too). Denied: "Location
+  the whole trip still in view (`centerOn`; ⤢ then shows, on the picture too), eased like ⤢
+  (250 ms, at once with Reduce Motion; 2026-11-09). Nothing else on the maps is animated. Denied: "Location
   off" in the caption line, only after that tap; the button stays. Until 2026-11-09 the sheet
   asked on opening and showed "Location off" whenever denied. `mapLocation` in `index.html`.
 - **Live while open (the sheet; the empty screen's map too):** the phone's location as above, and every
