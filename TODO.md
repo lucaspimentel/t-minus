@@ -46,5 +46,8 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
   (a walking estimate; the user can change it, e.g. when getting a ride).
 - Auto-bell: skip a day in advance (working from home, a holiday): "Skip Thu, Nov 5" for every
   trip that day. Today: let it bell, then turn the bell off.
+- Route map: keep a saved trip's From/To points on the phone only (not in the config sent to
+  the server), so the 🗺 sheet and the empty screen's map draw both end walks with their markers
+  (2026-11-09: planner options only for now).
 - Ferry (see `DESIGN.md` "Commuter rail", ferry note: realtime exists; no station links, few
   canonical patterns, loop routes).
