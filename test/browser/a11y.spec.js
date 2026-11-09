@@ -192,6 +192,23 @@ for (const scheme of ['light', 'dark']) {
 }
 
 for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on the empty main screen's map, with ⤢ shown (${scheme})`, async ({ page, context }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await context.grantPermissions(['geolocation']);
+    await context.setGeolocation({ latitude: 42.4655, longitude: -71.0990 });
+    await openApp(page, { time: '07:00', scenario: { ...commute(), trips: [] }, waitForRows: false });
+    await expect(page.locator('#rows .empty-map-item .map-here')).toHaveCount(1);
+    expect(await violations(page)).toEqual([]);
+    await page.getByRole('button', { name: 'Center on my location' }).click();
+    await tick(page, 300);
+    await expect(page.getByRole('button', { name: 'Show the whole trip' })).toBeVisible();
+    // Focus survives the once-a-second redraw.
+    await page.getByRole('button', { name: 'Show the whole trip' }).focus();
+    await tick(page, 2000);
+    expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('empty-map:fit');
+    expect(await violations(page)).toEqual([]);
+  });
+
   test(`axe finds nothing on the route map; a focused stop keeps focus across a redraw (${scheme})`, async ({ page, context }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await context.grantPermissions(['geolocation']);
@@ -204,7 +221,7 @@ for (const scheme of ['light', 'dark']) {
     await expect(page.locator('#map-credit')).toBeVisible();
     expect(await violations(page)).toEqual([]);
     // ⤢ once the view moves (2026-11-08).
-    const box = await page.locator('#map-sheet svg').boundingBox();
+    const box = await page.locator('#map-sheet svg.route-svg').boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(0, 300);
     await expect(page.getByRole('button', { name: 'Show the whole trip' })).toBeVisible();

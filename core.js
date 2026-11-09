@@ -3922,6 +3922,15 @@ export function areaRect(reach, proj, margin = 5000) {
   const a = proj.toXY({ lat: n, lon: w }), b = proj.toXY({ lat: s, lon: e });
   return { x: a.x - margin, y: a.y - margin, w: b.x - a.x + 2 * margin, h: b.y - a.y + 2 * margin };
 }
+// A view centered on `p` (meters) that still holds all of `fit`, at fit's aspect (the maps'
+// locate button, 2026-11-09: you in the middle, the trip in view).
+export function centerOn(fit, p) {
+  const aspect = fit.w / fit.h;
+  const hw = Math.max(Math.abs(p.x - fit.x), Math.abs(fit.x + fit.w - p.x));
+  const hh = Math.max(Math.abs(p.y - fit.y), Math.abs(fit.y + fit.h - p.y));
+  const w = Math.max(2 * hw, 2 * hh * aspect);
+  return { x: p.x - w / 2, y: p.y - w / aspect / 2, w, h: w / aspect };
+}
 // A view `t` (0..1) of the way from `from` to `to`, eased out (the fit button's animation).
 export function easeView(from, to, t) {
   const k = 1 - (1 - Math.min(Math.max(t, 0), 1)) ** 3;
@@ -3955,7 +3964,7 @@ const WALK_GAP_METERS = 25;
 // finished: legs before this one are faded; vehicles[i]: vehiclePositions; mine[i]: a trip id.
 // → { origin, view, legs: [{ color, path, faded }], stops: [{ id, name, x, y, major, label, leg, color }],
 //     walks: [{ from, to, kind }], vehicles: [{ id, x, y, color, label, mine }], here }
-export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1 }) {
+export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1, fitAlso = [] }) {
   const raw = legs.map((leg, i) => {
     const picked = shapes[i] ? pickPattern(shapes[i], leg.stop, leg.alight) : null;
     if (picked) {
@@ -3995,7 +4004,10 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
   if (start && drawn.length) { const p = proj.toXY(start); out.walks.push({ from: p, to: drawn[0][0], kind: 'start' }); }
   if (end && drawn.length) out.walks.push({ from: drawn.at(-1).at(-1), to: proj.toXY(end), kind: 'end' });
   out.vehicles.sort((a, b) => a.mine - b.mine); // yours drawn last, on top
-  out.view = fitView([...drawn.flat(), ...out.walks.flatMap(w => [w.from, w.to])], { aspect });
+  // `fitAlso` ({ lat, lon }): in the fit, drawn by the caller (the phone's location, 2026-11-09:
+  // no walk to the first stop, only the dot).
+  const also = drawn.length ? fitAlso.filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lon)).map(p => proj.toXY(p)) : [];
+  out.view = fitView([...drawn.flat(), ...out.walks.flatMap(w => [w.from, w.to]), ...also], { aspect });
   return out;
 }
 // A leg's stops from a kept /stops list (trimStopsDoc; a stop matches by id or child id), from

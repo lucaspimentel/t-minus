@@ -12,6 +12,7 @@ test.beforeEach(({ page }) => {
 
 const sheet = page => page.getByRole('dialog');
 const svg = page => sheet(page).locator('svg.route-svg');
+const locateBtn = loc => loc.getByRole('button', { name: 'Center on my location' });
 const legs = loc => loc.locator('polyline.map-leg');
 const shapeHits = mbta => mbta.hits.filter(h => h.path === '/route_patterns' && h.query.get('include')?.includes('shape'));
 const vehicleHits = mbta => mbta.hits.filter(h => h.path === '/vehicles');
@@ -22,8 +23,12 @@ const busStop = id => BUS.included.find(x => x.type === 'stop' && x.id === id).a
 const busStops = BUS.included.find(x => x.type === 'trip').relationships.stops.data.map(s => s.id);
 const vehicleAt = (id, trip, k) => ({ id, trip, route: '132', direction: 1, lat: busStop(busStops[k]).latitude, lon: busStop(busStops[k]).longitude });
 const DENIED = () => {
-  navigator.geolocation.watchPosition = (ok, err) => { setTimeout(() => err({ code: 1, PERMISSION_DENIED: 1, message: 'denied' }), 0); return 1; };
+  const no = err => setTimeout(() => err({ code: 1, PERMISSION_DENIED: 1, message: 'denied' }), 0);
+  navigator.geolocation.watchPosition = (ok, err) => { no(err); return 1; };
+  navigator.geolocation.getCurrentPosition = (ok, err) => no(err);
   navigator.geolocation.clearWatch = () => {};
+  window.geoAsks = 0;
+  for (const k of ['watchPosition', 'getCurrentPosition']) { const f = navigator.geolocation[k]; navigator.geolocation[k] = (...a) => { window.geoAsks++; return f(...a); }; }
 };
 
 async function openMap(page) {
@@ -68,22 +73,43 @@ test('no trips: no 🗺', async ({ page }) => {
   await expect(page.locator('#map-btn')).toBeHidden();
 });
 
-test('the phone\'s location: a dot and the walk to the first stop; "Location off" when denied', async ({ page, context }) => {
+test('the phone\'s location, already granted: the dot in the fit, no walk to the first stop; locate centers on it', async ({ page, context }) => {
   await context.grantPermissions(['geolocation']);
-  await context.setGeolocation({ latitude: 42.4655, longitude: -71.0990 });
+  await context.setGeolocation({ latitude: 42.4740, longitude: -71.0900 }); // north of the first stop
   await openApp(page, { time: '07:00' });
   await openMap(page);
   await expect(svg(page).locator('.map-here')).toHaveCount(1);
-  await expect(svg(page).locator('.map-walk[data-kind="start"]')).toHaveCount(1);
+  await expect(svg(page).locator('.map-walk')).toHaveCount(1); // the transfer's only (2026-11-09)
+  await expect(svg(page).locator('.map-walk[data-kind="start"]')).toHaveCount(0);
   await expect(page.locator('#map-caption')).toHaveText('');
+  const inView = () => svg(page).evaluate(s => {
+    const [vx, vy, vw, vh] = s.getAttribute('viewBox').split(' ').map(Number), g = s.querySelector('.map-here');
+    return { x: (g.dataset.x - vx) / vw, y: (g.dataset.y - vy) / vh };
+  });
+  const fitted = await inView();
+  expect(fitted.y).toBeGreaterThan(0); expect(fitted.y).toBeLessThan(0.2); // in the fit, near its top
+  const fitBtn = sheet(page).getByRole('button', { name: 'Show the whole trip' });
+  await expect(fitBtn).toBeHidden();
+  await locateBtn(sheet(page)).click();
+  await tick(page, 300);
+  const centered = await inView();
+  expect(centered.x).toBeCloseTo(0.5, 2); expect(centered.y).toBeCloseTo(0.5, 2);
+  await expect(fitBtn).toBeVisible();
 });
 
-test('location denied: no dot, no first walk, "Location off"', async ({ page }) => {
+test('location not granted: no prompt on opening, no dot; locate asks, and "Location off" once denied', async ({ page }) => {
   await openApp(page, { time: '07:00', init: DENIED });
   await openMap(page);
+  await tick(page, 1000);
+  expect(await page.evaluate(() => window.geoAsks)).toBe(0);
+  await expect(page.locator('#map-caption')).toHaveText('');
+  await expect(svg(page).locator('.map-here')).toHaveCount(0);
+  await locateBtn(sheet(page)).click();
+  await tick(page, 100);
+  expect(await page.evaluate(() => window.geoAsks)).toBe(1);
   await expect(page.locator('#map-caption')).toHaveText('Location off');
   await expect(svg(page).locator('.map-here')).toHaveCount(0);
-  await expect(svg(page).locator('.map-walk[data-kind="start"]')).toHaveCount(0);
+  await expect(locateBtn(sheet(page))).toBeVisible();
 });
 
 test('vehicles on the legs every 10 s while open, yours outlined; nothing after Done', async ({ page }) => {
@@ -131,7 +157,7 @@ test('without shapes (MBTA down, nothing kept): straight lines through the stops
   await openMap(page);
   await expect(legs(svg(page))).toHaveCount(2);
   expect(await legs(svg(page)).evaluateAll(ls => ls.map(l => l.points.length))).toEqual([2, 2]); // the legs' ends from the loaded times
-  await expect(page.locator('#map-caption')).toHaveText('Location off');
+  await expect(page.locator('#map-caption')).toHaveText('');
 });
 
 test('pinch zooms and a drag pans', async ({ page }) => {
@@ -199,7 +225,7 @@ test('setup: a planner option\'s map (a picture with both end walks; taps keep t
   await page.mouse.wheel(0, -300);
   await expect(map.locator('svg')).toHaveAttribute('viewBox', box);
   // A tap on the map doesn't collapse the card.
-  await map.locator('svg').click();
+  await map.locator('svg.route-svg').click();
   await expect(planOptions(page).first().locator('.row-toggle')).toHaveAttribute('aria-expanded', 'true');
   // Saving opens the trip editor: a static map under the legs; removing a leg redraws it.
   await planOptions(page).first().locator('.row-foot').getByRole('button', { name: 'Save trip', exact: true }).click();
@@ -377,4 +403,82 @@ test('⤢ shows once the view moves and eases back to the trip; with Reduce Moti
   await fitBtn.click();
   expect(await view(page)).toEqual(fit);
   await expect(fitBtn).toBeHidden();
+});
+
+// The empty main screen's map (2026-11-09): no rows once loaded.
+const emptyMap = page => page.locator('#rows .empty-map-item');
+test('no rows: the trip\'s map fills the space (vehicles, the hint, the credit); a tap opens the sheet; gone with rows', async ({ page }) => {
+  await serveBase(page);
+  const scenario = { ...commute(), vehicles: [vehicleAt('inside', '132in-0612', 15)] };
+  const trips = scenario.trips;
+  scenario.trips = [];
+  const mbta = await openApp(page, { time: '07:00', scenario, init: DENIED, waitForRows: false });
+  await expect(page.locator('#rows .empty')).toHaveText('No upcoming departures found.');
+  const map = emptyMap(page);
+  await expect(map.locator('svg.route-svg')).toHaveAttribute('role', 'img');
+  await expect(legs(map)).toHaveCount(2);
+  await expect(map.locator('.map-caption')).toHaveText('Tap for the full map');
+  await expect(map.locator('.map-credit')).toHaveText('Base map: test credit');
+  await expect(map.locator('.map-vehicle')).toHaveCount(1);
+  // Fills the space: the page ends at the screen's bottom (the footer in view), not scrolling.
+  const h = await map.locator('svg.route-svg').evaluate(s => s.getBoundingClientRect().height);
+  expect(h).toBeGreaterThanOrEqual(250);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(1);
+  // No prompt on its own; the once-a-second redraw keeps the same map.
+  await tick(page, 3000);
+  expect(await page.evaluate(() => window.geoAsks)).toBe(0);
+  expect(await map.locator('svg.route-svg').evaluate(s => (s.dataset.kept = '1'))).toBe('1');
+  await tick(page, 2000);
+  await expect(map.locator('svg.route-svg[data-kept="1"]')).toHaveCount(1);
+  // Vehicles every 10 s, paused while the sheet is open.
+  const polled = vehicleHits(mbta).length;
+  await tick(page, 10_000);
+  expect(vehicleHits(mbta).length).toBe(polled + 2);
+  await map.locator('svg.route-svg').click();
+  await expect(sheet(page)).toBeVisible();
+  const sheetOpen = vehicleHits(mbta).length; // the sheet's first poll
+  await tick(page, 10_000);
+  expect(vehicleHits(mbta).length).toBe(sheetOpen + 2); // the sheet's only
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  // Rides again: the map goes, and its polling stops.
+  scenario.trips = trips;
+  await page.locator('#refresh').click();
+  await tick(page, 1000);
+  await expect(page.locator('.row').first()).toBeVisible();
+  await expect(emptyMap(page)).toHaveCount(0);
+  const after = vehicleHits(mbta).length;
+  await tick(page, 30_000);
+  expect(vehicleHits(mbta).length).toBe(after);
+});
+
+test('no rows, locate: asks, then "Location off" when denied; granted: centered on you with ⤢ back', async ({ page, context }) => {
+  const scenario = { ...commute(), trips: [] };
+  await openApp(page, { time: '07:00', scenario, init: DENIED, waitForRows: false });
+  const map = emptyMap(page);
+  await expect(map.locator('.map-here')).toHaveCount(0);
+  await locateBtn(map).click();
+  await tick(page, 100);
+  expect(await page.evaluate(() => window.geoAsks)).toBe(1);
+  await expect(map.locator('.map-caption')).toHaveText('Location off');
+  await expect(sheet(page)).toBeHidden(); // the button doesn't open the sheet
+  // Granted (a new page): the dot without asking; locate centers; ⤢ goes back.
+  const p2 = await context.newPage();
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 42.4740, longitude: -71.0900 });
+  await openApp(p2, { time: '07:00', scenario, waitForRows: false });
+  const map2 = emptyMap(p2);
+  await expect(map2.locator('.map-here')).toHaveCount(1);
+  await tick(p2, 1500); // its height settled
+  const fit = await map2.locator('svg.route-svg').getAttribute('viewBox');
+  const fitBtn = map2.getByRole('button', { name: 'Show the whole trip' });
+  await expect(fitBtn).toBeHidden();
+  await locateBtn(map2).click();
+  await tick(p2, 300);
+  await expect(fitBtn).toBeVisible();
+  expect(await map2.locator('svg.route-svg').getAttribute('viewBox')).not.toBe(fit);
+  await p2.emulateMedia({ reducedMotion: 'reduce' });
+  await fitBtn.click();
+  expect(await map2.locator('svg.route-svg').getAttribute('viewBox')).toBe(fit);
+  await expect(fitBtn).toBeHidden();
+  await expect(sheet(p2)).toBeHidden();
 });

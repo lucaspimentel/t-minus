@@ -438,14 +438,19 @@
   .map-body .route-map { flex: 1; display: flex; }
   .map-body .route-svg { flex: 1; height: auto; }
   .route-map { margin: 8px 0; position: relative; }
-  /* The sheet's way back to the trip (2026-11-08): shown once the view moves off the fit. */
-  .map-fit {
-    position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; padding: 0;
+  /* The map's corner buttons: locate (2026-11-09), then ⤢ back to the trip (2026-11-08), shown
+     once the view moves off the fit. */
+  .map-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .map-tool {
+    position: relative; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text);
     font: inherit; font-size: 20px; line-height: 1; box-shadow: 0 1px 3px rgb(0 0 0 / .15); cursor: pointer;
   }
-  .map-fit::before { content: ''; position: absolute; inset: -3px; } /* a 46 px touch area */
-  .map-fit[hidden] { display: none; }
+  .map-tool::before { content: ''; position: absolute; inset: -3px; } /* a 46 px touch area */
+  .map-tool[hidden] { display: none; }
+  .empty-map { cursor: pointer; margin: 0; }
+  .empty-map-item .map-caption { margin: 6px 0 2px; font-size: 13px; }
+  .map-tool svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
   .route-svg {
     display: block; width: 100%; height: 200px; background: var(--card); border: 1px solid var(--border);
     border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none;
@@ -508,7 +513,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-08 · a81ddf3f6b</footer>
+    <footer class="version">Version 2026-11-08 · f045dfc68d</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -538,9 +543,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, areaRect, easeView, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
-} from './core.js?v=8da940ff42';
-import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=2b8a7a3d17';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, areaRect, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
+} from './core.js?v=d5abee2184';
+import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=746b7ea5c3';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1499,7 +1504,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=8da940ff42'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=d5abee2184'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -1963,6 +1968,7 @@ function render() {
     imp.type = 'button';
     imp.onclick = () => showSetup({ importOpen: true });
     li.append(el('p', 'empty-help', NO_TRIPS_HELP), btn, imp);
+    closeEmptyMap();
     $('rows').replaceChildren(li);
     return;
   }
@@ -2007,6 +2013,7 @@ function render() {
   if (en?.ride) {
     syncRideAlert(en, now);
     renderEnRoute(now, false, true);
+    closeEmptyMap();
     setRows(renderRideCard(en, now));
     return;
   }
@@ -2041,8 +2048,11 @@ function render() {
   ];
   const more = moreBtns.length ? [listItem(moreBtns)] : [];
   $('plan-trip').hidden = false;
+  // No rows once loaded: the trip's map fills the space (emptyMapItem; 2026-11-09).
+  if (rows.length || !lastOk) closeEmptyMap();
   if (rows.length) setRows(...top, ...rows, ...more);
-  else setRows(...top, el('li', 'empty', lastOk ? 'No upcoming departures found.' : ''));
+  else if (lastOk) { setRows(...top, el('li', 'empty', 'No upcoming departures found.'), emptyMapItem()); fitEmptyMap(); }
+  else setRows(...top, el('li', 'empty', ''));
 }
 
 // "Show previous rides" / "Show more rides": full-width buttons in the list.
@@ -2701,7 +2711,7 @@ function basemapGroup(layers) {
 // (input: routeMapModel's, without `aspect`; here: the phone's { lat, lon } or null). Interactive:
 // pinch / drag / wheel to zoom and pan, stops as buttons whose names show in the caption.
 // The view the rider zoomed to is kept across redraws; marks keep their size in pixels.
-function mapWidget({ label, interactive = false, focusKey = 'map', caption = null }) {
+function mapWidget({ label, interactive = false, focusKey = 'map', caption = null, locate = false }) {
   const svg = svgEl('svg', { class: 'route-svg', role: interactive ? 'group' : 'img', 'aria-label': label });
   const el = document.createElement('div');
   el.className = 'route-map';
@@ -2795,12 +2805,10 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   new ResizeObserver(() => { if (!w.touched && w.redraw) w.redraw(); else apply(); }).observe(svg);
   // Inside an option card: a tap on the map doesn't toggle the card (a picture too).
   el.addEventListener('click', e => e.stopPropagation());
-  if (!interactive) return w;
+  if (!interactive && !locate) return w;
 
-  // Taps and keys on stops; drags and pinches move the view: anywhere commuter rail reaches (the
-  // base map's `reach`, 5 km more) once the base map is in, and out until all of it shows.
-  const pointers = new Map();
-  let moved = 0, dragged = false;
+  // Pan and zoom limits: anywhere commuter rail reaches (the base map's `reach`, 5 km more) once
+  // the base map is in, and out until all of it shows.
   const limits = () => {
     const o = w.model?.origin;
     const area = basemap && o ? areaRect(basemap.reach, projector(o.lat, o.lon)) : null;
@@ -2810,9 +2818,30 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   // ⤢ back to the trip's fit: eased over FIT_MS (a jump with Reduce Motion).
   const FIT_MS = 250;
   let fitAnim = 0;
-  fitBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'map-fit', textContent: '⤢', hidden: true });
+  const tools = Object.assign(document.createElement('div'), { className: 'map-tools' });
+  // Locate (2026-11-09; `w.onLocate`, the caller's: the location, then w.centerOn).
+  if (locate) {
+    const b = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-locate' });
+    b.setAttribute('aria-label', 'Center on my location');
+    b.dataset.focus = `${focusKey}:locate`; // the main list's redraw keeps its focus
+    b.append(svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, svgEl('path', { d: 'M3 11 21 3l-8 18-2-8z' })));
+    b.addEventListener('click', e => { e.stopPropagation(); w.onLocate?.(); });
+    tools.append(b);
+  }
+  // You in the middle, the trip still in view (centerOn).
+  w.centerOn = here => {
+    const p = mapPoint(w.model, here);
+    if (!p || !w.fit) return;
+    fitAnim++;
+    w.view = interactive ? panView(centerOn(w.fit, p), 0, 0, limits()) : centerOn(w.fit, p);
+    w.touched = true;
+    apply();
+  };
+  fitBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-fit', textContent: '⤢', hidden: true });
   fitBtn.setAttribute('aria-label', 'Show the whole trip');
-  fitBtn.addEventListener('click', () => {
+  fitBtn.dataset.focus = `${focusKey}:fit`;
+  fitBtn.addEventListener('click', e => {
+    e.stopPropagation();
     if (!w.fit || !w.view) return;
     const from = w.view, to = w.fit, done = () => { w.view = w.fit; w.touched = false; apply(); };
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { done(); return; }
@@ -2827,7 +2856,13 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     };
     requestAnimationFrame(step);
   });
-  el.append(fitBtn);
+  tools.append(fitBtn);
+  el.append(tools);
+  if (!interactive) return w;
+
+  // Taps and keys on stops; drags and pinches move the view.
+  const pointers = new Map();
+  let moved = 0, dragged = false;
   const stopFit = () => { fitAnim++; };
   const toView = (cx, cy) => { const r = svg.getBoundingClientRect(); return { x: w.view.x + (cx - r.left) * mpp(), y: w.view.y + (cy - r.top) * mpp() }; };
   svg.addEventListener('click', e => {
@@ -2895,8 +2930,124 @@ function routeMapEl(legs, { start = null, end = null, points = [], static: still
   return w.el;
 }
 
-// The main screen's sheet (🗺 in the header): the shown trip, with the phone's location and the
-// legs' vehicles (one /vehicles request per leg every 10 s) while open.
+// The maps' location (the sheet and the empty screen's map; 2026-11-09): never asked for on its
+// own. Watched while the map is shown when the permission is already granted (Permissions API);
+// otherwise only after a tap on locate (`locate()`: the prompt, then the watch), which also
+// centers on you (`onChange(true)`). Denied: `off` ("Location off") only after that tap.
+function mapLocation(onChange) {
+  const loc = { here: null, off: false, asked: false, watchId: null, stopped: false };
+  const opts = { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 };
+  const at = p => ({ lat: p.coords.latitude, lon: p.coords.longitude });
+  const watch = () => {
+    if (loc.stopped || loc.watchId != null || !navigator.geolocation) return;
+    loc.watchId = navigator.geolocation.watchPosition(p => {
+      if (loc.stopped) return;
+      loc.here = at(p); loc.off = false; onChange(false);
+    }, () => {
+      if (loc.stopped) return;
+      loc.here = null; loc.off = loc.asked; onChange(false);
+    }, opts);
+  };
+  loc.locate = () => {
+    loc.asked = true;
+    if (!navigator.geolocation) { loc.off = true; onChange(false); return; }
+    navigator.geolocation.getCurrentPosition(p => {
+      if (loc.stopped) return;
+      loc.here = at(p); loc.off = false; watch(); onChange(true);
+    }, () => {
+      if (loc.stopped) return;
+      loc.here = null; loc.off = true; onChange(false);
+    }, opts);
+  };
+  loc.stop = () => {
+    loc.stopped = true;
+    if (loc.watchId != null) navigator.geolocation?.clearWatch(loc.watchId);
+    loc.watchId = null;
+  };
+  navigator.permissions?.query({ name: 'geolocation' }).then(st => { if (st.state === 'granted') watch(); }, () => {});
+  return loc;
+}
+
+// The empty main screen's map (2026-11-09): when the list loaded with no rows, the shown trip as
+// a picture filling the space down to the footer, with your location (mapLocation), the legs'
+// vehicles every 10 s (paused while the sheet is open), locate and ⤢; a tap opens the sheet.
+// Kept across the once-a-second redraw; closed when rows come back.
+let emptyMap = null;
+const mapLegs = trip => tripShape(trip).transit.map(l => ({ route: l.route, also: l.also, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: l.color ?? null, label: l.label ?? l.route }));
+function drawEmptyMap() {
+  const e = emptyMap;
+  if (!e) return;
+  const c = cache[e.idx];
+  const points = legPoints(e.trip, [...(c?.predictions ?? []), ...(c?.schedules?.docs ?? [])]);
+  e.widget.draw({
+    legs: e.legs, shapes: loadedShapes(e.legs), fallback: e.legs.map((l, i) => mapFallback(l, points[i])),
+    fitAlso: [e.loc.here], vehicles: e.vehicles, nowMs: Date.now(),
+  }, e.loc.here);
+  e.cap.textContent = e.loc.off ? 'Location off' : 'Tap for the full map';
+  e.credit.textContent = e.widget.base ? basemap.credit ?? '' : '';
+  e.credit.hidden = !e.widget.base;
+  fitEmptyMap(); // the credit line may have come or gone
+}
+async function pollEmptyVehicles() {
+  const e = emptyMap;
+  if (!e || mapSheet || document.hidden) return;
+  const res = await Promise.allSettled(e.legs.map(l => api('/vehicles', vehiclesQuery(l))));
+  if (emptyMap !== e) return;
+  e.vehicles = res.map((r, i) => (r.status === 'fulfilled' ? vehiclePositions(r.value) : e.vehicles[i] ?? []));
+  drawEmptyMap();
+}
+function emptyMapItem() {
+  const trip = config.trips[tripIdx];
+  if (emptyMap && (emptyMap.idx !== tripIdx || emptyMap.trip !== trip)) closeEmptyMap();
+  if (emptyMap) return emptyMap.li;
+  const legs = mapLegs(trip);
+  const widget = mapWidget({ label: `Map of ${trip.name}`, locate: true, focusKey: 'empty-map' });
+  widget.el.classList.add('empty-map');
+  widget.el.addEventListener('click', openMapSheet);
+  const li = el('li', 'empty-map-item');
+  const cap = el('p', 'map-caption');
+  cap.setAttribute('aria-live', 'polite');
+  const credit = el('p', 'map-credit');
+  credit.hidden = true;
+  li.append(widget.el, cap, credit);
+  const e = emptyMap = { idx: tripIdx, trip, legs, widget, li, cap, credit, vehicles: [], loc: null, timer: null };
+  e.loc = mapLocation(center => {
+    if (emptyMap !== e) return;
+    drawEmptyMap();
+    if (center) widget.centerOn(e.loc.here);
+  });
+  widget.onLocate = () => e.loc.locate();
+  widget.onBasemap = () => { if (emptyMap === e) drawEmptyMap(); };
+  Promise.all(legs.map(legShapes)).then(() => { if (emptyMap === e) drawEmptyMap(); });
+  drawEmptyMap();
+  pollEmptyVehicles();
+  e.timer = setInterval(pollEmptyVehicles, BOARDING_POLL_MS);
+  return li;
+}
+function closeEmptyMap() {
+  const e = emptyMap;
+  if (!e) return;
+  clearInterval(e.timer);
+  e.loc.stop();
+  basemapWidgets.delete(e.widget);
+  emptyMap = null;
+}
+// Its height: down to the footer (the page doesn't scroll), at least 250 px.
+function fitEmptyMap() {
+  const e = emptyMap;
+  if (!e?.li.isConnected) return;
+  const svg = e.widget.svg;
+  const cur = svg.getBoundingClientRect().height;
+  // The page's height (the list's bottom, body padding included) against the screen's.
+  const doc = $('app').getBoundingClientRect().bottom + scrollY + parseFloat(getComputedStyle(document.body).paddingBottom || 0);
+  const h = Math.max(250, Math.round(cur + window.innerHeight - doc));
+  if (Math.abs(h - cur) > 1) svg.style.height = `${h}px`;
+}
+addEventListener('resize', fitEmptyMap);
+
+// The main screen's sheet (🗺 in the header): the shown trip, with the phone's location (once
+// granted; mapLocation) and the legs' vehicles (one /vehicles request per leg every 10 s) while
+// open.
 let mapSheet = null;
 function drawMapSheet() {
   const m = mapSheet;
@@ -2909,8 +3060,8 @@ function drawMapSheet() {
   const mine = m.legs.map((_, i) => s?.ride?.legs[i]?.tripId ?? (s?.bell ? s.target?.legs?.[i]?.tripId ?? null : null));
   m.widget.draw({
     legs: m.legs, shapes: loadedShapes(m.legs), fallback: m.legs.map((l, i) => mapFallback(l, points[i])),
-    start: s?.ride ? null : m.here, finished: phase?.leg ?? 0, vehicles: m.vehicles, mine, nowMs: now,
-  }, m.here, m.locationOff ? 'Location off' : '');
+    fitAlso: [m.loc.here], finished: phase?.leg ?? 0, vehicles: m.vehicles, mine, nowMs: now,
+  }, m.loc.here, m.loc.off ? 'Location off' : '');
   $('map-credit').textContent = m.widget.base ? basemap.credit ?? '' : '';
   $('map-credit').hidden = !m.widget.base;
 }
@@ -2925,31 +3076,23 @@ async function pollMapVehicles() {
 function openMapSheet() {
   if (!config || mapSheet) return;
   const trip = config.trips[tripIdx];
-  const legs = tripShape(trip).transit.map(l => ({ route: l.route, also: l.also, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: l.color ?? null, label: l.label ?? l.route }));
-  const widget = mapWidget({ label: `Map of ${trip.name}`, interactive: true, focusKey: 'sheet', caption: $('map-caption') });
-  mapSheet = { idx: tripIdx, trip, legs, widget, vehicles: [], here: null, locationOff: false, watchId: null, timer: null };
+  const legs = mapLegs(trip);
+  const widget = mapWidget({ label: `Map of ${trip.name}`, interactive: true, focusKey: 'sheet', caption: $('map-caption'), locate: true });
+  const m = mapSheet = { idx: tripIdx, trip, legs, widget, vehicles: [], loc: null, timer: null };
+  m.loc = mapLocation(center => {
+    if (mapSheet !== m) return;
+    drawMapSheet();
+    if (center) widget.centerOn(m.loc.here);
+  });
+  widget.onLocate = () => m.loc.locate();
   $('map-title').textContent = trip.name;
   $('map-body').replaceChildren(widget.el);
   $('map-sheet').hidden = false;
   $('app').hidden = true;
   $('map-done').focus();
   drawMapSheet();
-  const m = mapSheet;
   widget.onBasemap = () => { if (mapSheet === m) drawMapSheet(); }; // also shows the credit
   Promise.all(legs.map(legShapes)).then(() => { if (mapSheet === m) drawMapSheet(); });
-  if (navigator.geolocation) {
-    m.watchId = navigator.geolocation.watchPosition(p => {
-      if (mapSheet !== m) return;
-      m.here = { lat: p.coords.latitude, lon: p.coords.longitude };
-      m.locationOff = false;
-      drawMapSheet();
-    }, () => {
-      if (mapSheet !== m) return;
-      m.here = null;
-      m.locationOff = true;
-      drawMapSheet();
-    }, { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 });
-  } else m.locationOff = true;
   pollMapVehicles();
   m.timer = setInterval(pollMapVehicles, BOARDING_POLL_MS);
 }
@@ -2957,7 +3100,7 @@ function closeMapSheet() {
   const m = mapSheet;
   if (!m) return;
   clearInterval(m.timer);
-  if (m.watchId != null) navigator.geolocation?.clearWatch(m.watchId);
+  m.loc.stop();
   mapSheet = null;
   $('map-sheet').hidden = true;
   $('map-body').replaceChildren();

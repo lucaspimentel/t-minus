@@ -531,7 +531,12 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   as a static picture fitted to the trip: above an expanded planner option's timeline, and under
   the legs in the trip editor (redrawn when a leg changes). Only the sheet pans and zooms
   (2026-11-08: the planner's map did too, the editor's didn't; both are pictures now, so the page
-  scrolls over them).
+  scrolls over them). The main screen with no rows once loaded ("No upcoming departures found",
+  2026-11-09, mockups accepted) draws the shown trip under the message as a picture filling the
+  space down to the footer (at least 250 px; the page doesn't scroll), with the dot, the legs'
+  vehicles, the base map's credit and "Tap for the full map" under it; a tap opens the sheet.
+  It's kept across the once-a-second redraw and closed (its location and polling stopped) when
+  rows come back, while riding, or without trips.
 - **Drawing:** an SVG outline with no street map (equirectangular, north up, in meters from the
   first boarding stop). Each leg is its route's shape (`route_patterns` with
   `representative_trip.shape`), trimmed to its boarding and drop-off stops, in the route's
@@ -548,12 +553,19 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   towns). Without the base map, the old limits. Once the view moves, ⤢ in the map's top-right
   corner ("Show the whole trip", 40 px, card style) eases back to the trip's fit in 250 ms
   (`easeView`; at once with Reduce Motion) and hides; a pan or pinch during it takes over. Marks keep their size in pixels; lines their width.
-- **Walks at the ends:** the sheet draws a dashed walk from the phone's location to the first
-  stop, before boarding only. Saved trips keep no place coordinates (the config reaches the
-  server), so there is no last walk. Planner options draw both from the place's point (an
-  address or "Current location"), held in memory only.
-- **Live while open (the sheet only):** the phone's location (`watchPosition`, cleared on
-  close; denied or unavailable: no dot, no first walk, the caption "Location off"), and every
+- **Walks at the ends:** planner options draw dashed walks from the place's point (an address or
+  "Current location", held in memory only) and to it. Saved trips keep no place coordinates (the
+  config reaches the server), so there is no last walk. No walk from the phone's location
+  (2026-11-09: the sheet drew one before boarding; the dot alone now, inside the fit:
+  `routeMapModel`'s `fitAlso`).
+- **Location (the sheet and the empty screen's map, 2026-11-09):** never asked for on its own.
+  Already granted (the Permissions API): the dot, live (`watchPosition`, cleared on close). Not
+  granted: no dot until locate. Locate (an arrow, top-right above ⤢, card style, "Center on my
+  location") asks the first time (`getCurrentPosition`, then the watch) and centers on you with
+  the whole trip still in view (`centerOn`; ⤢ then shows, on the picture too). Denied: "Location
+  off" in the caption line, only after that tap; the button stays. Until 2026-11-09 the sheet
+  asked on opening and showed "Location off" whenever denied. `mapLocation` in `index.html`.
+- **Live while open (the sheet; the empty screen's map too):** the phone's location as above, and every
   vehicle on the legs' routes and directions (`/vehicles`, `vehiclesQuery`, every 10 s), as a
   badge in the route's color ("132", "OL"), only between the boarding and drop-off stops
   (within 150 m of the shape, updated in the last 90 s). The belled or tracked ride's vehicle is
@@ -950,7 +962,9 @@ still holds, to stay well inside it either way:
   too); while the 🗺 sheet is open, one `/vehicles` per leg every 10 s (6 a minute per leg,
   12 for a 2-leg trip), through the proxy (its 5 s `vehicles` cache). Keyless and direct, a
   3-leg trip's polls come near 20 a minute with the sheet open; the sheet is short-lived, and
-  a 429 only skips a round. Nothing once closed.
+  a 429 only skips a round. Nothing once closed. The empty main screen's map (2026-11-09) polls
+  the same way while shown, paused while the sheet is open (never both) and in the background;
+  with no rows the list's own polling is light, so the total stays as with the sheet open.
 - Route map's base map: one same-origin `basemap.json` per page load when a map first opens
   (revalidated, 304 when unchanged); no MBTA requests.
 - Expanding a row: one `/schedules?filter[trip]=…` per transit leg for its stop counts, once per

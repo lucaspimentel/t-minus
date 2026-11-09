@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, vehiclesOnStretch,
-  fitView, viewLimits, areaRect, easeView, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
+  fitView, viewLimits, areaRect, easeView, centerOn, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -313,4 +313,32 @@ test('stopsToShow: leg ends always; intermediate stops only with room between th
   // Far out: the ends only, and a selected stop.
   assert.deepEqual(ids(0.01), ['a0', 'a4', 'b0', 'b2']);
   assert.deepEqual(ids(0.01, { keep: 'a1' }), ['a0', 'a1', 'a4', 'b0', 'b2']);
+});
+
+test('centerOn: you in the middle, the whole fit still in view, its aspect kept', () => {
+  const fit = { x: 0, y: 0, w: 1000, h: 2000 };
+  const v = centerOn(fit, { x: 900, y: 500 });
+  near(v.x + v.w / 2, 900); near(v.y + v.h / 2, 500);
+  near(v.w / v.h, 0.5);
+  assert.ok(v.x <= 0 && v.x + v.w >= 1000 && v.y <= 0 && v.y + v.h >= 2000);
+  near(v.w, 1800); near(v.h, 3600); // the 900 m to the fit's left edge decides
+  // At the fit's center: the fit itself.
+  const c = centerOn(fit, { x: 500, y: 1000 });
+  near(c.w, 1000); near(c.h, 2000); near(c.x, 0); near(c.y, 0);
+  // Outside the fit: grown to reach back over it.
+  const o = centerOn(fit, { x: -1000, y: 1000 });
+  near(o.x, -3000); assert.ok(o.x + o.w >= 1000);
+});
+
+test('routeMapModel fitAlso: the fit takes in the phone without a walk to it', () => {
+  const legs = [{ route: 'Orange', direction_id: 0, stop: 'a', alight: 'b', color: 'ED8B00', label: 'Orange' }];
+  const fallback = [[{ id: 'a', name: 'A', lat: 42.40, lon: -71.07 }, { id: 'b', name: 'B', lat: 42.36, lon: -71.06 }]];
+  const plain = routeMapModel({ legs, fallback });
+  const me = { lat: 42.47, lon: -71.10 };
+  const m = routeMapModel({ legs, fallback, fitAlso: [me] });
+  assert.deepEqual(m.walks, []);
+  const p = mapPoint(m, me);
+  assert.ok(p.y > m.view.y && p.x > m.view.x && p.y < m.view.y + m.view.h && p.x < m.view.x + m.view.w);
+  assert.ok(m.view.w > plain.view.w);
+  assert.deepEqual(routeMapModel({ legs, fallback, fitAlso: [null, { lat: NaN, lon: 1 }] }).view, plain.view);
 });
