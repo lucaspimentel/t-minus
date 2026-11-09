@@ -81,6 +81,8 @@ ride, and against these rules:
 - `node scripts/record-fixtures.mjs` refreshes the recorded route/stop lists and rail network
   (`NODE_USE_ENV_PROXY=1`; paced for the keyless limit, ~2 min). Add a route there when a spec
   needs its stop lists.
+- `NODE_USE_ENV_PROXY=1 node scripts/build-basemap.mjs` rebuilds `basemap.json`, the route map's
+  base map (DESIGN.md "Route map"); commit the result.
 - Local run: the push server serves the app and `/api` on one port (see `server/README.md`,
   `DRY_RUN=1`), open `http://localhost:8790/`.
 - Push server (`server/`, the only backend; its runtime dependencies are `web-push` and `dd-trace`,

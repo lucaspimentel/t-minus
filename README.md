@@ -1,7 +1,7 @@
 # T-Minus
 
 A phone-first web app that answers one question for a recurring MBTA trip: **when do I need to
-leave?** It combines live predictions and schedules for every leg (bus, subway, light rail),
+leave?** It combines live predictions and schedules for every leg (bus, subway, light rail, commuter rail),
 your walking and transfer times, and shows the next departures you can still catch, with a
 countdown to each leave time.
 
@@ -15,8 +15,14 @@ Live at **https://t-minus.lucasp.net/**. Add it to your Home Screen to get notif
   stations, stops, addresses or your current location.
 - **While riding:** the vehicle's position, the stops left, connection outlook, and picks for a
   different train or bus.
-- **Notifications** (Web Push): heads-ups 10 and 5 min before leave time and "Leave now";
-  stop alerts before each drop-off and when a connection is missed.
+- **Notifications** (Web Push, or APNs in the iOS app): heads-ups before leave time and
+  "Leave now"; stop alerts before each drop-off and when a connection is missed.
+- **Auto-bell:** pick days and an arrive-by time for a trip, and the server sets the reminder
+  for the ride that gets you there.
+- **Route map:** the trip's lines, stops, vehicles and your location over a base map of Boston
+  and commuter rail's reach.
+- **iOS app** (TestFlight): the same app in a native shell, with Live Activities (leave, walk and
+  ride cards on the Lock Screen and Dynamic Island) and a Home Screen widget.
 - **Offline-tolerant:** a service worker keeps the app shell; the server caches MBTA data and
   serves stale copies when the MBTA is down.
 
@@ -57,6 +63,8 @@ CI runs both on every push.
 
 - `DESIGN.md`: decisions, verified MBTA API facts, the request budget.
 - `TODO.md`: pending work.
+- `IOS.md`: the iOS app's remaining plan.
+- `server/README.md`: the server's API, Railway setup and variables.
 - `CLAUDE.md`: conventions for coding agents (and humans).
 
 ## License

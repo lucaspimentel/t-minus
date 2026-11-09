@@ -1953,13 +1953,16 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
 - Unit tests: `npm test` (runs `node --test test/*.test.js`; Node 22+): the pure logic in
   `core.js`.
 - Browser tests: `npm run test:browser` (Playwright, Chromium, phone viewport, New York time):
-  `test/browser/*.spec.js` cover the main list, en route / ride card, setup, notifications,
-  pull-to-refresh, the update check, accessibility (axe), and the service worker fallbacks. The app runs as is, served by `test/browser/server.mjs` (which can also
+  `test/browser/*.spec.js` cover the main list, en route / ride card, setup, the planner,
+  commuter rail, the route map, notifications and stop alerts, auto-bell, the MBTA proxy, RUM,
+  the iOS app's web side, pull-to-refresh, the update check, accessibility (axe), and the
+  service worker fallbacks. The app runs as is, served by `test/browser/server.mjs` (which can also
   fail, stall, or go down on purpose); MBTA requests are answered by a fake API
   (`fake-mbta.js`) from scenarios (trips with stop times, optional live delays, alerts) plus
   recorded route/stop lists for setup (`test/browser/fixtures/`, refreshed by
   `scripts/record-fixtures.mjs`). The page clock is faked; specs move it with `tick` /
-  `tickTo`. The devDependencies are `@playwright/test` and `@axe-core/playwright`; the app itself has none.
+  `tickTo`. The devDependencies are `@playwright/test`, `@axe-core/playwright` and the Capacitor packages
+  for the iOS app (`npx cap sync ios`); the app itself has none.
 - Push server: `test/server.test.js` (part of `npm test`) runs `server/app.mjs` against a fake
   MBTA, a recording sender, a temp store, and a fake clock. Locally:
   `npm --prefix server ci`, then `node server/main.mjs` with the env vars from
