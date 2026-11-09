@@ -75,9 +75,11 @@ ride, and against these rules:
   its key line) and confirm the spec fails, then restore it. `a11y.spec.js` runs axe on each
   screen: new UI must pass it (buttons for anything tappable, a `data-focus` key on controls
   inside the once-a-second redraw).
-- The page clock from `page.clock.install` keeps running in real time; before asserting on short
-  timers (the ↻ spin, the pull-to-refresh hold), call `page.clock.pauseAt(...)` or test latency
-  makes them flaky.
+- The page clock from `page.clock.install` keeps running in real time. Call `page.clock.pauseAt(...)`
+  before asserting on short timers (the ↻ spin, the pull-to-refresh hold) and before clicks that
+  start an animation (the locate ease), or test latency makes them flaky. The rows redraw every
+  second and when stop counts arrive, so locators detach: read positions with `page.evaluate`
+  inside `expect.poll`.
 - `node scripts/record-fixtures.mjs` refreshes the recorded route/stop lists and rail network
   (`NODE_USE_ENV_PROXY=1`; paced for the keyless limit, ~2 min). Add a route there when a spec
   needs its stop lists.
