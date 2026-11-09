@@ -14,6 +14,10 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   run `npm run stamp` (updates the footer version and the `?v=<hash>`
   imports in `index.html` and `setup.js`; a test fails otherwise). Bump `CACHE` in `sw.js` when
   the shell file list changes.
+- Rebasing onto `main`: the footer version and `?v=<hash>` lines conflict almost every time.
+  Resolve with `git checkout -m <file>` and edit the hunks, never `git checkout --ours/--theirs`
+  (it takes the whole file from one side and drops the other side's non-conflicting changes);
+  then run `npm run stamp` instead of picking a hash.
 - `setup.js`: the setup view (DOM + setup-time requests); pure helpers belong in `core.js`.
 - `index.html`: UI, fetch, timers. Keep the request budget in `DESIGN.md` (keyless limit is 20 req/min).
 - Update `DESIGN.md` when behavior changes; move finished items out of `TODO.md`.
@@ -34,6 +38,10 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 - For UI changes, show mockups before planning: write HTML in the app's style (both themes) to
   the scratchpad, screenshot it with Playwright, and send the images. Mockups settle choices
   faster than descriptions.
+- To show a screen as built, write a temporary spec in `test/browser/` on the fake API's
+  scenarios, screenshot the element in both themes (`deviceScaleFactor: 2`), send the images,
+  and delete the spec (no relay or key needed).
+- Fast-forwarding `main` or force-pushing a branch needs the author's explicit request each time.
 - When several items are reported to be handled "one by one", add them all to `TODO.md` first,
   then grill, plan, implement, and push each separately.
 
