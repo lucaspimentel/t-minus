@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
+  shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
   fitView, viewLimits, areaRect, easeView, centerOn, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
 } from '../core.js';
 
@@ -268,6 +268,61 @@ test('routeMapModel: vehicles on a trimmed shape are measured along the leg, not
   // The leg runs from s2 to s4 (the shape's end): 'after' is ~220 m past it.
   const m = routeMapModel({ legs: [{ stop: 's2', alight: 's4', label: 'Bus 132' }], shapes: [kept], vehicles: [[v('before', 0), v('in', 2), v('in2', 3), v('after', 4, 0.002)]], nowMs: now });
   assert.deepEqual(m.vehicles.map(x => x.id), ['in', 'in2']);
+});
+
+test('splitPath: before, stretch and after; empty ends', () => {
+  const path = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 200, y: 0 }, { x: 300, y: 0 }];
+  const s = splitPath(path, { x: 50, y: 5 }, { x: 250, y: -5 });
+  assert.deepEqual(s.before, [{ x: 0, y: 0 }, { x: 50, y: 0 }]);
+  assert.deepEqual(s.stretch, [{ x: 50, y: 0 }, { x: 100, y: 0 }, { x: 200, y: 0 }, { x: 250, y: 0 }]);
+  assert.deepEqual(s.after, [{ x: 250, y: 0 }, { x: 300, y: 0 }]);
+  assert.equal(s.from, 50); assert.equal(s.to, 250);
+  const ends = splitPath(path, { x: 0, y: 0 }, { x: 300, y: 0 });
+  assert.deepEqual([ends.before, ends.after], [[], []]);
+  // A loop: the drop-off is found after the boarding point.
+  const loop = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }, { x: 0, y: 10 }];
+  const l = splitPath(loop, { x: 50, y: 0 }, { x: 0, y: 20 });
+  assert.deepEqual(l.stretch.at(-1), { x: 0, y: 20 });
+  assert.deepEqual(l.after, [{ x: 0, y: 20 }, { x: 0, y: 10 }]);
+  assert.equal(l.to, 100 + 100 + 100 + 80); // along the whole path
+});
+
+test('isBusRoute: buses and the Silver Line, not subway, commuter rail or ferries', () => {
+  for (const id of ['132', '741', 'SL1']) assert.equal(isBusRoute(id), true, id);
+  for (const id of ['Orange', 'Green-E', 'Mattapan', 'CR-Haverhill', 'Boat-F1', '', undefined]) assert.equal(isBusRoute(id), false, String(id));
+});
+
+test('routeMapModel: a bus leg\'s whole line, faded outside the stretch; vehicles from its start to the drop-off', () => {
+  const kept = trimShapesDoc(doc());
+  const now = 1_000;
+  const v = (id, k, off = 0.0004) => ({ id, tripId: id, lat: LINE[k].lat + off, lon: -71.07, updatedAt: now });
+  const leg = { route: '132', stop: 's1', alight: 's3', label: 'Bus 132', color: 'FFC72C' };
+  const vehicles = [[v('coming', 0), v('in', 2), v('past', 3, 0.0007)]];
+  const m = routeMapModel({ legs: [leg], shapes: [kept], vehicles, nowMs: now });
+  assert.deepEqual(m.legs.map(l => [l.color, !!l.faded, !!l.off]), [['FFC72C', true, true], ['FFC72C', true, true], ['FFC72C', false, false]]);
+  assert.ok(m.legs[0].path.at(-1).y === m.legs[2].path[0].y); // before ends where the stretch starts
+  assert.deepEqual(m.stops.map(s => [s.id, !!s.off, s.major]), [['s0', true, false], ['s1', false, true], ['s2', false, false], ['s3', false, true], ['s4', true, false]]);
+  assert.ok(m.stops.filter(s => s.off).every(s => !s.label));
+  assert.deepEqual(m.vehicles.map(x => x.id), ['coming', 'in']); // coming toward the stop; not past the drop-off
+  near(m.vehicles[0].heading, -90);
+  // The view: the stretch only, as without the whole line.
+  const plain = routeMapModel({ legs: [{ ...leg, route: undefined }], shapes: [kept], nowMs: now });
+  assert.deepEqual(m.view, plain.view);
+  assert.equal(plain.legs.length, 1);
+  assert.deepEqual(plain.vehicles, []);
+  // A finished bus leg: every part faded. A subway leg: no off parts.
+  const done = routeMapModel({ legs: [leg, { ...leg, route: '133' }], shapes: [kept, kept], finished: 1 });
+  assert.ok(done.legs.filter(l => l.color && !l.off).map(l => l.faded).join() === 'true,false');
+  assert.deepEqual(routeMapModel({ legs: [{ ...leg, route: 'Orange' }], shapes: [kept] }).legs.map(l => !!l.off), [false]);
+});
+
+test('stopsToShow: a bus line\'s faded stops thin out when zoomed out', () => {
+  const st = (id, y, extra = {}) => ({ id, x: 0, y, major: false, leg: 0, ...extra });
+  const stops = [st('o0', 0, { off: true }), st('o1', 50, { off: true }), st('b', 100, { major: true }), st('a', 1000, { major: true }), st('o2', 1050, { off: true }), st('o3', 1100, { off: true })];
+  assert.equal(stopsToShow(stops, 1).size, 6);
+  const far = stopsToShow(stops, 0.1); // 14 px = 140 m
+  assert.ok(far.has(2) && far.has(3));
+  assert.ok(far.size < 6);
 });
 
 test('encodePolyline: decodePolyline\'s inverse', () => {

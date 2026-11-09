@@ -13,7 +13,7 @@ test.beforeEach(({ page }) => {
 const sheet = page => page.getByRole('dialog');
 const svg = page => sheet(page).locator('svg.route-svg');
 const locateBtn = loc => loc.getByRole('button', { name: 'Center on my location' });
-const legs = loc => loc.locator('polyline.map-leg');
+const legs = loc => loc.locator('polyline.map-leg:not(.off)'); // each leg's stretch (not a bus line's faded ends)
 const shapeHits = mbta => mbta.hits.filter(h => h.path === '/route_patterns' && h.query.get('include')?.includes('shape'));
 const vehicleHits = mbta => mbta.hits.filter(h => h.path === '/vehicles');
 // The 132's recorded pattern toward Malden: its stops (the trip boards at index 8, 25996, and
@@ -131,7 +131,7 @@ test('vehicles on the legs every 10 s while open, yours outlined; nothing after 
   await second.getByRole('button', { name: 'Track', exact: true }).click();
   await tick(page, 1000);
   await openMap(page);
-  await expect(svg(page).locator('.map-vehicle')).toHaveCount(2); // not the one before the boarding stop
+  await expect(svg(page).locator('.map-vehicle')).toHaveCount(3); // the one before the boarding stop too (2026-11-09: coming toward it)
   await expect(svg(page).locator('.map-vehicle.mine')).toHaveCount(1);
   await expect(svg(page).locator('.map-vehicle.mine')).toHaveAttribute('data-vehicle', 'mine');
   await expect(svg(page).locator('.map-vehicle text').first()).toHaveText('132');
@@ -243,6 +243,9 @@ test('setup: a planner option\'s map (a picture with both end walks; taps keep t
   await expect(editorMap.locator('svg')).toHaveAttribute('role', 'img');
   await expect(legs(editorMap)).toHaveCount(2);
   await expect(editorMap.getByRole('button')).toHaveCount(0);
+  // The bus's whole line there too, its other stops as plain (not tappable) dots (2026-11-09).
+  await expect(editorMap.locator('polyline.map-leg.off')).not.toHaveCount(0);
+  await expect(editorMap.locator('.map-stop.off')).not.toHaveCount(0);
   // Small and zoomed out: the leg ends stay, the bus's crowded stops thin out.
   const stopDisplay = sel => editorMap.locator(sel).evaluateAll(gs => gs.map(g => g.getAttribute('display') !== 'none'));
   expect(await stopDisplay('.map-stop.major')).not.toContain(false);
@@ -545,4 +548,32 @@ test('zoomed out with a ride: your vehicle stays, the others hide, polls go on',
   const was = vehicleHits(mbta).length;
   await tick(page, 10_000);
   expect(vehicleHits(mbta).length).toBe(was + 2);
+});
+
+// A bus leg's whole line (2026-11-09): faded outside your stretch, its other stops as faded dots,
+// and vehicles from its start to the drop-off.
+test('the bus leg\'s whole line, faded outside the stretch, with its stops and the buses coming toward yours', async ({ page }) => {
+  const past = busStops.length - 2; // the pattern runs on past the drop-off (index 24)
+  const scenario = { ...commute(), vehicles: [vehicleAt('coming', '132in-0640', 3), vehicleAt('past', '132in-0540', past)] };
+  await openApp(page, { time: '07:00', scenario, init: DENIED });
+  await openMap(page);
+  const off = svg(page).locator('polyline.map-leg.off');
+  await expect(off).toHaveCount(2); // before the boarding stop, after the drop-off
+  expect(await off.evaluateAll(ls => ls.map(l => [l.dataset.color, l.classList.contains('faded')]))).toEqual([['FFC72C', true], ['FFC72C', true]]);
+  // Drawn beneath the legs' stretches.
+  expect(await svg(page).locator('polyline.map-leg').evaluateAll(ls => ls.map(l => l.classList.contains('off')))).toEqual([true, true, false, false]);
+  // The line's other stops: faded, and their names on a tap.
+  const name = busStop(busStops[3]).name;
+  const dot = svg(page).locator(`.map-stop.off[aria-label="${name}"]`);
+  await expect(dot).toHaveCount(1);
+  await expect(svg(page).locator('.map-stop.off')).toHaveCount(8 + (busStops.length - 25));
+  await dot.dispatchEvent('click'); // off the screen at the fit
+  await expect(page.locator('#map-caption')).toHaveText(name);
+  // A bus coming toward your stop shows; one past the drop-off doesn't.
+  await expect(svg(page).locator('[data-vehicle="coming"]')).toHaveCount(1);
+  await expect(svg(page).locator('[data-vehicle="past"]')).toHaveCount(0);
+  // The view still frames your trip: the line's first stop is off the screen.
+  const [x, y, w, h] = (await svg(page).getAttribute('viewBox')).split(' ').map(Number);
+  const first = await svg(page).locator('.map-stop.off').first().evaluate(g => [Number(g.dataset.x), Number(g.dataset.y)]);
+  expect(first[0] < x || first[0] > x + w || first[1] < y || first[1] > y + h).toBe(true);
 });

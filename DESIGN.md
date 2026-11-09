@@ -568,8 +568,10 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   asked on opening and showed "Location off" whenever denied. `mapLocation` in `index.html`.
 - **Live while open (the sheet; the empty screen's map too):** the phone's location as above, and every
   vehicle on the legs' routes and directions (`/vehicles`, `vehiclesQuery`, every 10 s), as a
-  round marker in the route's color ("132", "OL"), only between the boarding and drop-off stops
-  (within 150 m of the shape, updated in the last 90 s). Its point shows the direction of travel:
+  round marker in the route's color ("132", "OL"), between the boarding and drop-off stops, and
+  on a bus leg from the line's first stop to the drop-off (buses coming toward your stop, full
+  color; none past the drop-off; 2026-11-09) (within 150 m of the shape, updated in the last
+  90 s). Its point shows the direction of travel:
   the route line's direction where the vehicle sits on it (`pathHeading`), not the MBTA's
   `bearing` (missing or stale at stops); the label stays upright (2026-11-09; a rectangular badge
   before). The belled or tracked ride's vehicle is larger and outlined. Once riding, finished
@@ -579,6 +581,13 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   others. With no ride of yours on the map (none belled or tracked; the empty-screen map), the
   10 s `/vehicles` poll is skipped while zoomed out and runs at once on zooming back in, unless
   the last one is under 10 s old.
+- **A bus leg's whole line (2026-11-09):** a bus leg (the Silver Line too, `isBusRoute`) with a
+  shape is drawn end to end along its pattern (`splitPath`): the parts before the boarding stop
+  and after the drop-off at 35% (like finished legs, beneath every leg's stretch), and the
+  pattern's other stops as faded dots (tappable for their names on the sheet; thinned like
+  intermediate stops). On every map (the sheet, the empty screen's, setup's). The view still fits
+  your stretch, walks and location only. Subway and commuter rail legs stay trimmed (the base
+  map's faint lines show the rest); a leg drawn from its stops (no shape) too.
 - **Data:** a leg's main route only (an `also` route runs the same street between the stops).
   The pattern is the one serving the boarding stop and then the drop-off (by id or parent
   station): canonical first, then the most typical, then MBTA sort order. Kept on the phone as

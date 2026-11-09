@@ -1516,6 +1516,8 @@ export function withRemembered(vehiclesByLeg, memory, nowMs) {
 
 // Subway (heavy and light rail: route types 1 and 0) by the MBTA's fixed route ids.
 export const isSubwayRoute = id => /^(Red|Orange|Blue|Mattapan|Green-[BCDE])$/.test(id);
+// A bus route (the Silver Line too): not subway, commuter rail or ferry.
+export const isBusRoute = id => typeof id === 'string' && id !== '' && !isSubwayRoute(id) && !/^(CR-|Boat-)/.test(id);
 const isSubwayLeg = leg => legRoutes(leg).every(isSubwayRoute);
 // Commuter rail (route type 2) by its route ids ("CR-Haverhill").
 export const isCommuterRailRoute = id => /^CR-/.test(id ?? '');
@@ -3874,9 +3876,21 @@ export function nearestOnPath(path, p, fromIndex = 0, fromT = 0) {
 // `path` from the point nearest `a` to the point nearest `b` after it (loops and out-and-back
 // routes pass near `b` before `a`): the sub-path with its projected ends, and the ends' `along`.
 export function trimPath(path, a, b) {
+  const { stretch, from, to } = splitPath(path, a, b);
+  return { path: stretch, from, to };
+}
+// `path` cut at the points nearest `a` and `b` (as trimPath): the part before `a`, the stretch
+// between, the part after `b` (before / after: [] when shorter than 2 distinct points).
+export function splitPath(path, a, b) {
   const na = nearestOnPath(path, a);
   const nb = nearestOnPath(path, b, na.index, na.t);
-  return { path: [na.point, ...path.slice(na.index + 1, nb.index + 1), nb.point], from: na.along, to: nb.along };
+  const part = pts => (pts.some(p => p.x !== pts[0].x || p.y !== pts[0].y) ? pts : []);
+  return {
+    before: part([...path.slice(0, na.index + 1), na.point]),
+    stretch: [na.point, ...path.slice(na.index + 1, nb.index + 1), nb.point],
+    after: part([nb.point, ...path.slice(nb.index + 1)]),
+    from: na.along, to: nb.along,
+  };
 }
 
 // The vehicles ([{ id, tripId, lat, lon, updatedAt }], projected by `proj`) on the stretch of
@@ -3977,14 +3991,25 @@ const WALK_GAP_METERS = 25;
 // null; fallback[i]: [{ id, name, lat, lon }] from boarding to drop-off (no shape), or null;
 // start / end: { lat, lon } (the walks to the first stop and from the last) or null;
 // finished: legs before this one are faded; vehicles[i]: vehiclePositions; mine[i]: a trip id.
-// → { origin, view, legs: [{ color, path, faded }], stops: [{ id, name, x, y, major, label, leg, color }],
+// A bus leg with a shape (2026-11-09): its whole pattern, the parts outside the stretch as
+// `off` legs (faded) and its other stops as `off` stops; vehicles from the line's start to the
+// drop-off. The view still fits the stretches, walks and `fitAlso` only.
+// → { origin, view, legs: [{ color, path, faded, off }], stops: [{ id, name, x, y, major, label, leg, color, off }],
 //     walks: [{ from, to, kind }], vehicles: [{ id, x, y, color, label, mine }], here }
 export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1, fitAlso = [] }) {
   const raw = legs.map((leg, i) => {
     const picked = shapes[i] ? pickPattern(shapes[i], leg.stop, leg.alight) : null;
     if (picked) {
       const st = picked.pattern.stops.slice(picked.from, picked.to + 1).map(id => ({ id, ...shapes[i].stops[id] })).filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lon));
-      if (st.length >= 2) return { leg, i, line: decodePolyline(picked.pattern.polyline), stops: st };
+      if (st.length >= 2) {
+        // A bus leg's whole pattern (2026-11-09): its stops before and after the stretch, faded.
+        const at = k => ({ id: picked.pattern.stops[k], ...shapes[i].stops[picked.pattern.stops[k]] });
+        const ok = s => Number.isFinite(s.lat) && Number.isFinite(s.lon);
+        const whole = isBusRoute(leg.route);
+        const offBefore = whole ? picked.pattern.stops.slice(0, picked.from).map((_, k) => at(k)).filter(ok) : [];
+        const offAfter = whole ? picked.pattern.stops.slice(picked.to + 1).map((_, k) => at(picked.to + 1 + k)).filter(ok) : [];
+        return { leg, i, line: decodePolyline(picked.pattern.polyline), stops: st, whole, offBefore, offAfter };
+      }
     }
     const fb = (fallback[i] ?? []).filter(s => Number.isFinite(s?.lat) && Number.isFinite(s?.lon));
     return fb.length >= 2 ? { leg, i, line: null, stops: fb } : null;
@@ -3995,9 +4020,15 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
   const out = { origin: { lat: o.lat, lon: o.lon }, legs: [], stops: [], walks: [], vehicles: [], here: null };
   const drawn = raw.map(r => {
     const pts = r.stops.map(s => proj.toXY(s));
-    const path = r.line ? trimPath(r.line.map(p => proj.toXY(p)), pts[0], pts.at(-1)).path : pts;
+    const full = r.line ? r.line.map(p => proj.toXY(p)) : null;
+    const split = full ? splitPath(full, pts[0], pts.at(-1)) : null;
+    const path = split ? split.stretch : pts;
     const length = path.reduce((m, p, k) => m + (k ? Math.hypot(p.x - path[k - 1].x, p.y - path[k - 1].y) : 0), 0);
-    out.legs.push({ color: r.leg.color ?? null, path, faded: r.i < finished });
+    const color = r.leg.color ?? null;
+    if (r.whole) for (const part of [split.before, split.after]) if (part.length) out.legs.push({ color, path: part, faded: true, off: true });
+    out.legs.push({ color, path, faded: r.i < finished });
+    const offStop = s => { const p = proj.toXY(s); out.stops.push({ id: s.id, name: s.name, x: p.x, y: p.y, major: false, label: false, leg: r.i, color, off: true }); };
+    (r.offBefore ?? []).forEach(offStop);
     r.stops.forEach((s, k) => {
       const major = k === 0 || k === r.stops.length - 1;
       const p = major ? (k === 0 ? path[0] : path.at(-1)) : pts[k];
@@ -4006,8 +4037,11 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
       for (const x of close) x.label = false; // a transfer's two stops: the next leg's name only
       out.stops.push({ id: s.id, name: s.name, x: p.x, y: p.y, major, label: major, leg: r.i, color: r.leg.color ?? null });
     });
+    (r.offAfter ?? []).forEach(offStop);
     const label = islandLabel(r.leg);
-    for (const v of vehiclesOnStretch(vehicles[r.i], path, 0, length, proj, nowMs)) {
+    // A bus leg: vehicles from the line's start to the drop-off (those coming toward the stop).
+    const onLine = r.whole ? vehiclesOnStretch(vehicles[r.i], full, 0, split.to, proj, nowMs) : vehiclesOnStretch(vehicles[r.i], path, 0, length, proj, nowMs);
+    for (const v of onLine) {
       out.vehicles.push({ id: v.id, x: v.point.x, y: v.point.y, heading: v.heading, color: r.leg.color ?? null, label, mine: !!mine[r.i] && v.tripId === mine[r.i] });
     }
     return path;
@@ -4019,6 +4053,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
   if (start && drawn.length) { const p = proj.toXY(start); out.walks.push({ from: p, to: drawn[0][0], kind: 'start' }); }
   if (end && drawn.length) out.walks.push({ from: drawn.at(-1).at(-1), to: proj.toXY(end), kind: 'end' });
   out.vehicles.sort((a, b) => a.mine - b.mine); // yours drawn last, on top
+  out.legs.sort((a, b) => !!b.off - !!a.off); // faded line ends beneath every leg's stretch
   // `fitAlso` ({ lat, lon }): in the fit, drawn by the caller (the phone's location, 2026-11-09:
   // no walk to the first stop, only the dot).
   const also = drawn.length ? fitAlso.filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lon)).map(p => proj.toXY(p)) : [];

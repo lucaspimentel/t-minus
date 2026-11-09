@@ -462,6 +462,9 @@
   .map-walk { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; vector-effect: non-scaling-stroke; }
   .map-stop circle { fill: var(--card); stroke-width: 1.5; }
   .map-stop.major circle { stroke-width: 3; }
+  /* A bus line's stops outside your stretch (2026-11-09), faded like its line. */
+  .map-stop.off circle:first-child { stroke-opacity: .35; }
+  .map-stop.off:focus-visible circle:first-child { stroke-opacity: 1; }
   .map-stop .map-hit { fill: transparent; stroke: none; cursor: pointer; }
   .map-stop:focus { outline: none; }
   .map-stop:focus-visible circle:first-child { stroke: var(--text); stroke-width: 3; }
@@ -515,7 +518,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-09 · 371c0f9f75</footer>
+    <footer class="version">Version 2026-11-09 · 984161e1a1</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -546,8 +549,8 @@ import {
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
-} from './core.js?v=0d56c24a0a';
-import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=98763644e0';
+} from './core.js?v=5e0c05695e';
+import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=faed4b0c5e';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1506,7 +1509,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=0d56c24a0a'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=5e0c05695e'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2773,9 +2776,9 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     w.stopMarks = [];
     const parts = [];
     for (const wk of model.walks) parts.push(svgEl('line', { class: 'map-walk', x1: wk.from.x, y1: wk.from.y, x2: wk.to.x, y2: wk.to.y, 'data-kind': wk.kind }));
-    for (const l of model.legs) parts.push(svgEl('polyline', { class: `map-leg${l.faded ? ' faded' : ''}`, stroke: mapColor(l.color), 'data-color': l.color ?? '', points: l.path.map(p => `${p.x},${p.y}`).join(' ') }));
+    for (const l of model.legs) parts.push(svgEl('polyline', { class: `map-leg${l.faded ? ' faded' : ''}${l.off ? ' off' : ''}`, stroke: mapColor(l.color), 'data-color': l.color ?? '', points: l.path.map(p => `${p.x},${p.y}`).join(' ') }));
     for (const st of model.stops) {
-      const g = mark(st.x, st.y, `map-stop${st.major ? ' major' : ''}`);
+      const g = mark(st.x, st.y, `map-stop${st.major ? ' major' : ''}${st.off ? ' off' : ''}`);
       w.stopMarks.push(g);
       g.append(svgEl('circle', { r: st.major ? 6 : 3.5, stroke: mapColor(st.color) }));
       if (st.label || w.selected === st.id) g.append(svgEl('text', { x: 10, y: 4, class: 'map-label' }, st.name));
