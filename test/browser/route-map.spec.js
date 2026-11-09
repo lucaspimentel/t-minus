@@ -90,6 +90,7 @@ test('the phone\'s location, already granted: the dot in the fit, no walk to the
   expect(fitted.y).toBeGreaterThan(0); expect(fitted.y).toBeLessThan(0.2); // in the fit, near its top
   const fitBtn = sheet(page).getByRole('button', { name: 'Show the whole trip' });
   await expect(fitBtn).toBeHidden();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10)); // the ease runs on the page clock only
   await locateBtn(sheet(page)).click();
   await tick(page, 50);
   const moving = await inView(); // eased like ⤢ (2026-11-09): on its way
