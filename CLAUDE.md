@@ -27,7 +27,11 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   N is the `ios` workflow's run number of the last successful run with `upload` on; say whether
   the change needs that build or a newer one). Put both at the very end of the summary, each on
   its own line (`Version 2026-10-24 · 4430fa3647`, `iOS build: 1.0 (18)`), so they're easy to
-  find. Railway skips a commit whose CI failed, and a push that touches
+  find. Railway deploys a few minutes after CI passes; confirm the live footer with
+  `curl -sS https://t-minus.lucasp.net/ | grep -o "Version [^<]*"` until it shows the new hash.
+  A run had `upload` on if its `Archive` step ran
+  (`gh api repos/lucaspimentel/t-minus/actions/runs/<id>/jobs`); the inputs aren't in the runs API.
+  Railway skips a commit whose CI failed, and a push that touches
   none of its watch paths (tests, docs) doesn't deploy, so the live footer stays on the previous
   version. Deploy a skipped commit that's still wanted by hand (Railway tools or dashboard), or bump
   `server/deploy-trigger` and push.
@@ -68,6 +72,8 @@ ride, and against these rules:
   goes with the first leg only, and only before boarding: while riding, the cards and widgets say
   "Orange Line to Malden Center" (the drop-off), and the app's timeline drops the ridden leg's headsign.
   DESIGN.md "Surface wording" lists each surface.
+- Header buttons use inline SVG line icons in the text color (`currentColor`, stroke 1.6, 22 px),
+  not emoji, which iOS draws in color (2026-11-09). The bell and the Dynamic Island keep emoji.
 - Color carries state: amber means at risk but catchable (the leave-by near or past, a tight
   connection); red means too late at your pace (past the last chance, a late walk, a missed or no
   connection); gray means gone. The same thresholds on every surface; the color and the time say
