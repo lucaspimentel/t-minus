@@ -556,12 +556,20 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   decorative (not tappable, hidden from screen readers). The fit makes room for them and their
   labels (`fitView`'s pixel `boxes` with the map's width, refit until it settles). In the sheet, a tap (or Enter) on
   a stop shows its name in the caption; pinch, drag or the wheel zoom and pan, from 150 m across
-  out to all of commuter rail's reach in one view (the base map's `reach`, the commuter rail
-  stops' box, 5 km more on each side; `areaRect`, `viewLimits`), the view's center anywhere in it
-  (2026-11-08: it stopped one trip-size past the trip and at twice its width, short of the outer
-  towns). Without the base map, the old limits. Once the view moves, ⤢ in the map's top-right
-  corner ("Show the whole trip", 40 px, card style) eases back to the trip's fit in 250 ms
-  (`easeView`; at once with Reduce Motion) and hides; a pan or pinch during it takes over. Marks keep their size in pixels; lines their width.
+  out to the whole bound in one view: the farthest commuter rail stations (the base map's `reach`,
+  the commuter rail stops' box) 2 km more on each side, united with the trip's fit (`areaRect`,
+  `viewLimits`). The view's edges stay inside the bound (`edges`, `clampView`); zoomed all the way
+  out, the bound fits and the long axis is centered, showing base map past it (about 104 × 175 km
+  on a phone). 2026-11-09, mockup accepted; from 2026-11-08 the view's center could go anywhere
+  in the box 5 km more, which showed blank card color past it; before that it stopped one
+  trip-size past the trip and at twice its width, short of the outer towns. Without the base map,
+  the old limits (the center within the fit grown by its size, out to twice its width).
+  **Corner buttons** (top right, 40 px, card style, SVG icons, top to bottom): locate (below);
+  back to the trip ("Show the whole trip", a route in frame corners; ⤢ until 2026-11-09), shown
+  once the view moves, eases back to the trip's fit in 250 ms (`easeView`; at once with Reduce
+  Motion) and hides; and on the sheet only, the whole map ("Show the whole map", a folded map;
+  2026-11-09), shown once the base map is in and while the view isn't all the way out, eases out
+  to the whole bound (`wholeView`) the same way. A pan or pinch during an ease takes over. Marks keep their size in pixels; lines their width.
 - **Walks at the ends:** planner options draw dashed walks from the place's point (an address or
   "Current location", held in memory only) and to it, with the end's pin at the place, labeled
   with its name to the first comma (`placeLabel`: "243 Condor St", "Current location") on the
@@ -574,10 +582,14 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   `routeMapModel`'s `fitAlso`).
 - **Location (the sheet and the empty screen's map, 2026-11-09):** never asked for on its own.
   Already granted (the Permissions API): the dot, live (`watchPosition`, cleared on close). Not
-  granted: no dot until locate. Locate (an arrow, top-right above ⤢, card style, "Center on my
+  granted: no dot until locate. Locate (an arrow, the top corner button, "Center on my
   location") asks the first time (`getCurrentPosition`, then the watch) and centers on you with
-  the whole trip still in view (`centerOn`; ⤢ then shows, on the picture too), eased like ⤢
-  (250 ms, at once with Reduce Motion; 2026-11-09). Nothing else on the maps is animated. Denied: "Location
+  the whole trip still in view (`centerOn`; back to the trip then shows, on the picture too), eased
+  like back to the trip (250 ms, at once with Reduce Motion; 2026-11-09). **Outside the bound**
+  (2026-11-09; `insideReach`, `outsideMap`; once the base map is in): your position is left out
+  of the fit and not drawn, and locate is disabled ("Center on my location (outside the map)")
+  until the live position is back inside; a tap whose answer is outside doesn't move the map and
+  shows "Outside the map" in the caption line (like "Location off", only after a locate tap). Nothing else on the maps is animated. Denied: "Location
   off" in the caption line, only after that tap; the button stays. Until 2026-11-09 the sheet
   asked on opening and showed "Location off" whenever denied. `mapLocation` in `index.html`.
 - **Live while open (the sheet; the empty screen's map too):** the phone's location as above, and every
@@ -591,7 +603,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   before). The belled or tracked ride's vehicle is larger and outlined. Once riding, finished
   legs fade.
 - **Zoomed out (2026-11-09):** with the view more than 1.5× wider than the trip's fit
-  (`zoomedOut`, `ZOOMED_OUT`), only your ride's vehicle shows; ⤢ or zooming back in shows the
+  (`zoomedOut`, `ZOOMED_OUT`), only your ride's vehicle shows; back to the trip or zooming back in shows the
   others. With no ride of yours on the map (none belled or tracked; the empty-screen map), the
   10 s `/vehicles` poll is skipped while zoomed out and runs at once on zooming back in, unless
   the last one is under 10 s old.

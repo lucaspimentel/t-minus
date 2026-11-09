@@ -3950,22 +3950,41 @@ export function fitView(points, { pad = 0.1, minSpan = 400, aspect = 1, boxes = 
 
 // Pinch and drag limits for a fitted view: zoom in to `minSpan` meters, out to twice the fit,
 // with the center kept within the fit grown by its own size on each side. With `area` (the
-// region the base map covers, areaRect; 2026-11-08): the center anywhere in it too, and zooming
-// out until all of it fits a view of `aspect` (width / height).
+// region the base map bounds, areaRect: the farthest commuter rail stations, 2 km more;
+// 2026-11-09): the bound is the area united with the fit, the view's edges stay inside it
+// (`edges`; a view wider than it on one axis is centered there), and zooming out stops when all
+// of it fits a view of `aspect` (width / height). Until 2026-11-09 the center only, 5 km more.
 export function viewLimits(fit, { minSpan = 150, area = null, aspect = fit.w / fit.h } = {}) {
-  const own = { x: fit.x - fit.w, y: fit.y - fit.h, w: fit.w * 3, h: fit.h * 3 };
-  if (!area) return { minSpan, maxSpan: fit.w * 2, bounds: own };
-  const x0 = Math.min(own.x, area.x), y0 = Math.min(own.y, area.y);
-  const x1 = Math.max(own.x + own.w, area.x + area.w), y1 = Math.max(own.y + own.h, area.y + area.h);
-  return { minSpan, maxSpan: Math.max(fit.w * 2, area.w, area.h * aspect), bounds: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } };
+  if (!area) return { minSpan, maxSpan: fit.w * 2, bounds: { x: fit.x - fit.w, y: fit.y - fit.h, w: fit.w * 3, h: fit.h * 3 } };
+  const x0 = Math.min(fit.x, area.x), y0 = Math.min(fit.y, area.y);
+  const x1 = Math.max(fit.x + fit.w, area.x + area.w), y1 = Math.max(fit.y + fit.h, area.y + area.h);
+  const bounds = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  return { minSpan, maxSpan: Math.max(bounds.w, bounds.h * aspect), bounds, edges: true };
 }
 // The base map's `reach` ([w, s, e, n], degrees: the commuter rail stops' box) in a map's meters
 // (`proj`), grown by `margin` meters on each side. Null without a valid reach.
-export function areaRect(reach, proj, margin = 5000) {
-  if (!Array.isArray(reach) || reach.length !== 4 || !reach.every(Number.isFinite)) return null;
+export const REACH_MARGIN = 2000;
+export function areaRect(reach, proj, margin = REACH_MARGIN) {
+  if (!validReach(reach)) return null;
   const [w, s, e, n] = reach;
   const a = proj.toXY({ lat: n, lon: w }), b = proj.toXY({ lat: s, lon: e });
   return { x: a.x - margin, y: a.y - margin, w: b.x - a.x + 2 * margin, h: b.y - a.y + 2 * margin };
+}
+const validReach = reach => Array.isArray(reach) && reach.length === 4 && reach.every(Number.isFinite);
+// Whether `p` ({ lat, lon }) is inside `reach` grown by `margin` meters (2026-11-09: outside it,
+// the maps leave your location out and locate is off). An invalid reach (no base map): inside.
+export function insideReach(reach, p, margin = REACH_MARGIN) {
+  if (!validReach(reach)) return true;
+  if (!Number.isFinite(p?.lat) || !Number.isFinite(p?.lon)) return false;
+  const [w, s, e, n] = reach;
+  const dLat = margin / 111_320, dLon = margin / (111_320 * Math.cos((p.lat * Math.PI) / 180));
+  return p.lat >= s - dLat && p.lat <= n + dLat && p.lon >= w - dLon && p.lon <= e + dLon;
+}
+// The whole map (2026-11-09, the sheet's whole-map button): fully zoomed out, centered on the
+// bound, for a view of `aspect` (width / height).
+export function wholeView(limits, aspect) {
+  const w = limits.maxSpan, h = w / aspect, b = limits.bounds;
+  return clampView({ x: b.x + b.w / 2 - w / 2, y: b.y + b.h / 2 - h / 2, w, h }, limits);
 }
 // A view centered on `p` (meters) that still holds all of `fit`, at fit's aspect (the maps'
 // locate button, 2026-11-09: you in the middle, the trip in view).
@@ -3984,6 +4003,11 @@ export function easeView(from, to, t) {
 }
 function clampView(v, limits) {
   if (!limits) return v;
+  if (limits.edges) {
+    const b = limits.bounds;
+    const axis = (pos, len, start, span) => (len <= span ? Math.min(Math.max(pos, start), start + span - len) : start + span / 2 - len / 2);
+    return { x: axis(v.x, v.w, b.x, b.w), y: axis(v.y, v.h, b.y, b.h), w: v.w, h: v.h };
+  }
   const cx = Math.min(Math.max(v.x + v.w / 2, limits.bounds.x), limits.bounds.x + limits.bounds.w);
   const cy = Math.min(Math.max(v.y + v.h / 2, limits.bounds.y), limits.bounds.y + limits.bounds.h);
   return { x: cx - v.w / 2, y: cy - v.h / 2, w: v.w, h: v.h };

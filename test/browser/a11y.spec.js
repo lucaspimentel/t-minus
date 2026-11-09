@@ -192,7 +192,7 @@ for (const scheme of ['light', 'dark']) {
 }
 
 for (const scheme of ['light', 'dark']) {
-  test(`axe finds nothing on the empty main screen's map, with ⤢ shown (${scheme})`, async ({ page, context }) => {
+  test(`axe finds nothing on the empty main screen's map, with back to the trip shown (${scheme})`, async ({ page, context }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await context.grantPermissions(['geolocation']);
     await context.setGeolocation({ latitude: 42.4655, longitude: -71.0990 });
@@ -220,12 +220,17 @@ for (const scheme of ['light', 'dark']) {
     await expect(page.locator('.map-base')).toHaveCount(1); // the real basemap.json
     await expect(page.locator('#map-credit')).toBeVisible();
     expect(await violations(page)).toEqual([]);
-    // ⤢ once the view moves (2026-11-08).
+    await expect(page.getByRole('button', { name: 'Show the whole map' })).toBeVisible(); // 2026-11-09
+    // Back to the trip once the view moves (2026-11-08).
     const box = await page.locator('#map-sheet svg.route-svg').boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(0, 300);
     await expect(page.getByRole('button', { name: 'Show the whole trip' })).toBeVisible();
     expect(await violations(page)).toEqual([]);
+    // The whole map's button keeps focus across a redraw.
+    await page.getByRole('button', { name: 'Show the whole map' }).focus();
+    await tick(page, 2000);
+    expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('sheet:whole');
     await page.getByRole('button', { name: 'Oak Grove', exact: true }).focus();
     await tick(page, 10_000); // a vehicle poll redraws the map
     expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('sheet:stop:70036');

@@ -444,8 +444,9 @@
   .map-body .route-map { flex: 1; display: flex; }
   .map-body .route-svg { flex: 1; height: auto; }
   .route-map { margin: 8px 0; position: relative; }
-  /* The map's corner buttons: locate (2026-11-09), then ⤢ back to the trip (2026-11-08), shown
-     once the view moves off the fit. */
+  /* The map's corner buttons: locate (2026-11-09; off outside the map), back to the trip
+     (2026-11-08; ⤢ until 2026-11-09), shown once the view moves off the fit, and on the sheet the
+     whole map (2026-11-09), shown once the base map is in and the view isn't all the way out. */
   .map-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 8px; }
   .map-tool {
     position: relative; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;
@@ -454,6 +455,7 @@
   }
   .map-tool::before { content: ''; position: absolute; inset: -3px; } /* a 46 px touch area */
   .map-tool[hidden] { display: none; }
+  .map-tool:disabled { opacity: .4; cursor: default; }
   .empty-map { cursor: pointer; margin: 0; }
   .empty-map-item .map-caption { margin: 6px 0 2px; font-size: 13px; }
   .map-tool svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
@@ -532,7 +534,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-09 · 250a799e23</footer>
+    <footer class="version">Version 2026-11-09 · 8f7bd06bb2</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -562,9 +564,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=dc8ee44b18';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=7efa872325';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
+} from './core.js?v=afd3f5c629';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=511dcc2928';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1521,7 +1523,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=dc8ee44b18'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=afd3f5c629'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2742,9 +2744,13 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   loadBasemap();
   const size = () => ({ width: svg.clientWidth || 340, height: svg.clientHeight || 200 });
   const mpp = () => (w.view ? w.view.w / size().width : 1); // meters per pixel
-  let fitBtn = null;
+  let fitBtn = null, wholeBtn = null, limitsOf = null;
   function apply() {
     if (fitBtn) fitBtn.hidden = !w.touched;
+    if (wholeBtn) {
+      const lim = w.fit && limitsOf ? limitsOf() : null;
+      wholeBtn.hidden = !lim?.edges || (!!w.view && Math.abs(w.view.w - lim.maxSpan) / lim.maxSpan < 0.01);
+    }
     if (!w.view) return;
     svg.setAttribute('viewBox', `${w.view.x} ${w.view.y} ${w.view.w} ${w.view.h}`);
     const s = mpp();
@@ -2843,15 +2849,16 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   el.addEventListener('click', e => e.stopPropagation());
   if (!interactive && !locate) return w;
 
-  // Pan and zoom limits: anywhere commuter rail reaches (the base map's `reach`, 5 km more) once
-  // the base map is in, and out until all of it shows.
-  const limits = () => {
+  // Pan and zoom limits once the base map is in: the view's edges within commuter rail's farthest
+  // stations (the base map's `reach`, 2 km more) and the trip, out until all of it shows
+  // (2026-11-09; until then the center, 5 km more).
+  const limits = limitsOf = () => {
     const o = w.model?.origin;
     const area = basemap && o ? areaRect(basemap.reach, projector(o.lat, o.lon)) : null;
     const { width, height } = size();
     return viewLimits(w.fit, { area, aspect: width / height });
   };
-  // ⤢ back to the trip's fit: eased over FIT_MS (a jump with Reduce Motion).
+  // Back to the trip's fit: eased over FIT_MS (a jump with Reduce Motion).
   const FIT_MS = 250;
   let fitAnim = 0;
   const tools = Object.assign(document.createElement('div'), { className: 'map-tools' });
@@ -2865,6 +2872,12 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     b.append(icon);
     b.addEventListener('click', e => { e.stopPropagation(); w.onLocate?.(); });
     tools.append(b);
+    // Off while your known position is outside the base map's bound (2026-11-09).
+    w.setLocateOutside = out => {
+      if (b.disabled === out) return;
+      b.disabled = out;
+      b.setAttribute('aria-label', out ? 'Center on my location (outside the map)' : 'Center on my location');
+    };
   }
   // Moves the view to `to`, eased over FIT_MS (a jump with Reduce Motion), then `done`. A pan,
   // pinch or another move takes over (fitAnim).
@@ -2882,15 +2895,18 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     };
     requestAnimationFrame(step);
   };
-  // Locate: you in the middle, the trip still in view (centerOn); eased like ⤢ (2026-11-09).
+  // Locate: you in the middle, the trip still in view (centerOn); eased like back to the trip (2026-11-09).
   w.centerOn = here => {
     const p = mapPoint(w.model, here);
     if (!p || !w.fit) return;
-    w.touched = true; // ⤢ at once; a redraw meanwhile keeps the view
+    w.touched = true; // back to the trip at once; a redraw meanwhile keeps the view
     animateTo(interactive ? panView(centerOn(w.fit, p), 0, 0, limits()) : centerOn(w.fit, p), () => {});
   };
-  fitBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-fit', textContent: '⤢', hidden: true });
+  // Back to the trip (⤢ until 2026-11-09): a route inside frame corners.
+  const toolIcon = (...parts) => { const i = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }); i.append(...parts); return i; };
+  fitBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-fit', hidden: true });
   fitBtn.setAttribute('aria-label', 'Show the whole trip');
+  fitBtn.append(toolIcon(svgEl('path', { d: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4' }), svgEl('circle', { cx: 9, cy: 15, r: 1.6 }), svgEl('circle', { cx: 15, cy: 9, r: 1.6 }), svgEl('path', { d: 'M10.2 13.8 13.8 10.2' })));
   fitBtn.dataset.focus = `${focusKey}:fit`;
   fitBtn.addEventListener('click', e => {
     e.stopPropagation();
@@ -2898,6 +2914,23 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     animateTo(w.fit, () => { w.touched = false; });
   });
   tools.append(fitBtn);
+  // The whole map (the sheet, 2026-11-09): fully zoomed out over the bound; hidden until the base
+  // map is in and while already all the way out (apply).
+  if (interactive) {
+    wholeBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-whole', hidden: true });
+    wholeBtn.setAttribute('aria-label', 'Show the whole map');
+    wholeBtn.dataset.focus = `${focusKey}:whole`;
+    wholeBtn.append(toolIcon(svgEl('path', { d: 'M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14' })));
+    wholeBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      const lim = w.fit && limits();
+      if (!lim?.edges || !w.view) return;
+      const { width, height } = size();
+      w.touched = true;
+      animateTo(wholeView(lim, width / height), () => {});
+    });
+    tools.append(wholeBtn);
+  }
   el.append(tools);
   if (!interactive) return w;
 
@@ -2971,6 +3004,10 @@ function routeMapEl(legs, { start = null, end = null, points = [], static: still
   return w.el;
 }
 
+// Your position outside the base map's bound (the farthest commuter rail stations, 2 km more;
+// 2026-11-09): left out of the maps' fit, no dot, locate off. Without the base map: no bound.
+const outsideMap = here => !!(basemap && here && !insideReach(basemap.reach, here));
+
 // The maps' location (the sheet and the empty screen's map; 2026-11-09): never asked for on its
 // own. Watched while the map is shown when the permission is already granted (Permissions API);
 // otherwise only after a tap on locate (`locate()`: the prompt, then the watch), which also
@@ -3011,7 +3048,7 @@ function mapLocation(onChange) {
 
 // The empty main screen's map (2026-11-09): when the list loaded with no rows, the shown trip as
 // a picture filling the space down to the footer, with your location (mapLocation), the legs'
-// vehicles every 10 s (paused while the sheet is open), locate and ⤢; a tap opens the sheet.
+// vehicles every 10 s (paused while the sheet is open), locate and back to the trip; a tap opens the sheet.
 // Kept across the once-a-second redraw; closed when rows come back.
 let emptyMap = null;
 const mapLegs = trip => tripShape(trip).transit.map(l => ({ route: l.route, also: l.also, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: l.color ?? null, label: l.label ?? l.route }));
@@ -3020,11 +3057,13 @@ function drawEmptyMap() {
   if (!e) return;
   const c = cache[e.idx];
   const points = legPoints(e.trip, [...(c?.predictions ?? []), ...(c?.schedules?.docs ?? [])]);
+  const out = outsideMap(e.loc.here), here = out ? null : e.loc.here;
   e.widget.draw({
     legs: e.legs, shapes: loadedShapes(e.legs), fallback: e.legs.map((l, i) => mapFallback(l, points[i])),
-    fitAlso: [e.loc.here], vehicles: e.vehicles, nowMs: Date.now(),
-  }, e.loc.here);
-  e.cap.textContent = e.loc.off ? 'Location off' : 'Tap for the full map';
+    fitAlso: [here], vehicles: e.vehicles, nowMs: Date.now(),
+  }, here);
+  e.widget.setLocateOutside(out);
+  e.cap.textContent = e.loc.off ? 'Location off' : e.loc.asked && out ? 'Outside the map' : 'Tap for the full map';
   e.credit.textContent = e.widget.base ? basemap.credit ?? '' : '';
   e.credit.hidden = !e.widget.base;
   fitEmptyMap(); // the credit line may have come or gone
@@ -3058,7 +3097,7 @@ function emptyMapItem() {
   e.loc = mapLocation(center => {
     if (emptyMap !== e) return;
     drawEmptyMap();
-    if (center) widget.centerOn(e.loc.here);
+    if (center && !outsideMap(e.loc.here)) widget.centerOn(e.loc.here);
   });
   widget.onLocate = () => e.loc.locate();
   widget.onZoomIn = () => { if (emptyMap === e && !(Date.now() - e.polled < BOARDING_POLL_MS)) pollEmptyVehicles(); };
@@ -3103,10 +3142,12 @@ function drawMapSheet() {
   const points = legPoints(m.trip, [...(c?.predictions ?? []), ...(c?.schedules?.docs ?? [])]);
   const phase = s?.ride ? ridePhase(s.ride, tripShape(m.trip).walkAfter, now) : null;
   const mine = m.legs.map((_, i) => s?.ride?.legs[i]?.tripId ?? (s?.bell ? s.target?.legs?.[i]?.tripId ?? null : null));
+  const out = outsideMap(m.loc.here), here = out ? null : m.loc.here;
   m.widget.draw({
     legs: m.legs, shapes: loadedShapes(m.legs), fallback: m.legs.map((l, i) => mapFallback(l, points[i])),
-    fitAlso: [m.loc.here], finished: phase?.leg ?? 0, vehicles: m.vehicles, mine, nowMs: now,
-  }, m.loc.here, m.loc.off ? 'Location off' : '');
+    fitAlso: [here], finished: phase?.leg ?? 0, vehicles: m.vehicles, mine, nowMs: now,
+  }, here, m.loc.off ? 'Location off' : m.loc.asked && out ? 'Outside the map' : '');
+  m.widget.setLocateOutside(out);
   m.mine = mine;
   $('map-credit').textContent = m.widget.base ? basemap.credit ?? '' : '';
   $('map-credit').hidden = !m.widget.base;
@@ -3130,10 +3171,11 @@ function openMapSheet() {
   m.loc = mapLocation(center => {
     if (mapSheet !== m) return;
     drawMapSheet();
-    if (center) widget.centerOn(m.loc.here);
+    if (center && !outsideMap(m.loc.here)) widget.centerOn(m.loc.here);
   });
   widget.onLocate = () => m.loc.locate();
   widget.onZoomIn = () => { if (mapSheet === m && !(Date.now() - m.polled < BOARDING_POLL_MS)) pollMapVehicles(); };
+  widget.onBasemap = () => { if (mapSheet === m) drawMapSheet(); }; // the bound: your location in or out
   $('map-title').textContent = trip.name;
   $('map-body').replaceChildren(widget.el);
   $('map-sheet').hidden = false;

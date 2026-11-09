@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { openApp, tick, tickTo, commute, planOptions, expandOption, cssColor } from './helpers.js';
-import { encodePolyline } from '../../core.js';
+import { encodePolyline, areaRect, projector } from '../../core.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -397,10 +397,13 @@ test('without the base map the map draws as today; the next opening tries again'
   expect(served.hits).toBe(2);
 });
 
-// Panning and zooming out (2026-11-08): anywhere commuter rail reaches (the base map's `reach`,
-// 5 km more), and ⤢ back to the trip.
+// Panning and zooming out (2026-11-08; the view's edges within the bound since 2026-11-09):
+// commuter rail's farthest stations (the base map's `reach`, 2 km more), and back to the trip.
 const REACH = { ...BASE, reach: [-71.35, 42.15, -70.85, 42.65] }; // ~41 × 56 km
 const view = async page => (await svg(page).getAttribute('viewBox')).split(' ').map(Number);
+// The bound in the sheet's meters: the reach, 2 km more (the map's origin is the first boarding stop).
+const bound = () => areaRect(REACH.reach, projector(busStop('25996').latitude, busStop('25996').longitude));
+const aspectOf = async page => { const b = await svg(page).boundingBox(); return b.width / b.height; };
 async function zoomOut(page, n = 30) {
   const box = await svg(page).boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -413,10 +416,28 @@ test('the sheet zooms out to all of commuter rail\'s reach and pans over it; wit
   const fit = await view(page);
   await zoomOut(page);
   const out = await view(page);
-  expect(out[2]).toBeGreaterThan(fit[2] * 2.5); // past today's 2× limit
-  expect(out[2]).toBeGreaterThan(45_000); // the reach's 41 km width with 5 km on each side…
-  expect(out[3]).toBeGreaterThan(60_000); // …and its 56 km height, both in one view
-  expect(out[2]).toBeLessThan(80_000); // but no further
+  const b = bound(), aspect = await aspectOf(page);
+  expect(out[2]).toBeGreaterThan(fit[2] * 2.5); // past the 2× limit without the base map
+  expect(out[2]).toBeCloseTo(Math.max(b.w, b.h * aspect), -2); // all of the bound in one view, no further
+  expect(out[2]).toBeGreaterThanOrEqual(b.w - 1); expect(out[3]).toBeGreaterThanOrEqual(b.h - 1);
+  if (out[3] > b.h) expect(out[1] + out[3] / 2).toBeCloseTo(b.y + b.h / 2, -1); // the long axis centered
+  // Panned far north, then far east: the view's edges stop at the bound's (not its center).
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('button', { name: 'Show the whole trip' }).click();
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 300);
+  const drag = async (dx, dy) => {
+    const box = await svg(page).boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    for (let i = 1; i <= 20; i++) await page.mouse.move(box.x + box.width / 2 + dx * i / 20, box.y + box.height / 2 + dy * i / 20);
+    await page.mouse.up();
+  };
+  for (let i = 0; i < 4; i++) await drag(0, 600);
+  const north = await view(page);
+  expect(north[1]).toBeCloseTo(b.y, -1);
+  for (let i = 0; i < 4; i++) await drag(-600, 0);
+  const east = await view(page);
+  expect(east[0] + east[2]).toBeCloseTo(b.x + b.w, -1);
   await sheet(page).getByRole('button', { name: 'Done' }).click();
   // The old file (no `reach`): today's limits.
   await page.unroute('**/basemap.json');
@@ -428,7 +449,7 @@ test('the sheet zooms out to all of commuter rail\'s reach and pans over it; wit
   expect((await view(page))[2]).toBeCloseTo(fit2[2] * 2, 0);
 });
 
-test('⤢ shows once the view moves and eases back to the trip; with Reduce Motion it jumps', async ({ page }) => {
+test('back to the trip (an icon) shows once the view moves and eases back; with Reduce Motion it jumps', async ({ page }) => {
   await serveBase(page, { base: REACH });
   await openApp(page, { time: '07:00', init: DENIED });
   await openMap(page);
@@ -436,6 +457,8 @@ test('⤢ shows once the view moves and eases back to the trip; with Reduce Moti
   await expect(fitBtn).toBeHidden();
   const fit = await view(page);
   await zoomOut(page, 3);
+  await expect(fitBtn.locator('svg circle')).toHaveCount(2); // a route in frame corners, not ⤢ (2026-11-09)
+  await expect(fitBtn).toHaveText('');
   await expect(fitBtn).toBeVisible();
   await fitBtn.click();
   await tick(page, 50);
@@ -455,6 +478,76 @@ test('⤢ shows once the view moves and eases back to the trip; with Reduce Moti
   await fitBtn.click();
   expect(await view(page)).toEqual(fit);
   await expect(fitBtn).toBeHidden();
+});
+
+// The whole map (the sheet, 2026-11-09): below back to the trip; fully zoomed out over the bound.
+test('the whole map button: shown once the base map is in, eases all the way out, hidden there', async ({ page }) => {
+  let release;
+  const held = new Promise(r => { release = r; });
+  await page.route('**/basemap.json', async route => { await held; return route.fulfill({ json: REACH }); });
+  await openApp(page, { time: '07:00', init: DENIED });
+  await openMap(page);
+  const whole = sheet(page).getByRole('button', { name: 'Show the whole map' });
+  await expect(whole).toBeHidden(); // no bound yet
+  release();
+  await expect(svg(page).locator('.map-base')).toHaveCount(1);
+  await expect(whole).toBeVisible();
+  const order = await sheet(page).locator('.map-tools .map-tool').evaluateAll(bs => bs.map(b => b.getAttribute('aria-label')));
+  expect(order).toEqual(['Center on my location', 'Show the whole trip', 'Show the whole map']);
+  await expect(whole.locator('svg path')).toHaveCount(1);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
+  await whole.click();
+  await tick(page, 50);
+  const b = bound(), aspect = await aspectOf(page), all = Math.max(b.w, b.h * aspect);
+  expect((await view(page))[2]).toBeLessThan(all * 0.99); // on its way
+  await tick(page, 400);
+  const out = await view(page);
+  expect(out[2]).toBeCloseTo(all, -2);
+  expect(out[0] + out[2] / 2).toBeCloseTo(b.x + b.w / 2, -1);
+  expect(out[1] + out[3] / 2).toBeCloseTo(b.y + b.h / 2, -1);
+  await expect(whole).toBeHidden();
+  await expect(sheet(page).getByRole('button', { name: 'Show the whole trip' })).toBeVisible();
+});
+
+// Outside the bound (2026-11-09): your location left out of the fit, no dot, locate off.
+test('your location outside the map: no dot, not in the fit, locate disabled; back inside, it comes back', async ({ page, context }) => {
+  await serveBase(page, { base: REACH });
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 40.71, longitude: -74.0 }); // New York
+  await openApp(page, { time: '07:00' });
+  await openMap(page);
+  await expect(svg(page).locator('.map-base')).toHaveCount(1);
+  await expect(svg(page).locator('.map-here')).toHaveCount(0);
+  expect((await view(page))[2]).toBeLessThan(30_000); // the trip's fit, not stretched to New York
+  const off = sheet(page).getByRole('button', { name: 'Center on my location (outside the map)' });
+  await expect(off).toBeDisabled();
+  await expect(page.locator('#map-caption')).toHaveText(''); // the caption only after a locate tap
+  await context.setGeolocation({ latitude: 42.4740, longitude: -71.0900 });
+  await expect(svg(page).locator('.map-here')).toHaveCount(1);
+  await expect(locateBtn(sheet(page))).toBeEnabled();
+});
+
+test('locate tapped while outside the map: no move, "Outside the map", the button off', async ({ page }) => {
+  await serveBase(page, { base: REACH });
+  await openApp(page, {
+    time: '07:00',
+    init: () => {
+      const at = { coords: { latitude: 40.71, longitude: -74.0, accuracy: 10 } };
+      navigator.geolocation.watchPosition = ok => { setTimeout(() => ok(at), 0); return 1; };
+      navigator.geolocation.getCurrentPosition = ok => setTimeout(() => ok(at), 0);
+      navigator.geolocation.clearWatch = () => {};
+    },
+  });
+  await openMap(page);
+  await expect(svg(page).locator('.map-base')).toHaveCount(1);
+  const before = await view(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await locateBtn(sheet(page)).click();
+  await tick(page, 100);
+  await expect(page.locator('#map-caption')).toHaveText('Outside the map');
+  expect(await view(page)).toEqual(before);
+  await expect(sheet(page).getByRole('button', { name: 'Center on my location (outside the map)' })).toBeDisabled();
+  await expect(svg(page).locator('.map-here')).toHaveCount(0);
 });
 
 // The empty main screen's map (2026-11-09): no rows once loaded.
@@ -510,7 +603,7 @@ test('no rows: the trip\'s map fills the space (vehicles, the hint, the credit);
   expect(vehicleHits(mbta).length).toBe(after);
 });
 
-test('no rows, locate: asks, then "Location off" when denied; granted: centered on you with ⤢ back', async ({ page, context }) => {
+test('no rows, locate: asks, then "Location off" when denied; granted: centered on you with back to the trip', async ({ page, context }) => {
   const scenario = { ...commute(), trips: [] };
   await openApp(page, { time: '07:00', scenario, init: DENIED, waitForRows: false });
   const map = emptyMap(page);
@@ -520,7 +613,7 @@ test('no rows, locate: asks, then "Location off" when denied; granted: centered 
   expect(await page.evaluate(() => window.geoAsks)).toBe(1);
   await expect(map.locator('.map-caption')).toHaveText('Location off');
   await expect(sheet(page)).toBeHidden(); // the button doesn't open the sheet
-  // Granted (a new page): the dot without asking; locate centers; ⤢ goes back.
+  // Granted (a new page): the dot without asking; locate centers; back to the trip goes back.
   const p2 = await context.newPage();
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ latitude: 42.4740, longitude: -71.0900 });
@@ -616,4 +709,18 @@ test('the bus leg\'s whole line, faded outside the stretch, with its stops and t
   const [x, y, w, h] = (await svg(page).getAttribute('viewBox')).split(' ').map(Number);
   const first = await svg(page).locator('.map-stop.off').first().evaluate(g => [Number(g.dataset.x), Number(g.dataset.y)]);
   expect(first[0] < x || first[0] > x + w || first[1] < y || first[1] > y + h).toBe(true);
+});
+
+test('no rows, your location outside the map: no dot, locate off, no whole-map button on the picture', async ({ page, context }) => {
+  await serveBase(page, { base: REACH });
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 40.71, longitude: -74.0 }); // New York
+  const scenario = { ...commute(), trips: [] };
+  await openApp(page, { time: '07:00', scenario, waitForRows: false });
+  const map = emptyMap(page);
+  await expect(map.locator('.map-base')).toHaveCount(1);
+  await expect(map.locator('.map-here')).toHaveCount(0);
+  await expect(map.getByRole('button', { name: 'Center on my location (outside the map)' })).toBeDisabled();
+  await expect(map.locator('.map-caption')).toHaveText('Tap for the full map');
+  await expect(map.getByRole('button', { name: 'Show the whole map' })).toHaveCount(0); // the sheet only
 });
