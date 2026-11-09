@@ -418,6 +418,8 @@ test('no rows: the trip\'s map fills the space (vehicles, the hint, the credit);
   await expect(map.locator('svg.route-svg')).toHaveAttribute('role', 'img');
   await expect(legs(map)).toHaveCount(2);
   await expect(map.locator('.map-caption')).toHaveText('Tap for the full map');
+  await expect(locateBtn(map).locator('svg path')).toHaveCount(1);
+  await expect(locateBtn(map)).toHaveText('');
   await expect(map.locator('.map-credit')).toHaveText('Base map: test credit');
   await expect(map.locator('.map-vehicle')).toHaveCount(1);
   // Fills the space: the page ends at the screen's bottom (the footer in view), not scrolling.
@@ -430,13 +432,17 @@ test('no rows: the trip\'s map fills the space (vehicles, the hint, the credit);
   expect(await map.locator('svg.route-svg').evaluate(s => (s.dataset.kept = '1'))).toBe('1');
   await tick(page, 2000);
   await expect(map.locator('svg.route-svg[data-kept="1"]')).toHaveCount(1);
-  // Vehicles every 10 s, paused while the sheet is open.
+  // Vehicles every 10 s (the first poll at once: one per leg), paused while the sheet is open.
+  await expect.poll(() => vehicleHits(mbta).length).toBeGreaterThanOrEqual(2);
+  await tick(page, 1000);
   const polled = vehicleHits(mbta).length;
   await tick(page, 10_000);
   expect(vehicleHits(mbta).length).toBe(polled + 2);
+  const beforeSheet = vehicleHits(mbta).length;
   await map.locator('svg.route-svg').click();
   await expect(sheet(page)).toBeVisible();
-  const sheetOpen = vehicleHits(mbta).length; // the sheet's first poll
+  await expect.poll(() => vehicleHits(mbta).length).toBe(beforeSheet + 2); // the sheet's first poll
+  const sheetOpen = vehicleHits(mbta).length;
   await tick(page, 10_000);
   expect(vehicleHits(mbta).length).toBe(sheetOpen + 2); // the sheet's only
   await sheet(page).getByRole('button', { name: 'Done' }).click();

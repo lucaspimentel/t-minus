@@ -513,7 +513,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-08 · f045dfc68d</footer>
+    <footer class="version">Version 2026-11-08 · fb25520224</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -2824,7 +2824,9 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     const b = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-locate' });
     b.setAttribute('aria-label', 'Center on my location');
     b.dataset.focus = `${focusKey}:locate`; // the main list's redraw keeps its focus
-    b.append(svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, svgEl('path', { d: 'M3 11 21 3l-8 18-2-8z' })));
+    const icon = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+    icon.append(svgEl('path', { d: 'M3 11 21 3l-8 18-2-8z' }));
+    b.append(icon);
     b.addEventListener('click', e => { e.stopPropagation(); w.onLocate?.(); });
     tools.append(b);
   }
@@ -2998,7 +3000,8 @@ async function pollEmptyVehicles() {
 }
 function emptyMapItem() {
   const trip = config.trips[tripIdx];
-  if (emptyMap && (emptyMap.idx !== tripIdx || emptyMap.trip !== trip)) closeEmptyMap();
+  const sig = JSON.stringify(trip); // the same trip, even from a reloaded config
+  if (emptyMap && (emptyMap.idx !== tripIdx || emptyMap.sig !== sig)) closeEmptyMap();
   if (emptyMap) return emptyMap.li;
   const legs = mapLegs(trip);
   const widget = mapWidget({ label: `Map of ${trip.name}`, locate: true, focusKey: 'empty-map' });
@@ -3010,7 +3013,7 @@ function emptyMapItem() {
   const credit = el('p', 'map-credit');
   credit.hidden = true;
   li.append(widget.el, cap, credit);
-  const e = emptyMap = { idx: tripIdx, trip, legs, widget, li, cap, credit, vehicles: [], loc: null, timer: null };
+  const e = emptyMap = { idx: tripIdx, trip, sig, legs, widget, li, cap, credit, vehicles: [], loc: null, timer: null };
   e.loc = mapLocation(center => {
     if (emptyMap !== e) return;
     drawEmptyMap();
