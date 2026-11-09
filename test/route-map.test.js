@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, vehiclesOnStretch,
+  shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
   fitView, viewLimits, areaRect, easeView, centerOn, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
 } from '../core.js';
 
@@ -125,6 +125,28 @@ test('vehiclesOnStretch: fresh, on the path, between the stops', () => {
   assert.deepEqual(got.map(x => x.id), ['in', 'fresh']);
   assert.ok(Math.abs(got[0].point.x) < 1e-6);
   assert.deepEqual(vehiclesOnStretch(undefined, path, 0, 1, proj, now), []);
+  near(got[0].heading, -90); // north: up on the map
+});
+
+test('pathHeading: the travel direction at a segment, skipping zero-length ones', () => {
+  const path = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  near(pathHeading(path, 0), 0); // east
+  near(pathHeading(path, 1), 90); // the empty segment: the next one, south
+  near(pathHeading(path, 3), 180); // west
+  near(pathHeading(path, 4), 180); // the last point: the segment before
+  near(pathHeading([{ x: 5, y: 5 }, { x: 5, y: 5 }], 0), 0); // no length anywhere
+});
+
+test('zoomedOut and vehicleShown: past 1.5x the fit, your ride\'s vehicle only', () => {
+  const fit = { x: 0, y: 0, w: 1000, h: 2000 };
+  assert.equal(ZOOMED_OUT, 1.5);
+  assert.equal(zoomedOut({ ...fit, w: 1500 }, fit), false);
+  assert.equal(zoomedOut({ ...fit, w: 1501 }, fit), true);
+  assert.equal(zoomedOut({ ...fit, w: 400 }, fit), false);
+  assert.equal(zoomedOut(null, fit), false);
+  assert.equal(vehicleShown({ mine: false }, false), true);
+  assert.equal(vehicleShown({ mine: false }, true), false);
+  assert.equal(vehicleShown({ mine: true }, true), true);
 });
 
 test('fitView, zoomView and panView', () => {
@@ -201,6 +223,7 @@ test('routeMapModel: legs from shapes, transfer and end walks, fallbacks, faded 
   assert.deepEqual(m.stops.filter(s => !s.major).map(s => s.name), ['Stop 1', 'Mid']);
   assert.deepEqual(m.walks.map(w => w.kind), ['transfer', 'start', 'end']);
   assert.deepEqual(m.vehicles.map(v => [v.id, v.label, v.mine]), [['v1', '132', false], ['v2', 'OL', true]]);
+  near(m.vehicles[1].heading, -90); // the train heads north
   // The view holds every leg and walk.
   for (const p of [...m.legs.flatMap(l => l.path), ...m.walks.flatMap(w => [w.from, w.to])]) {
     assert.ok(p.x >= m.view.x && p.x <= m.view.x + m.view.w && p.y >= m.view.y && p.y <= m.view.y + m.view.h);

@@ -466,9 +466,11 @@
   .map-stop:focus { outline: none; }
   .map-stop:focus-visible circle:first-child { stroke: var(--text); stroke-width: 3; }
   .map-label { font-size: 12px; font-weight: 600; fill: var(--text); stroke: var(--bg); stroke-width: 3; paint-order: stroke; stroke-linejoin: round; }
-  .map-vehicle text { font-size: 10px; font-weight: 700; }
-  .map-vehicle rect { stroke: var(--card); stroke-width: 1.5; }
-  .map-vehicle.mine rect { stroke: var(--text); stroke-width: 2.5; }
+  /* A vehicle: a round marker pointing the way it travels, the label upright (2026-11-09). */
+  .map-vehicle text { font-size: 9px; font-weight: 700; }
+  .map-vehicle.mine text { font-size: 11px; }
+  .map-vehicle path { stroke: var(--card); stroke-width: 1.5; stroke-linejoin: round; }
+  .map-vehicle.mine path { stroke: var(--text); stroke-width: 2.5; }
   /* The base map: beneath the trip, sizes in px at any zoom, not interactive. */
   .map-base { pointer-events: none; }
   .map-water { fill: var(--map-water); }
@@ -513,7 +515,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-08 · d3bf15fb3c</footer>
+    <footer class="version">Version 2026-11-09 · 371c0f9f75</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -543,9 +545,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, viewLimits, zoomView, panView, areaRect, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
-} from './core.js?v=d5abee2184';
-import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=746b7ea5c3';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
+} from './core.js?v=0d56c24a0a';
+import { openSetup, keptCopy, SAVED_TTL } from './setup.js?v=98763644e0';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1504,7 +1506,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=d5abee2184'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=0d56c24a0a'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2718,7 +2720,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   el.append(svg);
   const cap = caption ?? (interactive ? Object.assign(document.createElement('p'), { className: 'map-caption' }) : null);
   if (cap && !caption) { cap.setAttribute('aria-live', 'polite'); el.append(cap); }
-  const w = { el, svg, model: null, view: null, fit: null, touched: false, selected: null, marks: [], stopMarks: [], note: '', base: null };
+  const w = { el, svg, model: null, view: null, fit: null, touched: false, selected: null, marks: [], stopMarks: [], vehicleMarks: [], note: '', base: null, out: false };
   basemapWidgets.add(w);
   loadBasemap();
   const size = () => ({ width: svg.clientWidth || 340, height: svg.clientHeight || 200 });
@@ -2735,6 +2737,11 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
       const shown = stopsToShow(w.model.stops, 1 / s, { keep: w.selected });
       w.stopMarks.forEach((m, i) => { if (shown.has(i)) m.removeAttribute('display'); else m.setAttribute('display', 'none'); });
     }
+    // Zoomed out: your ride's vehicle only; zooming back in polls at once (`w.onZoomIn`).
+    const out = zoomedOut(w.view, w.fit);
+    for (const { g, v } of w.vehicleMarks) { if (vehicleShown(v, out)) g.removeAttribute('display'); else g.setAttribute('display', 'none'); }
+    if (w.out && !out) setTimeout(() => w.onZoomIn?.());
+    w.out = out;
     if (w.base) {
       const shown = basemapNames(w.base.names, w.view, size());
       w.base.marks.forEach((m, i) => {
@@ -2782,11 +2789,15 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
       }
       parts.push(g);
     }
+    w.vehicleMarks = [];
     for (const v of model.vehicles) {
       const g = mark(v.x, v.y, `map-vehicle${v.mine ? ' mine' : ''}`);
-      const wd = Math.max(22, v.label.length * 7 + 8) * (v.mine ? 1.25 : 1), ht = v.mine ? 20 : 16;
-      g.append(svgEl('rect', { x: -wd / 2, y: -ht / 2, width: wd, height: ht, rx: 4, fill: mapColor(v.color) }), svgEl('text', { y: 4, 'text-anchor': 'middle', fill: textOn(v.color) }, v.label));
-      g.dataset.vehicle = v.id;
+      // A circle with a point at `heading` (the travel direction); the label stays upright.
+      const r = Math.max(11, v.label.length * 3 + 3) * (v.mine ? 1.25 : 1), tip = r + 7;
+      const pin = svgEl('path', { d: `M${tip} 0L${r * 0.5} ${-r * 0.866}A${r} ${r} 0 1 0 ${r * 0.5} ${r * 0.866}Z`, fill: mapColor(v.color), transform: `rotate(${v.heading ?? 0})` });
+      g.append(pin, svgEl('text', { y: v.mine ? 4 : 3.2, 'text-anchor': 'middle', fill: textOn(v.color) }, v.label));
+      Object.assign(g.dataset, { vehicle: v.id, heading: Math.round(v.heading ?? 0) });
+      w.vehicleMarks.push({ g, v });
       parts.push(g);
     }
     const p = mapPoint(model, here);
@@ -2996,6 +3007,8 @@ function drawEmptyMap() {
 async function pollEmptyVehicles() {
   const e = emptyMap;
   if (!e || mapSheet || document.hidden) return;
+  if (zoomedOut(e.widget.view, e.widget.fit)) return; // no ride of yours here: nothing would show
+  e.polled = Date.now();
   const res = await Promise.allSettled(e.legs.map(l => api('/vehicles', vehiclesQuery(l))));
   if (emptyMap !== e) return;
   e.vehicles = res.map((r, i) => (r.status === 'fulfilled' ? vehiclePositions(r.value) : e.vehicles[i] ?? []));
@@ -3023,6 +3036,7 @@ function emptyMapItem() {
     if (center) widget.centerOn(e.loc.here);
   });
   widget.onLocate = () => e.loc.locate();
+  widget.onZoomIn = () => { if (emptyMap === e && !(Date.now() - e.polled < BOARDING_POLL_MS)) pollEmptyVehicles(); };
   widget.onBasemap = () => { if (emptyMap === e) drawEmptyMap(); };
   Promise.all(legs.map(legShapes)).then(() => { if (emptyMap === e) drawEmptyMap(); });
   drawEmptyMap();
@@ -3068,12 +3082,15 @@ function drawMapSheet() {
     legs: m.legs, shapes: loadedShapes(m.legs), fallback: m.legs.map((l, i) => mapFallback(l, points[i])),
     fitAlso: [m.loc.here], finished: phase?.leg ?? 0, vehicles: m.vehicles, mine, nowMs: now,
   }, m.loc.here, m.loc.off ? 'Location off' : '');
+  m.mine = mine;
   $('map-credit').textContent = m.widget.base ? basemap.credit ?? '' : '';
   $('map-credit').hidden = !m.widget.base;
 }
 async function pollMapVehicles() {
   const m = mapSheet;
   if (!m || document.hidden) return;
+  if (zoomedOut(m.widget.view, m.widget.fit) && !m.mine?.some(Boolean)) return; // nothing would show
+  m.polled = Date.now();
   const res = await Promise.allSettled(m.legs.map(l => api('/vehicles', vehiclesQuery(l))));
   if (mapSheet !== m) return;
   m.vehicles = res.map((r, i) => (r.status === 'fulfilled' ? vehiclePositions(r.value) : m.vehicles[i] ?? []));
@@ -3091,6 +3108,7 @@ function openMapSheet() {
     if (center) widget.centerOn(m.loc.here);
   });
   widget.onLocate = () => m.loc.locate();
+  widget.onZoomIn = () => { if (mapSheet === m && !(Date.now() - m.polled < BOARDING_POLL_MS)) pollMapVehicles(); };
   $('map-title').textContent = trip.name;
   $('map-body').replaceChildren(widget.el);
   $('map-sheet').hidden = false;

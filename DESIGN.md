@@ -568,9 +568,17 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   asked on opening and showed "Location off" whenever denied. `mapLocation` in `index.html`.
 - **Live while open (the sheet; the empty screen's map too):** the phone's location as above, and every
   vehicle on the legs' routes and directions (`/vehicles`, `vehiclesQuery`, every 10 s), as a
-  badge in the route's color ("132", "OL"), only between the boarding and drop-off stops
-  (within 150 m of the shape, updated in the last 90 s). The belled or tracked ride's vehicle is
-  larger and outlined. Once riding, finished legs fade.
+  round marker in the route's color ("132", "OL"), only between the boarding and drop-off stops
+  (within 150 m of the shape, updated in the last 90 s). Its point shows the direction of travel:
+  the route line's direction where the vehicle sits on it (`pathHeading`), not the MBTA's
+  `bearing` (missing or stale at stops); the label stays upright (2026-11-09; a rectangular badge
+  before). The belled or tracked ride's vehicle is larger and outlined. Once riding, finished
+  legs fade.
+- **Zoomed out (2026-11-09):** with the view more than 1.5× wider than the trip's fit
+  (`zoomedOut`, `ZOOMED_OUT`), only your ride's vehicle shows; ⤢ or zooming back in shows the
+  others. With no ride of yours on the map (none belled or tracked; the empty-screen map), the
+  10 s `/vehicles` poll is skipped while zoomed out and runs at once on zooming back in, unless
+  the last one is under 10 s old.
 - **Data:** a leg's main route only (an `also` route runs the same street between the stops).
   The pattern is the one serving the boarding stop and then the drop-off (by id or parent
   station): canonical first, then the most typical, then MBTA sort order. Kept on the phone as

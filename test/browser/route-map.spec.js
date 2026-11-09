@@ -498,3 +498,51 @@ test('no rows, locate: asks, then "Location off" when denied; granted: centered 
   await expect(fitBtn).toBeHidden();
   await expect(sheet(p2)).toBeHidden();
 });
+
+// Vehicles point the way they travel; zoomed out past 1.5× the fit, only your ride's (2026-11-09).
+test('vehicles point along the route; zoomed out, hidden and not polled until you zoom back in', async ({ page }) => {
+  const scenario = { ...commute(), vehicles: [vehicleAt('inside', '132in-0612', 15)] };
+  const mbta = await openApp(page, { time: '07:00', scenario, init: DENIED });
+  await openMap(page);
+  const bus = svg(page).locator('[data-vehicle="inside"]');
+  await expect(bus).toBeVisible();
+  // The point is turned to the heading, the label upright.
+  const heading = Number((await bus.locator('path').getAttribute('transform')).match(/^rotate\((.+)\)$/)[1]);
+  expect(Number(await bus.getAttribute('data-heading'))).toBe(Math.round(heading));
+  await expect(bus.locator('text')).not.toHaveAttribute('transform', /rotate/);
+  // Toward Malden: the bus between stops 15 and 16 heads from one to the other.
+  const a = busStop(busStops[15]), b = busStop(busStops[16]);
+  const toward = Math.atan2(-(b.latitude - a.latitude), (b.longitude - a.longitude) * Math.cos(a.latitude * Math.PI / 180)) * 180 / Math.PI;
+  expect(Math.abs(((heading - toward + 540) % 360) - 180)).toBeLessThan(60);
+  // Zoomed out: hidden, and no polls while nothing would show.
+  const fit = await view(page);
+  await zoomOut(page, 10);
+  expect((await view(page))[2]).toBeGreaterThan(fit[2] * 1.5);
+  await expect(bus).toBeHidden();
+  await tick(page, 10_500);
+  const paused = vehicleHits(mbta).length;
+  await tick(page, 20_000);
+  expect(vehicleHits(mbta).length).toBe(paused);
+  // ⤢: shown again, polled at once.
+  await sheet(page).getByRole('button', { name: 'Show the whole trip' }).click();
+  await tick(page, 400);
+  await expect(bus).toBeVisible();
+  await expect.poll(() => vehicleHits(mbta).length).toBe(paused + 2);
+});
+
+test('zoomed out with a ride: your vehicle stays, the others hide, polls go on', async ({ page }) => {
+  const scenario = { ...commute(), vehicles: [vehicleAt('inside', '132in-0612', 15), vehicleAt('mine', '132in-0736', 18)] };
+  const mbta = await openApp(page, { time: '07:00', scenario, init: DENIED });
+  const second = page.locator('.row').nth(1);
+  await second.click();
+  await second.getByRole('button', { name: 'Track', exact: true }).click();
+  await tick(page, 1000);
+  await openMap(page);
+  await expect(svg(page).locator('.map-vehicle')).toHaveCount(2);
+  await zoomOut(page, 10);
+  await expect(svg(page).locator('[data-vehicle="mine"]')).toBeVisible();
+  await expect(svg(page).locator('[data-vehicle="inside"]')).toBeHidden();
+  const was = vehicleHits(mbta).length;
+  await tick(page, 10_000);
+  expect(vehicleHits(mbta).length).toBe(was + 2);
+});

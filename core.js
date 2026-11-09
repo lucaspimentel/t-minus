@@ -3887,10 +3887,25 @@ export function vehiclesOnStretch(vehicles, path, fromAlong, toAlong, proj, nowM
     if (!(nowMs - v.updatedAt <= VEHICLE_FRESH_SECONDS * 1000)) continue;
     const n = nearestOnPath(path, proj.toXY(v));
     if (!n || n.meters > maxMeters || n.along < fromAlong - 1 || n.along > toAlong + 1) continue;
-    out.push({ ...v, point: n.point });
+    out.push({ ...v, point: n.point, heading: pathHeading(path, n.index) });
   }
   return out;
 }
+
+// The direction of travel along `path` at segment `index`, in degrees in the view's coordinates
+// (0: east, 90: south, as SVG rotates): the nearest segment with a length, ahead then behind.
+export function pathHeading(path, index) {
+  const seg = k => { const a = path[k], b = path[k + 1]; return a && b && (b.x !== a.x || b.y !== a.y) ? Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI : null; };
+  for (let k = index; k < path.length - 1; k++) { const h = seg(k); if (h != null) return h; }
+  for (let k = Math.min(index - 1, path.length - 2); k >= 0; k--) { const h = seg(k); if (h != null) return h; }
+  return 0;
+}
+
+// Zoomed out (2026-11-09): the view wider than ZOOMED_OUT times the trip's fit. Then only your
+// ride's vehicle shows (`mine`), and with no ride of yours the maps skip the /vehicles poll.
+export const ZOOMED_OUT = 1.5;
+export const zoomedOut = (view, fit) => !!(view && fit) && view.w > fit.w * ZOOMED_OUT;
+export const vehicleShown = (vehicle, out) => !out || !!vehicle.mine;
 
 // The view box ({ x, y, w, h }, meters) around `points`: padded, at least `minSpan` wide and
 // tall, widened or heightened to `aspect` (width / height).
@@ -3993,7 +4008,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     });
     const label = islandLabel(r.leg);
     for (const v of vehiclesOnStretch(vehicles[r.i], path, 0, length, proj, nowMs)) {
-      out.vehicles.push({ id: v.id, x: v.point.x, y: v.point.y, color: r.leg.color ?? null, label, mine: !!mine[r.i] && v.tripId === mine[r.i] });
+      out.vehicles.push({ id: v.id, x: v.point.x, y: v.point.y, heading: v.heading, color: r.leg.color ?? null, label, mine: !!mine[r.i] && v.tripId === mine[r.i] });
     }
     return path;
   });
