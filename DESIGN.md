@@ -629,8 +629,10 @@ maps (the sheet, the planner's options, the trip editor).
 - **File:** `basemap.json` at the repo root, built by `NODE_USE_ENV_PROXY=1 node
   scripts/build-basemap.mjs` (~40 s keyless, about 7 paced MBTA requests) and committed; rebuild
   when the sources change. Rings and lines are Google polylines (precision 5), simplified to
-  25 m (detailed) and 100 m (coarse), with `reach` (the commuter rail stops' box, for the
-  sheet's pan and zoom limits): 118 KB, 75 KB gzipped (2026-11-09, Hydro_100k's lakes; 69 KB
+  10 m (detailed; 25 m until 2026-11-09 turned the piers into spikes at the sheet's zoom) and
+  100 m (coarse), with `reach` (the commuter rail stops' box, for the sheet's pan and zoom
+  limits): 148 KB, 94 KB gzipped (2026-11-09, the detailed tier at 10 m; 75 KB gzipped at 25 m
+  with Hydro_100k's lakes; 69 KB
   gzipped before them, 2026-11-08; 42 KB with Massachusetts coarse land only and no outer towns,
   2026-11-07).
 - **Loading:** fetched the first time a map opens (a plain same-origin GET: nothing about the
