@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=29140a1d6f';
+} from './core.js?v=dc8ee44b18';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -687,7 +687,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         // as in the trip editor (2026-11-08; only the 🗺 sheet pans and zooms).
         const end = id => { const st = railNet && networkStation(railNet, id); return st ? { lat: st.lat, lon: st.lon, name: st.name } : null; };
         card.append(routeMap?.(o.legs.map((l, i) => ({ route: l.route, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: tags[i].color, label: tags[i].label })),
-          { start: p.from.point ?? null, end: p.to.point ?? null, points: o.legs.map(l => ({ board: end(l.stop), alight: end(l.alight) })), static: true }, `option:${k}`) ?? '');
+          { start: p.from.point ? { ...p.from.point, name: p.from.name } : null, end: p.to.point ? { ...p.to.point, name: p.to.name } : null, points: o.legs.map(l => ({ board: end(l.stop), alight: end(l.alight) })), static: true }, `option:${k}`) ?? '');
         card.append(timeline?.(optionSteps(o, { walkBefore: wb, walkAfter: wa, slack: app.stopSlackMinutes, legs }), `option:${k}`) ?? '',
           h('div', { class: 'row-foot' },
             o.arrive != null && h('button', { type: 'button', class: 'track-btn', 'data-focus': `pick:${k}:departures`, onclick: e => { e.stopPropagation(); pick(o, 'departures'); } }, 'See departures'),

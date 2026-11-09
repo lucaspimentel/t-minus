@@ -13,7 +13,8 @@ test.beforeEach(({ page }) => {
 const sheet = page => page.getByRole('dialog');
 const svg = page => sheet(page).locator('svg.route-svg');
 const locateBtn = loc => loc.getByRole('button', { name: 'Center on my location' });
-const legs = loc => loc.locator('polyline.map-leg:not(.off)'); // each leg's stretch (not a bus line's faded ends)
+const legs = loc => loc.locator('polyline.map-leg:not(.off)');
+const pins = loc => loc.locator('.map-pin'); // each leg's stretch (not a bus line's faded ends)
 const shapeHits = mbta => mbta.hits.filter(h => h.path === '/route_patterns' && h.query.get('include')?.includes('shape'));
 const vehicleHits = mbta => mbta.hits.filter(h => h.path === '/vehicles');
 // The 132's recorded pattern toward Malden: its stops (the trip boards at index 8, 25996, and
@@ -49,6 +50,16 @@ test('🗺 opens the trip: both legs at their shapes, labeled ends, stop names o
   expect(Number(await legs(svg(page)).first().evaluate(l => l.points.length))).toBeGreaterThan(20);
   // The leg ends are labeled; a transfer between close stops shows the next leg's name.
   await expect(svg(page).locator('.map-label')).toHaveText(['Main St @ South St', 'Oak Grove', 'State']);
+  // Pins on the first and last stops (2026-11-09), unlabeled (the stops' labels name them),
+  // decorative, drawn over the stops and under the vehicles.
+  await expect(pins(svg(page))).toHaveCount(2);
+  expect(await pins(svg(page)).evaluateAll(ps => ps.map(p => p.getAttribute('class')))).toEqual(['map-pin start on-stop', 'map-pin end on-stop']);
+  await expect(pins(svg(page)).locator('text')).toHaveCount(0);
+  expect(await pins(svg(page)).evaluateAll(ps => ps.map(p => [p.getAttribute('role'), p.getAttribute('tabindex'), p.getAttribute('aria-hidden')]))).toEqual([[null, null, 'true'], [null, null, 'true']]);
+  const xy = l => l.evaluate(g => [g.dataset.x, g.dataset.y]);
+  expect(await xy(pins(svg(page)).first())).toEqual(await xy(svg(page).getByRole('button', { name: 'Main St @ South St' })));
+  expect(await xy(pins(svg(page)).last())).toEqual(await xy(svg(page).getByRole('button', { name: 'State', exact: true })));
+  expect(await svg(page).evaluate(s => { const kids = [...s.children]; return kids.indexOf(s.querySelector('.map-pin.start')) > kids.indexOf([...s.querySelectorAll('.map-stop')].at(-1)); })).toBe(true);
   await svg(page).getByRole('button', { name: 'Pond St @ Stone Zoo' }).click();
   await expect(page.locator('#map-caption')).toHaveText('Pond St @ Stone Zoo');
   await expect(svg(page).getByRole('button', { name: 'Pond St @ Stone Zoo' })).toHaveAttribute('aria-pressed', 'true');
@@ -161,6 +172,9 @@ test('riding: the first walk is gone and finished legs fade', async ({ page }) =
   await openMap(page);
   expect(await legs(svg(page)).evaluateAll(ls => ls.map(l => l.classList.contains('faded')))).toEqual([true, false]);
   await expect(svg(page).locator('.map-walk[data-kind="start"]')).toHaveCount(0);
+  // The start pin fades with the finished leg; the end pin stays.
+  await expect(svg(page).locator('.map-pin.start')).toHaveClass(/faded/);
+  await expect(svg(page).locator('.map-pin.end')).not.toHaveClass(/faded/);
 });
 
 test('without shapes (MBTA down, nothing kept): straight lines through the stops, no message', async ({ page }) => {
@@ -227,6 +241,19 @@ test('setup: a planner option\'s map (a picture with both end walks; taps keep t
   // Above the timeline, with dashed walks from the place and at the end (State's own position).
   expect(await planOptions(page).first().evaluate(c => [...c.children].map(x => x.className).filter(n => /route-map|timeline/.test(n)))).toEqual(['route-map', 'timeline']);
   await expect(map.locator('.map-walk[data-kind="start"]')).toHaveCount(1);
+  // Pins (2026-11-09): at the place, labeled to its first comma on the side away from the walk
+  // (the stop is west: on the right), fitted inside the map; the end's on State, unlabeled.
+  await expect(pins(map)).toHaveCount(2);
+  const startPin = map.locator('.map-pin.start');
+  await expect(startPin.locator('.map-label')).toHaveText('Main St');
+  await expect(startPin.locator('.map-label')).not.toHaveAttribute('text-anchor', 'end');
+  await expect(startPin).not.toHaveClass(/on-stop/);
+  await expect(map.locator('.map-pin.end')).toHaveClass(/on-stop/);
+  await expect(map.locator('.map-pin.end .map-label')).toHaveCount(0);
+  const walk = map.locator('.map-walk[data-kind="start"]');
+  expect(await startPin.evaluate(g => [Number(g.dataset.x), Number(g.dataset.y)])).toEqual([Number(await walk.getAttribute('x1')), Number(await walk.getAttribute('y1'))]);
+  const [pb, sb] = [await startPin.boundingBox(), await map.locator('svg').boundingBox()];
+  expect(pb.x >= sb.x && pb.y >= sb.y && pb.x + pb.width <= sb.x + sb.width && pb.y + pb.height <= sb.y + sb.height).toBe(true);
   // A picture, as in the trip editor (2026-11-08): no stop buttons, no caption, no zoom.
   await expect(map.locator('svg')).toHaveAttribute('role', 'img');
   await expect(map.getByRole('button')).toHaveCount(0);
@@ -244,6 +271,7 @@ test('setup: a planner option\'s map (a picture with both end walks; taps keep t
   await expect(editorMap.locator('svg')).toHaveAttribute('role', 'img');
   await expect(legs(editorMap)).toHaveCount(2);
   await expect(editorMap.getByRole('button')).toHaveCount(0);
+  await expect(editorMap.locator('.map-pin.on-stop')).toHaveCount(2);
   // The bus's whole line there too, its other stops as plain (not tappable) dots (2026-11-09).
   await expect(editorMap.locator('polyline.map-leg.off')).not.toHaveCount(0);
   await expect(editorMap.locator('.map-stop.off')).not.toHaveCount(0);
@@ -255,6 +283,7 @@ test('setup: a planner option\'s map (a picture with both end walks; taps keep t
   await setup.getByRole('button', { name: /^Change leg 2/ }).click();
   await setup.getByRole('button', { name: 'Remove leg', exact: true }).click();
   await expect(legs(setup.locator('.route-map'))).toHaveCount(1);
+  await expect(pins(setup.locator('.route-map'))).toHaveCount(2);
   // Nothing about the place's position is saved with the trip.
   expect(JSON.stringify(await page.evaluate(() => localStorage.getItem('t-minus:config')))).not.toContain('42.4665');
 });
@@ -445,6 +474,7 @@ test('no rows: the trip\'s map fills the space (vehicles, the hint, the credit);
   await expect(locateBtn(map)).toHaveText('');
   await expect(map.locator('.map-credit')).toHaveText('Base map: test credit');
   await expect(map.locator('.map-vehicle')).toHaveCount(1);
+  await expect(pins(map)).toHaveCount(2);
   // Fills the space: the page ends at the screen's bottom (the footer in view), not scrolling.
   const h = await map.locator('svg.route-svg').evaluate(s => s.getBoundingClientRect().height);
   expect(h).toBeGreaterThanOrEqual(250);

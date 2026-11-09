@@ -471,6 +471,13 @@
   /* A bus line's stops outside your stretch (2026-11-09), faded like its line. */
   .map-stop.off circle:first-child { stroke-opacity: .35; }
   .map-stop.off:focus-visible circle:first-child { stroke-opacity: 1; }
+  /* Start and end pins (2026-11-09): green start, red end, both themes; decorative. */
+  .map-pin { pointer-events: none; }
+  .map-pin path { stroke: var(--card); stroke-width: 1.5; stroke-linejoin: round; }
+  .map-pin.start path { fill: #1e8e3e; }
+  .map-pin.end path { fill: #d93025; }
+  .map-pin .hole { fill: var(--card); }
+  .map-pin.faded path, .map-pin.faded .hole { fill-opacity: .35; stroke-opacity: .35; }
   .map-stop .map-hit { fill: transparent; stroke: none; cursor: pointer; }
   .map-stop:focus { outline: none; }
   .map-stop:focus-visible circle:first-child { stroke: var(--text); stroke-width: 3; }
@@ -525,7 +532,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-09 · 39b9fd31f6</footer>
+    <footer class="version">Version 2026-11-09 · 250a799e23</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -555,9 +562,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow,
-} from './core.js?v=29140a1d6f';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=8b037c4a12';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
+} from './core.js?v=dc8ee44b18';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=7efa872325';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1514,7 +1521,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
 // stay in the native code: nothing here logs or sends them.
 const KEY_BOARDING = 't-minus:boarding-location';
-const CORE_JS = './core.js?v=29140a1d6f'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=dc8ee44b18'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2772,7 +2779,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   w.draw = (input, here = null, note = '') => {
     w.redraw = () => w.draw(input, here, note);
     const { width, height } = size();
-    const model = routeMapModel({ ...input, aspect: width / height });
+    const model = routeMapModel({ ...input, aspect: width / height, width });
     const focused = svg.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
     w.model = model;
     w.note = note;
@@ -2797,6 +2804,14 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
         g.setAttribute('aria-label', st.name);
         g.setAttribute('aria-pressed', String(w.selected === st.id));
       }
+      parts.push(g);
+    }
+    // The start and end pins (2026-11-09): decorative, above the stops and below the vehicles.
+    for (const pl of model.places) {
+      const g = mark(pl.x, pl.y, `map-pin ${pl.kind}${pl.faded ? ' faded' : ''}${pl.onStop ? ' on-stop' : ''}`);
+      g.setAttribute('aria-hidden', 'true');
+      g.append(svgEl('path', { d: 'M0 0C-2 -6 -8 -10 -8 -16A8 8 0 1 1 8 -16C8 -10 2 -6 0 0Z' }), svgEl('circle', { cy: -16, r: 3, class: 'hole' }));
+      if (pl.label) g.append(svgEl('text', { x: pl.side === 'left' ? -PIN_LABEL_X : PIN_LABEL_X, y: -12, 'text-anchor': pl.side === 'left' ? 'end' : null, class: 'map-label' }, pl.label));
       parts.push(g);
     }
     w.vehicleMarks = [];

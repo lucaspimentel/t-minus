@@ -3922,8 +3922,24 @@ export const zoomedOut = (view, fit) => !!(view && fit) && view.w > fit.w * ZOOM
 export const vehicleShown = (vehicle, out) => !out || !!vehicle.mine;
 
 // The view box ({ x, y, w, h }, meters) around `points`: padded, at least `minSpan` wide and
-// tall, widened or heightened to `aspect` (width / height).
-export function fitView(points, { pad = 0.1, minSpan = 400, aspect = 1 } = {}) {
+// tall, widened or heightened to `aspect` (width / height). `boxes` ([{ x, y, left, right, up,
+// down }], the point in meters, the sides in pixels; `up` is north) with the map's `width` in
+// pixels: marks of a fixed pixel size (the route map's pins and their labels, 2026-11-09) fit
+// too, refit until it settles since meters per pixel follow the view.
+export function fitView(points, { pad = 0.1, minSpan = 400, aspect = 1, boxes = [], width = null } = {}) {
+  if (boxes.length && width > 0) {
+    const base = [...points, ...boxes.map(b => ({ x: b.x, y: b.y }))];
+    let v = fitView(base, { pad, minSpan, aspect });
+    // Each pass falls a little short of the fixed point, so meters per pixel are taken 2% over.
+    for (let k = 0; k < 12; k++) {
+      const m = v.w * 1.02 / width;
+      const next = fitView([...base, ...boxes.flatMap(b => [{ x: b.x - b.left * m, y: b.y - b.up * m }, { x: b.x + b.right * m, y: b.y + b.down * m }])], { pad, minSpan, aspect });
+      const done = Math.abs(next.w - v.w) < v.w * 0.002;
+      v = next;
+      if (done) break;
+    }
+    return v;
+  }
   if (!points.length) return { x: -minSpan / 2, y: -minSpan / 2, w: minSpan, h: minSpan / aspect };
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
@@ -3985,18 +4001,30 @@ export const panView = (view, dx, dy, limits) => clampView({ ...view, x: view.x 
 
 // Leg ends this close are one transfer: one dot if they share a name, else one label.
 const MERGE_METERS = 250;
+// The start and end pins (2026-11-09), in pixels: the pin's extent around its tip (a head of
+// radius 8 at 16 px up, with its stroke), the label's offset and its width per character (12 px).
+export const PIN_BOX = { left: 9, right: 9, up: 25, down: 1 };
+export const PIN_LABEL_X = 11;
+const PIN_LABEL_CHAR_PX = 7;
+// A place's name on the map: up to its first comma ("243 Condor St, East Boston" → "243 Condor St").
+export const placeLabel = name => (typeof name === 'string' && name.split(',')[0].trim()) || null;
 const WALK_GAP_METERS = 25;
 // The map's geometry, in meters from the first leg's boarding stop.
 // legs: [{ route, direction_id, stop, alight, color, label }]; shapes[i]: a trimShapesDoc or
 // null; fallback[i]: [{ id, name, lat, lon }] from boarding to drop-off (no shape), or null;
-// start / end: { lat, lon } (the walks to the first stop and from the last) or null;
+// start / end: { lat, lon, name? } (the walks to the first stop and from the last) or null;
+// width: the map's width in pixels (the pins' room in the fit);
 // finished: legs before this one are faded; vehicles[i]: vehiclePositions; mine[i]: a trip id.
 // A bus leg with a shape (2026-11-09): its whole pattern, the parts outside the stretch as
 // `off` legs (faded) and its other stops as `off` stops; vehicles from the line's start to the
 // drop-off. The view still fits the stretches, walks and `fitAlso` only.
 // → { origin, view, legs: [{ color, path, faded, off }], stops: [{ id, name, x, y, major, label, leg, color, off }],
-//     walks: [{ from, to, kind }], vehicles: [{ id, x, y, color, label, mine }], here }
-export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1, fitAlso = [] }) {
+//     walks: [{ from, to, kind }], vehicles: [{ id, x, y, color, label, mine }], here,
+//     places: [{ kind: 'start'|'end', x, y, onStop, label, side: 'left'|'right', faded }] }
+// Places (2026-11-09): a pin at each end, at a walk's place (labeled, on the side away from the
+// walk) or else on the first boarding / last drop-off stop (unlabeled: the stop's label names
+// it); the start pin fades once the first leg is finished.
+export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1, width = null, fitAlso = [] }) {
   const raw = legs.map((leg, i) => {
     const picked = shapes[i] ? pickPattern(shapes[i], leg.stop, leg.alight) : null;
     if (picked) {
@@ -4015,9 +4043,9 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     return fb.length >= 2 ? { leg, i, line: null, stops: fb } : null;
   }).filter(Boolean);
   const o = raw[0]?.stops[0] ?? start ?? end;
-  if (!o) return { origin: null, view: fitView([], { aspect }), legs: [], stops: [], walks: [], vehicles: [], here: null };
+  if (!o) return { origin: null, view: fitView([], { aspect }), legs: [], stops: [], walks: [], vehicles: [], here: null, places: [] };
   const proj = projector(o.lat, o.lon);
-  const out = { origin: { lat: o.lat, lon: o.lon }, legs: [], stops: [], walks: [], vehicles: [], here: null };
+  const out = { origin: { lat: o.lat, lon: o.lon }, legs: [], stops: [], walks: [], vehicles: [], here: null, places: [] };
   const drawn = raw.map(r => {
     const pts = r.stops.map(s => proj.toXY(s));
     const full = r.line ? r.line.map(p => proj.toXY(p)) : null;
@@ -4052,12 +4080,25 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
   }
   if (start && drawn.length) { const p = proj.toXY(start); out.walks.push({ from: p, to: drawn[0][0], kind: 'start' }); }
   if (end && drawn.length) out.walks.push({ from: drawn.at(-1).at(-1), to: proj.toXY(end), kind: 'end' });
+  if (drawn.length) {
+    const place = (kind, at, stop, faded) => {
+      if (!at) return { kind, x: stop.x, y: stop.y, onStop: true, label: null, side: 'right', faded };
+      const p = proj.toXY(at);
+      return { kind, x: p.x, y: p.y, onStop: false, label: placeLabel(at.name), side: stop.x > p.x ? 'left' : 'right', faded };
+    };
+    out.places.push(place('start', start, drawn[0][0], finished > 0), place('end', end, drawn.at(-1).at(-1), false));
+  }
   out.vehicles.sort((a, b) => a.mine - b.mine); // yours drawn last, on top
   out.legs.sort((a, b) => !!b.off - !!a.off); // faded line ends beneath every leg's stretch
   // `fitAlso` ({ lat, lon }): in the fit, drawn by the caller (the phone's location, 2026-11-09:
   // no walk to the first stop, only the dot).
   const also = drawn.length ? fitAlso.filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lon)).map(p => proj.toXY(p)) : [];
-  out.view = fitView([...drawn.flat(), ...out.walks.flatMap(w => [w.from, w.to]), ...also], { aspect });
+  const boxes = out.places.map(pl => {
+    const b = { x: pl.x, y: pl.y, ...PIN_BOX };
+    if (pl.label) b[pl.side] = Math.max(b[pl.side], PIN_LABEL_X + PIN_LABEL_CHAR_PX * pl.label.length + 2);
+    return b;
+  });
+  out.view = fitView([...drawn.flat(), ...out.walks.flatMap(w => [w.from, w.to]), ...also], { aspect, boxes, width });
   return out;
 }
 // A leg's stops from a kept /stops list (trimStopsDoc; a stop matches by id or child id), from

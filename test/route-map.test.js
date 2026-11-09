@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
   fitView, viewLimits, areaRect, easeView, centerOn, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
+  placeLabel, PIN_BOX, PIN_LABEL_X,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -421,4 +422,59 @@ test('routeMapModel fitAlso: the fit takes in the phone without a walk to it', (
   assert.ok(p.y > m.view.y && p.x > m.view.x && p.y < m.view.y + m.view.h && p.x < m.view.x + m.view.w);
   assert.ok(m.view.w > plain.view.w);
   assert.deepEqual(routeMapModel({ legs, fallback, fitAlso: [null, { lat: NaN, lon: 1 }] }).view, plain.view);
+});
+test('placeLabel: a place\'s name up to its first comma', () => {
+  assert.equal(placeLabel('243 Condor St, East Boston'), '243 Condor St');
+  assert.equal(placeLabel('Current location'), 'Current location');
+  assert.equal(placeLabel(undefined), null);
+  assert.equal(placeLabel(''), null);
+  assert.equal(placeLabel(', x'), null);
+});
+
+test('fitView boxes: marks of a fixed pixel size fit too', () => {
+  const pts = [{ x: 0, y: 0 }, { x: 1000, y: 0 }];
+  const plain = fitView(pts, { pad: 0, aspect: 2 });
+  assert.deepEqual(fitView(pts, { pad: 0, aspect: 2, boxes: [] }), plain);
+  assert.deepEqual(fitView(pts, { pad: 0, aspect: 2, boxes: [{ x: 1000, y: 0, left: 0, right: 50, up: 30, down: 0 }] }), plain); // no width
+  const v = fitView(pts, { pad: 0, aspect: 2, width: 200, boxes: [{ x: 1000, y: 0, left: 0, right: 50, up: 30, down: 0 }] });
+  const m = v.w / 200;
+  assert.ok(1000 + 50 * m <= v.x + v.w + 1e-6);
+  assert.ok(0 - 30 * m >= v.y - 1e-6);
+  assert.ok(v.w > 1000);
+});
+
+test('routeMapModel: start and end pins at the walks\' places, labeled away from the walk; faded start once riding; inside the fit', () => {
+  const legs = [{ route: 'Orange', direction_id: 0, stop: 'a', alight: 'b', color: 'ED8B00', label: 'Orange' }];
+  const fallback = [[{ id: 'a', name: 'A', lat: 42.40, lon: -71.07 }, { id: 'b', name: 'B', lat: 42.36, lon: -71.06 }]];
+  // West of A, east of B: the labels on the far sides (left of the start, right of the end).
+  const start = { lat: 42.401, lon: -71.08, name: 'Main St, Melrose' }, end = { lat: 42.359, lon: -71.05, name: 'Current location' };
+  const m = routeMapModel({ legs, fallback, start, end, finished: 1, width: 340, aspect: 1.7 });
+  assert.deepEqual(m.places.map(p => [p.kind, p.onStop, p.label, p.side, p.faded]),
+    [['start', false, 'Main St', 'left', true], ['end', false, 'Current location', 'right', false]]);
+  const walk = k => m.walks.find(w => w.kind === k);
+  assert.deepEqual([m.places[0].x, m.places[0].y], [walk('start').from.x, walk('start').from.y]);
+  assert.deepEqual([m.places[1].x, m.places[1].y], [walk('end').to.x, walk('end').to.y]);
+  // Each pin and its label inside the view.
+  const mpp = m.view.w / 340;
+  for (const p of m.places) {
+    const lw = PIN_LABEL_X + 7 * p.label.length;
+    const left = p.side === 'left' ? lw : PIN_BOX.left, right = p.side === 'right' ? lw : PIN_BOX.right;
+    assert.ok(p.x - left * mpp >= m.view.x - 1e-6 && p.x + right * mpp <= m.view.x + m.view.w + 1e-6);
+    assert.ok(p.y - PIN_BOX.up * mpp >= m.view.y - 1e-6 && p.y <= m.view.y + m.view.h + 1e-6);
+  }
+  assert.ok(m.view.w >= routeMapModel({ legs, fallback, start, end, aspect: 1.7 }).view.w);
+  // Mirrored: east of the start, the label on the right.
+  const east = routeMapModel({ legs, fallback, start: { ...start, lon: -71.06 } });
+  assert.equal(east.places[0].side, 'right');
+});
+
+test('routeMapModel: without walks the pins sit on the first and last stops, unlabeled', () => {
+  const a = [{ id: 'x0', name: 'A', lat: 42.40, lon: -71.07 }, { id: 'x1', name: 'Hub', lat: 42.41, lon: -71.07 }];
+  const b = [{ id: 'y0', name: 'Hub', lat: 42.41, lon: -71.0701 }, { id: 'y1', name: 'B', lat: 42.42, lon: -71.07 }];
+  const m = routeMapModel({ legs: [{ stop: 'x0', alight: 'x1' }, { stop: 'y0', alight: 'y1' }], fallback: [a, b] });
+  assert.deepEqual(m.places.map(p => [p.kind, p.onStop, p.label, p.faded]), [['start', true, null, false], ['end', true, null, false]]);
+  const at = name => { const s = m.stops.find(x => x.name === name); return [s.x, s.y]; };
+  assert.deepEqual([m.places[0].x, m.places[0].y], at('A'));
+  assert.deepEqual([m.places[1].x, m.places[1].y], at('B'));
+  assert.deepEqual(routeMapModel({ legs: [{ stop: 'x0', alight: 'x1' }], shapes: [], fallback: [] }).places, []);
 });

@@ -78,6 +78,7 @@ ones):
 | Riding: the app's timeline, the ridden leg (2026-11-06) | "Orange Line" | none (the leg's last row names the drop-off) |
 | Route map: vehicle badges (2026-11-07) | "OL", "132" (the island's compact label) | none |
 | Route map: stop labels and the caption | the stop's name ("Oak Grove", "Main St @ South St") | none |
+| Route map: pin labels (2026-11-09) | the place's name to its first comma ("243 Condor St", "Current location") | none |
 
 Commuter rail (2026-11-01) follows the same two forms: "Haverhill Line" on text lines,
 "CR Haverhill" where tight, "CR" as the compact island badge, 🚆. Its assigned track goes before
@@ -549,7 +550,11 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   (`stopsToShow`, rechecked on zoom; 2026-11-07: the small setup maps were a string of bus-stop
   dots); a selected stop always. Two leg ends within 250 m are
   one transfer: one dot when they share a name, else the next leg's label only ("Oak Grove", not
-  "Washington St opp Oak Grove Sta"). Transfer walks are dashed. In the sheet, a tap (or Enter) on
+  "Washington St opp Oak Grove Sta"). Transfer walks are dashed. Start and end pins (2026-11-09, mockups
+  accepted): teardrops, green (`#1e8e3e`) at the start and red (`#d93025`) at the end in both
+  themes, a fixed size in pixels, above the legs and stops and below the vehicles and the dot;
+  decorative (not tappable, hidden from screen readers). The fit makes room for them and their
+  labels (`fitView`'s pixel `boxes` with the map's width, refit until it settles). In the sheet, a tap (or Enter) on
   a stop shows its name in the caption; pinch, drag or the wheel zoom and pan, from 150 m across
   out to all of commuter rail's reach in one view (the base map's `reach`, the commuter rail
   stops' box, 5 km more on each side; `areaRect`, `viewLimits`), the view's center anywhere in it
@@ -558,8 +563,13 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   corner ("Show the whole trip", 40 px, card style) eases back to the trip's fit in 250 ms
   (`easeView`; at once with Reduce Motion) and hides; a pan or pinch during it takes over. Marks keep their size in pixels; lines their width.
 - **Walks at the ends:** planner options draw dashed walks from the place's point (an address or
-  "Current location", held in memory only) and to it. Saved trips keep no place coordinates (the
-  config reaches the server), so there is no last walk. No walk from the phone's location
+  "Current location", held in memory only) and to it, with the end's pin at the place, labeled
+  with its name to the first comma (`placeLabel`: "243 Condor St", "Current location") on the
+  side away from the walk (2026-11-09); a short walk can hide under the pin. Saved trips keep no
+  place coordinates (the config reaches the server), so there is no last walk. Without a walk at
+  an end (a station, a saved trip) the pin's tip is on the first boarding or last drop-off
+  stop's dot, unlabeled (the stop's label names it). The start pin fades once the first leg is
+  finished, like the leg. No walk from the phone's location
   (2026-11-09: the sheet drew one before boarding; the dot alone now, inside the fit:
   `routeMapModel`'s `fitAlso`).
 - **Location (the sheet and the empty screen's map, 2026-11-09):** never asked for on its own.
