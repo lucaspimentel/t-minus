@@ -529,7 +529,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 The trip drawn at true positions, in addition to the timeline (mockups accepted 2026-11-07).
 Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 
-- **Where:** 🗺 in the header, beside ↻, opens a full-screen sheet ("Done" or Escape closes)
+- **Where:** the map button in the header (a folded-map outline in the text color, like ↻ and the
+  setup gear; the 🗺 and ⚙ emoji until 2026-11-09), beside ↻, opens a full-screen sheet ("Done" or Escape closes)
   with the shown trip; the trip doesn't switch while it's open. Setup draws the same map inline,
   as a static picture fitted to the trip: above an expanded planner option's timeline, and under
   the legs in the trip editor (redrawn when a leg changes). Only the sheet pans and zooms
