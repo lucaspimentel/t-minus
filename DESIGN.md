@@ -610,8 +610,10 @@ maps (the sheet, the planner's options, the trip editor).
   the sheet showed blank land and no names north of Danvers; mockups of 100 m and 200 m, 100 m
   chosen), the land of Rhode Island, New Hampshire and Connecticut (no towns), and lakes over 1 km²;
   no rivers. Outside it, the card color.
-- **Sources (public domain):** MassGIS towns (`Basemaps/Mass_Towns_Yellow_Lines_and_Labels`)
-  and water (`AGOL/Hydro_Major`), the City of Boston's BPDA neighborhoods (data.boston.gov),
+- **Sources (public domain):** MassGIS towns (`Basemaps/Mass_Towns_Yellow_Lines_and_Labels`),
+  lakes and wide rivers (`AGOL/Hydro_100k`, USGS 1:100,000; 2026-11-09: `Hydro_Major`'s hand-picked
+  set had no Spot Pond nor the Middlesex Fells reservoirs) and narrow rivers (`AGOL/Hydro_Major`;
+  Hydro_100k's adds three times the streams), the City of Boston's BPDA neighborhoods (data.boston.gov),
   US Census TIGERweb states (the coarse land of RI, NH and CT), the MBTA V3 API (extents, line shapes). MassGIS asks
   for the credit "MassGIS (Bureau of Geographic Information), Commonwealth of Massachusetts
   EOTSS": the file carries one credit line, shown under the sheet's map once the base map is
@@ -620,8 +622,9 @@ maps (the sheet, the planner's options, the trip editor).
   scripts/build-basemap.mjs` (~40 s keyless, about 7 paced MBTA requests) and committed; rebuild
   when the sources change. Rings and lines are Google polylines (precision 5), simplified to
   25 m (detailed) and 100 m (coarse), with `reach` (the commuter rail stops' box, for the
-  sheet's pan and zoom limits): 110 KB, 69 KB gzipped (2026-11-08; 42 KB gzipped with
-  Massachusetts coarse land only and no outer towns, 2026-11-07).
+  sheet's pan and zoom limits): 118 KB, 75 KB gzipped (2026-11-09, Hydro_100k's lakes; 69 KB
+  gzipped before them, 2026-11-08; 42 KB with Massachusetts coarse land only and no outer towns,
+  2026-11-07).
 - **Loading:** fetched the first time a map opens (a plain same-origin GET: nothing about the
   rider), kept in memory; the maps draw as before until it arrives, then redraw. A failure is
   retried at the next map opening. The server serves it `no-cache` with an ETag; the service

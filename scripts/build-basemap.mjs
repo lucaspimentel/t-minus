@@ -3,7 +3,7 @@
 // commuter rail lines. Detailed for the bus service area; for commuter rail's reach, coarser
 // Massachusetts towns (land, borders, names; 2026-11-08) and the neighboring states' land.
 // Run: NODE_USE_ENV_PROXY=1 node scripts/build-basemap.mjs   (MBTA_API_KEY optional, never stored)
-// Sources: MassGIS (towns, water), City of Boston (BPDA neighborhoods), US Census TIGERweb
+// Sources: MassGIS (towns; lakes from Hydro_100k, rivers from Hydro_Major), City of Boston (BPDA neighborhoods), US Census TIGERweb
 // (coarse land: MA, RI, NH, CT), the MBTA V3 API (extents, line shapes). Commit basemap.json.
 import { writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -14,7 +14,10 @@ const OUT = new URL('../basemap.json', import.meta.url);
 const MBTA = 'https://api-v3.mbta.com';
 const MASSGIS = 'https://arcgisserver.digital.mass.gov/arcgisserver/rest/services';
 const TOWNS = `${MASSGIS}/Basemaps/Mass_Towns_Yellow_Lines_and_Labels/FeatureServer/0/query`;
-const HYDRO = `${MASSGIS}/AGOL/Hydro_Major/FeatureServer`;
+const HYDRO = `${MASSGIS}/AGOL/Hydro_Major/FeatureServer`; // rivers (lines)
+// Lakes and wide rivers (2026-11-09): USGS 1:100,000 hydrography; Hydro_Major left out Spot Pond
+// and the Middlesex Fells reservoirs.
+const LAKES = `${MASSGIS}/AGOL/Hydro_100k/FeatureServer/2/query`;
 const TIGER = 'https://tigerweb.geo.census.gov/arcgis/rest/services/Generalized_ACS2025/State_County/MapServer/7/query';
 const BPDA = 'https://data.boston.gov/dataset/bf1a7b50-4c72-4637-b0fa-11d632e3aff1/resource/e5849875-a6f6-4c9c-9d8a-5048b0fbd03e/download/boston_neighborhood_boundaries.geojson';
 const CREDIT = 'Base map: MassGIS (Bureau of Geographic Information), Commonwealth of Massachusetts EOTSS; City of Boston; US Census Bureau; MBTA';
@@ -34,16 +37,22 @@ async function mbta(path, params) {
   const qs = new URLSearchParams(params);
   return getJson(`${MBTA}${path}?${qs}`, { Accept: 'application/vnd.api+json', ...(process.env.MBTA_API_KEY && { 'x-api-key': process.env.MBTA_API_KEY }) });
 }
-// An ArcGIS layer's features in a rect, as GeoJSON (full resolution: shared edges stay shared).
+// An ArcGIS layer's features in a rect, as GeoJSON (full resolution: shared edges stay shared),
+// page by page (a server returns up to its maxRecordCount at a time).
 async function arcgis(url, [w, s, e, n], params = {}) {
-  const qs = new URLSearchParams({
-    where: '1=1', outFields: '*', geometry: `${w},${s},${e},${n}`, geometryType: 'esriGeometryEnvelope', inSR: '4326', outSR: '4326',
-    spatialRel: 'esriSpatialRelIntersects', f: 'geojson', geometryPrecision: '6', ...params,
-  });
-  const doc = await getJson(`${url}?${qs}`);
-  if (doc.error) throw new Error(`${url}: ${JSON.stringify(doc.error)}`);
-  if (doc.exceededTransferLimit || doc.properties?.exceededTransferLimit) throw new Error(`${url}: more features than one page; narrow the query`);
-  return doc.features ?? [];
+  const out = [];
+  for (let page = 0; page < 50; page++) {
+    const qs = new URLSearchParams({
+      where: '1=1', outFields: '*', geometry: `${w},${s},${e},${n}`, geometryType: 'esriGeometryEnvelope', inSR: '4326', outSR: '4326',
+      spatialRel: 'esriSpatialRelIntersects', f: 'geojson', geometryPrecision: '6', orderByFields: 'OBJECTID', resultOffset: String(out.length), ...params,
+    });
+    const doc = await getJson(`${url}?${qs}`);
+    if (doc.error) throw new Error(`${url}: ${JSON.stringify(doc.error)}`);
+    const got = doc.features ?? [];
+    out.push(...got);
+    if (!(doc.exceededTransferLimit || doc.properties?.exceededTransferLimit) || !got.length) return out;
+  }
+  throw new Error(`${url}: over 50 pages`);
 }
 
 const round = x => Math.round(x * 1e4) / 1e4;
@@ -119,7 +128,7 @@ for (const [town, polys] of byTown) {
 function round5(x) { return Math.round(x * 1e5) / 1e5; }
 
 // 4. Water, detailed: lakes and wide rivers (polygons), narrow rivers (lines).
-const lakeFeatures = await arcgis(`${HYDRO}/2/query`, detail, { where: `SQ_METERS>=${MIN_LAKE_M2}`, outFields: 'OBJECTID' });
+const lakeFeatures = await arcgis(LAKES, detail, { where: `Shape__Area>=${MIN_LAKE_M2}`, outFields: 'OBJECTID' });
 const lakeIds = new Set(lakeFeatures.map(f => f.properties.OBJECTID));
 const lakes = lakeFeatures.flatMap(f => ringsOf(f.geometry)).flatMap(r => { const c = clipRing(simplifyRing(r, DETAIL_M), detail); return c.length >= 3 ? [enc(c)] : []; });
 const riverFeatures = await arcgis(`${HYDRO}/1/query`, detail, { outFields: 'OBJECTID' });
@@ -134,7 +143,7 @@ const outside = rings => rings.map(r => simplifyRing(r, COARSE_M)).flatMap(r => 
 const states = await arcgis(TIGER, box, { where: "STUSAB IN ('RI','NH','CT')", outFields: 'STUSAB', geometryPrecision: '5' });
 const coarse = [...outside(merged.outline), ...outside(states.flatMap(f => ringsOf(f.geometry)))];
 townLines.push(...merged.borders.map(l => simplify(l, COARSE_M)).flatMap(l => strips.flatMap(st => clipLine(l, st))).filter(l => l.length >= 2).map(enc));
-const bigLakes = await arcgis(`${HYDRO}/2/query`, box, { where: `SQ_METERS>=${MIN_COARSE_LAKE_M2}`, outFields: 'OBJECTID' });
+const bigLakes = await arcgis(LAKES, box, { where: `Shape__Area>=${MIN_COARSE_LAKE_M2}`, outFields: 'OBJECTID' });
 for (const f of bigLakes) {
   if (lakeIds.has(f.properties.OBJECTID)) continue;
   for (const r of ringsOf(f.geometry)) { const s = simplifyRing(r, COARSE_M); if (s.length >= 3) lakes.push(enc(s)); }

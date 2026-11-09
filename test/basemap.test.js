@@ -85,3 +85,21 @@ test('basemap.json: town borders, names and coastline outside the detailed area'
   assert.ok(pts(base.coarse).some(p => p.lat > 42.6 && p.lon > -70.7), 'Cape Ann land');
   assert.equal(new Set(base.names.map(x => `${x.k}:${x.n}`)).size, base.names.length); // one name per town
 });
+
+// Lakes from Hydro_100k (2026-11-09): Hydro_Major had no Spot Pond nor the Fells reservoirs.
+test('basemap.json: Spot Pond is water', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { decodePolyline } = await import('../core.js');
+  const base = JSON.parse(readFileSync(new URL('../basemap.json', import.meta.url), 'utf8'));
+  const inside = (pts, { lat, lon }) => {
+    let c = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[i], b = pts[j];
+      if ((a.lat > lat) !== (b.lat > lat) && lon < ((b.lon - a.lon) * (lat - a.lat)) / (b.lat - a.lat) + a.lon) c = !c;
+    }
+    return c;
+  };
+  const spot = { lat: 42.4557, lon: -71.0967 }; // its centroid
+  assert.ok(base.lakes.some(l => inside(decodePolyline(l), spot)), 'Spot Pond');
+  assert.ok(!base.lakes.some(l => inside(decodePolyline(l), { lat: 42.4655, lon: -71.0990 })), 'Melrose, not water');
+});
