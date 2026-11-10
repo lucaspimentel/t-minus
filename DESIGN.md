@@ -1861,8 +1861,9 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
   While Using, Off, or "Allow": While Using, then Always), Precise Location (On / Off; "—" while
   Location isn't allowed). Off values are amber and bold (a setup warning, not a ride state).
 - **Location hint** under its row: not asked, "Lets T-Minus tell which bus or train you got on.
-  Your location stays on this phone."; While Using, "Detects which bus or train you got on after
-  Leaving now or At the stop. Allow Always to detect arriving at the stop."; Always, "Detects
+  Your location stays on this phone."; While Using, "Detects arriving at the stop after Leaving
+  now, and which bus or train you got on. Allow Always to detect arriving at a belled ride's stop
+  without tapping Leaving now." (2026-11-10, with arrival from GPS); Always, "Detects
   arriving at the stop of a belled ride, which bus or train you got on, and getting off."; Off,
   "Location is off for T-Minus."
 - **"iOS Settings ›"** at the end: the app's page in iOS Settings (`TMinus.openSettings`,

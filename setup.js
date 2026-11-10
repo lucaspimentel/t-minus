@@ -363,7 +363,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   function locationHint(status) {
     return status === 'always' ? 'Detects arriving at the stop of a belled ride, which bus or train you got on, and getting off.'
-      : status === 'whenInUse' ? 'Detects which bus or train you got on after Leaving now or At the stop. Allow Always to detect arriving at the stop.'
+      : status === 'whenInUse' ? "Detects arriving at the stop after Leaving now, and which bus or train you got on. Allow Always to detect arriving at a belled ride's stop without tapping Leaving now."
         : status === 'denied' ? 'Location is off for T-Minus.'
           : 'Lets T-Minus tell which bus or train you got on. Your location stays on this phone.';
   }

@@ -544,7 +544,7 @@ test('Permissions: the states, amber when off, the While Using hint; axe finds n
   await page.locator('#open-setup').click();
   await expect(permRows(page)).toHaveText(['NotificationsOn', 'Live ActivitiesOff', 'LocationWhile Using', 'Precise LocationOff']);
   await expect(page.locator('#permissions .perm-off')).toHaveText(['Off', 'Off']);
-  await expect(page.locator('#location-hint')).toHaveText(/^Detects which bus or train you got on after Leaving now or At the stop\. Allow Always/);
+  await expect(page.locator('#location-hint')).toHaveText(/^Detects arriving at the stop after Leaving now, and which bus or train you got on\. Allow Always/);
   const v = await new AxeBuilder({ page }).disableRules(['meta-viewport']).analyze();
   expect(v.violations.map(x => x.id)).toEqual([]);
 });
