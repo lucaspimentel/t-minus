@@ -2432,8 +2432,9 @@ export function enRouteStatus(state, nowMs) {
     const leg = state.target?.legs[0];
     return leg ? `Tracking ${vehicleLabel(leg)} ${legTime(leg, leg.dep, nowMs)}` : 'Tracking';
   }
+  // "since" only once arrival is recorded (tapped, the geofence, GPS); "Leaving now"'s estimate
+  // stays "Walking" after it passes (2026-11-10: "At the stop since ~9:24am" beside [At the stop]).
   if (state.kind === 'stop') return `At the stop since ${formatTime(state.atStop, nowMs)}`;
-  if (nowMs >= state.atStop) return `At the stop since ~${formatTime(state.atStop, nowMs)}`;
   return `Walking · at the stop ~${formatTime(state.atStop, nowMs)}`;
 }
 
@@ -2824,7 +2825,7 @@ export function walkActivityState(row, enRoute, nowMs) {
   const out = leaveCardBase(row, nowMs);
   const spare = Math.round((row.firstDep - enRoute.atStop) / MIN);
   const margin = spare < 0 ? `${-spare} min late` : `${spare} min to spare`;
-  const sub = enRoute.kind === 'leaving' && nowMs < enRoute.atStop ? `At the stop ~${t(enRoute.atStop)} · ${margin}` : `At the stop since ${t(enRoute.atStop)} · ${margin}`;
+  const sub = enRoute.kind === 'leaving' ? `At the stop ~${t(enRoute.atStop)} · ${margin}` : `At the stop since ${t(enRoute.atStop)} · ${margin}`;
   Object.assign(out, {
     phase: 'walk', title: `${vehicleLabel(first)} in`, until: Math.round(row.firstDep / 1000), warn: spare < 0, late: spare < 0, island: 'Departs', sub, next: `Arrive ${etaTime(row, nowMs)}`,
     ...departsHead(row, nowMs), note: sub,
@@ -3344,6 +3345,7 @@ export const GOT_OFF_METERS = 150; // the ridden vehicle this far from a still p
 export const STILL_METERS = 50; // "still": within this of one point (or at walking pace)
 export const WALK_METERS_PER_S = 2;
 export const GPS_MAX_ACCURACY_METERS = 50; // worse fixes are ignored
+export const ARRIVE_STOP_METERS = 50; // two fixes in a row this close: at the stop (gpsArrival)
 export const VEHICLE_FRESH_SECONDS = 90;
 export const SAMPLE_GAP_SECONDS = 20; // a vehicle position is compared with a phone fix this close in time
 export const BOARD_CHECK_MIN = 10; // a leg's vehicle is confirmed (or corrected) until this long after its departure
@@ -3500,6 +3502,21 @@ export function geofenceEntered(state, window, walkBefore, nowMs) {
   if (!state || state.ride || state.asking || state.kind !== 'track' || !state.bell || !window) return state;
   if (nowMs < window.from || nowMs >= window.to) return state;
   return startEnRoute('stop', nowMs, walkBefore, state);
+}
+
+// "At the stop" from GPS after "Leaving now" (2026-11-10): the time of the first of two
+// consecutive usable fixes within ARRIVE_STOP_METERS of the boarding stop, after a usable fix
+// outside it (an entry from outside, as the geofence: starting next to the stop doesn't count).
+// Fixes before `sinceMs` are ignored. Null: not arrived.
+export function gpsArrival(track, stop, sinceMs) {
+  const fixes = track.filter(p => p.acc <= GPS_MAX_ACCURACY_METERS && p.t >= sinceMs).sort((a, b) => a.t - b.t);
+  let outside = false;
+  for (let i = 0; i < fixes.length; i++) {
+    const inside = near(fixes[i], stop) <= ARRIVE_STOP_METERS;
+    if (!inside) outside = true;
+    else if (outside && i + 1 < fixes.length && near(fixes[i + 1], stop) <= ARRIVE_STOP_METERS) return fixes[i].t;
+  }
+  return null;
 }
 
 // The session the web app hands to native code (TMinus.boardingArm), with what native code adds:
@@ -3724,6 +3741,18 @@ export function nativeBoardingStep(input) {
       log(`geofence entered${next === s.enRoute ? ' (ignored)' : ''}`);
       if (next !== s.enRoute) commit(next, 'At the stop (location)', null, 'stop');
     } else log(`geofence ${event.inside ? 'inside' : 'outside'}${was == null ? ' (initial)' : ''}`);
+  }
+  // Walking after "Leaving now": the real arrival replaces the estimate, earlier or later. Once
+  // per walk: undone, it isn't taken again (`sig`).
+  if (event.type === 'location' && s.on && s.enRoute?.kind === 'leaving' && !s.enRoute.ride && !s.enRoute.asking
+    && enRouteActive(s.enRoute, shape.walkAfter, nowMs)) {
+    const board = pointsOf(s)[0]?.board;
+    const t = board ? gpsArrival(s.track, board, s.enRoute.at - 2 * MIN) : null;
+    const sig = `arrive:${s.enRoute.at}`;
+    if (t != null && !s.rejected.includes(sig) && s.pending?.sig !== sig) { // pending: not taken by the page yet
+      log(`gps arrival ${new Date(t).toISOString()}`);
+      commit({ ...s.enRoute, kind: 'stop', atStop: t }, 'At the stop (location)', sig, 'stop');
+    }
   }
   let st = s.enRoute;
   if (!st || !s.on) return JSON.stringify({ session: s, wants: boardingWants(s, nowMs), actions });

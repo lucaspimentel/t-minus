@@ -690,6 +690,34 @@ test('missed the bus detected: back at the stop; got off detected: the walk', as
   await expect(page.locator('.ride-head')).toHaveText(/^Walking · arrive/);
 });
 
+test('Leaving now: "Walking" past the estimate with At the stop; arrival from GPS replaces it, with Undo', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, locStatus: 'whenInUse' });
+  await openApp(page, { time: '07:00' });
+  const bar = page.locator('#enroute');
+  await bar.getByRole('button', { name: 'Leaving now' }).click();
+  await tick(page, 1000);
+  const estimate = (await bar.locator('.en-status').textContent()).match(/~(\d+:\d+[ap]m)/)[1];
+  await tickTo(page, '07:07'); // past the estimate, not at the stop yet
+  await expect(bar.locator('.en-status')).toHaveText(`Walking · at the stop ~${estimate}`);
+  await expect(bar.getByRole('button', { name: 'At the stop' })).toBeVisible();
+  // The native engine: at the stop from GPS at 7:06.
+  await page.evaluate(async t => {
+    const { boardingBase } = await import('/core.js');
+    const cur = JSON.parse(localStorage.getItem('t-minus:en-route'))[0];
+    window.boardingAction = { undoId: 'g1', tripIdx: 0, tripName: cur.name, toast: 'At the stop (location)', at: Date.now(), state: { ...cur, kind: 'stop', atStop: t }, base: boardingBase(cur), from: boardingBase(cur), sig: `arrive:${cur.at}` };
+    window.emitBoarding();
+  }, at('07:06'));
+  await tick(page, 300);
+  await expect(toastEl(page)).toContainText('At the stop (location)');
+  await expect(bar.locator('.en-status')).toHaveText('At the stop since 7:06am');
+  await expect(bar.getByRole('button', { name: 'At the stop' })).toHaveCount(0);
+  await toastEl(page).getByRole('button', { name: 'Undo' }).click();
+  await tick(page, 300);
+  await expect(bar.locator('.en-status')).toHaveText(`Walking · at the stop ~${estimate}`);
+  expect(await boardingCalls(page, 'undo')).toEqual([{ call: 'undo', undoId: 'g1' }]);
+});
+
 test('at the next open: the latest action applies with its toast while its ride is on; not once it is over', async ({ page }) => {
   await fakeServer(page);
   await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, locStatus: 'always' });

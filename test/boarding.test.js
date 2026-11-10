@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import {
-  matchVehicle, nativeBoardingStep, boardingWants, boardingSession, boardingWindow, boardingBase, geofenceEntered, vehiclesQuery,
+  matchVehicle, gpsArrival, nativeBoardingStep, boardingWants, boardingSession, boardingWindow, boardingBase, geofenceEntered, vehiclesQuery,
   vehiclePositions, stopPoint, legPoints, proxyRequestError, ridePhase, checkRide, missLeg, tripShape, widgetState,
   MATCH_SECONDS_TRAIN,
 } from '../core.js';
@@ -187,6 +187,71 @@ test('the geofence: the initial inside is ignored; an entry in the window marks 
   early.step({ type: 'geofence', inside: true }, at('06:53'));
   assert.equal(early.session.enRoute.kind, 'track');
   assert.equal(geofenceEntered(belled(), null, 5, at('06:53')).kind, 'track');
+});
+
+// "Leaving now" at 6:55 with a 5 min walk: the estimate is 7:00.
+const walking = () => ({ kind: 'leaving', at: at('06:55'), atStop: at('07:00'), target: target(), name: homeToOffice.name });
+// Fixes `meters` north of the stop at the given times.
+const at_ = (times, meters, acc = 10) => times.map(t => ({ t: at(t), ...move(BUS_STOP, meters), acc }));
+
+test('gpsArrival: two fixes in a row within 50 m after one outside; inaccurate fixes ignored', () => {
+  const since = at('06:53');
+  assert.equal(gpsArrival([...at_(['06:56'], 200), ...at_(['06:59', '06:59:05'], 20)], BUS_STOP, since), at('06:59'));
+  assert.equal(gpsArrival([...at_(['06:56'], 200), ...at_(['06:59'], 20)], BUS_STOP, since), null, 'one fix inside');
+  assert.equal(gpsArrival([...at_(['06:56'], 200), ...at_(['06:59'], 20), ...at_(['06:59:05'], 80), ...at_(['06:59:10'], 20)], BUS_STOP, since), null, 'not in a row');
+  assert.equal(gpsArrival(at_(['06:56', '06:56:05', '06:56:10'], 20), BUS_STOP, since), null, 'started inside');
+  assert.equal(gpsArrival([...at_(['06:56'], 20), ...at_(['06:57'], 200), ...at_(['06:58', '06:58:05'], 20)], BUS_STOP, since), at('06:58'), 'left, then back');
+  assert.equal(gpsArrival([...at_(['06:56'], 200, 80), ...at_(['06:59', '06:59:05'], 20)], BUS_STOP, since), null, 'the outside fix is inaccurate');
+  assert.equal(gpsArrival([...at_(['06:56'], 200), ...at_(['06:59', '06:59:05'], 20, 80)], BUS_STOP, since), null, 'the inside fixes are inaccurate');
+  assert.equal(gpsArrival([...at_(['06:50'], 200), ...at_(['06:59', '06:59:05'], 20)], BUS_STOP, since), null, 'outside before the walk');
+});
+
+test('GPS after Leaving now: the arrival replaces the estimate, earlier or later, once per walk', () => {
+  // Early: at the stop 6:58, before the 7:00 estimate; the state keeps the target and the first tap.
+  const e = armed(walking());
+  e.step({ type: 'location', samples: at_(['06:56'], 300) }, at('06:56'), true);
+  assert.equal(states(e).length, 0);
+  e.step({ type: 'location', samples: at_(['06:58', '06:58:05'], 15) }, at('06:58:10'), true);
+  const st = states(e);
+  assert.equal(st.length, 1);
+  assert.equal(st[0].toast, 'At the stop (location)');
+  assert.deepEqual([st[0].state.kind, st[0].state.atStop, st[0].state.at, st[0].state.target.key], ['stop', at('06:58'), at('06:55'), 'B708']);
+  assert.equal(st[0].base, boardingBase(walking()));
+  // Not taken by the page yet, re-armed with the walk: not again.
+  e.step({ type: 'arm', session: boardingSession({ ...e.session, enRoute: walking() }) }, at('06:58:20'), true);
+  e.step({ type: 'location', samples: at_(['06:58:15'], 15) }, at('06:58:20'), true);
+  assert.equal(states(e).length, 1);
+  // Undone: not taken again on this walk.
+  e.step({ type: 'undo', undoId: st[0].undoId }, at('06:58:30'), true);
+  assert.equal(e.session.enRoute.kind, 'leaving');
+  e.step({ type: 'location', samples: [...at_(['06:59'], 300), ...at_(['06:59:30', '06:59:35'], 15)] }, at('06:59:40'), true);
+  assert.equal(states(e).length, 1);
+  assert.ok(e.all.some(a => a.type === 'log' && /gps arrival/.test(a.line)));
+
+  // Late, the page closed: at the stop 7:09, after the 7:08 bus left; it isn't boarded at its departure.
+  const late = armed(walking());
+  late.step({ type: 'location', samples: [...at_(['07:05'], 400), ...at_(['07:09', '07:09:05'], 15)] }, at('07:09:10'));
+  const ls = states(late);
+  assert.deepEqual([ls[0].state.kind, ls[0].state.atStop], ['stop', at('07:09')]);
+  assert.ok(!late.session.enRoute.ride, 'not boarded on the 7:08am');
+});
+
+test('GPS arrival only while walking after Leaving now', () => {
+  const samples = [...at_(['06:56'], 300), ...at_(['06:58', '06:58:05'], 15)];
+  for (const enRoute of [
+    { ...walking(), kind: 'stop', atStop: at('06:55') },
+    belled(),
+    { ...walking(), asking: { dep: at('07:08') } },
+    { kind: 'leaving', at: at('06:55'), atStop: at('07:00'), ride: { legs: target().legs, boardedAt: at('06:57') }, name: homeToOffice.name },
+  ]) {
+    const e = armed(enRoute);
+    e.step({ type: 'location', samples }, at('06:58:10'), true);
+    assert.ok(!states(e).some(a => a.toast === 'At the stop (location)'), JSON.stringify(enRoute.kind));
+  }
+  // Location off (the session not on): nothing.
+  const off = armed(walking(), { on: false });
+  off.step({ type: 'location', samples }, at('06:58:10'), true);
+  assert.equal(states(off).length, 0);
 });
 
 test('app closed: boarding at the departure posts the ride with the card token; a match confirms it silently', () => {

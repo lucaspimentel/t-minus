@@ -402,7 +402,7 @@ test('en route: reachability from the at-stop time, no leave-by', () => {
   assert.equal(countdownLabel('enroute', 6 * MIN), 'Departs in 6 min');
   assert.equal(countdownLabel('enroute', 86 * MIN), 'Departs in 1h 26m');
   assert.equal(enRouteStatus(leaving, at('07:31')), 'Walking · at the stop ~7:35am');
-  assert.equal(enRouteStatus(leaving, at('07:36')), 'At the stop since ~7:35am');
+  assert.equal(enRouteStatus(leaving, at('07:36')), 'Walking · at the stop ~7:35am');
   assert.equal(enRouteStatus(stop, at('07:39')), 'At the stop since 7:38am');
   assert.equal(pollIntervalMs(rowsAt('07:00', leaving), at('07:00')), 60_000);
   assert.equal(keepAwake(rowsAt('07:30', leaving), at('07:30'), 10), false);
@@ -2281,7 +2281,7 @@ test('walkActivityState: on the way, at the stop, late', () => {
   assert.ok(hasRideStateKeys(leaving));
   // A headway leg: the arrival is an estimate ("~").
   assert.equal(walkActivityState({ ...row, legs: [{ ...row.legs[0], every: 6 }] }, { kind: 'leaving', at: at('07:38'), atStop: at('07:45') }, at('07:40')).next, 'Arrive ~8:25am');
-  assert.equal(walkActivityState(row, { kind: 'leaving', at: at('07:38'), atStop: at('07:45') }, at('07:46')).sub, 'At the stop since 7:45am · 3 min to spare');
+  assert.equal(walkActivityState(row, { kind: 'leaving', at: at('07:38'), atStop: at('07:45') }, at('07:46')).sub, 'At the stop ~7:45am · 3 min to spare');
   assert.equal(walkActivityState(row, { kind: 'stop', at: at('07:44'), atStop: at('07:44') }, at('07:44')).sub, 'At the stop since 7:44am · 4 min to spare');
   const late = walkActivityState(row, { kind: 'leaving', at: at('07:43'), atStop: at('07:50') }, at('07:44'));
   assert.deepEqual([late.sub, late.warn, late.note], ['At the stop ~7:50am · 2 min late', true, 'At the stop ~7:50am · 2 min late']);
@@ -2512,7 +2512,7 @@ test('widgetView following: the bell, walking, the question, riding (stops, conn
   const walk = { kind: 'leaving', at: at('07:30'), atStop: at('07:44'), pinned: false };
   const w = widgetView('Home → Work', [], at('07:40'), { kind: 'walk', row, enRoute: walk });
   assert.deepEqual(look(w.entries[0]), ['Departs in 8 min', '7:48am', 'Bus 132', 'Malden', 'arrive 8:25am', 'At the stop ~7:44am · 4 min to spare', 'Orange', '', false, false]);
-  assert.equal(shownAt(w, when('07:44')).note, 'At the stop since 7:44am · 4 min to spare');
+  assert.equal(shownAt(w, when('07:44')).note, 'At the stop ~7:44am · 4 min to spare');
   assert.deepEqual([w.end, w.refresh], [when('07:48'), when('07:48')]);
   const lateWalk = widgetView('Home → Work', [], at('07:40'), { kind: 'walk', row, enRoute: { ...walk, atStop: at('07:50') } });
   assert.deepEqual([lateWalk.entries[0].warn, lateWalk.entries[0].note], [true, 'At the stop ~7:50am · 2 min late']);

@@ -284,10 +284,13 @@ out.
 
 For leaving earlier or later than leave-by. A bar under the trip buttons always offers
 [Leaving now] [At the stop]; while active it reads "Walking · at the stop ~9:25am"
-[At the stop] [Cancel] or "At the stop since 9:23am" [Cancel].
+[At the stop] [Cancel] or "At the stop since 9:23am" [Cancel]. "Walking" stays past the
+estimate: "since" only once arrival is recorded, by the tap, the geofence or GPS (2026-11-10;
+"At the stop since ~9:24am" beside [At the stop] claimed an arrival from an estimate).
 
 - At-stop time: tap + `walkBefore` ("Leaving now"), or the tap ("At the stop"; replaces the
-  estimate when tapped while walking).
+  estimate when tapped while walking), or the arrival from GPS while walking in the iOS app
+  ("Boarding from location", `gpsArrival`).
 - Today's rows: a ride is reachable if its first vehicle departs at or after the at-stop time
   (no stop slack). Reachable rows read "Departs in 6 min" (to the first leg's departure,
   shown on the right; the vehicle is in the leg strip; 2026-11-04, was "Bus 132 in 6 min"); the
@@ -1717,7 +1720,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   `headsign`, `right`, `note`, `emoji`; builds before 35 ignore them and keep the layout above.
 - **Walk card:** "Leaving now" / "At the stop" with the bell mark its reminder `started` (without
   the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Departs in 6
-  min · 6:15pm" (`head`; builds before 35 show the `title` "Bus 132 in 6 minutes"), "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once there; "2 min late" in
+  min · 6:15pm" (`head`; builds before 35 show the `title` "Bus 132 in 6 minutes"), "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once arrival is recorded: the tap, the geofence or GPS, not the estimate passing, 2026-11-10; "2 min late" in
   red, 2026-11-08; amber in build 54 and before), "Arrive 8:25am" (`walkActivityState`; on both cards "~" only when a leg is a headway estimate), updated by the app while open, no alerts.
   A missed departure turns it into the boarding question (app and server). Boarding ends it just before the ride card starts; Cancel or the vehicle leaving end it. Known
   limit: with the app closed it isn't updated (stale 2 min after its countdown; ended at the next
@@ -1790,6 +1793,13 @@ getting off (`core.js` "Boarding from location", `BoardingLocation.swift`). The 
   `ASK_MINUTES`. Only an entry from outside counts (inside when it starts, e.g. home next to the
   stop, doesn't). An entry marks "At the stop" (`geofenceEntered`, the same state as the tap, so
   boarding is assumed at the departure as today; toast "At the stop (location) · Undo").
+- **At the stop (GPS, While Using, 2026-11-10):** while walking after "Leaving now", two
+  consecutive usable fixes (accuracy ≤ 50 m) within 50 m of the boarding stop
+  (`ARRIVE_STOP_METERS`) after a usable fix outside it (starting next to the stop doesn't count)
+  mark "At the stop" at the first of the two fixes (`gpsArrival`). It replaces the estimate,
+  earlier or later (a ride between the two becomes reachable, or missed). Same state as the tap,
+  toast "At the stop (location) · Undo"; once per walk (an Undo isn't taken again, sig
+  `arrive:<at>`). The web app without the iOS app keeps the estimate until the tap.
 - **GPS:** high accuracy, in the background too (the blue indicator), from "Leaving now" /
   "At the stop" (tapped or the geofence) until the ride is over or its last walk starts
   (`boardingWants`). A ride without either (the bell's question answered Yes, "I got on") isn't
