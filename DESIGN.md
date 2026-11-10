@@ -1822,7 +1822,7 @@ getting off (`core.js` "Boarding from location", `BoardingLocation.swift`). The 
 - **CI:** an `ios` run with `upload` off also compiles the app target (the only Swift compile
   check; no `swiftc` in the cloud sandbox).
 
-### Permissions in setup (2026-11-10)
+### Permissions in setup (2026-11-10, build 58)
 
 The iOS app shows its permissions at the end of setup's Settings card, below a divider, under
 "Permissions" (`setup.js` `permissionsBlock`; the PWA shows none of it):
