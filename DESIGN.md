@@ -582,14 +582,28 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   `routeMapModel`'s `fitAlso`).
 - **Location (the sheet and the empty screen's map, 2026-11-09):** never asked for on its own.
   Already granted (the Permissions API): the dot, live (`watchPosition`, cleared on close). Not
-  granted: no dot until locate. Locate (an arrow, the top corner button, "Center on my
-  location") asks the first time (`getCurrentPosition`, then the watch) and centers on you with
-  the whole trip still in view (`centerOn`; back to the trip then shows, on the picture too), eased
-  like back to the trip (250 ms, at once with Reduce Motion; 2026-11-09). **Outside the bound**
+  granted: no dot until locate. Locate (an arrow, the top corner button) asks the first time
+  (`getCurrentPosition`, then the watch); from the first position it **follows you** (2026-11-10):
+  - **Taps:** the first zooms to the street, 400 m across the map's width, centered on you; each
+    tap while following switches to the area (2 km) and back (`FOLLOW_SPANS`). After a pinch, the
+    tap goes to the level farther from the current width (under 1200 m, the area;
+    `nextFollowLevel`). After follow ended, a tap starts again at the street.
+  - **Following:** each new position recenters at the follow width, eased like back to the trip
+    (250 ms, at once with Reduce Motion); a move under 2 px is skipped (`viewAt`, `viewShiftPx`).
+    The view's limits hold near the bound's edge (you can be off center there). A pinch or the
+    wheel keeps following at its zoom, about you. A lost position (a watch error) keeps it: the
+    map stays until the next one.
+  - **Ends on:** a drag; back to the trip; the whole map; closing the sheet; the sheet opening
+    (the empty screen's map) or that map replaced; your position leaving the bound.
+  - **Button:** an outline arrow, filled while following (`aria-pressed`); its label names the
+    next tap: "Center on my location", "Zoom out to the area", "Zoom in to the street". Back to
+    the trip shows while following (on the picture too).
+  - Until 2026-11-10 one tap centered on you with the whole trip still in view (`centerOn`),
+    eased the same way (2026-11-09). **Outside the bound**
   (2026-11-09; `insideReach`, `outsideMap`; once the base map is in): your position is left out
   of the fit and not drawn, and locate is disabled ("Center on my location (outside the map)")
   until the live position is back inside; a tap whose answer is outside doesn't move the map and
-  shows "Outside the map" in the caption line (like "Location off", only after a locate tap). Nothing else on the maps is animated. Denied: "Location
+  shows "Outside the map" in the caption line (like "Location off", only after a locate tap). Nothing else on the maps is animated (follow's recenters are locate's ease). Denied: "Location
   off" in the caption line, only after that tap; the button stays (the iOS app also toasts
   "Location is off for T-Minus · Settings", "Permissions in setup"). Until 2026-11-09 the sheet
   asked on opening and showed "Location off" whenever denied. `mapLocation` in `index.html`.
@@ -626,7 +640,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 - **Privacy:** positions never leave the phone; shape and vehicle requests carry the route and
   direction only.
 - **Code:** geometry in `core.js` ("route map": `decodePolyline` / `encodePolyline`,
-  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `fitView` / `zoomView` / `panView`,
+  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `fitView` / `zoomView` / `panView`, locate's `nextFollowLevel` / `viewAt`,
   `routeMapModel`, `basemapLayers`, `basemapNames`); the SVG, gestures and the sheet in
   `index.html` (`mapWidget`, `openMapSheet`, `routeMapEl` for setup, `loadBasemap`); the base
   map's build in `scripts/build-basemap.mjs` with its geometry in `scripts/basemap-geo.mjs`.

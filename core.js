@@ -3986,15 +3986,29 @@ export function wholeView(limits, aspect) {
   const w = limits.maxSpan, h = w / aspect, b = limits.bounds;
   return clampView({ x: b.x + b.w / 2 - w / 2, y: b.y + b.h / 2 - h / 2, w, h }, limits);
 }
-// A view centered on `p` (meters) that still holds all of `fit`, at fit's aspect (the maps'
-// locate button, 2026-11-09: you in the middle, the trip in view).
-export function centerOn(fit, p) {
-  const aspect = fit.w / fit.h;
-  const hw = Math.max(Math.abs(p.x - fit.x), Math.abs(fit.x + fit.w - p.x));
-  const hh = Math.max(Math.abs(p.y - fit.y), Math.abs(fit.y + fit.h - p.y));
-  const w = Math.max(2 * hw, 2 * hh * aspect);
-  return { x: p.x - w / 2, y: p.y - w / aspect / 2, w, h: w / aspect };
+// The maps' locate (2026-11-10): street and area spans, meters across the map's width; a
+// recenter under FOLLOW_MIN_PX pixels is skipped.
+export const FOLLOW_SPANS = { street: 400, area: 2000 };
+export const FOLLOW_MIN_PX = 2;
+// The level the next locate tap goes to: not following, street; following at a level, the other;
+// after a pinch (level null), the one farther from `width` (the spans' midpoint decides).
+export function nextFollowLevel({ following, level, width }) {
+  if (!following) return 'street';
+  if (level === 'street') return 'area';
+  if (level === 'area') return 'street';
+  return width < (FOLLOW_SPANS.street + FOLLOW_SPANS.area) / 2 ? 'area' : 'street';
 }
+// A view `span` meters wide (within the limits' spans) centered on `p` at `aspect`, kept inside
+// the limits (clampView: near the bound's edge, `p` is off center).
+export function viewAt(p, span, aspect, limits = null) {
+  let w = span;
+  if (limits) w = Math.min(Math.max(w, Math.min(limits.minSpan, limits.maxSpan)), limits.maxSpan);
+  const h = w / aspect;
+  return clampView({ x: p.x - w / 2, y: p.y - h / 2, w, h }, limits);
+}
+// How far apart two views' centers are, in pixels of a map `widthPx` wide showing view `a`.
+export const viewShiftPx = (a, b, widthPx) =>
+  Math.hypot(a.x + a.w / 2 - (b.x + b.w / 2), a.y + a.h / 2 - (b.y + b.h / 2)) * (widthPx / a.w);
 // A view `t` (0..1) of the way from `from` to `to`, eased out (the fit button's animation).
 export function easeView(from, to, t) {
   const k = 1 - (1 - Math.min(Math.max(t, 0), 1)) ** 3;

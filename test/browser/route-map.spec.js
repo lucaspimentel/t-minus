@@ -109,6 +109,8 @@ test('the phone\'s location, already granted: the dot in the fit, no walk to the
   await tick(page, 300);
   const centered = await inView();
   expect(centered.x).toBeCloseTo(0.5, 2); expect(centered.y).toBeCloseTo(0.5, 2);
+  expect((await view(page))[2]).toBeCloseTo(400, -1); // street level, following (2026-11-10)
+  await expect(sheet(page).locator('.map-locate')).toHaveAttribute('aria-pressed', 'true');
   await expect(fitBtn).toBeVisible();
   // With Reduce Motion: at once.
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -724,4 +726,194 @@ test('no rows, your location outside the map: no dot, locate off, no whole-map b
   await expect(map.getByRole('button', { name: 'Center on my location (outside the map)' })).toBeDisabled();
   await expect(map.locator('.map-caption')).toHaveText('Tap for the full map');
   await expect(map.getByRole('button', { name: 'Show the whole map' })).toHaveCount(0); // the sheet only
+});
+
+// Locate follows you (2026-11-10): street (400 m) first, then a tap switches area (2 km) / street;
+// each position recenters; a drag, back to the trip, the whole map or leaving the bound ends it.
+// A stub the test moves: not granted up front, so the watch starts with the first locate.
+const GEO = () => {
+  let cur = { latitude: 42.4740, longitude: -71.0900 }, ok = null, err = null;
+  const pos = () => ({ coords: { ...cur, accuracy: 10 }, timestamp: Date.now() });
+  navigator.geolocation.getCurrentPosition = o => setTimeout(() => o(pos()), 0);
+  navigator.geolocation.watchPosition = (o, e) => { ok = o; err = e; return 1; };
+  navigator.geolocation.clearWatch = () => {};
+  window.geo = {
+    move: (latitude, longitude) => { cur = { latitude, longitude }; ok?.(pos()); },
+    lose: () => err?.({ code: 2, message: 'unavailable' }),
+  };
+};
+const locateTool = loc => loc.locator('.map-locate');
+// The dot's place in the view (0..1) and the view's width, in meters; null without a dot.
+const dotIn = s => s.evaluate(s => {
+  const [vx, vy, vw, vh] = s.getAttribute('viewBox').split(' ').map(Number), g = s.querySelector('.map-here');
+  return g ? { x: Math.round(((g.dataset.x - vx) / vw) * 100) / 100, y: Math.round(((g.dataset.y - vy) / vh) * 100) / 100, w: Math.round(vw) } : null;
+});
+const move = (page, lat, lon) => page.evaluate(([a, b]) => window.geo.move(a, b), [lat, lon]);
+
+test('locate follows you: street first, then each tap switches area / street', async ({ page }) => {
+  await openApp(page, { time: '07:00', init: GEO });
+  await openMap(page);
+  const btn = locateTool(sheet(page));
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  await expect(btn).toHaveAttribute('aria-label', 'Center on my location');
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
+  await btn.click();
+  await tick(page, 50);
+  expect((await view(page))[2]).toBeGreaterThan(600); // on its way in
+  await tick(page, 300);
+  expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: 400 });
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await expect(btn).toHaveAttribute('aria-label', 'Zoom out to the area');
+  await expect(sheet(page).getByRole('button', { name: 'Show the whole trip' })).toBeVisible();
+  await btn.click();
+  await tick(page, 300);
+  expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: 2000 });
+  await expect(btn).toHaveAttribute('aria-label', 'Zoom in to the street');
+  await btn.click();
+  await tick(page, 300);
+  expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: 400 });
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('following: a new position recenters; a lost one keeps follow and the map still; under 2 px, no move', async ({ page }) => {
+  await openApp(page, { time: '07:00', init: GEO });
+  await openMap(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await locateTool(sheet(page)).click();
+  await tick(page, 100);
+  const first = await view(page);
+  await move(page, 42.4758, -71.0900); // ~200 m north
+  await tick(page, 50);
+  expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: 400 });
+  expect((await view(page))[1]).toBeLessThan(first[1] - 150);
+  await page.evaluate(() => window.geo.lose());
+  await tick(page, 50);
+  await expect(svg(page).locator('.map-here')).toHaveCount(0);
+  await expect(locateTool(sheet(page))).toHaveAttribute('aria-pressed', 'true');
+  const held = await view(page);
+  await tick(page, 1000);
+  expect(await view(page)).toEqual(held);
+  await move(page, 42.4740, -71.0900);
+  await tick(page, 50);
+  expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: 400 });
+  const still = await view(page);
+  await move(page, 42.474003, -71.0900); // ~0.3 m: under 2 px
+  await tick(page, 50);
+  expect(await view(page)).toEqual(still);
+});
+
+test('a drag ends following; the next tap starts again at street level', async ({ page }) => {
+  await openApp(page, { time: '07:00', init: GEO });
+  await openMap(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const btn = locateTool(sheet(page));
+  await btn.click();
+  await tick(page, 100);
+  await btn.click(); // area
+  await tick(page, 50);
+  const box = await svg(page).boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  await expect(btn).toHaveAttribute('aria-label', 'Center on my location');
+  const dragged = await view(page);
+  await move(page, 42.4758, -71.0900);
+  await tick(page, 50);
+  expect(await view(page)).toEqual(dragged);
+  await btn.click();
+  await tick(page, 100);
+  expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: 400 });
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a pinch keeps following at its zoom; the next tap goes to the farther level', async ({ page }) => {
+  await openApp(page, { time: '07:00', init: GEO });
+  await openMap(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const btn = locateTool(sheet(page));
+  await btn.click();
+  await tick(page, 100);
+  await btn.click(); // area, 2 km
+  await tick(page, 50);
+  const box = await svg(page).boundingBox();
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, touchPoints) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
+  const cx = box.x + box.width / 2 - 50, cy = box.y + box.height / 2 + 40; // off you: the zoom stays about you
+  await touch('touchStart', [{ x: cx - 20, y: cy, id: 1 }, { x: cx + 20, y: cy, id: 2 }]);
+  for (let i = 1; i <= 4; i++) await touch('touchMove', [{ x: cx - 20 - i * 5, y: cy, id: 1 }, { x: cx + 20 + i * 5, y: cy, id: 2 }]);
+  await touch('touchEnd', []);
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  const pinched = await dotIn(svg(page));
+  expect(pinched.x).toBe(0.5); expect(pinched.y).toBe(0.5);
+  expect(pinched.w).toBeGreaterThan(900); expect(pinched.w).toBeLessThan(1100);
+  await expect(btn).toHaveAttribute('aria-label', 'Zoom out to the area'); // under 1200 m
+  await move(page, 42.4758, -71.0900);
+  await tick(page, 50);
+  expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: pinched.w });
+  await btn.click();
+  await tick(page, 50);
+  expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: 2000 });
+});
+
+test('following ends when you leave the map, on back to the trip and on the whole map', async ({ page }) => {
+  await serveBase(page, { base: REACH });
+  await openApp(page, { time: '07:00', init: GEO });
+  await openMap(page);
+  await expect(svg(page).locator('.map-base')).toHaveCount(1);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const btn = locateTool(sheet(page));
+  await btn.click();
+  await tick(page, 100);
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await move(page, 40.71, -74.0); // New York
+  await tick(page, 50);
+  await expect(btn).toBeDisabled();
+  await expect(btn).toHaveAttribute('aria-label', 'Center on my location (outside the map)');
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  await move(page, 42.4740, -71.0900);
+  await tick(page, 50);
+  await expect(btn).toBeEnabled();
+  await expect(btn).toHaveAttribute('aria-label', 'Center on my location');
+  const back = await view(page);
+  await move(page, 42.4758, -71.0900);
+  await tick(page, 50);
+  expect(await view(page)).toEqual(back);
+  // Back to the trip, then the whole map.
+  for (const name of ['Show the whole trip', 'Show the whole map']) {
+    await btn.click();
+    await tick(page, 100);
+    await expect(btn).toHaveAttribute('aria-pressed', 'true');
+    await sheet(page).getByRole('button', { name }).click();
+    await tick(page, 50);
+    await expect(btn).toHaveAttribute('aria-pressed', 'false');
+    await expect(btn).toHaveAttribute('aria-label', 'Center on my location');
+  }
+});
+
+test('no rows, locate follows you on the empty map too; opening the sheet ends it', async ({ page }) => {
+  await openApp(page, { time: '07:00', scenario: { ...commute(), trips: [] }, init: GEO, waitForRows: false });
+  const map = emptyMap(page), pic = map.locator('svg.route-svg');
+  await tick(page, 1500); // its height settled
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const btn = locateTool(map);
+  await btn.click();
+  await tick(page, 100);
+  await expect(sheet(page)).toBeHidden(); // the button doesn't open the sheet
+  expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 400 });
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await btn.click();
+  await tick(page, 50);
+  expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 2000 });
+  await move(page, 42.4758, -71.0900);
+  await tick(page, 50);
+  expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 2000 });
+  await pic.click();
+  await tick(page, 300);
+  await expect(sheet(page)).toBeVisible();
+  await expect(locateTool(sheet(page))).toHaveAttribute('aria-label', 'Center on my location');
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  await expect(btn).toHaveAttribute('aria-label', 'Center on my location');
 });

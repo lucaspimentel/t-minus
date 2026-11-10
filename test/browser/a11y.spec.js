@@ -202,6 +202,14 @@ for (const scheme of ['light', 'dark']) {
     await page.getByRole('button', { name: 'Center on my location' }).click();
     await tick(page, 300);
     await expect(page.getByRole('button', { name: 'Show the whole trip' })).toBeVisible();
+    // Following you (2026-11-10): the filled arrow, its label the next tap.
+    const locate = page.locator('#rows .map-locate');
+    await expect(locate).toHaveAttribute('aria-pressed', 'true');
+    await expect(locate).toHaveAttribute('aria-label', 'Zoom out to the area');
+    expect(await violations(page)).toEqual([]);
+    await locate.focus();
+    await tick(page, 2000);
+    expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('empty-map:locate');
     // Focus survives the once-a-second redraw.
     await page.getByRole('button', { name: 'Show the whole trip' }).focus();
     await tick(page, 2000);
@@ -221,6 +229,10 @@ for (const scheme of ['light', 'dark']) {
     await expect(page.locator('#map-credit')).toBeVisible();
     expect(await violations(page)).toEqual([]);
     await expect(page.getByRole('button', { name: 'Show the whole map' })).toBeVisible(); // 2026-11-09
+    await page.locator('#map-sheet .map-locate').click(); // following (2026-11-10)
+    await tick(page, 300);
+    await expect(page.locator('#map-sheet .map-locate')).toHaveAttribute('aria-pressed', 'true');
+    expect(await violations(page)).toEqual([]);
     // Back to the trip once the view moves (2026-11-08).
     const box = await page.locator('#map-sheet svg.route-svg').boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);

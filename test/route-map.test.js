@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
-  fitView, viewLimits, areaRect, insideReach, wholeView, easeView, centerOn, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
+  fitView, viewLimits, areaRect, insideReach, wholeView, easeView, nextFollowLevel, viewAt, viewShiftPx, FOLLOW_SPANS, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
   placeLabel, PIN_BOX, PIN_LABEL_X,
 } from '../core.js';
 
@@ -411,19 +411,36 @@ test('stopsToShow: leg ends always; intermediate stops only with room between th
   assert.deepEqual(ids(0.01, { keep: 'a1' }), ['a0', 'a1', 'a4', 'b0', 'b2']);
 });
 
-test('centerOn: you in the middle, the whole fit still in view, its aspect kept', () => {
+test('nextFollowLevel: street first, then alternating; after a pinch the farther level', () => {
+  assert.equal(nextFollowLevel({ following: false, level: 'area', width: 2000 }), 'street');
+  assert.equal(nextFollowLevel({ following: true, level: 'street', width: 5000 }), 'area');
+  assert.equal(nextFollowLevel({ following: true, level: 'area', width: 150 }), 'street');
+  for (const width of [150, 400, 1199]) assert.equal(nextFollowLevel({ following: true, level: null, width }), 'area');
+  for (const width of [1200, 2000, 5000]) assert.equal(nextFollowLevel({ following: true, level: null, width }), 'street');
+  assert.deepEqual(FOLLOW_SPANS, { street: 400, area: 2000 });
+});
+
+test('viewAt: centered at the span and aspect, within the limits', () => {
+  const v = viewAt({ x: 1000, y: 500 }, 400, 0.5);
+  assert.deepEqual(v, { x: 800, y: 100, w: 400, h: 800 });
   const fit = { x: 0, y: 0, w: 1000, h: 2000 };
-  const v = centerOn(fit, { x: 900, y: 500 });
-  near(v.x + v.w / 2, 900); near(v.y + v.h / 2, 500);
-  near(v.w / v.h, 0.5);
-  assert.ok(v.x <= 0 && v.x + v.w >= 1000 && v.y <= 0 && v.y + v.h >= 2000);
-  near(v.w, 1800); near(v.h, 3600); // the 900 m to the fit's left edge decides
-  // At the fit's center: the fit itself.
-  const c = centerOn(fit, { x: 500, y: 1000 });
-  near(c.w, 1000); near(c.h, 2000); near(c.x, 0); near(c.y, 0);
-  // Outside the fit: grown to reach back over it.
-  const o = centerOn(fit, { x: -1000, y: 1000 });
-  near(o.x, -3000); assert.ok(o.x + o.w >= 1000);
+  // Spans clamped: in to minSpan, out to maxSpan (twice the fit without an area).
+  near(viewAt({ x: 500, y: 1000 }, 50, 0.5, viewLimits(fit)).w, 150);
+  near(viewAt({ x: 500, y: 1000 }, 9000, 0.5, viewLimits(fit)).w, 2000);
+  // Without an area: the center kept within the fit grown by its size.
+  const far = viewAt({ x: 5000, y: 1000 }, 400, 0.5, viewLimits(fit));
+  near(far.x + far.w / 2, 2000);
+  // With edges: the view stays inside the bound, so `p` near the edge is off center.
+  const lim = viewLimits(fit, { area: { x: 0, y: 0, w: 4000, h: 4000 }, aspect: 0.5 });
+  const e = viewAt({ x: 50, y: 2000 }, 400, 0.5, lim);
+  near(e.x, 0); near(e.y, 1600);
+});
+
+test('viewShiftPx: how far the centers are apart, in screen pixels', () => {
+  const a = { x: 0, y: 0, w: 400, h: 800 };
+  assert.equal(viewShiftPx(a, a, 400), 0);
+  near(viewShiftPx(a, { ...a, x: 2 }, 400), 2);
+  near(viewShiftPx(a, { ...a, y: 3, x: 4 }, 200), 2.5);
 });
 
 test('routeMapModel fitAlso: the fit takes in the phone without a walk to it', () => {
