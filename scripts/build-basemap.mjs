@@ -1,8 +1,8 @@
 // Builds basemap.json, the route map's background (DESIGN.md "Route map", Base map): land and
 // water, town and Boston neighborhood borders and names, and faint subway, Silver Line and
 // commuter rail lines, and green areas (parks, reservations). Three tiers of detail (2026-11-09):
-// 5 m in the inner rect (downtown), 20 m over the rest of the bus service area, and for commuter
-// rail's reach, 100 m Massachusetts towns (land, borders, names; 2026-11-08) and the neighboring
+// 5 m in the inner rect (downtown), 30 m over the rest of the bus service area, and for commuter
+// rail's reach, 150 m Massachusetts towns (land, borders, names; 2026-11-08) and the neighboring
 // states' land.
 // Run: NODE_USE_ENV_PROXY=1 node scripts/build-basemap.mjs   (MBTA_API_KEY optional, never stored)
 // Sources: MassGIS (towns; detailed lakes and wide rivers from Massachusetts_Water_Features_NoLabels
@@ -35,8 +35,9 @@ const CREDIT = 'Base map: MassGIS (Bureau of Geographic Information), Commonweal
 // (place-wondl, -70.991648), north the 132's Main St @ South St (stop 25996, 42.466624).
 const INNER = [-71.1790, 42.2911, -70.9792, 42.4756];
 const INNER_M = 5; // simplification, inner tier
-const MID_M = 20; // the rest of the bus service area
-const COARSE_M = 100; // commuter rail's reach
+// 2026-11-10: 30 and 150 m (20 and 100 m before), 21 KB less gzipped.
+const MID_M = 30; // the rest of the bus service area
+const COARSE_M = 150; // commuter rail's reach
 const MIN_GREEN_ACRES = 20; // a site: parcels sharing a town and name, summed
 const MIN_LAKE_M2 = 20_000; // detailed lakes
 const MIN_COARSE_LAKE_M2 = 1_000_000;
@@ -131,7 +132,7 @@ const box = pad(bbox(cr.stops), 0.3, 0.3);
 console.log('detail', detail.join(','), 'box', box.join(','));
 if (!(INNER[0] > detail[0] && INNER[1] > detail[1] && INNER[2] < detail[2] && INNER[3] < detail[3])) throw new Error(`INNER ${INNER} is not inside detail ${detail}`);
 // Inner and middle rects share edges and don't overlap (one path each, no evenodd holes); faint
-// lines outside the bus area keep the middle tier's 20 m (the coarse land overlaps them by 50 m).
+// lines outside the bus area keep the middle tier's 30 m (the coarse land overlaps them by 50 m).
 const TIERS = [{ rects: [INNER], eps: INNER_M }, { rects: outsideStrips(detail, INNER), eps: MID_M }];
 const OUTSIDE = [{ rects: outsideStrips(box, detail), eps: MID_M }];
 

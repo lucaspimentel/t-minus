@@ -652,14 +652,14 @@ maps (the sheet, the planner's options, the trip editor).
 - **Coverage, three tiers** (2026-11-09; every layer follows its tier): **inner**, 5 m, a fixed
   rect each edge 1 km past an anchor: Boston College (west), Fields Corner (south), Wonderland
   (east) and the 132's Main St @ South St (north), about 16 × 21 km (`INNER` in the build);
-  **middle**, 20 m, the rest of the bus stops' box padded by 1 km (Bedford to Hull, Brockton to
+  **middle**, 30 m (20 m until 2026-11-10), the rest of the bus stops' box padded by 1 km (Bedford to Hull, Brockton to
   Beverly), land, water, green, borders and names; the inner and middle pieces are clipped to
   rects that share edges exactly, so they abut in one path with no gap and no evenodd hole;
-  green only in these two; **outer**, coarse, 100 m, over the commuter rail stops' box padded by 0.3°:
-  Massachusetts towns' land (their shoreline), borders and names, simplified to 100 m (2026-11-08:
+  green only in these two; **outer**, coarse, 150 m (100 m until 2026-11-10), over the commuter rail stops' box padded by 0.3°:
+  Massachusetts towns' land (their shoreline), borders and names (2026-11-08:
   the sheet showed blank land and no names north of Danvers; mockups of 100 m and 200 m, 100 m
   chosen), the land of Rhode Island, New Hampshire and Connecticut (no towns), and lakes over 1 km²;
-  no rivers. Outside it, the card color.
+  no rivers; the faint lines keep the middle tier's 30 m there. Outside it, the card color.
 - **Sources (public domain):** MassGIS towns (`Basemaps/Mass_Towns_Yellow_Lines_and_Labels`),
   detailed lakes and wide rivers (`AGOL/Massachusetts_Water_Features_NoLabels` layer 6, "Lakes and
   Ponds", 1:25,000 USGS with MassDEP additions, 20,000 m² or more; 2026-11-10: Hydro_100k drew the
@@ -679,11 +679,11 @@ maps (the sheet, the planner's options, the trip editor).
 - **File:** `basemap.json` at the repo root, built by `NODE_USE_ENV_PROXY=1 node
   scripts/build-basemap.mjs` (~1 min keyless, about 7 paced MBTA requests) and committed; rebuild
   when the sources change. Rings and lines are Google polylines (precision 5), simplified per
-  tier (5 m inner, 20 m middle, 100 m outer; before 2026-11-09 one detailed tier at 10 m, and
+  tier (5 m inner, 30 m middle, 150 m outer; 20 m and 100 m until 2026-11-10; before 2026-11-09 one detailed tier at 10 m, and
   25 m before that, which turned the piers into spikes at the sheet's zoom), with `reach` (the
   commuter rail stops' box, for the sheet's pan and zoom limits), `inner` (the inner rect, for
-  reference) and `green`: 234 KB, 153 KB gzipped (2026-11-10, detailed water from the 1:25,000
-  lakes layer, lakes 43 KB of it); 140 KB gzipped with Hydro_100k's lakes, 2026-11-09 (three
+  reference) and `green`: 204 KB, 133 KB gzipped (2026-11-10, 5 / 30 / 150 m); 234 KB, 153 KB
+  gzipped at 5 / 20 / 100 m with detailed water from the 1:25,000 lakes layer (lakes 43 KB of it); 140 KB gzipped with Hydro_100k's lakes, 2026-11-09 (three
   tiers and green areas, green 75 KB of it); 94 KB gzipped with one 10 m tier and no green; 75 KB gzipped at 25 m
   with Hydro_100k's lakes; 69 KB
   gzipped before them, 2026-11-08; 42 KB with Massachusetts coarse land only and no outer towns,
