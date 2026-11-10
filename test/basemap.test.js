@@ -87,7 +87,9 @@ test('basemap.json: town borders, names and coastline outside the detailed area'
 });
 
 // Lakes from Hydro_100k (2026-11-09): Hydro_Major had no Spot Pond nor the Fells reservoirs.
-test('basemap.json: Spot Pond is water', async () => {
+// Detailed lakes from MassGIS's 1:25,000 layer (2026-11-10): Hydro_100k drew the Charles between
+// the Museum of Science dam and the locks as land. Hydro_100k's big lakes stay outside `detail`.
+test('basemap.json: Spot Pond and the Charles between its dams are water', async () => {
   const { readFileSync } = await import('node:fs');
   const { decodePolyline } = await import('../core.js');
   const base = JSON.parse(readFileSync(new URL('../basemap.json', import.meta.url), 'utf8'));
@@ -102,6 +104,13 @@ test('basemap.json: Spot Pond is water', async () => {
   const spot = { lat: 42.4557, lon: -71.0967 }; // its centroid
   assert.ok(base.lakes.some(l => inside(decodePolyline(l), spot)), 'Spot Pond');
   assert.ok(!base.lakes.some(l => inside(decodePolyline(l), { lat: 42.4655, lon: -71.0990 })), 'Melrose, not water');
+  assert.ok(base.lakes.some(l => inside(decodePolyline(l), { lat: 42.3690, lon: -71.0640 })), 'the Charles between its dams');
+  const [w, s, e, n] = base.detail;
+  const rings = base.lakes.map(decodePolyline);
+  const strictlyIn = p => p.lon > w + 1e-5 && p.lon < e - 1e-5 && p.lat > s + 1e-5 && p.lat < n - 1e-5;
+  const outside = rings.filter(r => r.some(p => p.lon < w - 1e-5 || p.lon > e + 1e-5 || p.lat < s - 1e-5 || p.lat > n + 1e-5));
+  assert.ok(outside.some(r => r.some(p => p.lon < -71.31)) && outside.some(r => r.some(p => p.lat > 42.6)), 'big lakes west and north of detail');
+  for (const r of outside) assert.ok(!r.some(strictlyIn), 'a coarse lake ring reaches inside detail');
 });
 
 // Tiers: an inner rect at 5 m and the strips around it inside an outer rect at 20 m.

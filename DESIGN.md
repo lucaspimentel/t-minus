@@ -661,8 +661,12 @@ maps (the sheet, the planner's options, the trip editor).
   chosen), the land of Rhode Island, New Hampshire and Connecticut (no towns), and lakes over 1 km²;
   no rivers. Outside it, the card color.
 - **Sources (public domain):** MassGIS towns (`Basemaps/Mass_Towns_Yellow_Lines_and_Labels`),
-  lakes and wide rivers (`AGOL/Hydro_100k`, USGS 1:100,000; 2026-11-09: `Hydro_Major`'s hand-picked
-  set had no Spot Pond nor the Middlesex Fells reservoirs) and narrow rivers (`AGOL/Hydro_Major`;
+  detailed lakes and wide rivers (`AGOL/Massachusetts_Water_Features_NoLabels` layer 6, "Lakes and
+  Ponds", 1:25,000 USGS with MassDEP additions, 20,000 m² or more; 2026-11-10: Hydro_100k drew the
+  Charles between the Museum of Science dam and the locks as land), the outer tier's lakes over
+  1 km² (`AGOL/Hydro_100k`, USGS 1:100,000, clipped outside the middle rect so they abut the
+  detailed ones without overlapping; 2026-11-09: `Hydro_Major`'s hand-picked set had no Spot Pond
+  nor the Middlesex Fells reservoirs) and narrow rivers (`AGOL/Hydro_Major`;
   Hydro_100k's adds three times the streams), the City of Boston's BPDA neighborhoods (data.boston.gov),
   US Census TIGERweb states (the coarse land of RI, NH and CT), the MBTA V3 API (extents, line shapes),
   MassGIS open space (`AGOL/openspace`, Protected and Recreational OpenSpace; green areas: full
@@ -678,8 +682,9 @@ maps (the sheet, the planner's options, the trip editor).
   tier (5 m inner, 20 m middle, 100 m outer; before 2026-11-09 one detailed tier at 10 m, and
   25 m before that, which turned the piers into spikes at the sheet's zoom), with `reach` (the
   commuter rail stops' box, for the sheet's pan and zoom limits), `inner` (the inner rect, for
-  reference) and `green`: 215 KB, 140 KB gzipped (2026-11-09, three tiers and green areas, green
-  75 KB of it; 94 KB gzipped with one 10 m tier and no green; 75 KB gzipped at 25 m
+  reference) and `green`: 234 KB, 153 KB gzipped (2026-11-10, detailed water from the 1:25,000
+  lakes layer, lakes 43 KB of it); 140 KB gzipped with Hydro_100k's lakes, 2026-11-09 (three
+  tiers and green areas, green 75 KB of it); 94 KB gzipped with one 10 m tier and no green; 75 KB gzipped at 25 m
   with Hydro_100k's lakes; 69 KB
   gzipped before them, 2026-11-08; 42 KB with Massachusetts coarse land only and no outer towns,
   2026-11-07).

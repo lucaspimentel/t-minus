@@ -5,7 +5,8 @@
 // rail's reach, 100 m Massachusetts towns (land, borders, names; 2026-11-08) and the neighboring
 // states' land.
 // Run: NODE_USE_ENV_PROXY=1 node scripts/build-basemap.mjs   (MBTA_API_KEY optional, never stored)
-// Sources: MassGIS (towns; lakes from Hydro_100k, rivers from Hydro_Major; open space), City of Boston (BPDA neighborhoods), US Census TIGERweb
+// Sources: MassGIS (towns; detailed lakes and wide rivers from Massachusetts_Water_Features_NoLabels
+// layer 6 (1:25,000), coarse lakes from Hydro_100k, rivers from Hydro_Major; open space), City of Boston (BPDA neighborhoods), US Census TIGERweb
 // (coarse land: MA, RI, NH, CT), the MBTA V3 API (extents, line shapes). Commit basemap.json.
 import { writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -17,9 +18,13 @@ const MBTA = 'https://api-v3.mbta.com';
 const MASSGIS = 'https://arcgisserver.digital.mass.gov/arcgisserver/rest/services';
 const TOWNS = `${MASSGIS}/Basemaps/Mass_Towns_Yellow_Lines_and_Labels/FeatureServer/0/query`;
 const HYDRO = `${MASSGIS}/AGOL/Hydro_Major/FeatureServer`; // rivers (lines)
-// Lakes and wide rivers (2026-11-09): USGS 1:100,000 hydrography; Hydro_Major left out Spot Pond
-// and the Middlesex Fells reservoirs.
+// Coarse lakes (the outer tier's, 1 km² or more; 2026-11-09): USGS 1:100,000 hydrography;
+// Hydro_Major left out Spot Pond and the Middlesex Fells reservoirs.
 const LAKES = `${MASSGIS}/AGOL/Hydro_100k/FeatureServer/2/query`;
+// Detailed lakes and wide rivers (2026-11-10): MassGIS's 1:25,000 "Lakes and Ponds" (USGS with
+// MassDEP additions); Hydro_100k left out the Charles between its two dams (the Museum of Science
+// dam and the locks near North Station), drawing it as land.
+const LAKES_25K = `${MASSGIS}/AGOL/Massachusetts_Water_Features_NoLabels/FeatureServer/6/query`;
 // Green areas (2026-11-09): Protected and Recreational OpenSpace, full public access.
 const OPEN = `${MASSGIS}/AGOL/openspace/FeatureServer/0/query`;
 const TIGER = 'https://tigerweb.geo.census.gov/arcgis/rest/services/Generalized_ACS2025/State_County/MapServer/7/query';
@@ -159,8 +164,7 @@ for (const [town, polys] of byTown) {
 function round5(x) { return Math.round(x * 1e5) / 1e5; }
 
 // 4. Water, detailed: lakes and wide rivers (polygons), narrow rivers (lines).
-const lakeFeatures = await arcgis(LAKES, detail, { where: `Shape__Area>=${MIN_LAKE_M2}`, outFields: 'OBJECTID' });
-const lakeIds = new Set(lakeFeatures.map(f => f.properties.OBJECTID));
+const lakeFeatures = await arcgisAll(LAKES_25K, detail, { where: `Shape__Area>=${MIN_LAKE_M2}`, outFields: 'OBJECTID' });
 const lakes = tierRings(lakeFeatures.flatMap(f => ringsOf(f.geometry)), TIERS).map(enc);
 const riverFeatures = await arcgis(`${HYDRO}/1/query`, detail, { outFields: 'OBJECTID' });
 const rivers = tierLines(riverFeatures.flatMap(f => (f.geometry.type === 'LineString' ? [f.geometry.coordinates] : f.geometry.coordinates)), TIERS).map(enc);
@@ -183,7 +187,9 @@ const green = tierRings(dissolve(parks, () => 'all').outline, TIERS, ringOk).map
 console.log('open space', open.length, 'parcels,', parks.length, 'kept');
 
 // 5. Coarse tier, outside the detailed rect (with a 50 m overlap): Massachusetts from its towns
-// (the shoreline, the borders between towns), the other states' land from the Census; big lakes.
+// (the shoreline, the borders between towns), the other states' land from the Census; big lakes,
+// clipped outside `detail` itself (not the 50 m inset): the detailed lakes' rects end exactly at
+// `detail`, so the pieces abut without overlapping (an overlap would cut an evenodd hole).
 const inner = pad(detail, -50 / 82_000, -50 / 111_320);
 const strips = outsideStrips(box, inner);
 const outside = rings => rings.map(r => simplifyRing(r, COARSE_M)).flatMap(r => strips.map(st => clipRing(r, st))).filter(ringOk).map(enc);
@@ -191,9 +197,10 @@ const states = await arcgis(TIGER, box, { where: "STUSAB IN ('RI','NH','CT')", o
 const coarse = [...outside(merged.outline), ...outside(states.flatMap(f => ringsOf(f.geometry)))];
 townLines.push(...merged.borders.map(l => simplify(l, COARSE_M)).flatMap(l => strips.flatMap(st => clipLine(l, st))).filter(l => l.length >= 2).map(enc));
 const bigLakes = await arcgis(LAKES, box, { where: `Shape__Area>=${MIN_COARSE_LAKE_M2}`, outFields: 'OBJECTID' });
-for (const f of bigLakes) {
-  if (lakeIds.has(f.properties.OBJECTID)) continue;
-  for (const r of ringsOf(f.geometry)) { const s = simplifyRing(r, COARSE_M); if (s.length >= 3) lakes.push(enc(s)); }
+const lakeStrips = outsideStrips(box, detail);
+for (const r of bigLakes.flatMap(f => ringsOf(f.geometry))) {
+  const s = simplifyRing(r, COARSE_M);
+  for (const st of lakeStrips) { const c = clipRing(s, st); if (c.length >= 3) lakes.push(enc(c)); }
 }
 
 // 6. Boston neighborhoods (BPDA): borders between them, a name each (not the Harbor Islands).
