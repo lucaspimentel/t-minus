@@ -6,9 +6,9 @@ import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, groupConnections, rowConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
-  reverseTrip, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
+  reverseTrip, newTripId, withTripIds, withoutTripIds, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=53ac903f10';
+} from './core.js?v=2475b935f1';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -243,6 +243,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     hideToast(); // a later save makes a pending Undo stale
     if (routes) cfg = labelLegs(cfg, routes);
     cfg = locateLegs(cfg, stopDocs); // first-stop coordinates for "near" trips
+    cfg = withTripIds(cfg).cfg; // every saved trip has an id (new ones get theirs in saveTrip)
     saved = cfg;
     onSave(cfg, warning);
     listMessages = warning ? [info(warning)] : [];
@@ -306,7 +307,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let ioArea = startImport ? { mode: 'import', text: '' } : null; // { mode: 'export' | 'import', text }
 
   async function exportConfig() {
-    const text = JSON.stringify(saved, null, 2);
+    const text = JSON.stringify(withoutTripIds(saved), null, 2); // ids stay on this phone
     try {
       await navigator.clipboard.writeText(text);
       ioArea = { mode: 'export', text, note: 'Copied to the clipboard.' };
@@ -321,6 +322,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     let cfg;
     try { cfg = JSON.parse(text); } catch (e) { listMessages = errs([`Invalid JSON: ${e.message}`]); return render(); }
     if (cfg && typeof cfg === 'object' && !cfg.apiKey && app.apiKey.trim()) cfg = { ...cfg, apiKey: app.apiKey.trim() };
+    if (Array.isArray(cfg?.trips)) cfg = withTripIds(withoutTripIds(cfg)).cfg; // imported trips get new ids
     const prev = savedTrips().length ? saved : null; // first run: nothing to undo
     busy = true;
     listMessages = [info('Checking stops…', true)];
@@ -747,7 +749,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   async function saveTrip() {
     const pos = editing.idx ?? editing.insertAt;
     if (!editing.form.name.trim()) editing.form.name = `Trip ${pos + 1}`;
-    const trip = formToTrip(editing.form);
+    // A new trip gets an id; an edited one keeps its own.
+    const id = editing.idx != null ? savedTrips()[editing.idx].id : newTripId(savedTrips().map(t => t.id));
+    const trip = { id, ...formToTrip(editing.form) };
     const trips = [...savedTrips()];
     if (editing.idx != null) trips[pos] = trip; else trips.splice(pos, 0, trip);
     const base = saved ?? { ...app, apiKey: app.apiKey.trim() };

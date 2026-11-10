@@ -196,16 +196,32 @@ Example (office → home, 17:00, walk 10, transfer 5): for the 17:40 bus, the la
 arriving at Oak Grove by 17:35 is the 17:16 from State, so `leave_by = 17:05`
 (17:16 - 10 walk - 1 slack).
 
+### Trip ids (2026-11-10)
+
+Each trip has a random, stable `id` (`trips[].id`). Everything kept per trip is keyed by it:
+the en-route state, the bell's reminders (`<id>/<row key>`), the cache and timing leg, the
+manual pick and the last trip used, the ride and leave cards, the server's auto-bells and bells
+(`tripRef`), the widget's request and state, and the boarding session. Until then these were
+keyed by the trip's position, with its name checked to tell a changed trip (a rename dropped its
+state). References to a trip id are named `tripRef` (`tripId` is the MBTA's trip).
+
+The first load of a config without ids gives its trips ids and starts clean: the en-route
+state, reminders, manual pick, last trip, ride and leave card records and the auto-bell copy
+are cleared, and the server's reminders and stop alerts they named are deleted (with the ride
+card in the iOS app). A ride or bell under way at that moment is lost; the auto-bells are sent
+again by id. Builds and stored widget requests from before keep working only once the app
+rewrites them (the widget's request: at the next open).
+
 ### Trip selection (`pickTrip`)
 
-1. A manual switch (`{ index, setAt }` in `localStorage`) holds until the next time any
+1. A manual switch (`{ id, setAt }` in `localStorage`, the trip's id) holds until the next time any
    trip's window starts after it was set (forever if no trip has a window).
 2. Otherwise a location match (`pickByLocation`): among trips with `near: true` and stored
    first-stop coordinates, the nearest first stop within 1 km of the phone that is at least 2×
    closer than any such trip with a different first stop (shared first stop: list order).
 3. Otherwise the first trip whose `window` contains now (`to < from` crosses midnight;
    `from == to` is the whole day; overlapping windows: first in the list wins).
-4. Otherwise the last trip used (so a location pick sticks after walking away).
+4. Otherwise the last trip used (its id; so a location pick sticks after walking away).
 
 A one-off trip (below) comes before all of these while it exists, unless another trip was
 picked by hand after it was made (`shownTrip`; the iOS widget uses it without step 2).
@@ -216,13 +232,13 @@ picked by hand after it was made (`shownTrip`; the iOS widget uses it without st
   there from the end of the list, 2026-10-12), shown with the rows (not during a ride, nor without
   trips). It opens the planner (see Setup view); a timed option's "See departures" makes a one-off trip (`t-minus:one-off`,
   `{ trip, at }`), labeled from the route list like a saved trip but never written into the saved
-  config. It is shown after the saved trips (`withOneOff`), so saved trips keep their indices,
-  and works like any trip: rows, tracking, reminders, stop alerts.
+  config. It gets its own trip id (a new one for each plan) and is shown after the saved trips
+  (`withOneOff`); it works like any trip: rows, tracking, reminders, stop alerts.
 - The trip dropdown names it "Oak Grove → State (one-off)" (with one saved trip the two side-by-side
   buttons stay). While it is shown, a banner under the trip buttons, above "Plan a trip…" (a
   bordered card, 2026-10-13, chosen from three mockups: the old plain line and the "Leaving
   now" bar below it didn't line up), reads "One-off trip: not saved" with Save and "✕" (Remove).
-- Save: it becomes the last saved trip at once (same name, no time window; same index, so its
+- Save: it becomes the last saved trip at once (same name, no time window; same trip id, so its
   state carries over), toast "Trip saved". ✕ (Remove): its reminders, en-route state and stop
   alerts are dropped, toast with Undo (restores them). A new plan replaces it. It is removed by
   itself when its ride is over (Done on the ride card, or the ride ending).
@@ -393,8 +409,7 @@ estimate: "since" only once arrival is recorded, by the tap, the geofence or GPS
 - Cancel (the bar) or "Cancel trip" (the trip card; named apart from the connection choices) ends the mode at once (the list returns) and shows a
   bottom toast "Tracking cancelled · Undo" for 5 s (a tap elsewhere on it dismisses it); Undo restores the saved state (switching
   back to its trip if needed). "Done" after arrival has no undo.
-- Stored per trip index in `localStorage` (`t-minus:en-route`, with the trip name; a
-  renamed trip drops it; cleared when setup saves). Polls every 60 s while active.
+- Stored per trip id in `localStorage` (`t-minus:en-route`; cleared when setup saves). Polls every 60 s while active.
 
 Screen stays on (Screen Wake Lock, `keepAwake`) while the app is open and any upcoming row is
 within `wakeMinutes` (default 10, 0 = off) of its leave-by, until its last chance. While a
@@ -739,6 +754,9 @@ maps (the sheet, the planner's options, the trip editor).
 ```
 
 - `departureCount`, `stopSlackMinutes`, `wakeMinutes`, `wakeRiding` (boolean), `apiKey`: optional, app-wide.
+- `trips[].id`: the trip's id (`t` + 8 base36 characters, `newTripId`), set by the app: a new
+  trip gets one when saved, a trip without one on load (`withTripIds`). Export leaves ids out
+  and Import gives new ones, so they stay on one phone. See "Trip ids".
 - `trips[].window`: optional `HH:MM` range; `to` may be `24:00`.
 - `trips[].near`: optional `true` (show when near the first stop); exclusive with `window`.
   Neither: shown only when chosen (or as the last used trip).
@@ -1830,7 +1848,7 @@ getting off (`core.js` "Boarding from location", `BoardingLocation.swift`). The 
     in the widget's state). Older builds ignore it.
 - **The app closed:** the native code runs core.js's `nativeBoardingStep` in a JSContext (a
   geofence event can relaunch the app without its page). The page arms it (`TMinus.boardingArm`:
-  `boardingSession`, the trip, its en-route state, the cards, the bell's reminder and window,
+  `boardingSession`, the trip and its id (`tripRef`; the geofence is `tminus-stop-<tripRef>`), its en-route state, the cards, the bell's reminder and window,
   never a position) whenever that changes, and sends `CORE_JS`, the URL of the `core.js` it
   imports (stamped with its hash): the native code fetches it when it changed, strips `export`,
   and keeps a copy for relaunches. An auto-bell's leave card starting with the page closed arms
@@ -1895,7 +1913,7 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
   medium size (the arrival on the small one amber when it's tight, red when missed or
   none, `thenState` / `thenLate`); the transfer, the
   final walk, "Arrived" for 5 min; then leave times. The request carries the state (the trip's
-  index and name, the kind, the at-stop time, the target's key and legs, the question, the
+  id, the kind, the at-stop time, the target's key and legs, the question, the
   ride's legs with their trip ids, times to the minute so polls don't rewrite it); the app
   rewrites it when the state changes. The server applies the app's rules (`widgetFollow`): a
   walking target that leaves boards it if the at-stop time was in time, else asks (pinned) or
@@ -2035,23 +2053,24 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
   `autoBell: { days: [2, 4] (0 = Sunday), arriveBy: "HH:MM" }` (`validAutoBell`). Setup's trip
   list adds "🔔 Tue Thu · by 10:00am" (`autoBellLabel`). Return trips don't copy it.
 - **To the server:** `PUT /api/auto-bells { subscription, startToken?, stopSlackMinutes, trips:
-  [{ index, tripName, trip, autoBell }] }` (`autoBellTrips`; at most 10), the phone's whole set
+  [{ tripRef, tripName, trip, autoBell }] }` (`autoBellTrips`; `tripRef`: the trip's id; at most 10), the phone's whole set
   (empty: none). The app sends it when it changes (stored as `t-minus:auto-bells`, with the
   subscription and the start token) and at least daily, at launch and on return; from setup's
   Save it may ask for notifications. Stored per phone in the `auto_bells` table; a trip sent
-  again with the same index and name keeps the day it last belled (`lastDate`).
+  again with the same id keeps the day it last belled (`lastDate`; a row from before trip ids,
+  with `index`, by its name).
 - **When:** `AUTO_BELL_LEAD_MIN` (120) before the target on a chosen day, Boston time
   (`autoBellNext`; saved later than that but before the target: at once). The server loop
   checks due schedules each tick.
 - **Which ride:** today's rows (as the widget's, 40 of them) → the last arrival (`eta`, walk
   included) at or before the target, else the earliest after it, late in red (`autoBellRow`).
-  Then a reminder exactly as the app's bell posts it, marked `auto: { index, dep, legs }`: the
+  Then a reminder exactly as the app's bell posts it, marked `auto: { tripRef, dep, legs }`: the
   quiet leave card, the heads-ups, "Leave now", "Did you get on?". The MBTA failing: tried
   again (`RETRY_MS`) until the target.
 - **Not belled** that day: this phone already has a bell (one at a time; a manual bell stays),
-  or rides that trip, or no ride at all. Each is logged.
+  or rides that trip (by its id), or no ride at all. Each is logged.
 - **In the app:** `POST /api/bells { subscription }` lists the server's bells (`adoptBells`, at
-  launch and on return): each is pinned on its trip and kept as that trip's reminder, as if
+  launch and on return; `tripRef: null` for one from before trip ids, deleted): each is pinned on its trip and kept as that trip's reminder, as if
   belled here; one already under way on that trip keeps its state and the server's bell is
   deleted. In the iOS app this runs before the launch's cleanup of leave cards whose reminder it
   doesn't know (2026-11-03: the auto-bell's card, started at 8:30am, was ended when the app

@@ -7,6 +7,7 @@ import { fakeMbta, series } from './fake-mbta.js';
 // setup stores on each leg.
 export const CONFIG = (() => {
   const cfg = JSON.parse(readFileSync(new URL('../fixtures/bus-orange.json', import.meta.url), 'utf8'));
+  cfg.trips.forEach((t, i) => { t.id = ['home', 'office'][i]; }); // the app's trip ids
   for (const t of cfg.trips) {
     for (const l of t.legs) {
       if (l.kind === 'transit') Object.assign(l, l.route === '132' ? { label: 'Bus 132', color: 'FFC72C' } : { label: 'Orange', color: 'ED8B00' });
@@ -124,6 +125,7 @@ export async function pickOption(page, i = 0, action = 'Save trip') {
 export const CR_CONFIG = {
   departureCount: 4, stopSlackMinutes: 1,
   trips: [{
+    id: 'cr',
     name: 'Office to home',
     legs: [
       { kind: 'walk', minutes: 10 },

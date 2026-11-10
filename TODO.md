@@ -16,15 +16,8 @@ the main screen and in setup, pull-to-refresh, "Tracking ✕", the ride stop lis
 Found riding a one-off trip: banner Save kept tracking, but a later setup save (walk minutes,
 rename) ended it and left its stop alerts on the server (two, "Not saved on this phone").
 
-1. Trip ids, then the setup-save fix (grilled 2026-11-10).
-   - Push 1, trip ids (no behavior change): a random, stable `id` per trip (assigned on load to
-     old configs, made with the one-off, kept by banner Save). Everything keyed by position is
-     keyed by id: en-route state, reminders, cache and `lastTiming`, the manual pick, last used,
-     the server's auto-bells and bells list, the widget's request and state, the native
-     boarding session; no more matching by name. The one-off stays last. Export omits ids;
-     import always makes new ones. Migration: a clean start (position-keyed state cleared on
-     the first load; auto-bells re-sync by id); old builds aren't kept working.
-   - Push 2, setup save keeps tracking: `legsKey(trip)` in `core.js` (hash of the transit legs:
+1. Setup saves keep tracking (grilled 2026-11-10). Builds on trip ids (done 2026-11-10; DESIGN.md "Trip ids").
+   - Setup save keeps tracking: `legsKey(trip)` in `core.js` (hash of the transit legs:
      route, direction, board and alight stops; computed, not stored). Same id and same
      `legsKey`: tracking, reminders and the stop alert carry over (rename, walks, window,
      auto-bell, position). A rename updates the server's copy (`PUT /rides/<id>` accepts

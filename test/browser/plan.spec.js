@@ -116,10 +116,14 @@ test('main screen: Plan a trip… and See departures make a one-off trip, kept a
   await expect(page.locator('.row .strip').first()).toHaveText(/^\s*Orange\s*$/);
   await expect(page.locator('.row:not(.missed) .big').first()).toContainText('7:02am'); // the 7:08 train, 5-min walk + 1 min early
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips.length)).toBe(2); // not saved
+  // Its own trip id, kept across the reload below and by Save.
+  const oneOffId = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:one-off')).trip.id);
+  expect(oneOffId).toMatch(/^t[0-9a-z]{8}$/);
   // Kept across a reload, and shown first.
   await page.reload();
   await page.locator('.row').first().waitFor();
   await expect(bar).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:one-off')).trip.id)).toBe(oneOffId);
   // Another trip picked by hand: the bar goes; back on the one-off, it returns.
   await page.locator('#toggle select').selectOption('0');
   await expect(bar).toBeHidden();
@@ -139,6 +143,8 @@ test('main screen: Plan a trip… and See departures make a one-off trip, kept a
   await expect(page.locator('#toggle select option:checked')).toHaveText('Oak Grove → State');
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips.map(t => t.name)))
     .toEqual(['Home to office', 'Office to home', 'Oak Grove → State']);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips.map(t => t.id)))
+    .toEqual(['home', 'office', oneOffId]);
   expect(await page.evaluate(() => localStorage.getItem('t-minus:one-off'))).toBeNull();
 });
 
