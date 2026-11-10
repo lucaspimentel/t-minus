@@ -148,6 +148,9 @@ final class BoardingLocation: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    // Precise Location (iOS Settings → T-Minus → Location → Precise Location).
+    var precise: Bool { manager.accuracyAuthorization == .fullAccuracy }
+
     // While Using first, then Always (iOS asks once for each); resolves when it settles.
     func authorize(_ done: @escaping (String) -> Void) {
         switch manager.authorizationStatus {

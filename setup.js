@@ -95,10 +95,13 @@ const NEARBY_RADIUS = 0.003;
 // a trip it starts, close setup. `onOneOff(trip)`: an option's "See departures", handed back as a
 // one-off trip (labeled, not saved). `onClose({ show })`: `show` is a just-saved trip's index.
 // `planApi(path, params)`: the T-Minus server's /stops and /plan (buses); null: rail only, in the browser.
-// `boarding` (the iOS app, a build with boarding from location; else null): { get() → Promise<{ on,
-// status }>, set(on) → Promise<{ on, status }>, log() → Promise<[{ at, line }]> } for the
-// "Detect boarding with location" setting (saved at once) and the "Boarding log" screen.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, routeMap = null, autoBell = false, boarding = null }) {
+// `permissions` (the iOS app, a build with them; else null): { get(), allowNotifications(),
+// allowLocation() → Promise<state | null>, openSettings() } for the Settings card's Permissions,
+// state: { notifications: 'authorized' | 'denied' | 'notDetermined' | 'provisional', liveActivities,
+// location: 'notDetermined' | 'whenInUse' | 'always' | 'denied', precise } (null: hidden).
+// `boardingLog` (a build with boarding from location; else null): () → Promise<[{ at, line }]>,
+// the "Boarding log" screen.
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, routeMap = null, autoBell = false, permissions = null, boardingLog: loadBoardingLog = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -130,7 +133,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let picker = null;
   // "Pending notifications" (debug): { loading, error, data, busy (the entry id being deleted) }.
   let pending = null;
-  let boardingInfo = null; // { on, status } once loaded
+  let perms = null; // permissions.get()'s state once loaded (null: hidden)
+  let permBusy = false; // an Allow is asking
   let boardingLog = null; // the "Boarding log" screen: { lines, error }
   let listMessages = [];
   let busy = false;
@@ -357,21 +361,43 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // ---------- Boarding from location (the iOS app) ----------
 
-  function boardingHint({ on, status }) {
-    if (status === 'denied') return 'Location is off for T-Minus in Settings.';
-    if (!on) return 'Uses your location at the stop to tell which bus or train you got on. Your location stays on this phone.';
-    return status === 'always'
-      ? 'Always: detects arriving at the stop of a belled ride, which bus or train you got on, and getting off.'
-      : 'While Using: detects which bus or train you got on after Leaving now or At the stop. Allow Always in Settings to detect arriving at the stop.';
+  function locationHint(status) {
+    return status === 'always' ? 'Detects arriving at the stop of a belled ride, which bus or train you got on, and getting off.'
+      : status === 'whenInUse' ? 'Detects which bus or train you got on after Leaving now or At the stop. Allow Always to detect arriving at the stop.'
+        : status === 'denied' ? 'Location is off for T-Minus.'
+          : 'Lets T-Minus tell which bus or train you got on. Your location stays on this phone.';
   }
-  function setBoarding(on) {
-    boarding.set(on).then(info => { boardingInfo = info; render(); }, e => { toast(`Couldn't change it: ${e.message}`); render(); });
+  function allow(kind) {
+    permBusy = true;
+    render();
+    (kind === 'location' ? permissions.allowLocation() : permissions.allowNotifications())
+      .then(p => { if (p) perms = p; }, () => {})
+      .finally(() => { permBusy = false; render(); });
+  }
+  // One row: the label, then the state (amber when off) or an Allow button.
+  function permRow(label, value, { off = false, button = null } = {}) {
+    return h('div', { class: 'perm-row' }, h('span', {}, label), button ?? h('span', { class: off ? 'perm-off' : 'muted' }, value));
+  }
+  function permissionsBlock() {
+    const p = perms;
+    const allowBtn = (kind, label) => h('button', { type: 'button', id: `allow-${kind}`, 'aria-label': `Allow ${label}`, disabled: permBusy, onclick: () => allow(kind) }, 'Allow');
+    const n = p.notifications;
+    const loc = p.location;
+    const located = loc === 'always' || loc === 'whenInUse';
+    return h('div', { class: 'perms', id: 'permissions' },
+      h('div', { class: 'perms-head' }, 'Permissions'),
+      permRow('Notifications', n === 'denied' ? 'Off' : 'On', { off: n === 'denied', button: n === 'notDetermined' ? allowBtn('notifications', 'notifications') : null }),
+      permRow('Live Activities', p.liveActivities ? 'On' : 'Off', { off: !p.liveActivities }),
+      permRow('Location', { always: 'Always', whenInUse: 'While Using', denied: 'Off' }[loc], { off: loc === 'denied', button: loc === 'notDetermined' ? allowBtn('location', 'location') : null }),
+      h('div', { class: 'push-hint', id: 'location-hint' }, locationHint(loc)),
+      permRow('Precise Location', located ? (p.precise ? 'On' : 'Off') : '—', { off: located && !p.precise }),
+      h('button', { type: 'button', class: 'perm-settings', onclick: () => permissions.openSettings() }, h('span', {}, 'iOS Settings'), h('span', { 'aria-hidden': 'true' }, '›')));
   }
   function openBoardingLog() {
     boardingLog = { lines: null, error: null };
     render();
     const b = boardingLog;
-    boarding.log().then(lines => { if (boardingLog === b) b.lines = lines; }, e => { if (boardingLog === b) b.error = e.message || String(e); })
+    loadBoardingLog().then(lines => { if (boardingLog === b) b.lines = lines; }, e => { if (boardingLog === b) b.error = e.message || String(e); })
       .finally(() => { if (boardingLog === b) render(); });
   }
   function boardingLogScreen() {
@@ -523,13 +549,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         h('label', { class: 'check' },
           h('input', { type: 'checkbox', checked: app.wakeRiding, onchange: e => { app.wakeRiding = e.target.checked; } }),
           'Keep screen on while riding'),
-        boarding && h('label', { class: 'check' },
-          h('input', { type: 'checkbox', id: 'boarding-location', checked: !!boardingInfo?.on, disabled: !boardingInfo, onchange: e => setBoarding(e.target.checked) }),
-          'Detect boarding with location'),
-        boarding && boardingInfo && h('div', { class: 'push-hint', id: 'boarding-hint' }, boardingHint(boardingInfo)),
         h('label', { class: 'field' }, 'MBTA API key (optional)',
           // Masked so the key isn't exposed on screen (or in screenshots).
-          h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Used only when the T-Minus server is unreachable', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } }))),
+          h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Used only when the T-Minus server is unreachable', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } })),
+        perms && permissionsBlock()),
       h('div', { class: 'btns io' },
         saved && h('button', { type: 'button', onclick: exportConfig }, 'Export'),
         h('button', { type: 'button', onclick: () => { ioArea = { mode: 'import', text: '' }; render(); } }, 'Import'),
@@ -543,7 +566,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
       testPush && h('div', { class: 'btns' },
         h('button', { type: 'button', disabled: !testPush.supported, onclick: () => testPush.send() }, 'Send test notification in 10 s'),
         pushDebug && h('button', { type: 'button', disabled: !pushDebug.supported, onclick: openPending }, 'Pending notifications'),
-        boarding && h('button', { type: 'button', onclick: openBoardingLog }, 'Boarding log')),
+        loadBoardingLog && h('button', { type: 'button', onclick: openBoardingLog }, 'Boarding log')),
       testPush && !testPush.supported && h('div', { class: 'push-hint' }, 'Add to Home Screen to get notifications.'),
       onReset && h('div', { class: 'muted section' }, 'Reset'),
       onReset && h('div', { class: 'btns' }, h('button', { type: 'button', class: 'danger', onclick: () => {
@@ -1398,8 +1421,12 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   root.hidden = false;
   loadNames();
   render();
-  boarding?.get().then(info => { boardingInfo = info; render(); }, () => {});
+  permissions?.get().then(p => { perms = p; render(); }, () => {});
   // Closing drops the planner and the pending list, so a late answer to a closed search never redraws over the next
   // setup view (they share `root`).
-  return { close() { planner = null; pending = null; boardingLog = null; boarding = null; root.hidden = true; root.replaceChildren(); } };
+  return {
+    close() { planner = null; pending = null; boardingLog = null; permissions = null; loadBoardingLog = null; root.hidden = true; root.replaceChildren(); },
+    // Back in the app (e.g. from iOS Settings): the new states.
+    refreshPermissions(p) { if (permissions && p) { perms = p; render(); } },
+  };
 }

@@ -132,6 +132,7 @@ test('location not granted: no prompt on opening, no dot; locate asks, and "Loca
   await expect(page.locator('#map-caption')).toHaveText('Location off');
   await expect(svg(page).locator('.map-here')).toHaveCount(0);
   await expect(locateBtn(sheet(page))).toBeVisible();
+  await expect(page.locator('#toast')).toBeHidden(); // the iOS app's Settings toast only
 });
 
 test('vehicles on the legs every 10 s while open, yours outlined; nothing after Done', async ({ page }) => {

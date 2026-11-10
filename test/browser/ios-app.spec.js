@@ -24,8 +24,11 @@ test.beforeEach(({ page }) => {
 // `boarding` (boarding from location): the plugin has locationStatus (window.locStatus) and the
 // boarding* methods, recorded in window.boardingCalls; boardingPending returns window.boardingAction
 // once, boardingLog window.boardingLines; window.emitBoarding() fires the `boarding` event.
-// `boardingOn`: the setting is on.
-function capacitorStub({ server, permission = 'prompt', fail = null, token, leave = false, widget = false, boarding = false, boardingOn = false }) {
+// locationAuthorize moves window.locStatus to window.authorizeTo ('always' by default).
+// `locStatus`: the starting location status (boarding detection runs while it is While Using or Always).
+// `perms` (setup's Permissions): the plugin has permissionsStatus (notifications from the push
+// permission, window.liveActivities, window.locStatus, window.precise) and openSettings (in nativeCalls).
+function capacitorStub({ server, permission = 'prompt', fail = null, token, leave = false, widget = false, boarding = false, locStatus = null, perms = false }) {
   localStorage.setItem('t-minus:push-server', JSON.stringify(server));
   window.nativeCalls = [];
   const listeners = {};
@@ -70,7 +73,11 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token, leav
     ...(widget && { widgetSave: async ({ body }) => { (window.widgetBodies ??= []).push(JSON.parse(body)); } }),
     ...(boarding && {
       locationStatus: async () => ({ status: window.locStatus ?? 'notDetermined' }),
-      locationAuthorize: async () => { window.boardingCalls.push({ call: 'authorize' }); window.locStatus = 'always'; return { status: 'always' }; },
+      locationAuthorize: async () => {
+        window.boardingCalls.push({ call: 'authorize' });
+        window.locStatus = window.authorizeTo ?? 'always';
+        return { status: window.locStatus };
+      },
       boardingSetting: async a => { window.boardingCalls.push({ call: 'setting', ...a }); },
       boardingArm: async a => { window.boardingCalls.push({ call: 'arm', ...a }); },
       boardingDisarm: async () => { window.boardingCalls.push({ call: 'disarm' }); },
@@ -78,9 +85,16 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token, leav
       boardingUndo: async a => { window.boardingCalls.push({ call: 'undo', ...a }); },
       boardingLog: async () => ({ lines: window.boardingLines ?? [] }),
     }),
+    ...(perms && {
+      permissionsStatus: async () => ({
+        notifications: { prompt: 'notDetermined', granted: 'authorized', denied: 'denied' }[perm],
+        liveActivities: window.liveActivities ?? true, location: window.locStatus ?? 'notDetermined', precise: window.precise ?? true,
+      }),
+      openSettings: async () => { window.nativeCalls.push('openSettings'); },
+    }),
   };
   window.boardingCalls = [];
-  if (boardingOn) localStorage.setItem('t-minus:boarding-location', 'true');
+  if (locStatus) window.locStatus = locStatus;
   window.emitBoarding = () => emit('TMinus.boarding', {});
   window.emitStartToken = t => emit('TMinus.startToken', { token: t });
   // A tap on a notification's action (`actionId`: 'tap', 'yes', 'missed').
@@ -154,6 +168,22 @@ test('notifications refused: no registration, a toast pointing to Settings', asy
   await expect(page.locator('#toast')).toContainText('notifications are off for this app in Settings');
   expect(await nativeCalls(page)).toEqual(['requestPermissions']);
   expect(calls.filter(c => c.path === '/log').map(c => c.body.message)).toEqual(['notifications are off for this app in Settings']);
+  // A build without openSettings: Retry.
+  await expect(page.locator('#toast').getByRole('button')).toHaveText('Retry');
+});
+
+test('notifications refused, a build with Permissions: the toast opens iOS Settings (the bell and the test notification)', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, fail: 'deny', token: TOKEN, perms: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await expect(page.locator('#toast')).toContainText('notifications are off for this app in Settings');
+  await page.locator('#toast').getByRole('button', { name: 'Settings' }).click();
+  expect(await nativeCalls(page)).toContain('openSettings');
+  await page.locator('#open-setup').click();
+  await page.getByRole('button', { name: 'Send test notification in 10 s' }).click();
+  await expect(page.locator('#toast')).toContainText("Couldn't send the test: notifications are off");
+  await expect(page.locator('#toast').getByRole('button')).toHaveText('Settings');
 });
 
 test('the screen stays on through the TMinus plugin, told only when it changes', async ({ page }) => {
@@ -504,33 +534,111 @@ async function detect(page, kind, toast) {
 }
 const toastEl = page => page.locator('#toast');
 
-test('Detect boarding with location: in the app only; turning it on asks for location and tells the native code', async ({ page }) => {
+const permRows = page => page.locator('#permissions .perm-row');
+
+test('Permissions: the states, amber when off, the While Using hint; axe finds nothing', async ({ page }) => {
   await fakeServer(page);
-  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true });
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, perms: true, locStatus: 'whenInUse' });
+  await page.addInitScript(() => { window.precise = false; window.liveActivities = false; });
   await openApp(page, { time: '06:50' });
   await page.locator('#open-setup').click();
-  const box = page.getByRole('checkbox', { name: 'Detect boarding with location' });
-  await expect(box).not.toBeChecked();
-  await box.check();
-  await expect(page.locator('#boarding-hint')).toHaveText(/^Always: detects arriving at the stop/);
-  expect(await boardingCalls(page, 'authorize')).toHaveLength(1);
-  expect((await boardingCalls(page, 'setting')).at(-1)).toMatchObject({ on: true, defaults: { slack: 1, alerts: true } });
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:boarding-location')))).toBe(true);
+  await expect(permRows(page)).toHaveText(['NotificationsOn', 'Live ActivitiesOff', 'LocationWhile Using', 'Precise LocationOff']);
+  await expect(page.locator('#permissions .perm-off')).toHaveText(['Off', 'Off']);
+  await expect(page.locator('#location-hint')).toHaveText(/^Detects which bus or train you got on after Leaving now or At the stop\. Allow Always/);
+  const v = await new AxeBuilder({ page }).disableRules(['meta-viewport']).analyze();
+  expect(v.violations.map(x => x.id)).toEqual([]);
 });
 
-test('Detect boarding with location: not offered in the browser, nor by a build without it', async ({ page }) => {
+test('Permissions: Allow asks for location (boarding on, nothing saved) and for notifications', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'prompt', token: TOKEN, boarding: true, perms: true });
+  await openApp(page, { time: '06:50' });
+  await page.locator('#open-setup').click();
+  await expect(permRows(page)).toHaveText(['NotificationsAllow', 'Live ActivitiesOn', 'LocationAllow', 'Precise Location—']);
+  await expect(page.locator('#location-hint')).toHaveText('Lets T-Minus tell which bus or train you got on. Your location stays on this phone.');
+  expect((await boardingCalls(page, 'setting')).some(c => c.on)).toBe(false);
+  await page.locator('#allow-location').click();
+  await expect(permRows(page).nth(2)).toHaveText('LocationAlways');
+  await expect(page.locator('#location-hint')).toHaveText(/^Detects arriving at the stop of a belled ride/);
+  expect(await boardingCalls(page, 'authorize')).toHaveLength(1);
+  expect((await boardingCalls(page, 'setting')).at(-1)).toMatchObject({ on: true, defaults: { slack: 1 } });
+  expect(await page.evaluate(() => localStorage.getItem('t-minus:boarding-location'))).toBeNull();
+  await page.locator('#allow-notifications').click();
+  await expect(permRows(page).first()).toHaveText('NotificationsOn');
+  expect(await nativeCalls(page)).toEqual(expect.arrayContaining(['requestPermissions', 'register']));
+});
+
+test('Permissions: read again on return to the app (Location turned off: boarding off); iOS Settings opens them', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, perms: true, locStatus: 'always' });
+  await openApp(page, { time: '06:50' });
+  await expect.poll(async () => (await boardingCalls(page, 'setting')).at(-1)?.on).toBe(true);
+  await page.locator('#open-setup').click();
+  await expect(permRows(page).nth(2)).toHaveText('LocationAlways');
+  await page.evaluate(() => { window.locStatus = 'denied'; });
+  await backToApp(page);
+  await expect(permRows(page).nth(2)).toHaveText('LocationOff');
+  await expect(permRows(page).nth(2).locator('.perm-off')).toHaveCount(1);
+  await expect(page.locator('#location-hint')).toHaveText('Location is off for T-Minus.');
+  await expect(permRows(page).nth(3)).toHaveText('Precise Location—');
+  await expect.poll(async () => (await boardingCalls(page, 'setting')).at(-1)?.on).toBe(false);
+  await page.getByRole('button', { name: 'iOS Settings' }).click();
+  expect(await nativeCalls(page)).toContain('openSettings');
+});
+
+test('Permissions: not in the browser; a build without them keeps the Boarding log only', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, locStatus: 'whenInUse' });
+  await openApp(page, { time: '06:50' });
+  // An older build: boarding still follows Location.
+  await expect.poll(async () => (await boardingCalls(page, 'setting')).at(-1)?.on).toBe(true);
+  await page.locator('#open-setup').click();
+  await expect(page.getByRole('button', { name: 'Boarding log' })).toBeVisible();
+  await expect(page.locator('#permissions')).toHaveCount(0);
+});
+
+test('Permissions and the Boarding log: not offered by a build without boarding', async ({ page }) => {
   await fakeServer(page);
   await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN });
   await openApp(page, { time: '06:50' });
   await page.locator('#open-setup').click();
   await expect(page.locator('#setup .check').first()).toBeVisible();
-  await expect(page.getByRole('checkbox', { name: 'Detect boarding with location' })).toHaveCount(0);
+  await expect(page.locator('#permissions')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Boarding log' })).toHaveCount(0);
+});
+
+test('Location not allowed: boarding detection stays off', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, perms: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await tick(page, 300);
+  expect((await boardingCalls(page, 'setting')).some(c => c.on)).toBe(false);
+  expect(await boardingCalls(page, 'arm')).toHaveLength(0);
+});
+
+test('the route map in the app: locate refused shows a toast that opens iOS Settings', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, perms: true });
+  await page.addInitScript(() => {
+    const no = err => setTimeout(() => err({ code: 1, PERMISSION_DENIED: 1, message: 'denied' }), 0);
+    navigator.geolocation.watchPosition = (ok, err) => { no(err); return 1; };
+    navigator.geolocation.getCurrentPosition = (ok, err) => no(err);
+    navigator.geolocation.clearWatch = () => {};
+  });
+  await openApp(page, { time: '06:50' });
+  await page.getByRole('button', { name: 'Route map' }).click();
+  await tick(page, 300);
+  await page.getByRole('dialog').getByRole('button', { name: 'Center on my location' }).click();
+  await tick(page, 100);
+  await expect(toastEl(page)).toContainText('Location is off for T-Minus');
+  await toastEl(page).getByRole('button', { name: 'Settings' }).click();
+  expect(await nativeCalls(page)).toContain('openSettings');
 });
 
 test('with the setting on, a belled ride is armed: its window and state, the core.js URL, no position anywhere', async ({ page }) => {
   const calls = await fakeServer(page);
-  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, boardingOn: true });
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, locStatus: 'always' });
   await openApp(page, { time: '06:50' });
   await notifyMe(page);
   await expect.poll(async () => (await boardingCalls(page, 'arm')).length).toBeGreaterThan(0);
@@ -548,7 +656,7 @@ test('with the setting on, a belled ride is armed: its window and state, the cor
 
 test('another train detected: the ride switches, with Undo (which tells the native code)', async ({ page }) => {
   await fakeServer(page);
-  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, boardingOn: true });
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, locStatus: 'always' });
   await openApp(page, { time: '07:00' });
   await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
   await tickTo(page, '07:24'); // off the bus, in the transfer (the 7:32am planned)
@@ -564,7 +672,7 @@ test('another train detected: the ride switches, with Undo (which tells the nati
 
 test('missed the bus detected: back at the stop; got off detected: the walk', async ({ page }) => {
   await fakeServer(page);
-  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, boardingOn: true });
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, locStatus: 'always' });
   await openApp(page, { time: '07:00' });
   await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
   await tickTo(page, '07:09'); // boarded the 7:08am (assumed)
@@ -584,7 +692,7 @@ test('missed the bus detected: back at the stop; got off detected: the walk', as
 
 test('at the next open: the latest action applies with its toast while its ride is on; not once it is over', async ({ page }) => {
   await fakeServer(page);
-  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, boardingOn: true });
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, locStatus: 'always' });
   await page.addInitScript(([t]) => {
     if (sessionStorage.getItem('opened')) return;
     sessionStorage.setItem('opened', '1');
@@ -597,7 +705,7 @@ test('at the next open: the latest action applies with its toast while its ride 
 
 test('at the next open: an action for a ride that is over is dropped', async ({ page }) => {
   await fakeServer(page);
-  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, boardingOn: true });
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, locStatus: 'always' });
   await page.addInitScript(([t]) => {
     const legs = [{ tripId: '132in-0544', dep: t, arr: t + 60_000 }, { tripId: 'OLin-0600', dep: t + 120_000, arr: t + 180_000 }];
     window.boardingAction = { undoId: 'u3', tripIdx: 0, tripName: 'Home to office', toast: 'Got off at State', at: t, state: { kind: 'stop', at: t, atStop: t, ride: { legs, boardedAt: t }, name: 'Home to office' }, base: 'null', from: 'null' };
@@ -625,5 +733,5 @@ test('the Boarding log: newest first, Copy; axe finds nothing', async ({ page })
   await expect(toastEl(page)).toContainText('Copied');
   expect(await page.evaluate(() => window.copied)).toMatch(/geofence entered$/);
   await page.getByRole('button', { name: 'Back' }).click();
-  await expect(page.getByRole('checkbox', { name: 'Detect boarding with location' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Boarding log' })).toBeVisible();
 });

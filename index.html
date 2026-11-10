@@ -237,7 +237,7 @@
   .row.option .opt-head { display: block; font-size: 20px; }
   #plan-options { margin-top: 6px; grid-template-columns: minmax(0, 1fr); } /* long stop names cut, not widen */
   .toast {
-    position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 10;
+    position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 30; /* above the route map sheet (its locate toast) */
     max-width: 360px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px;
     background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 12px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, .18); font-size: 15px;
@@ -368,6 +368,13 @@
   .field-pair > .field { flex: 1; min-width: 0; }
   .field > .item { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; }
   .field .item .change { margin-left: auto; color: var(--accent-text); font-size: 14px; }
+  /* Setup's Permissions (the iOS app). */
+  .setup .perms { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .setup .perms-head { font-size: 14px; color: var(--muted); }
+  .perm-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 34px; margin: 4px 0 0; font-size: 14px; }
+  .perm-off { color: var(--amber); font-weight: 600; }
+  .setup .perm-row button { padding: 4px 12px; }
+  .setup button.perm-settings { width: 100%; margin-top: 12px; display: flex; justify-content: space-between; }
   .check { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 14px; }
   .boarding-log div { font-size: 13px; margin: 4px 0; overflow-wrap: anywhere; }
   .setup .check input { width: auto; margin: 0; }
@@ -534,7 +541,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-09 · 8f7bd06bb2</footer>
+    <footer class="version">Version 2026-11-09 · e4664d3626</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -566,7 +573,7 @@ import {
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, centerOn, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
 } from './core.js?v=afd3f5c629';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=511dcc2928';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=dcfc530621';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1133,6 +1140,10 @@ function nativeLog(source, message) {
 let nativePermission = 'default';
 const permissionOf = state => (state === 'granted' || state === 'denied' ? state : 'default');
 const notifyPermission = () => (native ? nativePermission : Notification.permission);
+// Notifications refused: the error's text (the toasts show it), marked so the iOS app's toast offers
+// "Settings" (failToast).
+const NOTIFY_OFF = 'notifications are off for this app in Settings';
+const notifyOff = () => Object.assign(new Error(NOTIFY_OFF), { permissionOff: true });
 if (native) {
   plugins.PushNotifications.checkPermissions()
     .then(p => { nativePermission = permissionOf(p.receive); render(); }, e => nativeLog('push', `checkPermissions: ${e.message}`));
@@ -1144,7 +1155,7 @@ async function apnsToken({ quiet = false } = {}) {
   const P = plugins.PushNotifications;
   if (!quiet) {
     nativePermission = permissionOf((await P.requestPermissions()).receive);
-    if (nativePermission !== 'granted') throw new Error('notifications are off for this app in Settings');
+    if (nativePermission !== 'granted') throw notifyOff();
   }
   let handles = [];
   const token = await new Promise((resolve, reject) => {
@@ -1225,7 +1236,7 @@ async function pushSubscription() {
     }
   }
   const permission = Notification.requestPermission();
-  if (await permission !== 'granted') throw new Error('notifications are off for this app in Settings');
+  if (await permission !== 'granted') throw notifyOff();
   const reg = await navigator.serviceWorker.ready;
   let sub = await reg.pushManager.getSubscription();
   if (!sub) {
@@ -1520,13 +1531,15 @@ if (native) {
 // The native code (BoardingLocation.swift) follows the belled or started trip with a geofence at
 // its stop and GPS, running core.js's nativeBoardingStep, also with this page closed. This page
 // arms it (the trip, its state, the cards; never a position), takes what it decided (a `boarding`
-// event, or at the next open: the latest action, with Undo) and owns the setting. Coordinates
-// stay in the native code: nothing here logs or sends them.
-const KEY_BOARDING = 't-minus:boarding-location';
+// event, or at the next open: the latest action, with Undo) and sends the setting: on while
+// Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
+// ignored). Coordinates stay in the native code: nothing here logs or sends them.
 const CORE_JS = './core.js?v=afd3f5c629'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
+let locStatus = null; // the native location status ('notDetermined' | 'whenInUse' | 'always' | 'denied')
+const boardingWanted = () => locStatus === 'whenInUse' || locStatus === 'always';
 async function boardingCall(name, args) {
   try { return await plugins.TMinus[name](args); } catch (e) {
     if (unimplemented(e)) boardingOk = false; else nativeLog('boarding', `${name}: ${e.message}`);
@@ -1555,7 +1568,7 @@ function boardingArmSession() {
 }
 async function syncBoarding() {
   if (!native || boardingOk !== true || !config) return;
-  const on = store.get(KEY_BOARDING) === true;
+  const on = boardingWanted();
   // What an auto-bell needs to arm with this page closed.
   const defaults = on ? { trips: config.trips, subscription: apnsSubscription(), slack: stopSlackMinutes(config), alerts: notifyPermission() === 'granted' } : null;
   const setting = JSON.stringify([on, defaults]);
@@ -1605,28 +1618,61 @@ async function takeBoarding() {
   });
 }
 if (native) {
-  Promise.resolve().then(() => plugins.TMinus.locationStatus()).then(() => { boardingOk = true; takeBoarding(); }, e => { boardingOk = !unimplemented(e); });
+  Promise.resolve().then(() => plugins.TMinus.locationStatus()).then(({ status }) => {
+    boardingOk = true;
+    locStatus = status;
+    syncBoarding();
+    takeBoarding();
+  }, e => { boardingOk = !unimplemented(e); });
   Promise.resolve().then(() => plugins.TMinus.addListener('boarding', () => takeBoarding()))
     .catch(e => nativeLog('boarding', `listener: ${e.message}`));
 }
-// Setup's "Detect boarding with location" (setup.js `boarding`).
-const boardingSetup = () => (native && boardingOk === true ? {
-  get: async () => {
-    const { status } = await plugins.TMinus.locationStatus();
-    return { on: store.get(KEY_BOARDING) === true && status !== 'denied', status };
+// Setup's Permissions (setup.js `permissions`; DESIGN.md "Permissions in setup"): the states from
+// TMinus.permissionsStatus, read when setup opens and when the app comes back (e.g. from iOS
+// Settings). A build without it hides them and its toasts keep Retry.
+let settingsOk = null; // the build has permissionsStatus and openSettings (null: not known yet)
+async function readPermissions() {
+  let p = null;
+  try {
+    p = await plugins.TMinus.permissionsStatus();
+    settingsOk = true;
+    locStatus = p.location;
+    nativePermission = p.notifications === 'authorized' || p.notifications === 'provisional' ? 'granted'
+      : p.notifications === 'denied' ? 'denied' : 'default';
+  } catch (e) {
+    if (!unimplemented(e)) nativeLog('permissions', e.message);
+    else {
+      settingsOk = false;
+      if (boardingOk !== false) locStatus = (await Promise.resolve().then(() => plugins.TMinus.locationStatus()).catch(() => null))?.status ?? locStatus;
+    }
+  }
+  syncBoarding();
+  return p;
+}
+if (native) readPermissions();
+const openSettings = () => Promise.resolve().then(() => plugins.TMinus.openSettings()).catch(e => nativeLog('settings', e.message));
+// A failure toast: "Settings" (the app's page in iOS Settings) when a permission is off in the iOS
+// app, else Retry (or none).
+function failToast(text, e, retry) {
+  if (native && settingsOk && e?.permissionOff) showToast(text, 'Settings', openSettings);
+  else showToast(text, retry && 'Retry', retry);
+}
+const setupPermissions = () => (native && settingsOk !== false ? {
+  get: readPermissions,
+  allowNotifications: async () => {
+    try { await apnsToken(); } catch (e) { nativeLog('push', e.message); }
+    render();
+    return readPermissions();
   },
-  set: async on => {
-    let { status } = await plugins.TMinus.locationStatus();
-    if (on && status !== 'always' && status !== 'denied') ({ status } = await plugins.TMinus.locationAuthorize());
-    const ok = on && status !== 'denied';
-    store.set(KEY_BOARDING, ok);
+  allowLocation: async () => {
+    if (boardingOk !== false) await Promise.resolve().then(() => plugins.TMinus.locationAuthorize()).catch(e => nativeLog('boarding', `locationAuthorize: ${e.message}`));
     boardingSettingSent = null;
     boardingSent = null;
-    await syncBoarding();
-    return { on: ok, status };
+    return readPermissions();
   },
-  log: async () => (await plugins.TMinus.boardingLog()).lines ?? [],
+  openSettings,
 } : null);
+const setupBoardingLog = () => (native && boardingOk === true ? async () => (await plugins.TMinus.boardingLog()).lines ?? [] : null);
 
 // "Turn on stop alerts" (once per device): the permission prompt, then the ride is posted; also
 // after its alerts were deleted in "Pending notifications".
@@ -1637,7 +1683,7 @@ async function turnOnStopAlerts() {
     await pushSubscription();
     rideAlertRetryAt = 0;
   } catch (e) {
-    showToast(`Stop alerts: ${e.message}`, 'Retry', turnOnStopAlerts);
+    failToast(`Stop alerts: ${e.message}`, e, turnOnStopAlerts);
   }
   render();
 }
@@ -1661,7 +1707,7 @@ async function notify(r) {
       saveReminders();
     } else pushApi('DELETE', `/reminders/${id}`).catch(() => {}); // the bell went off meanwhile
   } catch (e) {
-    showToast(`Couldn't set the reminder: ${e.message}`, 'Retry', () => notify(r));
+    failToast(`Couldn't set the reminder: ${e.message}`, e, () => notify(r));
   }
   reminderBusy = null;
   render();
@@ -1674,7 +1720,7 @@ async function testPush() {
     await pushApi('POST', '/test-push', { subscription });
     showToast('Test notification in 10 s. Lock the phone to check.');
   } catch (e) {
-    showToast(`Couldn't send the test: ${e.message}`, 'Retry', testPush);
+    failToast(`Couldn't send the test: ${e.message}`, e, testPush);
   }
 }
 
@@ -1754,7 +1800,7 @@ async function restoreReminders(idx, removed) {
       saveReminders();
     }
   } catch (e) {
-    showToast(`Couldn't set the reminder: ${e.message}`);
+    failToast(`Couldn't set the reminder: ${e.message}`, e);
   }
   render();
 }
@@ -1820,7 +1866,7 @@ async function syncAutoBells(prompt = false) {
     await pushApi('PUT', '/auto-bells', body);
     if (trips.length) store.set(KEY_AUTO_BELLS, { sent: json, at: Date.now() }); else store.del(KEY_AUTO_BELLS);
   } catch (e) {
-    if (prompt) showToast(`Couldn't set the auto-bell: ${e.message}`, 'Retry', () => syncAutoBells(true));
+    if (prompt) failToast(`Couldn't set the auto-bell: ${e.message}`, e, () => syncAutoBells(true));
   }
 }
 // The bells the server set: shown as if belled here (the pin and its reminder). A trip already
@@ -2514,7 +2560,8 @@ function showSetup({ importOpen = false, plan = false } = {}) {
     nearby: SERVER_API ? nearbyFromServer : null,
     planApi: SERVER_API ? planFromServer : null,
     autoBell: !!SERVER_API && pushSupported,
-    boarding: boardingSetup(),
+    permissions: setupPermissions(),
+    boardingLog: setupBoardingLog(),
     // Auto-route options drawn like an expanded row.
     timeline: (steps, key) => renderTimeline(steps, Date.now(), { key }),
     routeMap: routeMapEl,
@@ -3032,9 +3079,11 @@ function mapLocation(onChange) {
     navigator.geolocation.getCurrentPosition(p => {
       if (loc.stopped) return;
       loc.here = at(p); loc.off = false; watch(); onChange(true);
-    }, () => {
+    }, err => {
       if (loc.stopped) return;
       loc.here = null; loc.off = true; onChange(false);
+      // The iOS app: refused, so the way to allow it.
+      if (err?.code === 1 && native && settingsOk) showToast('Location is off for T-Minus', 'Settings', openSettings);
     }, opts);
   };
   loc.stop = () => {
@@ -3317,7 +3366,11 @@ document.addEventListener('visibilitychange', () => {
     widgetSent = null; // the widget may have fallen behind
     if (!setupView) { refresh(); locate(); }
     syncAutoBells();
-    if (native) adoptBells().then(checkDismissedCards).then(takeBoarding); else adoptBells();
+    if (native) {
+      adoptBells().then(checkDismissedCards).then(takeBoarding);
+      // Back from iOS Settings: the permissions (setup's rows, the boarding setting, the bell).
+      readPermissions().then(p => (setupView ? setupView.refreshPermissions?.(p) : render()));
+    } else adoptBells();
   }
 });
 

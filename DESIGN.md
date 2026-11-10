@@ -590,7 +590,8 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   of the fit and not drawn, and locate is disabled ("Center on my location (outside the map)")
   until the live position is back inside; a tap whose answer is outside doesn't move the map and
   shows "Outside the map" in the caption line (like "Location off", only after a locate tap). Nothing else on the maps is animated. Denied: "Location
-  off" in the caption line, only after that tap; the button stays. Until 2026-11-09 the sheet
+  off" in the caption line, only after that tap; the button stays (the iOS app also toasts
+  "Location is off for T-Minus · Settings", "Permissions in setup"). Until 2026-11-09 the sheet
   asked on opening and showed "Location off" whenever denied. `mapLocation` in `index.html`.
 - **Live while open (the sheet; the empty screen's map too):** the phone's location as above, and every
   vehicle on the legs' routes and directions (`/vehicles`, `vehiclesQuery`, every 10 s), as a
@@ -744,7 +745,8 @@ maps (the sheet, the planner's options, the trip editor).
   pauses while it is open.
 - List screen: one row per saved trip (name, time window, route chain like
   "● Bus 132 → ● Orange") with ↑/↓ to reorder, "+ Plan a trip", then a Settings card (departures
-  shown, minutes early at the stop, minutes to keep the screen on before leave-by, API key), Export/Import, and "Reload app" (reloads the
+  shown, minutes early at the stop, minutes to keep the screen on before leave-by, API key; in the
+  iOS app, Permissions at its end: "Permissions in setup"), Export/Import, and "Reload app" (reloads the
   page, e.g. to pick up a new version in the installed PWA). Done saves changed app-wide
   fields and closes setup; it is disabled until a trip has been saved.
 - One planner for every new trip (2026-10-28; before: "+ Add trip (auto-route)" and "+ Add trip
@@ -1089,7 +1091,8 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     `register()` give the APNs device token (stored as `t-minus:apns-token`, lowercase hex), and
     the subscription posted everywhere is `{ endpoint: 'apns:<token>' }`. Each subscribe
     registers again (iOS may change the token); no device token within 10 s is an error. The
-    permission state comes from `checkPermissions()` at start (`notifyPermission()` replaces
+    permission state comes from `checkPermissions()` at start and `TMinus.permissionsStatus()` on
+    return to the app ("Permissions in setup"; `notifyPermission()` replaces
     `Notification.permission`). The screen stays on through the app's plugin
     (`TMinus.keepAwake({ on })`, called only when the wanted state changes) instead of the Screen
     Wake Lock. Registration, permission and plugin errors also go to the server's app log
@@ -1756,10 +1759,13 @@ the app had ended at launch: no notification at all that morning). So:
 The iOS app can tell from the phone's location which vehicle the rider got on, a missed one, and
 getting off (`core.js` "Boarding from location", `BoardingLocation.swift`). The PWA doesn't.
 
-- **Setting:** "Detect boarding with location" in setup's Settings (the app only, a build with
-  it), off by default, saved at once (`t-minus:boarding-location`). Turning it on asks for While
-  Using, then Always. While Using: GPS after "Leaving now" / "At the stop" only. Always: also the
-  stop's geofence. The hint under it says which. Location off for the app: the toggle stays off.
+- **Setting:** none since 2026-11-10 (the "Detect boarding with location" toggle is gone; its
+  `t-minus:boarding-location` is ignored). Detection runs whenever Location is While Using or
+  Always: the page sends `boardingSetting({ on, defaults })` from the location status at start,
+  when it changes, and on return to the app. While Using: GPS after "Leaving now" / "At the stop"
+  only. Always: also the stop's geofence. Location off or not asked: no detection. Only setup's
+  Permissions "Allow" (While Using, then Always) and the route map's locate ask for Location; the
+  hint under Location says what each level does ("Permissions in setup").
 - **At the stop (Always):** a belled ride's boarding stop gets a ~100 m geofence
   (`GEOFENCE_METERS`), counted from leave-by − 15 min (`GEOFENCE_BEFORE_MIN`) to the departure +
   `ASK_MINUTES`. Only an entry from outside counts (inside when it starts, e.g. home next to the
@@ -1815,6 +1821,32 @@ getting off (`core.js` "Boarding from location", `BoardingLocation.swift`). The 
   on-device log: setup's "Boarding log" (7 days, newest first, Copy).
 - **CI:** an `ios` run with `upload` off also compiles the app target (the only Swift compile
   check; no `swiftc` in the cloud sandbox).
+
+### Permissions in setup (2026-11-10)
+
+The iOS app shows its permissions at the end of setup's Settings card, below a divider, under
+"Permissions" (`setup.js` `permissionsBlock`; the PWA shows none of it):
+
+- **Rows:** Notifications (On, Off, or "Allow" while iOS hasn't asked: the bell's prompt and
+  registration, so the first bell won't ask again), Live Activities (On / Off), Location (Always,
+  While Using, Off, or "Allow": While Using, then Always), Precise Location (On / Off; "—" while
+  Location isn't allowed). Off values are amber and bold (a setup warning, not a ride state).
+- **Location hint** under its row: not asked, "Lets T-Minus tell which bus or train you got on.
+  Your location stays on this phone."; While Using, "Detects which bus or train you got on after
+  Leaving now or At the stop. Allow Always to detect arriving at the stop."; Always, "Detects
+  arriving at the stop of a belled ride, which bus or train you got on, and getting off."; Off,
+  "Location is off for T-Minus."
+- **"iOS Settings ›"** at the end: the app's page in iOS Settings (`TMinus.openSettings`,
+  `UIApplication.openSettingsURLString`). There are no toggles of our own for permissions.
+- **States:** `TMinus.permissionsStatus()` → `{ notifications: 'authorized' | 'denied' |
+  'notDetermined' | 'provisional', liveActivities, location, precise }`, read when setup opens and
+  on return to the app (from iOS Settings: the rows, the boarding setting and the bell's
+  permission update). A build without it hides the section.
+- **"Settings" on toasts:** a toast whose error is "notifications are off for this app in
+  Settings" (the bell, the test notification, stop alerts, auto-bell) offers "Settings" instead of
+  Retry, and the route map's locate refused shows "Location is off for T-Minus · Settings" (the
+  toast sits above the map sheet). In the app with these methods only; elsewhere Retry, and the
+  map only says "Location off".
 
 ### Widget (Phase 3b, 2026-10-26)
 

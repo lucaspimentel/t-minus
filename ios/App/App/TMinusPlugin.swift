@@ -1,6 +1,7 @@
 import ActivityKit
 import Capacitor
 import UIKit
+import UserNotifications
 import WidgetKit
 
 // window.Capacitor.Plugins.TMinus: native calls the web app makes (index.html, `native`).
@@ -25,6 +26,8 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "boardingPending", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "boardingUndo", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "boardingLog", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "permissionsStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise),
     ]
 
     private var startTokenObserver: NSObjectProtocol?
@@ -70,6 +73,34 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    // ---------- setup's Permissions (DESIGN.md "Permissions in setup") ----------
+
+    // permissionsStatus() → { notifications: 'authorized' | 'denied' | 'notDetermined' | 'provisional',
+    // liveActivities: Bool, location: (locationStatus), precise: Bool }.
+    @objc func permissionsStatus(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().getNotificationSettings { s in
+            let n: String
+            switch s.authorizationStatus {
+            case .authorized, .ephemeral: n = "authorized"
+            case .denied: n = "denied"
+            case .provisional: n = "provisional"
+            default: n = "notDetermined"
+            }
+            DispatchQueue.main.async {
+                call.resolve(["notifications": n, "liveActivities": ActivityAuthorizationInfo().areActivitiesEnabled,
+                              "location": BoardingLocation.shared.status, "precise": BoardingLocation.shared.precise])
+            }
+        }
+    }
+
+    // openSettings(): the app's page in iOS Settings.
+    @objc func openSettings(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return call.reject("no Settings URL") }
+            UIApplication.shared.open(url) { ok in ok ? call.resolve() : call.reject("couldn't open Settings") }
+        }
+    }
+
     // ---------- boarding from location (BoardingLocation, DESIGN.md) ----------
 
     // locationStatus() → { status: 'notDetermined' | 'whenInUse' | 'always' | 'denied' }
@@ -82,8 +113,9 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { BoardingLocation.shared.authorize { call.resolve(["status": $0]) } }
     }
 
-    // boardingSetting({ on, defaults }): the Settings toggle, and what an auto-bell needs to arm
-    // with the page closed ({ trips, subscription, slack, alerts }). Off disarms.
+    // boardingSetting({ on, defaults }): on while Location is While Using or Always (the page sends
+    // it from the location status), and what an auto-bell needs to arm with the page closed
+    // ({ trips, subscription, slack, alerts }). Off disarms.
     @objc func boardingSetting(_ call: CAPPluginCall) {
         let on = call.getBool("on") ?? false
         let defaults = call.getObject("defaults").map { $0 as [String: Any] }
