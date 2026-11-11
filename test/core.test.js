@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  validateConfig, TRIP_ID_RE, newTripId, withTripIds, withoutTripIds, tripIndex, reminderKeyOf, reminderRef, tripReminders, staleServerEntries, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
+  validateConfig, TRIP_ID_RE, newTripId, withTripIds, withoutTripIds, tripIndex, reminderKeyOf, reminderRef, tripReminders, staleServerEntries, legsKey, sameLegsAs, setupSavePlan, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
   tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, targetRow, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage, scrubApiKey, rumInitOptions,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
@@ -275,6 +275,78 @@ test('trip ids: validation, newTripId, withTripIds, withoutTripIds, reminder key
   assert.deepEqual(staleServerEntries({ '0/a': { id: 'r0' }, '1/b': {} }, { 0: { alert: { id: 'ride0' } }, 1: { kind: 'track' }, 2: null }),
     [{ kind: 'reminder', id: 'r0' }, { kind: 'ride', id: 'ride0' }]);
   assert.deepEqual(staleServerEntries(null, undefined), []);
+});
+
+test('legsKey and sameLegsAs: the transit legs only', () => {
+  const home = { ...homeToOffice, id: 'home' };
+  const k = legsKey(home);
+  const edit = f => { const t = structuredClone(home); f(t); return legsKey(t); };
+  // Not: names, ids, walks, transfers, window, auto-bell, timing leg, labels, colors.
+  assert.equal(edit(t => {
+    t.name = 'x'; t.id = 'y'; t.window = { from: '01:00', to: '02:00' }; t.autoBell = { days: [1], arriveBy: '08:00' }; t.timingLeg = 1;
+    for (const l of t.legs) {
+      if (l.kind === 'transit') { l.label = 'L'; l.color = '000000'; l.routeLabels = { a: 'b' }; } else l.minutes += 3;
+    }
+  }), k);
+  const transit = t => t.legs.filter(l => l.kind === 'transit');
+  assert.equal(edit(t => { transit(t)[0].also = ['b', 'a']; }), edit(t => { transit(t)[0].also = ['a', 'b']; }));
+  for (const f of [
+    t => { transit(t)[0].route = 'x'; }, t => { transit(t)[0].also = ['x']; }, t => { transit(t)[0].direction_id = 1 - transit(t)[0].direction_id; },
+    t => { transit(t)[0].stop = 'x'; }, t => { transit(t)[1].alight = 'x'; }, t => { t.legs = t.legs.filter(l => l !== transit(t)[1]); },
+    t => { const [a, b] = transit(t); const i = t.legs.indexOf(a), j = t.legs.indexOf(b); t.legs[i] = b; t.legs[j] = a; },
+  ]) assert.notEqual(edit(f), k);
+  // sameLegsAs: another trip with the same legs, not itself.
+  const copy = { ...structuredClone(home), id: 'copy', name: 'Copy' };
+  const other = { ...officeToHome, id: 'office' };
+  assert.equal(sameLegsAs([home, other], copy), home);
+  assert.equal(sameLegsAs([home, other], home), null);
+  assert.equal(sameLegsAs([other], copy), null);
+});
+
+test('setupSavePlan: kept, changed, continued as the one-off, dropped', () => {
+  const home = { ...homeToOffice, id: 'home' };
+  const office = { ...officeToHome, id: 'office' };
+  const legsEdited = t => { const c = structuredClone(t); c.legs.filter(l => l.kind === 'transit').at(-1).alight = 'x'; return c; };
+  const walked = t => { const c = structuredClone(t); c.legs.at(-1).minutes += 5; return c; };
+  const riding = { kind: 'stop', at: 1, atStop: 1, ride: { legs: [], boardedAt: 10 } };
+  const leaving = { kind: 'leaving', at: 20, atStop: 25 };
+  const bell = { kind: 'track', at: 5, pinned: true, bell: true, target: { key: 'k', legs: [] } };
+  const plan = o => setupSavePlan({ oldTrips: [home, office], ...o });
+
+  // Rename and a walk change: kept, changed (renamed or not).
+  const renamed = { ...walked(home), name: 'Renamed' };
+  assert.deepEqual(plan({ newTrips: [renamed, walked(office)], enRoute: { home: riding }, reminders: { 'office/k': { id: 'r' } } }),
+    { keep: ['home', 'office'], changed: [{ ref: 'home', trip: renamed, renamed: true }, { ref: 'office', trip: walked(office), renamed: false }], toOneOff: null, drop: [], oneOff: 'keep' });
+  // A pure reorder: kept, nothing changed.
+  assert.deepEqual(plan({ newTrips: [office, home], enRoute: { home: riding }, cacheRefs: ['office'] }),
+    { keep: ['home', 'office'], changed: [], toOneOff: null, drop: [], oneOff: 'keep' });
+  // Legs edited while riding; deleted while Leaving now: the one-off.
+  assert.equal(plan({ newTrips: [legsEdited(home), office], enRoute: { home: riding } }).toOneOff, 'home');
+  assert.deepEqual(plan({ newTrips: [office], enRoute: { home: leaving } }), { keep: [], changed: [], toOneOff: 'home', drop: [], oneOff: 'keep' });
+  // Deleted with only a bell; legs edited with only a cache; leftovers: dropped.
+  assert.deepEqual(plan({ newTrips: [office], enRoute: { home: bell }, reminders: { 'home/k': { id: 'r' } } }).drop, ['home']);
+  assert.deepEqual(plan({ newTrips: [legsEdited(home), office], cacheRefs: ['home'] }).drop, ['home']);
+  assert.deepEqual(plan({ newTrips: [home, office], enRoute: { gone: riding } }).drop, ['gone']);
+
+  // An existing one-off: replaced when untracked; a started one is ranked.
+  const one = { ...structuredClone(office), id: 'one', name: 'One-off' };
+  assert.deepEqual(plan({ newTrips: [office], oneOff: one, enRoute: { home: riding }, cacheRefs: ['one'] }),
+    { keep: [], changed: [], toOneOff: 'home', drop: ['one'], oneOff: 'replace' });
+  assert.deepEqual(plan({ newTrips: [office], oneOff: one, enRoute: { home: leaving, one: riding } }),
+    { keep: [], changed: [], toOneOff: null, drop: ['home'], oneOff: 'keep' }); // a ride first
+  assert.deepEqual(plan({ newTrips: [office], oneOff: one, enRoute: { home: riding, one: leaving } }),
+    { keep: [], changed: [], toOneOff: 'home', drop: ['one'], oneOff: 'replace' });
+  const both = { home: { ...leaving, at: 20 }, office: { ...leaving, at: 30 } };
+  assert.equal(setupSavePlan({ oldTrips: [home, office], newTrips: [], enRoute: both }).toOneOff, 'office'); // the latest
+  assert.equal(setupSavePlan({ oldTrips: [home, office], newTrips: [], enRoute: both, shownRef: 'home' }).toOneOff, 'home'); // the shown one
+  assert.deepEqual(setupSavePlan({ oldTrips: [home, office], newTrips: [], enRoute: both, shownRef: 'home' }).drop, ['office']);
+
+  // The one-off's id back as a saved trip (setup's Undo of a delete): absorbed with the same legs.
+  const back = { ...structuredClone(home), id: 'home' };
+  assert.deepEqual(setupSavePlan({ oldTrips: [office], newTrips: [back, office], oneOff: home, enRoute: { home: riding } }),
+    { keep: ['home'], changed: [], toOneOff: null, drop: [], oneOff: 'absorb' });
+  assert.deepEqual(setupSavePlan({ oldTrips: [office], newTrips: [legsEdited(home), office], oneOff: home, enRoute: { home: riding } }),
+    { keep: [], changed: [], toOneOff: null, drop: ['home'], oneOff: 'drop' });
 });
 
 test('pickTrip: windows, overlap order, override expiry, last used', () => {

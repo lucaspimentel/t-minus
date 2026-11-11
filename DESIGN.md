@@ -212,6 +212,28 @@ card in the iOS app). A ride or bell under way at that moment is lost; the auto-
 again by id. Builds and stored widget requests from before keep working only once the app
 rewrites them (the widget's request: at the next open).
 
+**Setup saves keep tracking (2026-11-11).** A save in setup (a trip saved, deleted, moved or
+imported, or Undo) used to clear every trip's en-route state, which ended a ride and left its
+stop alerts and reminders on the server. Now each trip id with state is looked at
+(`setupSavePlan`, `core.js`), comparing its transit legs (`legsKey`: route, `also`, direction,
+board and alight stops; names, walks, transfers, windows and labels don't count):
+- Still saved with the same legs: kept (a rename, other walks, the window, auto-bell, a new
+  position). When the trip changed, the server's copies get it: `PUT /rides/:id` and
+  `PUT /reminders/:id { trip, tripName }` (the new name in Pending notifications; walks and
+  transfers time the stop alerts and leave alerts). A changed timing leg applies at once.
+- Started (a ride, "Leaving now", "At the stop") and deleted or with other legs: the ride goes
+  on as the one-off, a copy of the trip as it was (old name). Deleted, it keeps the trip's id
+  (setup's Undo brings the saved trip back and the one-off is absorbed into it); with other legs
+  the saved trip keeps the id and the one-off gets a new one, its state moved to it. Only one
+  can: a ride before a started trip, then the trip shown, then the latest; an untracked one-off
+  is replaced.
+- Anything else (a bell, cached data) of a trip deleted or with other legs is dropped as with
+  bell off: its reminders deleted on the server and their leave cards ended
+  (`dropTripState`).
+
+The manual pick and the last trip used stay while their trip exists; the trip shown stays when
+it has en-route state.
+
 ### Trip selection (`pickTrip`)
 
 1. A manual switch (`{ id, setAt }` in `localStorage`, the trip's id) holds until the next time any
@@ -241,7 +263,13 @@ picked by hand after it was made (`shownTrip`; the iOS widget uses it without st
 - Save: it becomes the last saved trip at once (same name, no time window; same trip id, so its
   state carries over), toast "Trip saved". ✕ (Remove): its reminders, en-route state and stop
   alerts are dropped, toast with Undo (restores them). A new plan replaces it. It is removed by
-  itself when its ride is over (Done on the ride card, or the ride ending).
+  itself when its ride is over (Done on the ride card, or the ride ending; while another trip is
+  shown, once it is shown again).
+- A setup save also makes one: a started trip deleted or given other legs goes on as a one-off
+  (see "Trip ids").
+- Saving a trip with the same legs as another saved trip goes through with a note: "Trip saved ·
+  same legs as 'Oak Grove → State'" (Save on the banner, or the planner's "Save trip" from the
+  main screen), "Same legs as 'Oak Grove → State'" under setup's trip list.
 
 Location is requested only when some trip has `near` (choosing "When I'm near its first
 stop" in the trip screen triggers the permission prompt): `getCurrentPosition` (low accuracy,
@@ -409,7 +437,8 @@ estimate: "since" only once arrival is recorded, by the tap, the geofence or GPS
 - Cancel (the bar) or "Cancel trip" (the trip card; named apart from the connection choices) ends the mode at once (the list returns) and shows a
   bottom toast "Tracking cancelled · Undo" for 5 s (a tap elsewhere on it dismisses it); Undo restores the saved state (switching
   back to its trip if needed). "Done" after arrival has no undo.
-- Stored per trip id in `localStorage` (`t-minus:en-route`; cleared when setup saves). Polls every 60 s while active.
+- Stored per trip id in `localStorage` (`t-minus:en-route`; kept across setup saves while the
+  trip keeps its legs: "Trip ids"). Polls every 60 s while active.
 
 Screen stays on (Screen Wake Lock, `keepAwake`) while the app is open and any upcoming row is
 within `wakeMinutes` (default 10, 0 = off) of its leave-by, until its last chance. While a
@@ -1192,7 +1221,8 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   - **Live Activity pushes (Phase 2, server side):** a
     followed ride may carry `activity: { token }` (the activity's own APNs push token, hex; by
     `POST /rides` or later by `PUT /rides/:id`, whose fields are now each optional: `ride`,
-    `activity`, `alerts`) and `alerts: false` (followed only for the activity: no notifications).
+    `activity`, `alerts`, and `trip` / `tripName` from a setup save: same legs only, else 400
+    "trip has other legs") and `alerts: false` (followed only for the activity: no notifications).
     Each poll builds the card with `liveActivityState` (`core.js`, shared with the app: phase,
     title, countdown end `until`, stops left, route color and island label, drop-off line, next
     connection line, `warn` for a missed or no connection, per-leg progress, `soon` for the
@@ -1205,8 +1235,8 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     "Pending notifications" shows the activity's sends, title and last error (not the token).
   - **Leave cards (Phase 3a, server side; see "iOS app"):** a reminder may carry `startToken` (the
     app's push-to-start token, hex; `POST /reminders`, or `PUT /reminders/:id`, which also takes
-    `activity: { token }`, the card's own token, sent by the app's native code; no Origin, 404 for
-    a ride). At the reminder's first check (`leaveCardStarts`; `POST` sets `nextPollAt` now, the
+    `activity: { token }`, the card's own token, sent by the app's native code, and `trip` /
+    `tripName` from a setup save, same legs only; no Origin, 404 for a ride). At the reminder's first check (`leaveCardStarts`; `POST` sets `nextPollAt` now, the
     loop ticks every 5 s; 2026-10-24, before then at the 10-min heads-up), the server sends
     `event: start` to the start token (`attributes-type: RideAttributes`, `attributes: { tripName,
     reminderId }`, `input-push-token: 1`, priority 10), quietly: an `alert` without `sound`

@@ -155,6 +155,66 @@ export function tripReminders(reminders, ref) {
   return Object.fromEntries(Object.entries(reminders ?? {}).filter(([k]) => reminderRef(k) === ref));
 }
 
+// The trip's transit legs as a string (route, `also`, direction, board and alight stops): two
+// trips with the same key ride the same vehicles. Names, walks, transfers, windows and labels
+// don't count. Computed, never stored.
+export function legsKey(trip) {
+  return JSON.stringify((trip?.legs ?? []).filter(l => l?.kind === 'transit')
+    .map(l => [l.route, [...(l.also ?? [])].sort(), l.direction_id, l.stop, l.alight]));
+}
+
+// Another trip in `trips` with the same legs (a duplicate, noted when saving), or null.
+export function sameLegsAs(trips, trip) {
+  const key = legsKey(trip);
+  return (trips ?? []).find(t => t && t.id !== trip.id && legsKey(t) === key) ?? null;
+}
+
+// A setup save (2026-11-11): what happens to the per-trip state of each trip id that has some
+// (en-route state, reminders, cached data). Same id and same legs: kept (`changed` when the trip
+// object changed: the server's copies get the new one). A started trip (a ride, "Leaving now",
+// "At the stop") whose legs changed or that was deleted continues as the one-off (`toOneOff`: a
+// copy of the old trip, same id); only one can: a ride before a started trip, then the trip
+// shown, then the latest. The rest is dropped. `oneOff` (the existing one-off's trip):
+// 'keep', 'replace' (its id dropped for `toOneOff`), 'absorb' (its id is now a saved trip with
+// the same legs: setup's Undo of a delete) or 'drop' (that saved trip has other legs).
+export function setupSavePlan({ oldTrips = [], newTrips = [], oneOff = null, enRoute = {}, reminders = {}, cacheRefs = [], shownRef = null }) {
+  const oldBy = new Map(oldTrips.map(t => [t.id, t]));
+  const newBy = new Map(newTrips.map(t => [t.id, t]));
+  const oneId = oneOff?.id ?? null;
+  let one = 'keep';
+  if (oneOff && newBy.has(oneId)) one = legsKey(newBy.get(oneId)) === legsKey(oneOff) ? 'absorb' : 'drop';
+  const refs = new Set([...Object.keys(enRoute ?? {}), ...Object.keys(reminders ?? {}).map(reminderRef), ...cacheRefs]);
+  const keep = [], changed = [], drop = [], candidates = [];
+  const started = st => !!st && (tripStarted(st) || !!st.ride);
+  const keepRef = (ref, before, after) => {
+    keep.push(ref);
+    if (JSON.stringify(before) !== JSON.stringify(after)) changed.push({ ref, trip: after, renamed: before.name !== after.name });
+  };
+  for (const ref of refs) {
+    if (oneId != null && ref === oneId) {
+      if (one === 'absorb') keepRef(ref, oneOff, newBy.get(ref));
+      else if (one === 'drop') drop.push(ref);
+      continue;
+    }
+    const before = oldBy.get(ref), after = newBy.get(ref);
+    if (before && after && legsKey(before) === legsKey(after)) keepRef(ref, before, after);
+    else if (before && started(enRoute?.[ref])) candidates.push(ref);
+    else drop.push(ref);
+  }
+  const pool = [...candidates];
+  if (oneOff && one === 'keep' && started(enRoute?.[oneId])) pool.push(oneId);
+  const latest = st => st?.ride?.boardedAt ?? st?.at ?? 0;
+  pool.sort((a, b) => (!!enRoute[b].ride - !!enRoute[a].ride) || ((b === shownRef) - (a === shownRef)) || (latest(enRoute[b]) - latest(enRoute[a])));
+  const [winner, ...losers] = pool;
+  drop.push(...losers);
+  const toOneOff = winner != null && winner !== oneId ? winner : null;
+  if (toOneOff && oneOff && one === 'keep') {
+    one = 'replace';
+    if (!drop.includes(oneId)) drop.push(oneId);
+  }
+  return { keep, changed, toOneOff, drop, oneOff: one };
+}
+
 // What the server holds for this phone in stored reminders and en-route states: the entries
 // to delete when that storage is cleared (the trip-id migration).
 export function staleServerEntries(reminders, enRoute) {

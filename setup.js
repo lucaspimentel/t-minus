@@ -6,9 +6,9 @@ import {
   validateConfig, checkStops, stopQueries, stopsKey, locateLegs, tripLabel, tripToForm, formToTrip, routeLabel, routeEnds, shortRouteLabel, labelLegs,
   searchRoutes, searchStops, boardGroups, dropOffGroups, stopPairs, alightGroups, railConnections, stopConnections, groupConnections, rowConnections, servesInOrder, commonLabel, legRoutes,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
-  reverseTrip, newTripId, withTripIds, withoutTripIds, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
+  reverseTrip, sameLegsAs, newTripId, withTripIds, withoutTripIds, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=2475b935f1';
+} from './core.js?v=44202753b1';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -93,7 +93,8 @@ const NEARBY_RADIUS = 0.003;
 // `onReset(apiKey)`: "Delete all trips and settings" (after a confirm); the app reloads.
 // `plan`: open on the planner ("Plan a trip" on the main screen); its Cancel, and Save or Cancel in
 // a trip it starts, close setup. `onOneOff(trip)`: an option's "See departures", handed back as a
-// one-off trip (labeled, not saved). `onClose({ show })`: `show` is a just-saved trip's index.
+// one-off trip (labeled, not saved). `onClose({ show, note })`: `show` is a just-saved trip's index,
+// `note` a toast for the main screen.
 // `planApi(path, params)`: the T-Minus server's /stops and /plan (buses); null: rail only, in the browser.
 // `permissions` (the iOS app, a build with them; else null): { get(), allowNotifications(),
 // allowLocation() → Promise<state | null>, openSettings() } for the Settings card's Permissions,
@@ -754,6 +755,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     const trip = { id, ...formToTrip(editing.form) };
     const trips = [...savedTrips()];
     if (editing.idx != null) trips[pos] = trip; else trips.splice(pos, 0, trip);
+    const dup = sameLegsAs(trips, trip); // saved all the same, with a note
     const base = saved ?? { ...app, apiKey: app.apiKey.trim() };
     busy = true;
     editing.messages = [info('Checking stops…', true)];
@@ -769,7 +771,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     }
     const fromMain = editing.origin === 'main';
     editing = null;
-    if (fromMain) return onClose({ show: pos }); // the main screen shows the new trip
+    if (fromMain) return onClose({ show: pos, note: dup ? `Trip saved · same legs as '${dup.name}'` : null }); // the main screen shows the new trip
+    if (dup) listMessages = [...listMessages, info(`Same legs as '${dup.name}'`)];
     render();
   }
 
