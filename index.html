@@ -544,7 +544,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-11 · dca275a8f6</footer>
+    <footer class="version">Version 2026-11-11 · 05486e988d</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -2394,9 +2394,10 @@ function rideStopRows(stops, tripId, now) {
   };
   const rows = [];
   const v = stops.vehicle;
-  if (v?.boarding) ; // its dot is on the boarding stop's node (renderTimeline)
-  else if (v?.status === 'STOPPED_AT' && !v.atDropOff) rows.push(mid(' here', el('span', 'veh'), el('span', 'n', `At ${v.name}`)));
-  else if (!v?.atDropOff) rows.push(mid(' gap', el('span', 'veh')));
+  // Not on the bar at the drop-off, nor before leaving the boarding stop (its dot is on that stop's node).
+  const onBar = !v?.atDropOff && !v?.boarding;
+  if (onBar && v?.status === 'STOPPED_AT') rows.push(mid(' here', el('span', 'veh'), el('span', 'n', `At ${v.name}`)));
+  else if (onBar) rows.push(mid(' gap', el('span', 'veh')));
   const open = stopsOpen === tripId;
   const toggle = (text, value) => {
     const b = el('button', null, text);
