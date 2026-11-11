@@ -1024,6 +1024,40 @@ test('rides: validation, PUT replaces the legs, DELETE, a dead subscription drop
   } finally { await s.close(); }
 });
 
+test('rides and reminders: PUT takes the trip saved again with the same legs (a rename, other walks)', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:12');
+    const { id } = await (await s.call('POST', '/api/rides', followed())).json();
+    const rem = await (await s.call('POST', '/api/reminders', reminder({ leaveBy: at('07:30') }))).json();
+    const renamed = structuredClone(trip);
+    renamed.name = 'Renamed';
+    renamed.legs.at(-1).minutes += 5;
+    const otherLegs = structuredClone(trip);
+    otherLegs.legs.filter(l => l.kind === 'transit').at(-1).alight = 'place-dwnxg';
+    for (const path of [`/api/rides/${id}`, `/api/reminders/${rem.id}`]) {
+      for (const [b, err] of [
+        [{ tripName: 'x'.repeat(101) }, 'tripName is invalid'], [{ tripName: 5 }, 'tripName is invalid'], [{ tripName: '' }, 'tripName is invalid'],
+        [{ trip: { name: 'x', legs: [] } }, 'trip is invalid'], [{ trip: otherLegs }, 'trip has other legs'],
+      ]) {
+        const res = await s.call('PUT', path, b);
+        assert.equal(res.status, 400, `${path} ${JSON.stringify(b).slice(0, 40)}`);
+        assert.equal((await res.json()).error, err);
+      }
+      const before = s.store.get(path.split('/').at(-1));
+      assert.equal(before.tripName, 'Home to office'); // nothing changed by a refused PUT
+      assert.equal((await s.call('PUT', path, { trip: renamed, tripName: 'Renamed' })).status, 204);
+      const after = s.store.get(path.split('/').at(-1));
+      assert.equal(after.tripName, 'Renamed');
+      assert.equal(tripShape(after.trip).walkAfter, tripShape(trip).walkAfter + 5);
+      assert.equal(after.nextPollAt, at('07:12'));
+    }
+    // Still kind-checked: a ride's id isn't a reminder, and the other way around.
+    assert.equal((await s.call('PUT', `/api/reminders/${id}`, { tripName: 'x' })).status, 404);
+    assert.equal((await s.call('PUT', `/api/rides/${rem.id}`, { tripName: 'x' })).status, 404);
+  } finally { await s.close(); }
+});
+
 // The Orange leg's predictions, as the app asks the proxy for them.
 const orangeQuery = () => new URLSearchParams(predictionQuery(tripShape(trip).transit[1]));
 

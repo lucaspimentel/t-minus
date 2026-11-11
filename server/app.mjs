@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-  validateConfig, TRIP_ID_RE, tripShape, legQuery, predictionQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
+  validateConfig, TRIP_ID_RE, legsKey, tripShape, legQuery, predictionQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpsDue, remHeadsUps, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep, liveActivityState,
   leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES, LIVE_SOON_MS,
@@ -601,6 +601,19 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       log(`ride ${ride.id} on ${ride.ride.legs.map(l => l.tripId).join(', ')}`);
       return reply(res, 201, { id: ride.id });
     }
+    // A setup save's new copy of the trip (`trip`, same legs: new walks or transfers) and its
+    // name (`tripName`), for a ride or a reminder; the error message, or null.
+    const tripUpdateError = (b, entry) => {
+      if (b?.tripName != null && (typeof b.tripName !== 'string' || !b.tripName || b.tripName.length > 100)) return 'tripName is invalid';
+      if (b?.trip == null) return null;
+      if (validateConfig({ trips: [b.trip] }).length) return 'trip is invalid';
+      return legsKey(b.trip) === legsKey(entry.trip) ? null : 'trip has other legs';
+    };
+    const applyTripUpdate = (b, entry) => {
+      if (b?.trip != null) entry.trip = b.trip;
+      if (b?.tripName != null) entry.tripName = b.tripName;
+      if (b?.trip != null || b?.tripName != null) entry.nextPollAt = t;
+    };
     const r = path.match(/^\/rides\/([\w-]{1,64})$/);
     if (req.method === 'PUT' && r) {
       let b;
@@ -608,7 +621,10 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       const ride = store.get(r[1]);
       if (ride?.kind !== 'ride') return reply(res, 404, { error: 'Not found' });
       // Each field is optional: `ride` (new legs), `activity` (its push token, which may come
-      // after the POST), `alerts` (stop alerts turned on or off).
+      // after the POST), `alerts` (stop alerts turned on or off), `trip` and `tripName` (setup
+      // saved the trip with the same legs: renamed, other walks or transfers).
+      const tErr = tripUpdateError(b, ride);
+      if (tErr) return reply(res, 400, { error: tErr });
       if (b?.ride != null) {
         const err = checkRide(ride.trip, b.ride, t);
         if (err) return reply(res, 400, { error: err });
@@ -619,6 +635,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       if (b?.alerts != null && typeof b.alerts !== 'boolean') return reply(res, 400, { error: 'alerts is invalid' });
       if (b?.activity && b.activity.token !== ride.activity?.token) ride.activity = { token: b.activity.token, last: null, sent: 0 };
       if (b?.alerts != null) ride.alerts = b.alerts;
+      applyTripUpdate(b, ride);
       ride.nextPollAt = t;
       store.update(ride);
       return reply(res, 204, undefined);
@@ -633,7 +650,8 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     const m = path.match(/^\/reminders\/([\w-]{1,64})$/);
     // The iOS app's tokens, each optional: `startToken` (iOS changed its push-to-start token) and
     // `activity: { token }` (the leave card's own token, from the app's native code after a
-    // server start; it also proves the card exists).
+    // server start; it also proves the card exists). `trip` and `tripName`: setup saved the trip
+    // with the same legs (its leave-by is timed with the new walks at the next check).
     if (req.method === 'PUT' && m) {
       let b;
       try { b = JSON.parse(await readBody(req)); } catch (e) { return reply(res, e.status ?? 400, { error: e.status ? 'Body too large' : 'Invalid JSON' }); }
@@ -643,6 +661,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       if (b?.activity != null && !validToken(b.activity?.token)) return reply(res, 400, { error: 'activity is invalid' });
       if (b?.started != null && !Number.isFinite(b.started?.atStop)) return reply(res, 400, { error: 'started is invalid' });
       for (const k of ['cardDismissed', 'restartCard']) if (b?.[k] != null && typeof b[k] !== 'boolean') return reply(res, 400, { error: `${k} is invalid` });
+      const tErr = tripUpdateError(b, rem);
+      if (tErr) return reply(res, 400, { error: tErr });
+      applyTripUpdate(b, rem);
       // `cardDismissed` (the iOS app: the leave card was swiped away or is gone): the reminder's
       // next steps go out as notifications; the card isn't started again by itself.
       if (b?.cardDismissed) {

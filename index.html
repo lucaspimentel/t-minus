@@ -543,7 +543,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-10 · 0101e950b5</footer>
+    <footer class="version">Version 2026-11-10 · 5273c965b8</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -567,15 +567,15 @@
 </script>
 <script type="module">
 import {
-  validateConfig, withTripIds, newTripId, staleServerEntries, reminderKeyOf, reminderRef, tripReminders, tripShape, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
+  validateConfig, withTripIds, newTripId, setupSavePlan, sameLegsAs, staleServerEntries, reminderKeyOf, reminderRef, tripReminders, tripShape, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, targetRow, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, FOLLOW_MIN_PX, nextFollowLevel, viewAt, viewShiftPx, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=2475b935f1';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=595125fb09';
+} from './core.js?v=44202753b1';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=943446dc16';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1571,7 +1571,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=2475b935f1'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=44202753b1'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -1926,7 +1926,7 @@ async function adoptBells() {
     if (known.has(b.id)) continue;
     // From before trip ids: no trip to show it on.
     if (!b.tripRef) { pushApi('DELETE', `/reminders/${b.id}`).catch(() => {}); continue; }
-    if (idxOf(b.tripRef) < 0) continue;
+    if (idxOf(b.tripRef) < 0) { pushApi('DELETE', `/reminders/${b.id}`).catch(() => {}); continue; } // its trip is gone
     const cur = all[b.tripRef] ?? null;
     // Under way, riding, or belled here already (hand wins): the server's bell goes.
     if (cur && (cur.ride || tripStarted(cur) || cur.bell)) { pushApi('DELETE', `/reminders/${b.id}?reason=started`).catch(() => {}); continue; }
@@ -2615,16 +2615,50 @@ function showSetup({ importOpen = false, plan = false } = {}) {
     plan,
     onOneOff: trip => { setOneOff(trip); closeSetup(); },
     // Each trip saves on its own while setup stays open.
+    // Per-trip state follows the trip's id (setupSavePlan): same legs, kept (the server's copies
+    // get the new trip); a started trip whose legs changed or that was deleted continues as the
+    // one-off (the old trip, same id); the rest is dropped.
     onSave(cfg, warning) {
+      const oldTrips = savedConfig?.trips ?? [];
+      const shownRef = refOf(tripIdx);
+      const plan = setupSavePlan({
+        oldTrips, newTrips: cfg?.trips ?? [], oneOff: oneOff?.trip ?? null, enRoute: store.get(KEY_EN_ROUTE) ?? {},
+        reminders, cacheRefs: Object.keys(cache), shownRef,
+      });
+      for (const ref of plan.drop) dropTripState(ref);
+      if (plan.oneOff !== 'keep') { oneOff = null; store.del(KEY_ONE_OFF); }
+      if (plan.toOneOff) {
+        let trip = oldTrips.find(t => t.id === plan.toOneOff);
+        // Its legs changed: the saved trip keeps the id, so the one-off (and its state) gets a new one.
+        if (cfg.trips.some(t => t.id === trip.id)) {
+          const id = newTripId([...cfg.trips, ...oldTrips].map(t => t.id));
+          moveTripState(trip.id, id);
+          trip = { ...trip, id };
+        }
+        oneOff = { trip, at: Date.now() };
+        store.set(KEY_ONE_OFF, oneOff);
+      }
       savedConfig = cfg;
       config = withOneOff(cfg);
       store.set(KEY_CONFIG, cfg);
-      store.del(KEY_OVERRIDE);
-      store.del(KEY_EN_ROUTE);
-      cache = {};
-      lastTiming.clear();
+      for (const ref of plan.keep) {
+        const trip = config?.trips[idxOf(ref)];
+        if (trip && cache[ref]?.schedules) updateTiming(trip, cache[ref]); // a new timing leg at once
+      }
+      for (const { ref, trip } of plan.changed) {
+        const body = { trip, tripName: trip.name };
+        const alertId = (store.get(KEY_EN_ROUTE) ?? {})[ref]?.alert?.id;
+        if (alertId) pushApi('PUT', `/rides/${alertId}`, body).catch(() => {});
+        for (const rem of Object.values(tripReminders(reminders, ref))) pushApi('PUT', `/reminders/${rem.id}`, body).catch(() => {});
+      }
+      if (idxOf(store.get(KEY_OVERRIDE)?.id) < 0) store.del(KEY_OVERRIDE);
+      if (idxOf(store.get(KEY_LAST_TRIP)) < 0) store.del(KEY_LAST_TRIP);
       notice = warning;
-      tripIdx = config ? chooseTrip(Date.now(), null, located()) : 0;
+      const shownIdx = idxOf(shownRef);
+      tripIdx = !config ? 0
+        : plan.toOneOff ? oneOffIdx()
+          : shownIdx >= 0 && (store.get(KEY_EN_ROUTE) ?? {})[shownRef] ? shownIdx
+            : chooseTrip(Date.now(), store.get(KEY_OVERRIDE), located());
       if (config) locate(); // the saved trips may now use location
       syncAutoBells(true);
     },
@@ -2633,15 +2667,31 @@ function showSetup({ importOpen = false, plan = false } = {}) {
 
 // ---------- one-off trip ----------
 
-// A trip's reminders, en-route state (and its stop alerts on the server) and cached data, dropped;
-// returns { state, reminders } for Undo.
+// A trip's state moved to another trip id: en-route state, reminders, cached data, the ride and
+// leave cards (the server's copies don't name the trip id).
+function moveTripState(from, to) {
+  const all = store.get(KEY_EN_ROUTE) ?? {};
+  if (all[from]) { all[to] = all[from]; delete all[from]; store.set(KEY_EN_ROUTE, all); }
+  for (const [k, rem] of Object.entries(tripReminders(reminders, from))) {
+    reminders[reminderKeyOf(to, k.slice(from.length + 1))] = rem;
+    delete reminders[k];
+  }
+  saveReminders();
+  if (cache[from]) { cache[to] = cache[from]; delete cache[from]; }
+  if (lastTiming.has(from)) { lastTiming.set(to, lastTiming.get(from)); lastTiming.delete(from); }
+  if (activity?.key?.startsWith(`${from}/`)) saveActivity({ ...activity, key: `${to}/${activity.key.slice(from.length + 1)}` });
+  if (leaveCard?.tripRef === from) saveLeaveCard({ ...leaveCard, tripRef: to });
+}
+
+// A trip's reminders (as bell off: their cards end), en-route state (and its stop alerts on the
+// server) and cached data, dropped; returns { state, reminders } for Undo.
 function dropTripState(ref) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
   const state = all[ref] ?? null;
   if (state?.alert?.id) pushApi('DELETE', `/rides/${state.alert.id}`).catch(() => {});
   delete all[ref];
   store.set(KEY_EN_ROUTE, all);
-  const removed = cancelTripReminders(ref);
+  const removed = dropReminders(ref);
   delete cache[ref];
   lastTiming.delete(ref);
   return { state, reminders: removed };
@@ -2694,7 +2744,8 @@ function saveOneOff() {
   store.del(KEY_ONE_OFF);
   config = withOneOff(savedConfig);
   render();
-  showToast('Trip saved');
+  const dup = sameLegsAs(savedConfig.trips, savedConfig.trips.at(-1));
+  showToast(dup ? `Trip saved · same legs as '${dup.name}'` : 'Trip saved');
 }
 $('oneoff-save').onclick = saveOneOff;
 $('oneoff-remove').onclick = () => removeOneOff();
@@ -2711,8 +2762,10 @@ function resetApp(apiKey) {
 }
 
 // `show`: a trip just saved from "Plan a trip…" on the main screen, shown as if picked.
-function closeSetup({ show = null } = {}) {
+// `note`: a toast for the main screen (a duplicate trip saved from there).
+function closeSetup({ show = null, note = null } = {}) {
   hideToast(); // setup's Undo works only in setup
+  if (note) showToast(note);
   setupView?.close();
   setupView = null;
   $('app').hidden = false;
