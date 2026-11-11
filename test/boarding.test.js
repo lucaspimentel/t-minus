@@ -13,6 +13,7 @@ import {
 const MIN = 60_000;
 const EXAMPLE = JSON.parse(readFileSync('test/fixtures/bus-orange.json', 'utf8'));
 const [homeToOffice] = EXAMPLE.trips;
+homeToOffice.id = 'home';
 for (const l of homeToOffice.legs) {
   if (l.kind === 'transit') Object.assign(l, l.route === '132' ? { label: 'Bus 132' } : { label: 'Orange' });
 }
@@ -153,7 +154,7 @@ const target = () => {
 function armed(enRoute, extra = {}) {
   const e = engine();
   e.step({ type: 'arm', session: boardingSession({
-    on: true, tripIdx: 0, trip: homeToOffice, timingIdx: 0, slack: 1, enRoute, alerts: true,
+    on: true, tripRef: 'home', trip: homeToOffice, timingIdx: 0, slack: 1, enRoute, alerts: true,
     subscription: { endpoint: 'apns:abc' }, card: { id: 'card1', token: 'tok', kind: 'leave' }, reminderId: 'rem1',
     window: boardingWindow(at('07:02'), at('07:08')), ...extra,
   }) }, at('06:50'));
@@ -164,7 +165,7 @@ function armed(enRoute, extra = {}) {
   e.step({ type: 'doc', key: 'p1', doc: pred[1] }, at('06:50'));
   return e;
 }
-const belled = () => ({ kind: 'track', at: at('06:40'), pinned: true, bell: true, target: target(), name: homeToOffice.name });
+const belled = () => ({ kind: 'track', at: at('06:40'), pinned: true, bell: true, target: target() });
 const states = e => e.all.filter(a => a.type === 'state');
 const http = e => e.all.filter(a => a.type === 'http');
 
@@ -172,6 +173,7 @@ test('the geofence: the initial inside is ignored; an entry in the window marks 
   const e = armed(belled());
   const w = boardingWants(e.session, at('06:50'));
   assert.deepEqual([w.region.lat, w.region.lon, w.region.radius, w.gps], [BUS_STOP.lat, BUS_STOP.lon, 100, false]);
+  assert.equal(w.region.id, 'tminus-stop-home');
   e.step({ type: 'geofence', inside: true }, at('06:51')); // inside when armed
   assert.equal(e.session.enRoute.kind, 'track');
   e.step({ type: 'geofence', inside: false }, at('06:52'));
@@ -190,7 +192,7 @@ test('the geofence: the initial inside is ignored; an entry in the window marks 
 });
 
 // "Leaving now" at 6:55 with a 5 min walk: the estimate is 7:00.
-const walking = () => ({ kind: 'leaving', at: at('06:55'), atStop: at('07:00'), target: target(), name: homeToOffice.name });
+const walking = () => ({ kind: 'leaving', at: at('06:55'), atStop: at('07:00'), target: target() });
 // Fixes `meters` north of the stop at the given times.
 const at_ = (times, meters, acc = 10) => times.map(t => ({ t: at(t), ...move(BUS_STOP, meters), acc }));
 
@@ -242,7 +244,7 @@ test('GPS arrival only while walking after Leaving now', () => {
     { ...walking(), kind: 'stop', atStop: at('06:55') },
     belled(),
     { ...walking(), asking: { dep: at('07:08') } },
-    { kind: 'leaving', at: at('06:55'), atStop: at('07:00'), ride: { legs: target().legs, boardedAt: at('06:57') }, name: homeToOffice.name },
+    { kind: 'leaving', at: at('06:55'), atStop: at('07:00'), ride: { legs: target().legs, boardedAt: at('06:57') } },
   ]) {
     const e = armed(enRoute);
     e.step({ type: 'location', samples }, at('06:58:10'), true);
@@ -268,6 +270,7 @@ test('app closed: boarding at the departure posts the ride with the card token; 
   e.step({ type: 'posted', id: 'ride1' }, at('07:08:12'));
   assert.equal(e.session.enRoute.alert.id, 'ride1');
   assert.equal(e.session.pending.state.alert.id, 'ride1');
+  assert.equal(e.session.pending.tripRef, 'home');
   // GPS: at the stop, then away with B708.
   const route = t => move(BUS_STOP, -Math.max(0, (t - at('07:08:30')) / 1000) * 8);
   e.step({ type: 'location', samples: fixes(at('07:06'), at('07:10:30'), route) }, at('07:10:30'));
@@ -280,7 +283,7 @@ test('app closed: boarding at the departure posts the ride with the card token; 
 
 test('an earlier Orange train than planned: the ride switches to it with "On the 7:26am Orange, not the 7:32am"', () => {
   const ride = { legs: target().legs, boardedAt: at('07:08') };
-  const e = armed({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride, alert: { id: 'ride1', sync: 'x' }, name: homeToOffice.name });
+  const e = armed({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride, alert: { id: 'ride1', sync: 'x' } });
   // Off the bus at 7:22, at the platform from 7:24, leaves at 7:26 with O726.
   const route = t => (t < at('07:26') ? OAK_GROVE : move(OAK_GROVE, -((t - at('07:26')) / 1000) * 10));
   e.step({ type: 'location', samples: fixes(at('07:24'), at('07:28'), route) }, at('07:28'));
@@ -299,7 +302,7 @@ test('an earlier Orange train than planned: the ride switches to it with "On the
 
 test('missed the bus: back to waiting at the stop, with "Missed the 7:08am Bus 132"; the ride is deleted', () => {
   const ride = { legs: target().legs, boardedAt: at('07:08') };
-  const e = armed({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride, alert: { id: 'ride1', sync: 'x' }, name: homeToOffice.name });
+  const e = armed({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride, alert: { id: 'ride1', sync: 'x' } });
   const bus = t => move(BUS_STOP, -Math.max(0, (t - at('07:08')) / 1000) * 8);
   e.step({ type: 'location', samples: fixes(at('07:07'), at('07:09:40'), () => move(BUS_STOP, 3)) }, at('07:09:40'));
   e.step({ type: 'doc', key: 'v0', doc: vehiclesDoc(reports('B708', at('07:07'), at('07:09:30'), bus)) }, at('07:09:40'));
@@ -311,7 +314,7 @@ test('missed the bus: back to waiting at the stop, with "Missed the 7:08am Bus 1
 
 test('got off at State with a walk after: the walking phase, "Got off at State", GPS off; at an unplanned stop the ride ends', () => {
   const legs = target().legs.map((l, i) => (i === 1 ? { ...l, tripId: 'O726', dep: at('07:26'), arr: at('07:41') } : l));
-  const e = armed({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride: { legs, boardedAt: at('07:08') }, name: homeToOffice.name });
+  const e = armed({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride: { legs, boardedAt: at('07:08') } });
   const train = t => (t < at('07:39') ? move(STATE, ((at('07:39') - t) / 1000) * 10) : move(STATE, -((t - at('07:39')) / 1000) * 10));
   const phone = t => (t < at('07:39') ? train(t) : move(STATE, 0, ((t - at('07:39')) / 1000) * 1));
   e.step({ type: 'location', samples: fixes(at('07:36'), at('07:40:40'), phone) }, at('07:40:40'));
@@ -325,7 +328,7 @@ test('got off at State with a walk after: the walking phase, "Got off at State",
   for (const a of e.all.filter(x => x.type === 'http' || x.type === 'card')) assert.doesNotMatch(JSON.stringify(a), /"lat"|"lon"|latitude|longitude|meters/);
 
   // Got off one stop early: the ride ends.
-  const early = armed({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride: { legs, boardedAt: at('07:08') }, alert: { id: 'ride1', sync: 'x' }, name: homeToOffice.name });
+  const early = armed({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride: { legs, boardedAt: at('07:08') }, alert: { id: 'ride1', sync: 'x' } });
   const DTX = move(STATE, 600);
   const train2 = t => (t < at('07:38') ? move(DTX, ((at('07:38') - t) / 1000) * 10) : move(DTX, -((t - at('07:38')) / 1000) * 10));
   early.step({ type: 'location', samples: fixes(at('07:35'), at('07:39:40'), t => (t < at('07:38') ? train2(t) : DTX)) }, at('07:39:40'));
@@ -339,7 +342,7 @@ test('got off at State with a walk after: the walking phase, "Got off at State",
 
 test('with the app open, the step only reports: no server or card actions', () => {
   const ride = { legs: target().legs, boardedAt: at('07:08') };
-  const e = armed({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride, alert: { id: 'ride1', sync: 'x' }, name: homeToOffice.name });
+  const e = armed({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride, alert: { id: 'ride1', sync: 'x' } });
   e.step({ type: 'location', samples: fixes(at('07:07'), at('07:09:40'), () => move(BUS_STOP, 3)) }, at('07:09:40'), true);
   e.step({ type: 'doc', key: 'v0', doc: vehiclesDoc(reports('B708', at('07:07'), at('07:09:30'), t => move(BUS_STOP, -Math.max(0, (t - at('07:08')) / 1000) * 8))) }, at('07:09:40'), true);
   const st = states(e).at(-1);
@@ -390,7 +393,7 @@ test('ridePhase and checkRide take a leg\'s `off`; the widget state keeps it', (
   const trip = { ...homeToOffice };
   assert.equal(checkRide(trip, last, at('07:30')), null);
   assert.equal(checkRide(trip, { ...last, legs: last.legs.map(l => ({ ...l, off: 'x' })) }, at('07:30')), 'ride leg off is invalid');
-  const w = widgetState({ 0: { kind: 'stop', at: 1, atStop: 1, ride: last, name: trip.name } }, [trip]);
+  const w = widgetState({ home: { kind: 'stop', at: 1, atStop: 1, ride: last } }, [trip]);
   assert.equal(w.ride.legs[1].off, at('07:44'));
 });
 
@@ -417,7 +420,7 @@ test('core.js loads as a plain script without browser APIs, and nativeBoardingSt
   assert.equal(typeof ctx.URLSearchParams, 'undefined');
   const out = JSON.parse(ctx.nativeBoardingStep(JSON.stringify({
     session: null, nowMs: at('06:50'), active: false,
-    event: { type: 'arm', session: boardingSession({ on: true, tripIdx: 0, trip: homeToOffice, enRoute: belled(), window: boardingWindow(at('07:02'), at('07:08')) }) },
+    event: { type: 'arm', session: boardingSession({ on: true, tripRef: 'home', trip: homeToOffice, enRoute: belled(), window: boardingWindow(at('07:02'), at('07:08')) }) },
   })));
   assert.equal(out.session.enRoute.kind, 'track');
   assert.deepEqual(out.wants.queries.map(q => q.key), ['p0', 's0', 'p1', 's1']);
@@ -425,13 +428,21 @@ test('core.js loads as a plain script without browser APIs, and nativeBoardingSt
 
 test('an auto-bell armed from its bell with the page closed (native code): not over a started trip', () => {
   const e = engine();
-  const bell = { id: 'rem9', index: 0, tripName: homeToOffice.name, key: 'B708', leaveBy: at('07:02'), dep: at('07:08'), timingIdx: 0, legs: target().legs };
+  const bell = { id: 'rem9', tripRef: 'home', tripName: homeToOffice.name, key: 'B708', leaveBy: at('07:02'), dep: at('07:08'), timingIdx: 0, legs: target().legs };
   const defaults = { trips: [homeToOffice], subscription: { endpoint: 'apns:abc' }, slack: 1, alerts: true };
   e.step({ type: 'bell', bell, defaults, card: { id: 'card9', kind: 'leave' } }, at('06:50'));
   assert.equal(e.session.reminderId, 'rem9');
   assert.equal(e.session.enRoute.bell, true);
   assert.deepEqual(e.session.window, boardingWindow(at('07:02'), at('07:08')));
-  e.step({ type: 'arm', session: { ...boardingSession(e.session), enRoute: { kind: 'stop', at: at('06:55'), atStop: at('06:55'), name: homeToOffice.name } } }, at('06:55'));
+  e.step({ type: 'arm', session: { ...boardingSession(e.session), enRoute: { kind: 'stop', at: at('06:55'), atStop: at('06:55') } } }, at('06:55'));
   e.step({ type: 'bell', bell: { ...bell, id: 'rem10' }, defaults, card: { id: 'card10', kind: 'leave' } }, at('06:56'));
   assert.equal(e.session.reminderId, 'rem9');
+  // Armed for another trip id: a fresh session (matches start over).
+  e.session.matched = { 0: 'x' };
+  e.step({ type: 'arm', session: { ...boardingSession(e.session), tripRef: 'other' } }, at('06:57'));
+  assert.deepEqual(e.session.matched, {});
+  // A bell for a trip id no trip has does nothing.
+  const f = engine();
+  f.step({ type: 'bell', bell: { ...bell, tripRef: 'gone' }, defaults, card: { id: 'card11', kind: 'leave' } }, at('06:50'));
+  assert.equal(f.session?.reminderId ?? null, null);
 });

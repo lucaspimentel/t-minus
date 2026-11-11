@@ -469,8 +469,8 @@ test('the last trip can be deleted: settings stay, Done shows the empty main scr
 test('Reset deletes all trips and saved data after a confirm, keeping the API key', async ({ page }) => {
   await openApp(page, { time: '07:00', config: { ...CONFIG, apiKey: 'k1', departureCount: 3 } });
   await page.evaluate(() => {
-    localStorage.setItem('t-minus:trip-override', JSON.stringify({ index: 1, setAt: Date.now() }));
-    localStorage.setItem('t-minus:last-trip', '1');
+    localStorage.setItem('t-minus:trip-override', JSON.stringify({ id: 'office', setAt: Date.now() }));
+    localStorage.setItem('t-minus:last-trip', JSON.stringify('office'));
   });
   await page.locator('#open-setup').click();
   const reset = button(page, 'Delete all trips and settings');
@@ -512,6 +512,10 @@ test('Import over existing trips can be undone, settings included', async ({ pag
   await expect(toast(page)).toContainText('Trips replaced');
   expect(await tripNames(page)).toEqual(['Home to office']);
   await expect(departures).toHaveValue('6');
+  // The pasted trip's id isn't kept: imported trips get new ones.
+  const ids = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).trips.map(t => t.id));
+  expect(ids).toHaveLength(1);
+  expect(ids[0]).toMatch(/^t[0-9a-z]{8}$/);
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(setup(page).locator('.trip-row')).toHaveCount(2);
   await expect(departures).toHaveValue('4');
@@ -532,9 +536,12 @@ test('Keep screen on while riding: on by default, Done saves it off, reopening s
 test('Export shows the saved config; Done leaves setup and hides a pending toast', async ({ page }) => {
   await openSetup(page);
   await button(page, 'Export').click();
-  const exported = JSON.parse(await setup(page).locator('textarea').inputValue());
+  const text = await setup(page).locator('textarea').inputValue();
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')));
-  expect(exported).toEqual(stored);
+  // Without the trip ids (they stay on this phone).
+  expect(stored.trips.map(t => t.id)).toEqual(['home', 'office']);
+  expect(JSON.parse(text)).toEqual({ ...stored, trips: stored.trips.map(({ id: _, ...t }) => t) });
+  expect(text).not.toContain('"id"');
 
   await setup(page).locator('.trip-row .item').first().click();
   await setup(page).getByLabel('Trip name').fill('x');

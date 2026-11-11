@@ -56,7 +56,7 @@ test('setup: Tue and Thu by 10:00am saves the auto-bell, sends it to the server,
   await expect(setup.locator('.trip-row').nth(1)).not.toContainText('🔔');
   await expect.poll(() => calls.find(c => c.path === '/auto-bells')?.body).toMatchObject({
     subscription: { endpoint: 'https://push.example/1' },
-    trips: [{ index: 0, tripName: 'Home to office', autoBell: { days: [2, 4], arriveBy: '10:00' } }],
+    trips: [{ tripRef: 'home', tripName: 'Home to office', autoBell: { days: [2, 4], arriveBy: '10:00' } }],
   });
 });
 
@@ -65,7 +65,7 @@ test('a bell the server set shows as belled: Tracking, with its reminder kept', 
     { route: '132', label: 'Bus 132', color: 'FFC72C', tripId: 'b1', dep: at('07:08'), arr: at('07:20'), source: 'schedule' },
     { route: 'Orange', label: 'Orange', color: 'ED8B00', tripId: 'o1', dep: at('07:27'), arr: at('07:45'), source: 'schedule' },
   ];
-  await fakeServer(page, [{ id: 'auto1', index: 0, tripName: 'Home to office', key: '132in-0708', leaveBy: at('07:02'), dep: at('07:08'), headsUps: [60, 10, 5], timingIdx: 0, legs }]);
+  await fakeServer(page, [{ id: 'auto1', tripRef: 'home', tripName: 'Home to office', key: '132in-0708', leaveBy: at('07:02'), dep: at('07:08'), headsUps: [60, 10, 5], timingIdx: 0, legs }]);
   await page.addInitScript(pushStub());
   await openApp(page, { time: '06:50' });
   const first = page.locator('.row').first();

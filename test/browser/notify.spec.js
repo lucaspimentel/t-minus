@@ -139,7 +139,7 @@ test('reminders from before the bell ("Notify me", no pin) are cancelled at load
   await page.addInitScript(() => {
     if (!sessionStorage.getItem('seeded')) {
       sessionStorage.setItem('seeded', '1');
-      localStorage.setItem('t-minus:reminders', JSON.stringify({ '0/132in-0708': { id: 'old', leaveBy: Date.now() + 600_000, headsUps: [5], timingIdx: 0, key: '132in-0708' } }));
+      localStorage.setItem('t-minus:reminders', JSON.stringify({ 'home/132in-0708': { id: 'old', leaveBy: Date.now() + 600_000, headsUps: [5], timingIdx: 0, key: '132in-0708' } }));
     }
   });
   await openApp(page, { time: '06:50' });

@@ -14,6 +14,7 @@ import { legQuery, predictionQuery, tripShape, shapesQuery } from '../core.js';
 const at = hhmm => Date.parse(`2026-09-30T${hhmm}:00-04:00`);
 const iso = hhmm => `2026-09-30T${hhmm}:00-04:00`;
 const [trip] = JSON.parse(readFileSync('test/fixtures/bus-orange.json', 'utf8')).trips;
+trip.id = 'home'; // the app gives each trip an id
 
 const rec = (type, tripId, stop, t) => ({
   type, attributes: { arrival_time: iso(t), departure_time: iso(t) },
@@ -323,12 +324,15 @@ test('/api/widget: the shown trip\'s timeline; no trips; bad requests; the MBTA 
     assert.equal(v.entries[0].at, at('07:00') / 1000);
     assert.equal(v.end, at('07:10') / 1000);
     // The shown trip: the one-off (last) unless another was picked by hand since.
-    const other = { ...trip, name: 'One-off' };
+    const other = { ...trip, id: 'one', name: 'One-off' };
     assert.equal((await (await s.call('POST', '/api/widget', body({ trips: [trip, other], oneOffAt: at('06:00') }))).json()).name, 'One-off');
-    assert.equal((await (await s.call('POST', '/api/widget', body({ trips: [trip, other], oneOffAt: at('06:00'), override: { index: 0, setAt: at('06:30') } }))).json()).name, trip.name);
+    assert.equal((await (await s.call('POST', '/api/widget', body({ trips: [trip, other], oneOffAt: at('06:00'), override: { id: 'home', setAt: at('06:30') } }))).json()).name, trip.name);
     const none = await (await s.call('POST', '/api/widget', body({ trips: [] }))).json();
     assert.equal(none.entries[0].title, 'Plan a trip in T-Minus');
     assert.equal((await s.call('POST', '/api/widget', body({ trips: [{ name: 'x' }] }))).status, 400);
+    const { id: _, ...noId } = trip;
+    assert.equal((await s.call('POST', '/api/widget', body({ trips: [noId] }))).status, 400); // trips need ids
+    assert.equal((await s.call('POST', '/api/widget', body({ override: { id: 0, setAt: at('06:30') } }))).status, 400);
     assert.equal((await s.call('POST', '/api/widget', body({ stopSlackMinutes: -1 }))).status, 400);
     s.world.clock = at('07:20'); // past the cached copies
     s.world.failing = true;
@@ -607,7 +611,7 @@ test('/api/widget following: a ride (stops, connection), the bell, walking; ende
   const s = await setup();
   try {
     const legs = [{ tripId: 'b1', label: 'Bus 132', route: '132', color: 'FFC72C', dep: at('07:10'), arr: at('07:25') }, { tripId: 'o1', label: 'Orange', route: 'Orange', color: 'ED8B00', dep: at('07:33'), arr: at('07:50') }];
-    const body = state => ({ trips: [trip], stopSlackMinutes: 1, oneOffAt: null, override: null, lastUsed: null, state: { trip: 0, name: trip.name, at: at('07:00'), atStop: null, pinned: false, ...state } });
+    const body = state => ({ trips: [trip], stopSlackMinutes: 1, oneOffAt: null, override: null, lastUsed: null, state: { trip: 'home', at: at('07:00'), atStop: null, pinned: false, ...state } });
     const post = async b => (await s.call('POST', '/api/widget', b)).json();
     // Riding the bus: the stop count from its predictions, the Orange connection.
     s.world.clock = at('07:15');
@@ -632,7 +636,7 @@ test('/api/widget following: a ride (stops, connection), the bell, walking; ende
     s.world.clock = at('08:06');
     const over = await post(body({ kind: 'stop', ride: { legs, boardedAt: at('07:10') } }));
     assert.equal(over.entries[0].long, undefined);
-    assert.equal((await s.call('POST', '/api/widget', { ...body({ kind: 'stop' }), state: { trip: 3 } })).status, 400);
+    assert.equal((await s.call('POST', '/api/widget', { ...body({ kind: 'stop' }), state: { trip: 'nope' } })).status, 400);
   } finally { await s.close(); }
 });
 
@@ -1569,7 +1573,7 @@ test('GET /api/config serves the RUM IDs that are set, null otherwise', async ()
 
 // 2026-09-30 is a Wednesday (3). Bus b1 7:10 → Orange o1 7:33, arriving 8:00 (10-min walk); bus
 // b2 7:20 → o2 7:40, arriving 8:06.
-const autoBells = (autoBell, extra = {}) => ({ subscription: subscription(), stopSlackMinutes: 1, trips: [{ index: 0, tripName: 'Home to office', trip, autoBell }], ...extra });
+const autoBells = (autoBell, extra = {}) => ({ subscription: subscription(), stopSlackMinutes: 1, trips: [{ tripRef: 'home', tripName: 'Home to office', trip, autoBell }], ...extra });
 
 test('auto-bell: 2 h before the target, the server bells the last ride that arrives by it; the app reads it from /bells', async () => {
   const s = await setup();
@@ -1579,7 +1583,7 @@ test('auto-bell: 2 h before the target, the server bells the last ride that arri
     s.world.bus2 = ['07:20', '07:35'];
     const put = await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
     assert.equal(put.status, 200);
-    assert.deepEqual((await put.json()).next, [{ index: 0, at: at('06:10') }]);
+    assert.deepEqual((await put.json()).next, [{ tripRef: 'home', at: at('06:10') }]);
     await s.app.tick();
     assert.deepEqual(s.store.forEndpoint(subscription().endpoint), []);
     s.world.clock = at('06:10');
@@ -1588,7 +1592,7 @@ test('auto-bell: 2 h before the target, the server bells the last ride that arri
     assert.deepEqual(rem.auto.legs.map(l => l.tripId), ['b2', 'o2']); // 8:06: the later one still makes 8:10
     assert.deepEqual(rem.headsUps, [60, 10, 5]);
     const { bells } = await (await s.call('POST', '/api/bells', { subscription: subscription() })).json();
-    assert.deepEqual(bells.map(b => [b.id, b.index, b.tripName, b.key, b.leaveBy]), [[rem.id, 0, 'Home to office', rem.key, rem.leaveBy]]);
+    assert.deepEqual(bells.map(b => [b.id, b.tripRef, b.tripName, b.key, b.leaveBy]), [[rem.id, 'home', 'Home to office', rem.key, rem.leaveBy]]);
     // Sent again unchanged (the app's daily resend): the day stays done.
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
     s.world.clock = at('06:11');
@@ -1596,6 +1600,44 @@ test('auto-bell: 2 h before the target, the server bells the last ride that arri
     assert.equal(s.store.forEndpoint(subscription().endpoint).filter(e => e.auto).length, 1);
     // Next Wednesday's.
     assert.equal(s.store.autoBellsFor(subscription().endpoint)[0].nextAt, at('06:10') + 7 * 24 * 3600_000);
+    // A bell from before trip ids (`auto.index`): listed without a tripRef (the app deletes it).
+    s.store.update({ ...rem, auto: { index: 0, dep: rem.auto.dep, legs: rem.auto.legs } });
+    const old = (await (await s.call('POST', '/api/bells', { subscription: subscription() })).json()).bells;
+    assert.equal(old[0].tripRef, null);
+  } finally { await s.close(); }
+});
+
+test('auto-bell: the day it last belled stays with the trip id, and with a row from before trip ids by name', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('05:00');
+    const ep = subscription().endpoint;
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    s.store.replaceAutoBells(ep, s.store.autoBellsFor(ep).map(a => ({ ...a, lastDate: '2026-09-30' })));
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    assert.equal(s.store.autoBellsFor(ep)[0].lastDate, '2026-09-30');
+    // An old row: `index`, no `tripRef`.
+    s.store.replaceAutoBells(ep, s.store.autoBellsFor(ep).map(({ tripRef: _, ...a }) => ({ ...a, index: 0, lastDate: '2026-09-29' })));
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    assert.equal(s.store.autoBellsFor(ep)[0].lastDate, '2026-09-29');
+    assert.equal(s.store.autoBellsFor(ep)[0].tripRef, 'home');
+    // Another trip id with the same name doesn't take it.
+    await s.call('PUT', '/api/auto-bells', { ...autoBells({ days: [3], arriveBy: '08:10' }), trips: [{ tripRef: 'other', tripName: 'Home to office', trip, autoBell: { days: [3], arriveBy: '08:10' } }] });
+    assert.equal(s.store.autoBellsFor(ep)[0].lastDate, null);
+  } finally { await s.close(); }
+});
+
+test('auto-bell: not while riding the same trip (by id)', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('05:00');
+    await s.call('POST', '/api/rides', followed());
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    s.world.clock = at('06:10');
+    await s.app.tick();
+    const ep = subscription().endpoint;
+    assert.equal(s.store.forEndpoint(ep).filter(e => e.auto).length, 0);
+    assert.equal(s.store.autoBellsFor(ep)[0].lastDate, '2026-09-30');
   } finally { await s.close(); }
 });
 
@@ -1630,6 +1672,10 @@ test('auto-bell: requests are validated; an empty list removes them', async () =
     s.world.clock = at('05:00');
     for (const bad of [{ days: [], arriveBy: '08:00' }, { days: [7], arriveBy: '08:00' }, { days: [1, 1], arriveBy: '08:00' }, { days: [1], arriveBy: '8am' }]) {
       assert.equal((await s.call('PUT', '/api/auto-bells', autoBells(bad))).status, 400, JSON.stringify(bad));
+    }
+    for (const tripRef of [undefined, 0, 'a/b', '']) {
+      const b = autoBells({ days: [1], arriveBy: '08:00' });
+      assert.equal((await s.call('PUT', '/api/auto-bells', { ...b, trips: [{ ...b.trips[0], tripRef }] })).status, 400, String(tripRef));
     }
     assert.equal((await s.call('PUT', '/api/auto-bells', { ...autoBells({ days: [1], arriveBy: '08:00' }), subscription: { endpoint: 'x' } })).status, 400);
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [1], arriveBy: '08:00' }));

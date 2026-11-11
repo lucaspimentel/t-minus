@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-  validateConfig, tripShape, legQuery, predictionQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
+  validateConfig, TRIP_ID_RE, tripShape, legQuery, predictionQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpsDue, remHeadsUps, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
   checkRide, mergeTrips, tripVehicles, trackLegs, ridePhase, transferOutlook, rideStops, rideStopsQuery, rideAlertStep, liveActivityState,
   leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES, LIVE_SOON_MS,
@@ -478,7 +478,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       try {
         // The ride the app follows (widgetFollow), on its own trip; ended or gone: leave times.
         if (body.state) {
-          const trip = cfg.trips[body.state.trip];
+          const trip = cfg.trips.find(x => x.id === body.state.trip);
           const follow = await widgetFollowing(trip, body.state, body.stopSlackMinutes, t);
           if (follow) return reply(res, 200, widgetView(trip.name, null, t, follow));
         }
@@ -521,39 +521,42 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       return reply(res, 200, { lines: store.appLogFor(body.device, t - DAY) });
     }
 
-    // Auto-bell: the phone's schedules (`trips`: [{ index, tripName, trip, autoBell }]), all of
-    // them at once (empty: none). A trip that stays the same keeps the day it last belled.
+    // Auto-bell: the phone's schedules (`trips`: [{ tripRef (the trip's id), tripName, trip,
+    // autoBell }]), all of them at once (empty: none). A trip keeps the day it last belled.
     if (req.method === 'PUT' && path === '/auto-bells') {
       if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' });
       if (body.startToken != null && !validToken(body.startToken)) return reply(res, 400, { error: 'startToken is invalid' });
       if (body.stopSlackMinutes != null && !(Number.isFinite(body.stopSlackMinutes) && body.stopSlackMinutes >= 0 && body.stopSlackMinutes <= 60)) return reply(res, 400, { error: 'stopSlackMinutes is invalid' });
       if (!Array.isArray(body.trips) || body.trips.length > MAX_AUTO_BELLS) return reply(res, 400, { error: `trips must be a list of at most ${MAX_AUTO_BELLS}` });
       for (const a of body.trips) {
-        if (!Number.isInteger(a?.index) || a.index < 0 || a.index > 100) return reply(res, 400, { error: 'index is invalid' });
+        if (typeof a?.tripRef !== 'string' || !TRIP_ID_RE.test(a.tripRef)) return reply(res, 400, { error: 'tripRef is invalid' });
         if (typeof a.tripName !== 'string' || !a.tripName || a.tripName.length > 100) return reply(res, 400, { error: 'tripName is invalid' });
         if (!a.trip || validateConfig({ trips: [a.trip] }).length) return reply(res, 400, { error: 'trip is invalid' });
         if (!validAutoBell(a.autoBell)) return reply(res, 400, { error: 'autoBell is invalid' });
       }
       const ep = body.subscription.endpoint;
-      const old = new Map(store.autoBellsFor(ep).map(a => [`${a.index}/${a.tripName}`, a]));
+      const mine = store.autoBellsFor(ep);
+      const old = new Map(mine.filter(a => a.tripRef).map(a => [a.tripRef, a]));
+      // Rows from before trip ids (`index`, no `tripRef`): matched by name, once.
+      const legacy = new Map(mine.filter(a => !a.tripRef).map(a => [a.tripName, a]));
       const list = body.trips.map(a => {
-        const lastDate = old.get(`${a.index}/${a.tripName}`)?.lastDate ?? null;
+        const lastDate = (old.get(a.tripRef) ?? legacy.get(a.tripName))?.lastDate ?? null;
         return {
           id: randomUUID(), subscription: body.subscription, ...(body.startToken && { startToken: body.startToken }),
-          stopSlackMinutes: body.stopSlackMinutes ?? 1, index: a.index, tripName: a.tripName, trip: a.trip, autoBell: a.autoBell,
+          stopSlackMinutes: body.stopSlackMinutes ?? 1, tripRef: a.tripRef, tripName: a.tripName, trip: a.trip, autoBell: a.autoBell,
           lastDate, nextAt: autoBellNext(a.autoBell, lastDate, t)?.at ?? null,
         };
       });
       store.replaceAutoBells(ep, list);
       log(`auto-bells: ${list.length} for a phone`);
-      return reply(res, 200, { next: list.map(a => ({ index: a.index, at: a.nextAt })) });
+      return reply(res, 200, { next: list.map(a => ({ tripRef: a.tripRef, at: a.nextAt })) });
     }
-    // The bells the server set (auto-bell), for the app to show: [{ id, index, tripName, key,
-    // leaveBy, dep, headsUps, timingIdx, legs }].
+    // The bells the server set (auto-bell), for the app to show: [{ id, tripRef (null: from before
+    // trip ids; the app deletes it), tripName, key, leaveBy, dep, headsUps, timingIdx, legs }].
     if (req.method === 'POST' && path === '/bells') {
       if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' });
       const bells = store.forEndpoint(body.subscription.endpoint).filter(e => e.kind !== 'ride' && e.auto)
-        .map(e => ({ id: e.id, index: e.auto.index, tripName: e.tripName, key: e.key, leaveBy: e.leaveBy, dep: e.seen?.firstDep ?? e.auto.dep, headsUps: remHeadsUps(e), timingIdx: e.timingIdx, legs: e.seen?.legs ?? e.auto.legs }));
+        .map(e => ({ id: e.id, tripRef: e.auto.tripRef ?? null, tripName: e.tripName, key: e.key, leaveBy: e.leaveBy, dep: e.seen?.firstDep ?? e.auto.dep, headsUps: remHeadsUps(e), timingIdx: e.timingIdx, legs: e.seen?.legs ?? e.auto.legs }));
       return reply(res, 200, { bells });
     }
 
@@ -1329,7 +1332,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (t < next.at) { a.nextAt = next.at; return store.updateAutoBell(a); }
     const mine = store.forEndpoint(a.subscription.endpoint);
     if (mine.some(e => e.kind !== 'ride')) return done('a bell is already set');
-    if (mine.some(e => e.kind === 'ride' && e.tripName === a.tripName)) return done('riding this trip');
+    if (mine.some(e => e.kind === 'ride' && e.trip?.id === a.tripRef)) return done('riding this trip');
     let docs;
     try { docs = await widgetDocs(a.trip, a.stopSlackMinutes, t, AUTO_BELL_ROWS); } catch (e) {
       log(`auto-bell ${a.id}: ${e.message}`);
@@ -1342,7 +1345,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       id: randomUUID(), subscription: a.subscription, trip: a.trip, tripName: a.tripName,
       stopSlackMinutes: a.stopSlackMinutes, timingIdx: docs.timing, key: row.key,
       leaveBy: row.leaveBy, headsUps: headsUpsDue(row.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
-      auto: { index: a.index, dep: row.firstDep, legs: row.legs },
+      auto: { tripRef: a.tripRef, dep: row.firstDep, legs: row.legs },
       ...(a.startToken && { startToken: a.startToken }), ...(row.leaveBy <= t && { late: true }),
     };
     store.add(rem);

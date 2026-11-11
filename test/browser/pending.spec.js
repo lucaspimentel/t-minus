@@ -66,8 +66,8 @@ async function openPending(page) {
 test('pending notifications: server entries with sent and next pushes, local-only copies, the log; Delete, Clear all, Back', async ({ page }) => {
   const calls = await fakeServer(page);
   const reminders = {
-    '0/132in-0708': { id: 'r1', leaveBy: at('07:02'), headsUp: false, timingIdx: 0, key: '132in-0708', bell: true },
-    '1/OL-1735': { id: 'r9', leaveBy: at('17:29'), headsUp: true, timingIdx: 0, key: 'OL-1735', bell: true },
+    'home/132in-0708': { id: 'r1', leaveBy: at('07:02'), headsUp: false, timingIdx: 0, key: '132in-0708', bell: true },
+    'office/OL-1735': { id: 'r9', leaveBy: at('17:29'), headsUp: true, timingIdx: 0, key: 'OL-1735', bell: true },
   };
   await page.addInitScript(stub, { server: PUSH, reminders });
   await openApp(page, { time: '06:50' });
@@ -94,7 +94,7 @@ test('pending notifications: server entries with sent and next pushes, local-onl
   await r1.getByRole('button', { name: 'Delete leave reminder for Home to office' }).click();
   await expect(cards(page)).toHaveCount(2);
   expect(calls.some(c => c.method === 'DELETE' && c.path === '/reminders/r1')).toBe(true);
-  expect(Object.keys(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:reminders'))))).toEqual(['1/OL-1735']);
+  expect(Object.keys(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:reminders'))))).toEqual(['office/OL-1735']);
   // ↻ reloads.
   const before = calls.filter(c => c.path === '/pending').length;
   await setup(page).getByRole('button', { name: 'Refresh' }).click();

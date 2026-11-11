@@ -543,7 +543,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-10 · fae55ee75b</footer>
+    <footer class="version">Version 2026-11-10 · 0101e950b5</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -567,22 +567,27 @@
 </script>
 <script type="module">
 import {
-  validateConfig, tripShape, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
+  validateConfig, withTripIds, newTripId, staleServerEntries, reminderKeyOf, reminderRef, tripReminders, tripShape, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, targetRow, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, FOLLOW_MIN_PX, nextFollowLevel, viewAt, viewShiftPx, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=53ac903f10';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=c07a26aeb1';
+} from './core.js?v=2475b935f1';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=595125fb09';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
-const KEY_OVERRIDE = 't-minus:trip-override';
-const KEY_LAST_TRIP = 't-minus:last-trip';
-// "Leaving now" / "At the stop" per trip index: { [idx]: { name, kind, at, atStop, key, dep } }.
+const KEY_OVERRIDE = 't-minus:trip-override'; // { id (a trip id), setAt }
+const KEY_LAST_TRIP = 't-minus:last-trip'; // a trip id
+// "Leaving now" / "At the stop" per trip id: { [tripRef]: { kind, at, atStop, key, dep, ... } }.
 const KEY_EN_ROUTE = 't-minus:en-route';
+// Declared here: the trip-id clean start (below) clears them at load.
+const KEY_REMINDERS = 't-minus:reminders';
+const KEY_ACTIVITY = 't-minus:activity';
+const KEY_LEAVE_CARD = 't-minus:leave-card';
+const KEY_AUTO_BELLS = 't-minus:auto-bells'; // { sent (the request as JSON), at }
 // Remembered live times (rememberLive) kept across reloads, per trip legs (storeLive).
 const KEY_LAST_LIVE = 't-minus:last-live';
 const SCHEDULE_TTL = 15 * 60_000;
@@ -596,10 +601,16 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch {} },
 };
 
-// Saved configs in the old two-commute format fail validation and are ignored.
+// Saved configs in the old two-commute format fail validation and are ignored. Trips without an
+// id get one (written back; `idsAdded`: the clean start below).
+let idsAdded = false;
 function loadConfig() {
   const saved = store.get(KEY_CONFIG);
-  return saved && validateConfig(saved).length === 0 ? saved : null;
+  if (!saved || typeof saved !== 'object') return null;
+  const { cfg, added } = withTripIds(saved);
+  if (validateConfig(cfg).length) return null;
+  if (added) { store.set(KEY_CONFIG, cfg); idsAdded = true; }
+  return cfg;
 }
 
 store.del('t-minus:direction'); // override key from the old format
@@ -611,9 +622,23 @@ let savedConfig = loadConfig();
 const KEY_ONE_OFF = 't-minus:one-off';
 function loadOneOff() {
   const o = store.get(KEY_ONE_OFF);
-  return o?.trip && validateConfig({ trips: [o.trip] }).length === 0 ? o : null;
+  if (!o?.trip) return null;
+  const { cfg, added } = withTripIds({ trips: [o.trip] }, Math.random, (savedConfig?.trips ?? []).map(t => t.id));
+  if (validateConfig(cfg).length) return null;
+  const out = { ...o, trip: cfg.trips[0] };
+  if (added) { store.set(KEY_ONE_OFF, out); idsAdded = true; }
+  return out;
 }
 let oneOff = loadOneOff();
+// Trip ids (2026-11-10): on the first load with ids, everything stored by trip position is
+// cleared (a clean start); what the server holds for it is deleted once the API is known below.
+let staleServer = [];
+let staleActivityId = null;
+if (idsAdded) {
+  staleServer = staleServerEntries(store.get(KEY_REMINDERS), store.get(KEY_EN_ROUTE));
+  staleActivityId = store.get(KEY_ACTIVITY)?.id ?? null;
+  for (const k of [KEY_EN_ROUTE, KEY_REMINDERS, KEY_OVERRIDE, KEY_LAST_TRIP, KEY_ACTIVITY, KEY_LEAVE_CARD, KEY_AUTO_BELLS]) store.del(k);
+}
 // The trips shown: the saved ones, then the one-off; null with neither.
 function withOneOff(saved) {
   const trips = [...(saved?.trips ?? []), ...(oneOff ? [oneOff.trip] : [])];
@@ -621,12 +646,15 @@ function withOneOff(saved) {
 }
 let config = withOneOff(savedConfig);
 const oneOffIdx = () => (oneOff && config ? config.trips.length - 1 : -1);
+// The shown trips' ids and positions: stored and sent state is keyed by id; the UI uses positions.
+const refOf = i => config?.trips[i]?.id ?? null;
+const idxOf = ref => (ref == null ? -1 : config?.trips.findIndex(t => t.id === ref) ?? -1);
 // pickTrip, but the one-off while it exists, unless another trip was picked by hand since.
 function chooseTrip(now, override, near = -1) {
   return shownTrip(now, config, oneOff?.at ?? null, override, store.get(KEY_LAST_TRIP), near);
 }
 let tripIdx = config ? chooseTrip(Date.now(), store.get(KEY_OVERRIDE)) : 0;
-// Per-trip cache, one doc per transit leg:
+// Per-trip cache (by trip id), one doc per transit leg:
 // { predictions: [doc], schedules: {docs, date, coversEndOfService, at}, alerts: {doc, at},
 //   nextDay: {docs, date, at} (next service day's schedules, fetched once today's run out),
 //   timing: index of the transit leg leave-by is based on,
@@ -634,7 +662,7 @@ let tripIdx = config ? chooseTrip(Date.now(), store.get(KEY_OVERRIDE)) : 0;
 //   lastOk / lastError: this trip's last successful fetch time (the data's, from a stale proxy
 //   copy; then mbtaDown) and last error }
 let cache = {};
-// Previous timing leg per trip, for the hysteresis in pickTimingLeg.
+// Previous timing leg per trip id, for the hysteresis in pickTimingLeg.
 const lastTiming = new Map();
 let loading = null; // { idx, since }: a fetch for a trip with no data yet ("Still loading…")
 let notice = null; // e.g. "Saved, but couldn't verify stops"
@@ -706,7 +734,7 @@ const scheduleTrips = doc => {
   return mergedSchedules.get(doc);
 };
 function legStopCounts(r, trip) {
-  const c = cache[tripIdx];
+  const c = cache[refOf(tripIdx)];
   const s = r.nextDay ? c?.nextDay : c?.schedules;
   const date = s?.date ?? serviceDate(Date.now()).date;
   const { transit } = tripShape(trip);
@@ -746,11 +774,11 @@ async function fetchAlerts(trip) {
 }
 
 // Timing leg from schedules only (predictions would make it flicker), with hysteresis.
-function updateTiming(idx, trip, c) {
+function updateTiming(trip, c) {
   const { transit } = tripShape(trip);
   const headways = transit.map((l, i) => averageHeadway(legVehicles(mergeTrips(null, c.schedules?.docs[i]), l)));
-  c.timing = pickTimingLeg(headways, lastTiming.get(idx), trip.timingLeg);
-  lastTiming.set(idx, c.timing);
+  c.timing = pickTimingLeg(headways, lastTiming.get(trip.id), trip.timingLeg);
+  lastTiming.set(trip.id, c.timing);
 }
 
 async function refresh({ force = false } = {}) {
@@ -761,7 +789,7 @@ async function refresh({ force = false } = {}) {
   clearTimeout(pollTimer);
   const idx = tripIdx;
   const trip = config.trips[idx];
-  const c = (cache[idx] ??= { lastLive: loadLive(store.get(KEY_LAST_LIVE), liveKey(tripShape(trip).transit), Date.now()) });
+  const c = (cache[trip.id] ??= { lastLive: loadLive(store.get(KEY_LAST_LIVE), liveKey(tripShape(trip).transit), Date.now()) });
   const now = Date.now();
   if (!$('refresh').classList.contains('busy')) spinStart = now;
   $('refresh').classList.add('busy');
@@ -778,7 +806,7 @@ async function refresh({ force = false } = {}) {
       // Look further ahead when more departures are shown (60-min midday headways).
       // 30 min back keeps a just-missed ride (shown up to 5 min after it leaves) in the data.
       const w = scheduleWindow(now, 30, Math.max(360, 90 * departureCount(config)));
-      tasks.push(fetchSchedules(trip, w).then(s => { c.schedules = s; updateTiming(idx, trip, c); }));
+      tasks.push(fetchSchedules(trip, w).then(s => { c.schedules = s; updateTiming(trip, c); }));
     }
     if (force || !c.alerts || now - c.alerts.at > ALERT_TTL) {
       tasks.push(fetchAlerts(trip).then(a => { c.alerts = a; }));
@@ -838,7 +866,7 @@ function schedulePoll() {
   const now = Date.now();
   const normal = pollIntervalMs(currentRows(now), now, !!enRouteState()?.ride);
   // After an error: back off from 10 s (or wait for the rate limit's reset).
-  const c = cache[tripIdx];
+  const c = cache[refOf(tripIdx)];
   const delay = !c?.lastError ? normal : c.rateLimited ? rateLimitDelayMs(now) : retryDelayMs(c.failures, normal);
   if (c) c.retryAt = c.lastError ? now + delay : null;
   pollTimer = setTimeout(() => refresh(), delay);
@@ -850,35 +878,38 @@ function rowsFor(trip, timing, predictionDocs, scheduleDocs, now, lastLive = nul
   if (!predictionDocs && !scheduleDocs) return [];
   const { transit } = tripShape(trip);
   const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(predictionDocs?.[i], scheduleDocs?.[i])), lastLive, now);
-  const alerts = trainAlerts(cache[config.trips.indexOf(trip)], now);
+  const alerts = trainAlerts(cache[trip.id], now);
   return tripRows(trip, vehicles, timing ?? 0, now, stopSlackMinutes(config), count, enRoute).map(r => withTripAlerts(r, alerts));
 }
 // Per-train alerts ("Train 2317 is 10 min late") by trip id: the trip's /alerts and the ones
 // its predictions name.
 const trainAlerts = (c, now) => tripAlerts([c?.alerts?.doc, ...(c?.predictions ?? [])], now);
 
-// En route state of the shown trip (dropped if the trip at that index was renamed/replaced).
+// En route state of the shown trip (by its id).
 function enRouteState() {
-  const s = (store.get(KEY_EN_ROUTE) ?? {})[tripIdx];
-  return s && config?.trips[tripIdx]?.name === s.name ? s : null;
+  const ref = refOf(tripIdx);
+  return ref == null ? null : (store.get(KEY_EN_ROUTE) ?? {})[ref] ?? null;
 }
 // Returns the reminders a start of the trip cancelled ({ [remKey]: rem }; see restoreReminders).
 function setEnRoute(state) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
-  const prev = all[tripIdx];
+  const ref = refOf(tripIdx);
+  const prev = all[ref];
   const bell = state?.bell && !state.ride;
   let removed = {};
   if (tripStarted(state) && !tripStarted(prev)) {
-    if (bell) startReminders(tripIdx, state.atStop);
-    else removed = cancelTripReminders(tripIdx);
+    if (bell) startReminders(ref, state.atStop);
+    else removed = cancelTripReminders(ref);
   }
-  if (prev?.bell && !prev.ride && !bell) removed = { ...removed, ...dropReminders(tripIdx) };
+  if (prev?.bell && !prev.ride && !bell) removed = { ...removed, ...dropReminders(ref) };
   // Stop alerts follow a ride: none without one; a replaced or ended one is deleted on the server.
   if (state && !state.ride && state.alert) state = withoutAlert(state);
-  const prevAlert = all[tripIdx]?.alert?.id;
+  const prevAlert = all[ref]?.alert?.id;
   if (prevAlert && prevAlert !== state?.alert?.id) pushApi('DELETE', `/rides/${prevAlert}`).catch(() => {});
-  if (state) all[tripIdx] = { ...state, name: config.trips[tripIdx].name };
-  else delete all[tripIdx];
+  if (state) {
+    const { name: _, ...rest } = state; // from before trip ids
+    all[ref] = rest;
+  } else delete all[ref];
   store.set(KEY_EN_ROUTE, all);
   return removed;
 }
@@ -896,7 +927,7 @@ function withoutAlert(state) {
 function currentRows(now, enRoute = enRouteState(), extra = extraRows) {
   if (!config) return [];
   const trip = config.trips[tripIdx];
-  const c = cache[tripIdx];
+  const c = cache[refOf(tripIdx)];
   if (!c) return [];
   const count = departureCount(config) + extra;
   // Rows follow the at-stop time only after "Leaving now" / "At the stop" (not plain tracking).
@@ -915,7 +946,7 @@ function syncEnRoute(now) {
   const before = JSON.stringify(s);
   const trip = config.trips[tripIdx];
   const { transit, walkAfter } = tripShape(trip);
-  const c = cache[tripIdx];
+  const c = cache[refOf(tripIdx)];
   if (!s.ride) s = advanceEnRoute(s, currentRows(now, s), now);
   if (s.ride && c) {
     const maps = transit.map((l, i) => mergeTrips(c.predictions?.[i], c.schedules?.docs[i]));
@@ -942,13 +973,13 @@ function syncEnRoute(now) {
 
 // Per-leg vehicles of the shown trip (predictions + schedules, remembered live times).
 function rideVehicles() {
-  const c = cache[tripIdx];
+  const c = cache[refOf(tripIdx)];
   const { transit } = tripShape(config.trips[tripIdx]);
   return tripVehicles(transit, transit.map((l, i) => mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i])), c?.lastLive, Date.now());
 }
 
 function currentAlerts(now) {
-  const c = cache[tripIdx];
+  const c = cache[refOf(tripIdx)];
   if (!config || !c?.alerts) return [];
   const { routes, stops } = commuteEntities(config.trips[tripIdx]);
   const parents = childToParentMap(...(c.predictions ?? []), ...(c.schedules?.docs ?? []));
@@ -1174,9 +1205,8 @@ async function apnsToken({ quiet = false } = {}) {
 
 // iOS has push only in the Home Screen app (or the iOS app).
 const pushSupported = native || ('PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window);
-// The bell's reminders: { ["<trip>/<row key>"]: { id, leaveBy, dep, headsUps, timingIdx, key, bell } },
+// The bell's reminders: { ["<trip id>/<row key>"]: { id, leaveBy, dep, headsUps, timingIdx, key, bell } },
 // until the boarding question closes (ASK_MINUTES after the departure).
-const KEY_REMINDERS = 't-minus:reminders';
 let reminders = store.get(KEY_REMINDERS) ?? {};
 // Reminders from before the bell ("Notify me", no pin) are cancelled.
 for (const [k, rem] of Object.entries(reminders)) {
@@ -1184,10 +1214,14 @@ for (const [k, rem] of Object.entries(reminders)) {
   delete reminders[k];
   if (SERVER_API) fetch(`${SERVER_API}/reminders/${rem.id}`, { method: 'DELETE' }).catch(() => {});
 }
+// The trip-id clean start's server entries (reminders, stop alerts).
+for (const e of staleServer) {
+  if (SERVER_API) fetch(`${SERVER_API}/${e.kind === 'ride' ? 'rides' : 'reminders'}/${e.id}`, { method: 'DELETE' }).catch(() => {});
+}
 let reminderBusy = null; // the row key while a request is in flight
 const BELL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
 
-const reminderKey = r => `${tripIdx}/${rowKey(r)}`;
+const reminderKey = r => reminderKeyOf(refOf(tripIdx), rowKey(r));
 // The row's reminder (the bell's, with notifications).
 function reminderFor(r) {
   return reminders[reminderKey(r)] ?? null;
@@ -1263,6 +1297,7 @@ async function syncRideAlert(s, now) {
   const sync = `${s.ride.legs.map(l => l.tripId).join(',')}|${alerts}|${token}`;
   if (s.alert?.sync === sync) return;
   const idx = tripIdx;
+  const ref = refOf(idx);
   rideAlertBusy = true;
   try {
     const ride = { legs: s.ride.legs, boardedAt: s.ride.boardedAt };
@@ -1276,7 +1311,7 @@ async function syncRideAlert(s, now) {
     }
     // Still the same ride: remember the alert (else the server's copy is dropped).
     const cur = enRouteState();
-    if (idx === tripIdx && cur?.ride && cur.ride.boardedAt === s.ride.boardedAt) setEnRoute({ ...cur, alert: { id, sync, ...(s.alert?.off && { off: true }) } });
+    if (ref === refOf(tripIdx) && cur?.ride && cur.ride.boardedAt === s.ride.boardedAt) setEnRoute({ ...cur, alert: { id, sync, ...(s.alert?.off && { off: true }) } });
     else pushApi('DELETE', `/rides/${id}`).catch(() => {});
   } catch (e) {
     if (native) nativeLog('rides', e.message);
@@ -1294,11 +1329,11 @@ async function syncRideAlert(s, now) {
 // replaced or finished ride: at once). Its push token goes to the server with the ride
 // (syncRideAlert), which updates it while the app is closed and shows "Arrived" at the end.
 // iOS refusing (Live Activities off in Settings) or a plugin error: the app log, once per ride.
-const KEY_ACTIVITY = 't-minus:activity';
-let activity = native ? store.get(KEY_ACTIVITY) ?? null : null; // { id, key, token, last, gone (swiped away) }
+let activity = native ? store.get(KEY_ACTIVITY) ?? null : null; // { id, key (`${tripRef}/${boardedAt}`), token, last, gone (swiped away) }
+if (native && staleActivityId) Promise.resolve().then(() => plugins.TMinus.liveActivityEnd({ id: staleActivityId })).catch(() => {}); // the trip-id clean start
 let activityBusy = false;
 let activityFailed = null; // the ride key iOS refused
-const activityKey = s => (s?.ride ? `${tripIdx}/${s.ride.boardedAt}` : null);
+const activityKey = s => (s?.ride ? `${refOf(tripIdx)}/${s.ride.boardedAt}` : null);
 function saveActivity(a) {
   activity = a;
   store.set(KEY_ACTIVITY, a);
@@ -1316,7 +1351,7 @@ function rideCardData(s, now) {
   const { walkAfter, transit, transfers } = tripShape(trip);
   const ride = s.ride;
   const phase = ridePhase(ride, walkAfter, now);
-  const rs = cache[tripIdx]?.rideStops;
+  const rs = cache[refOf(tripIdx)]?.rideStops;
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
   const stops = (leg && rs?.tripId === leg.tripId && rideStops(rs.doc, transit[phase.leg].alight, now)) || null;
   return { phase, stops, outlook: transferOutlook(ride, phase, rideVehicles(), transfers, now), walkAfter };
@@ -1333,9 +1368,9 @@ async function syncLiveActivity(s, now) {
     return true;
   };
   if (activity && activity.key !== key) {
-    const [idx, boardedAt] = activity.key.split('/');
-    const other = (store.get(KEY_EN_ROUTE) ?? {})[idx];
-    if (Number(idx) === tripIdx || other?.ride?.boardedAt !== Number(boardedAt)) {
+    const [ref, boardedAt] = activity.key.split('/');
+    const other = (store.get(KEY_EN_ROUTE) ?? {})[ref];
+    if (ref === refOf(tripIdx) || other?.ride?.boardedAt !== Number(boardedAt)) {
       const { id } = activity;
       saveActivity(null);
       await run('end', () => T.liveActivityEnd({ id }));
@@ -1344,7 +1379,7 @@ async function syncLiveActivity(s, now) {
   }
   if (!key || activityFailed === key) return;
   const { phase, stops, outlook, walkAfter } = rideCardData(s, now);
-  const state = liveActivityState(withTripAlerts(s.ride, trainAlerts(cache[tripIdx], now)), phase, stops, outlook, walkAfter, now);
+  const state = liveActivityState(withTripAlerts(s.ride, trainAlerts(cache[refOf(tripIdx)], now)), phase, stops, outlook, walkAfter, now);
   const json = JSON.stringify(state);
   if (!activity) {
     const ok = await run('start', async () => {
@@ -1393,7 +1428,7 @@ async function checkDismissedCards() {
     const found = a.reminderId && Object.entries(reminders).find(([, r]) => r.id === a.reminderId);
     if (!found) continue;
     const [k, rem] = found;
-    const s = all[Number(k.split('/')[0])];
+    const s = all[reminderRef(k)];
     if ((rem.dep ?? rem.leaveBy) <= now || tripStarted(s)) continue;
     return showToast('Lock Screen card closed', 'Show again', () => {
       pushApi('PUT', `/reminders/${rem.id}`, { restartCard: true }).catch(() => showToast("Couldn't show the card"));
@@ -1412,8 +1447,7 @@ async function checkDismissedCards() {
 // vehicle leaving. Bell off ends it (here and on the server). Cards whose reminder is gone are
 // ended when the app opens.
 const KEY_START_TOKEN = 't-minus:start-token';
-const KEY_LEAVE_CARD = 't-minus:leave-card';
-let leaveCard = native ? store.get(KEY_LEAVE_CARD) ?? null : null; // { id, idx, reminderId, key, last }
+let leaveCard = native ? store.get(KEY_LEAVE_CARD) ?? null : null; // { id, tripRef, reminderId, key, last }
 let leaveCardBusy = false;
 let startTokenFailed = false;
 // A build from before Phase 3a lacks the plugin's new methods: nothing to log.
@@ -1450,17 +1484,17 @@ async function endLeaveCards(reminderIds) {
 }
 // A start cancelled `removed` ({ remKey: rem }): keep the earliest one's card as the walk card
 // ("Leaving now" / "At the stop"), end the rest (and all of them on boarding).
-async function adoptLeaveCards(idx, removed) {
+async function adoptLeaveCards(ref, removed) {
   if (!native) return;
   const rems = Object.values(removed).sort((a, b) => a.leaveBy - b.leaveBy);
   const ids = new Set(rems.map(r => r.id));
   const cards = (await leaveActivities()).filter(a => ids.has(a.reminderId));
-  if (!cards.length) return startWalkCard(idx, rems[0]);
-  const s = (store.get(KEY_EN_ROUTE) ?? {})[idx];
+  if (!cards.length) return startWalkCard(ref, rems[0]);
+  const s = (store.get(KEY_EN_ROUTE) ?? {})[ref];
   const keep = s && !s.ride && s.kind !== 'track' ? rems.map(r => cards.find(a => a.reminderId === r.id)).find(Boolean) : null;
   if (keep) {
     if (leaveCard && leaveCard.id !== keep.id) endActivity(leaveCard.id, 'end leave card');
-    saveLeaveCard({ id: keep.id, idx, reminderId: keep.reminderId, key: rems.find(r => r.id === keep.reminderId).key, last: null });
+    saveLeaveCard({ id: keep.id, tripRef: ref, reminderId: keep.reminderId, key: rems.find(r => r.id === keep.reminderId).key, last: null });
   }
   for (const a of cards) if (a !== keep) endActivity(a.id, 'end leave card');
   render();
@@ -1468,16 +1502,16 @@ async function adoptLeaveCards(idx, removed) {
 // No leave card to keep (the server's start failed or never came): the app starts the walk card
 // itself for the earliest cancelled reminder's ride. Without a reminder id: the ride card's start
 // (which ends those) replaces it at boarding.
-async function startWalkCard(idx, rem) {
-  const s = (store.get(KEY_EN_ROUTE) ?? {})[idx];
-  if (!rem || leaveCard || idx !== tripIdx || !s || s.ride || !['leaving', 'stop'].includes(s.kind)) return;
+async function startWalkCard(ref, rem) {
+  const s = (store.get(KEY_EN_ROUTE) ?? {})[ref];
+  if (!rem || leaveCard || ref !== refOf(tripIdx) || !s || s.ride || !['leaving', 'stop'].includes(s.kind)) return;
   const now = Date.now();
   const row = currentRows(now, s).find(r => r.key === rem.key);
   if (!row || now >= row.firstDep) return;
   const state = walkActivityState(row, s, now);
   try {
-    const { id } = await plugins.TMinus.liveActivityStart({ tripName: config.trips[idx].name, state });
-    saveLeaveCard({ id, idx, reminderId: null, key: rem.key, last: JSON.stringify(state) });
+    const { id } = await plugins.TMinus.liveActivityStart({ tripName: config.trips[tripIdx].name, state });
+    saveLeaveCard({ id, tripRef: ref, reminderId: null, key: rem.key, last: JSON.stringify(state) });
     render();
   } catch (e) {
     if (!unimplemented(e)) nativeLog('liveActivity', `walk card: ${e.message}`);
@@ -1486,8 +1520,9 @@ async function startWalkCard(idx, rem) {
 // The walk card: updated while its trip is en route before boarding; ended otherwise.
 function syncLeaveCard(now) {
   if (!native || !leaveCard || leaveCardBusy) return;
-  const s = (store.get(KEY_EN_ROUTE) ?? {})[leaveCard.idx];
-  const shown = leaveCard.idx === tripIdx && config?.trips[tripIdx]?.name === s?.name;
+  const s = (store.get(KEY_EN_ROUTE) ?? {})[leaveCard.tripRef];
+  const cardTrip = config?.trips[idxOf(leaveCard.tripRef)];
+  const shown = !!s && leaveCard.tripRef === refOf(tripIdx);
   const row = shown && !s.ride ? currentRows(now, s).find(r => r.key === leaveCard.key) : null;
   if (!s || s.ride || s.kind === 'track' || (shown && !s.asking && (!row || now >= row.firstDep))) {
     const { id } = leaveCard;
@@ -1496,7 +1531,7 @@ function syncLeaveCard(now) {
     return;
   }
   // Missed at the at-stop time: the boarding question until it's answered.
-  const state = s.asking ? askActivityState({ legs: s.target.legs, firstDep: s.asking.dep, eta: s.target.legs.at(-1).arr + (config?.trips[leaveCard.idx] ? tripShape(config.trips[leaveCard.idx]).walkAfter : 0) * 60_000 }, now) : row && walkActivityState(row, s, now);
+  const state = s.asking ? askActivityState({ legs: s.target.legs, firstDep: s.asking.dep, eta: s.target.legs.at(-1).arr + (cardTrip ? tripShape(cardTrip).walkAfter : 0) * 60_000 }, now) : row && walkActivityState(row, s, now);
   if (!state) return;
   const json = JSON.stringify(state);
   if (json === leaveCard.last) return;
@@ -1536,7 +1571,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=53ac903f10'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=2475b935f1'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -1554,16 +1589,18 @@ function boardingArmSession() {
   const all = store.get(KEY_EN_ROUTE) ?? {};
   const w = widgetState(all, config.trips);
   if (!w) return null;
-  const idx = w.trip;
-  const s = all[idx];
+  const ref = w.trip;
+  const idx = idxOf(ref);
+  if (idx < 0) return null;
+  const s = all[ref];
   const trip = config.trips[idx];
-  const rem = Object.entries(reminders).find(([k, r]) => k.startsWith(`${idx}/`) && r.bell)?.[1] ?? null;
+  const rem = Object.values(tripReminders(reminders, ref)).find(r => r.bell) ?? null;
   const window = s.bell && !s.ride && rem && s.target ? boardingWindow(rem.leaveBy, rem.dep ?? s.target.legs[0].dep) : null;
-  const card = activity && s.ride && activity.key === `${idx}/${s.ride.boardedAt}` ? { id: activity.id, token: activity.token ?? null, kind: 'ride' }
-    : leaveCard?.idx === idx ? { id: leaveCard.id, token: null, kind: 'leave' } : null;
-  const c = cache[idx];
+  const card = activity && s.ride && activity.key === `${ref}/${s.ride.boardedAt}` ? { id: activity.id, token: activity.token ?? null, kind: 'ride' }
+    : leaveCard?.tripRef === ref ? { id: leaveCard.id, token: null, kind: 'leave' } : null;
+  const c = cache[ref];
   return boardingSession({
-    on: true, tripIdx: idx, trip, timingIdx: c?.timing ?? 0, slack: stopSlackMinutes(config), enRoute: s,
+    on: true, tripRef: ref, trip, timingIdx: c?.timing ?? 0, slack: stopSlackMinutes(config), enRoute: s,
     alerts: notifyPermission() === 'granted' && !s.alert?.off, subscription: apnsSubscription(), card, reminderId: rem?.id ?? null, window,
     points: legPoints(trip, [...(c?.predictions ?? []), ...(c?.schedules?.docs ?? [])]),
   });
@@ -1591,17 +1628,18 @@ async function syncBoarding() {
 async function takeBoarding() {
   if (!native || boardingOk !== true || !config) return;
   const a = (await boardingCall('boardingPending'))?.action;
-  if (!a || config.trips[a.tripIdx]?.name !== a.tripName) return;
+  const idx = a ? idxOf(a.tripRef) : -1;
+  if (idx < 0) return;
   const all = store.get(KEY_EN_ROUTE) ?? {};
-  const cur = all[a.tripIdx]?.name === a.tripName ? all[a.tripIdx] : null;
+  const cur = all[a.tripRef] ?? null;
   const base = boardingBase(cur);
   if (base !== a.base && base !== a.from) return;
-  if (a.state && !enRouteActive(a.state, tripShape(config.trips[a.tripIdx]).walkAfter, Date.now())) return;
-  if (a.tripIdx !== tripIdx) setTrip(a.tripIdx, true);
+  if (a.state && !enRouteActive(a.state, tripShape(config.trips[idx]).walkAfter, Date.now())) return;
+  if (idx !== tripIdx) setTrip(idx, true);
   const snap = enRouteState();
   // A ride the native code posted with the leave card's token: that card is now the ride card.
-  if (a.state?.ride && a.state.alert && leaveCard?.idx === tripIdx && activity?.key !== `${tripIdx}/${a.state.ride.boardedAt}`) {
-    saveActivity({ id: leaveCard.id, key: `${tripIdx}/${a.state.ride.boardedAt}`, token: null, last: null });
+  if (a.state?.ride && a.state.alert && leaveCard?.tripRef === a.tripRef && activity?.key !== `${a.tripRef}/${a.state.ride.boardedAt}`) {
+    saveActivity({ id: leaveCard.id, key: `${a.tripRef}/${a.state.ride.boardedAt}`, token: null, last: null });
     saveLeaveCard(null);
   }
   rideNote = null;
@@ -1730,8 +1768,8 @@ async function testPush() {
 // own copies (set reminders, the rides' stop alerts). Deleting a ride's alerts turns them off for
 // that ride (`alert: { off }`, not posted again) until "Turn on stop alerts".
 function localPushEntries() {
-  const out = Object.entries(reminders).map(([k, rem]) => ({ id: rem.id, kind: 'reminder', tripName: config?.trips[Number(k.split('/')[0])]?.name ?? '?', leaveBy: rem.leaveBy }));
-  for (const s of Object.values(store.get(KEY_EN_ROUTE) ?? {})) if (s?.alert?.id) out.push({ id: s.alert.id, kind: 'ride', tripName: s.name });
+  const out = Object.entries(reminders).map(([k, rem]) => ({ id: rem.id, kind: 'reminder', tripName: config?.trips[idxOf(reminderRef(k))]?.name ?? '?', leaveBy: rem.leaveBy }));
+  for (const [ref, s] of Object.entries(store.get(KEY_EN_ROUTE) ?? {})) if (s?.alert?.id) out.push({ id: s.alert.id, kind: 'ride', tripName: config?.trips[idxOf(ref)]?.name ?? '?' });
   return out;
 }
 function dropLocalPush(id) {
@@ -1773,21 +1811,21 @@ const pushDebug = {
 
 // Starting a trip without the bell on (boarding, I got on; see tripStarted) cancels its
 // reminders, silently; returns them for Undo.
-function cancelTripReminders(idx) {
-  const removed = Object.fromEntries(Object.entries(reminders).filter(([k]) => k.startsWith(`${idx}/`)));
+function cancelTripReminders(ref) {
+  const removed = tripReminders(reminders, ref);
   if (!Object.keys(removed).length) return removed;
   for (const k of Object.keys(removed)) delete reminders[k];
   saveReminders();
   // `reason=started`: the server keeps a leave card (the app turns it into the walk card).
   for (const rem of Object.values(removed)) pushApi('DELETE', `/reminders/${rem.id}?reason=started`).catch(() => {});
-  adoptLeaveCards(idx, removed);
+  adoptLeaveCards(ref, removed);
   return removed;
 }
 
 // Undo of a start: posts the cancelled reminders again (those whose ride hasn't left; older
 // entries have no key).
-async function restoreReminders(idx, removed) {
-  const trip = config.trips[idx];
+async function restoreReminders(ref, removed) {
+  const trip = config?.trips[idxOf(ref)];
   const due = Object.entries(removed ?? {}).filter(([, rem]) => rem.key != null && (rem.dep ?? rem.leaveBy) > Date.now());
   if (!trip || !due.length) return;
   try {
@@ -1809,15 +1847,15 @@ async function restoreReminders(idx, removed) {
 
 // "Leaving now" / "At the stop" with the bell on: its reminder stops the leave alerts (the card
 // becomes the walk card) and, at the departure, asks only if the at-stop time missed it.
-function startReminders(idx, atStop) {
-  const mine = Object.fromEntries(Object.entries(reminders).filter(([k]) => k.startsWith(`${idx}/`)));
+function startReminders(ref, atStop) {
+  const mine = tripReminders(reminders, ref);
   for (const rem of Object.values(mine)) pushApi('PUT', `/reminders/${rem.id}`, { started: { atStop } }).catch(() => {});
-  adoptLeaveCards(idx, mine);
+  adoptLeaveCards(ref, mine);
 }
 // The bell went off (off, Cancel, answered, unanswered): the trip's reminders are deleted and
 // their cards end. Returns them for Undo.
-function dropReminders(idx) {
-  const removed = Object.fromEntries(Object.entries(reminders).filter(([k]) => idx == null || k.startsWith(`${idx}/`)));
+function dropReminders(ref) {
+  const removed = ref == null ? { ...reminders } : tripReminders(reminders, ref);
   if (!Object.keys(removed).length) return removed;
   for (const k of Object.keys(removed)) delete reminders[k];
   saveReminders();
@@ -1831,7 +1869,7 @@ function dropReminders(idx) {
 function bellOn(r) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
   for (const [k, s] of Object.entries(all)) {
-    if (Number(k) === tripIdx || !s?.bell || s.ride) continue;
+    if (k === refOf(tripIdx) || !s?.bell || s.ride) continue;
     const rest = unpinTarget(s);
     if (rest) all[k] = rest; else delete all[k];
   }
@@ -1852,7 +1890,6 @@ function bellOff() {
 // Auto-bell (DESIGN.md "Auto-bell"): the saved trips' schedules go to the server, which bells
 // them. Sent when they (or the subscription, the start token, the stop slack) change, and daily.
 // `prompt`: from setup's Save, where notifications may be asked for.
-const KEY_AUTO_BELLS = 't-minus:auto-bells'; // { sent (the request as JSON), at }
 async function syncAutoBells(prompt = false) {
   if (!SERVER_API || !pushSupported) return;
   const trips = autoBellTrips(savedConfig);
@@ -1887,9 +1924,10 @@ async function adoptBells() {
   let changed = false;
   for (const b of bells ?? []) {
     if (known.has(b.id)) continue;
-    const trip = config.trips[b.index];
-    if (trip?.name !== b.tripName) continue;
-    const cur = all[b.index]?.name === trip.name ? all[b.index] : null;
+    // From before trip ids: no trip to show it on.
+    if (!b.tripRef) { pushApi('DELETE', `/reminders/${b.id}`).catch(() => {}); continue; }
+    if (idxOf(b.tripRef) < 0) continue;
+    const cur = all[b.tripRef] ?? null;
     // Under way, riding, or belled here already (hand wins): the server's bell goes.
     if (cur && (cur.ride || tripStarted(cur) || cur.bell)) { pushApi('DELETE', `/reminders/${b.id}?reason=started`).catch(() => {}); continue; }
     // One bell at a time (as bellOn).
@@ -1898,8 +1936,8 @@ async function adoptBells() {
       const rest = unpinTarget(s);
       if (rest) all[k] = rest; else delete all[k];
     }
-    all[b.index] = { ...pinTarget(cur, { key: b.key, legs: b.legs }, Date.now()), name: trip.name };
-    reminders[`${b.index}/${b.key}`] = { id: b.id, leaveBy: b.leaveBy, dep: b.dep, headsUps: b.headsUps, timingIdx: b.timingIdx, key: b.key, bell: true, auto: true };
+    all[b.tripRef] = pinTarget(cur, { key: b.key, legs: b.legs }, Date.now());
+    reminders[reminderKeyOf(b.tripRef, b.key)] = { id: b.id, leaveBy: b.leaveBy, dep: b.dep, headsUps: b.headsUps, timingIdx: b.timingIdx, key: b.key, bell: true, auto: true };
     changed = true;
   }
   if (!changed) return true;
@@ -1912,7 +1950,7 @@ async function adoptBells() {
 
 // Stop names of the shown trip, from the stops its schedule and prediction responses include.
 function tripStopNames() {
-  const c = cache[tripIdx];
+  const c = cache[refOf(tripIdx)];
   return stopNames(...(c?.schedules?.docs ?? []), ...(c?.nextDay?.docs ?? []), ...(c?.predictions ?? []));
 }
 
@@ -2018,7 +2056,7 @@ function render() {
 
   const status = $('status');
   const statusText = $('status-text');
-  const { lastOk, lastError, rateLimited, retryAt, mbtaDown } = cache[tripIdx] ?? {};
+  const { lastOk, lastError, rateLimited, retryAt, mbtaDown } = cache[refOf(tripIdx)] ?? {};
   // Retry after an error (not while rate limited: that retries by itself at the reset).
   $('retry-wrap').hidden = !config || !lastError || rateLimited || inFlight;
   if (!config) {
@@ -2071,7 +2109,7 @@ function render() {
     : keepAwake(currentRows(now), now, wakeMinutes(config)));
   // A new leg being ridden: fetch its stops now rather than at the next poll.
   const riding = en?.ride && ridingLeg(now);
-  if (riding && cache[tripIdx]?.rideStops?.tripId !== riding.leg.tripId && rideFetchFor !== riding.leg.tripId && !inFlight) {
+  if (riding && cache[refOf(tripIdx)]?.rideStops?.tripId !== riding.leg.tripId && rideFetchFor !== riding.leg.tripId && !inFlight) {
     rideFetchFor = riding.leg.tripId;
     setTimeout(() => refresh());
   }
@@ -2162,7 +2200,7 @@ function gotOnButton(r, now) {
 
 // "I got on": tracks that ride from its departure, with Undo.
 function gotOn(r) {
-  const snap = { idx: tripIdx, state: enRouteState() };
+  const snap = { ref: refOf(tripIdx), state: enRouteState() };
   prevOpen = false;
   rideNote = null;
   laterOpen = false;
@@ -2172,9 +2210,11 @@ function gotOn(r) {
   render();
   schedulePoll();
   showToast('Tracking started', 'Undo', () => {
-    if (snap.idx !== tripIdx) setTrip(snap.idx, true);
+    const i = idxOf(snap.ref);
+    if (i < 0) return;
+    if (i !== tripIdx) setTrip(i, true);
     setEnRoute(withoutAlert(snap.state));
-    restoreReminders(snap.idx, snap.removed);
+    restoreReminders(snap.ref, snap.removed);
     render();
     schedulePoll();
   });
@@ -2251,7 +2291,7 @@ function renderEnRoute(now, hasRows, riding = false) {
 
 // Cancel (bar or trip card): ends at once, with "Undo" in a toast for 5 s.
 function cancelTracking() {
-  const snap = { idx: tripIdx, state: enRouteState() };
+  const snap = { ref: refOf(tripIdx), state: enRouteState() };
   rideNote = null;
   laterOpen = false;
   nextOpen = false;
@@ -2260,9 +2300,11 @@ function cancelTracking() {
   render();
   schedulePoll();
   showToast('Tracking cancelled', 'Undo', () => {
-    if (snap.idx !== tripIdx) setTrip(snap.idx, true); // Cancel let autoSwitch change trips
+    const i = idxOf(snap.ref);
+    if (i < 0) return;
+    if (i !== tripIdx) setTrip(i, true); // Cancel let autoSwitch change trips
     setEnRoute(withoutAlert(snap.state));
-    restoreReminders(snap.idx, removed);
+    restoreReminders(snap.ref, removed);
     render();
     schedulePoll();
   });
@@ -2282,9 +2324,9 @@ if (native) {
   // trip is shown, and the answer applies once its departure is reached.
   Promise.resolve().then(() => plugins.PushNotifications.addListener('pushNotificationActionPerformed', ({ actionId, notification }) => {
     if (notification?.data?.kind !== 'board' || !config) return;
-    const idx = Object.entries(store.get(KEY_EN_ROUTE) ?? {}).find(([, st]) => st?.bell && !st.ride)?.[0];
-    if (idx == null) return;
-    setTrip(Number(idx), true);
+    const idx = idxOf(Object.entries(store.get(KEY_EN_ROUTE) ?? {}).find(([, st]) => st?.bell && !st.ride)?.[0]);
+    if (idx < 0) return;
+    setTrip(idx, true);
     syncEnRoute(Date.now());
     if (actionId === 'yes' || actionId === 'missed') answer(actionId === 'yes');
   })).catch(e => nativeLog('push', `action listener: ${e.message}`));
@@ -2292,9 +2334,9 @@ if (native) {
   // the app): applied only to the open question for that departure, else "Question closed".
   Promise.resolve().then(() => plugins.TMinus.addListener('answer', ({ answer: a, dep }) => {
     if (!config) return;
-    const idx = Object.entries(store.get(KEY_EN_ROUTE) ?? {}).find(([, st]) => st?.bell && !st.ride)?.[0];
-    if (idx != null) {
-      setTrip(Number(idx), true);
+    const idx = idxOf(Object.entries(store.get(KEY_EN_ROUTE) ?? {}).find(([, st]) => st?.bell && !st.ride)?.[0]);
+    if (idx >= 0) {
+      setTrip(idx, true);
       syncEnRoute(Date.now());
     }
     if (idx != null && askAnswerMatches(enRouteState(), Number(dep))) answer(a === 'yes');
@@ -2389,7 +2431,7 @@ function renderRideCard(s, now) {
   // Timeline with the current step: the leg being ridden, the transfer before a leg, or the
   // final walk.
   // The timeline's legs with their trains' alerts (shown only, not kept on the ride).
-  const steps = timelineSteps({ legs: withTripAlerts(ride, trainAlerts(cache[tripIdx], now)).legs, eta: phase.eta, enRoute: true }, trip, 0, now, tripStopNames());
+  const steps = timelineSteps({ legs: withTripAlerts(ride, trainAlerts(cache[refOf(tripIdx)], now)).legs, eta: phase.eta, enRoute: true }, trip, 0, now, tripStopNames());
   const along = stops && stops.stops.length ? { leg: phase.leg, rows: rideStopRows(stops, leg.tripId, now) } : null;
   li.append(renderTimeline(steps, now, { phase, key: `ride:${ride.legs[0].tripId}`, along }));
   if (rideNote) li.append(el('div', 'msg', rideNote));
@@ -2471,7 +2513,7 @@ function missedIt(phase) {
   const s = enRouteState();
   if (!s?.ride) return;
   const { transit, transfers } = tripShape(config.trips[tripIdx]);
-  const c = cache[tripIdx];
+  const c = cache[refOf(tripIdx)];
   const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i])), c?.lastLive, now);
   const { state, note } = missLeg(s, phase.leg, vehicles, transfers, now);
   rideNote = note;
@@ -2534,10 +2576,10 @@ document.addEventListener('pointerdown', () => syncWakeLock(wakeWanted));
 
 // A manual choice holds until the next trip window starts (see pickTrip).
 function setTrip(i, manual) {
-  if (manual) store.set(KEY_OVERRIDE, { index: i, setAt: Date.now() });
+  if (manual) store.set(KEY_OVERRIDE, { id: refOf(i), setAt: Date.now() });
   if (i === tripIdx) return;
   tripIdx = i;
-  store.set(KEY_LAST_TRIP, i);
+  store.set(KEY_LAST_TRIP, refOf(i));
   render();
   refresh();
 }
@@ -2554,7 +2596,7 @@ function showSetup({ importOpen = false, plan = false } = {}) {
     root: $('setup'),
     config: savedConfig,
     api,
-    timingFor: i => cache[i]?.timing ?? null,
+    timingFor: i => cache[savedConfig?.trips[i]?.id]?.timing ?? null,
     toast: showToast,
     hideToast,
     testPush: SERVER_API ? { supported: pushSupported, send: testPush } : null,
@@ -2593,22 +2635,22 @@ function showSetup({ importOpen = false, plan = false } = {}) {
 
 // A trip's reminders, en-route state (and its stop alerts on the server) and cached data, dropped;
 // returns { state, reminders } for Undo.
-function dropTripState(idx) {
+function dropTripState(ref) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
-  const state = all[idx] ?? null;
+  const state = all[ref] ?? null;
   if (state?.alert?.id) pushApi('DELETE', `/rides/${state.alert.id}`).catch(() => {});
-  delete all[idx];
+  delete all[ref];
   store.set(KEY_EN_ROUTE, all);
-  const removed = cancelTripReminders(idx);
-  delete cache[idx];
-  lastTiming.delete(idx);
+  const removed = cancelTripReminders(ref);
+  delete cache[ref];
+  lastTiming.delete(ref);
   return { state, reminders: removed };
 }
 
-// "See departures" on a planned way: it replaces any one-off and is shown.
+// "See departures" on a planned way: it replaces any one-off and is shown. A new trip id each time.
 function setOneOff(trip) {
-  if (oneOffIdx() >= 0) dropTripState(oneOffIdx());
-  oneOff = { trip, at: Date.now() };
+  if (oneOff) dropTripState(oneOff.trip.id);
+  oneOff = { trip: { ...trip, id: newTripId((savedConfig?.trips ?? []).map(t => t.id)) }, at: Date.now() };
   store.set(KEY_ONE_OFF, oneOff);
   config = withOneOff(savedConfig);
   tripIdx = oneOffIdx();
@@ -2619,13 +2661,13 @@ function removeOneOff(undo = true) {
   const idx = oneOffIdx();
   if (idx < 0) return;
   const prev = oneOff;
-  const dropped = dropTripState(idx);
+  const dropped = dropTripState(prev.trip.id);
   oneOff = null;
   store.del(KEY_ONE_OFF);
   config = withOneOff(savedConfig);
   tripIdx = config ? chooseTrip(Date.now(), store.get(KEY_OVERRIDE), located()) : 0;
   render();
-  if (config) refresh({ force: !cache[tripIdx] });
+  if (config) refresh({ force: !cache[refOf(tripIdx)] });
   if (!undo) return;
   showToast('One-off trip removed', 'Undo', () => {
     oneOff = prev;
@@ -2634,16 +2676,16 @@ function removeOneOff(undo = true) {
     tripIdx = oneOffIdx();
     if (dropped.state) {
       const all = store.get(KEY_EN_ROUTE) ?? {};
-      all[tripIdx] = withoutAlert(dropped.state);
+      all[prev.trip.id] = withoutAlert(dropped.state);
       store.set(KEY_EN_ROUTE, all);
     }
-    restoreReminders(tripIdx, dropped.reminders);
+    restoreReminders(prev.trip.id, dropped.reminders);
     render();
     refresh({ force: true });
   });
 }
 
-// Save: the one-off becomes the last saved trip (same index, so its state carries over).
+// Save: the one-off becomes the last saved trip (its id kept, so its state carries over).
 function saveOneOff() {
   if (!oneOff) return;
   savedConfig = { ...(savedConfig ?? {}), trips: [...(savedConfig?.trips ?? []), oneOff.trip] };
@@ -2675,12 +2717,12 @@ function closeSetup({ show = null } = {}) {
   setupView = null;
   $('app').hidden = false;
   if (show != null && config?.trips[show]) {
-    store.set(KEY_OVERRIDE, { index: show, setAt: Date.now() });
-    store.set(KEY_LAST_TRIP, show);
+    store.set(KEY_OVERRIDE, { id: config.trips[show].id, setAt: Date.now() });
+    store.set(KEY_LAST_TRIP, config.trips[show].id);
     tripIdx = show;
   }
   render();
-  refresh({ force: !cache[tripIdx] });
+  refresh({ force: !cache[refOf(tripIdx)] });
 }
 
 $('open-setup').onclick = () => showSetup();
@@ -3161,7 +3203,7 @@ const mapLegs = trip => tripShape(trip).transit.map(l => ({ route: l.route, also
 function drawEmptyMap() {
   const e = emptyMap;
   if (!e) return;
-  const c = cache[e.idx];
+  const c = cache[e.trip.id];
   const points = legPoints(e.trip, [...(c?.predictions ?? []), ...(c?.schedules?.docs ?? [])]);
   const out = outsideMap(e.loc.here), here = out ? null : e.loc.here;
   e.widget.draw({
@@ -3244,7 +3286,7 @@ function drawMapSheet() {
   if (!m) return;
   const now = Date.now();
   const s = enRouteState();
-  const c = cache[m.idx];
+  const c = cache[m.trip.id];
   const points = legPoints(m.trip, [...(c?.predictions ?? []), ...(c?.schedules?.docs ?? [])]);
   const phase = s?.ride ? ridePhase(s.ride, tripShape(m.trip).walkAfter, now) : null;
   const mine = m.legs.map((_, i) => s?.ride?.legs[i]?.tripId ?? (s?.bell ? s.target?.legs?.[i]?.tripId ?? null : null));

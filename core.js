@@ -27,7 +27,7 @@ function parseHHMM(s) {
   return h * 60 + m;
 }
 
-export function validateConfig(cfg) {
+export function validateConfig(cfg, { requireIds = false } = {}) {
   const errors = [];
   if (!cfg || typeof cfg !== 'object') return ['Config must be a JSON object.'];
   if (cfg.stopSlackMinutes !== undefined && !(Number.isFinite(cfg.stopSlackMinutes) && cfg.stopSlackMinutes >= 0)) {
@@ -53,6 +53,13 @@ export function validateConfig(cfg) {
   cfg.trips.forEach((t, i) => {
     const p = `${tripLabel(cfg.trips, i)}:`;
     if (!t?.name) errors.push(`${p} name is required.`);
+    if (t?.id === undefined) {
+      if (requireIds) errors.push(`${p} id is required.`);
+    } else if (typeof t.id !== 'string' || !TRIP_ID_RE.test(t.id)) {
+      errors.push(`${p} id must be 1-40 letters, digits, "_" or "-".`);
+    } else if (cfg.trips.findIndex(o => o?.id === t.id) !== i) {
+      errors.push(`${p} id is used by another trip.`);
+    }
     if (!Array.isArray(t?.legs)) { errors.push(`${p} legs must be an array.`); return; }
     const transitCount = t.legs.filter(l => l?.kind === 'transit').length;
     if (transitCount < 1) errors.push(`${p} needs at least one transit leg.`);
@@ -97,6 +104,64 @@ export function validateConfig(cfg) {
     }
   });
   return errors;
+}
+
+// ---------- trip ids ----------
+// Each trip has a random, stable `id` (2026-11-10): per-trip state (en-route, reminders, cache,
+// the manual pick, last used, auto-bells, the widget, boarding) is keyed by it, not by position.
+// References to it are `tripRef` (`tripId` is the MBTA trip). No "/": keys are `${id}/...`.
+export const TRIP_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+
+export function newTripId(taken = [], rand = Math.random) {
+  const used = new Set(taken);
+  for (;;) {
+    let id = 't';
+    for (let i = 0; i < 8; i++) id += Math.floor(rand() * 36).toString(36);
+    if (!used.has(id)) return id;
+  }
+}
+
+// Keeps valid unique ids, assigns missing, invalid or duplicate ones (avoiding `taken`).
+// `added`: anything changed.
+export function withTripIds(cfg, rand = Math.random, taken = []) {
+  if (!Array.isArray(cfg?.trips)) return { cfg, added: false };
+  const used = new Set(taken);
+  let added = false;
+  const trips = cfg.trips.map(t => {
+    if (!t || typeof t !== 'object') return t;
+    if (typeof t.id === 'string' && TRIP_ID_RE.test(t.id) && !used.has(t.id)) { used.add(t.id); return t; }
+    const id = newTripId(used, rand);
+    used.add(id);
+    added = true;
+    return { ...t, id };
+  });
+  return { cfg: added ? { ...cfg, trips } : cfg, added };
+}
+
+// Export: ids stay on this phone (an import always gets new ones).
+export function withoutTripIds(cfg) {
+  if (!Array.isArray(cfg?.trips)) return cfg;
+  return { ...cfg, trips: cfg.trips.map(t => { if (!t || typeof t !== 'object') return t; const { id: _, ...rest } = t; return rest; }) };
+}
+
+export function tripIndex(trips, ref) {
+  return ref == null ? -1 : (trips ?? []).findIndex(t => t?.id === ref);
+}
+
+// Reminder keys: `${tripRef}/${rowKey}`.
+export const reminderKeyOf = (ref, rowKey) => `${ref}/${rowKey}`;
+export const reminderRef = key => key.slice(0, key.indexOf('/') < 0 ? key.length : key.indexOf('/'));
+export function tripReminders(reminders, ref) {
+  return Object.fromEntries(Object.entries(reminders ?? {}).filter(([k]) => reminderRef(k) === ref));
+}
+
+// What the server holds for this phone in stored reminders and en-route states: the entries
+// to delete when that storage is cleared (the trip-id migration).
+export function staleServerEntries(reminders, enRoute) {
+  const out = [];
+  for (const r of Object.values(reminders ?? {})) if (r?.id) out.push({ kind: 'reminder', id: r.id });
+  for (const s of Object.values(enRoute ?? {})) if (s?.alert?.id) out.push({ kind: 'ride', id: s.alert.id });
+  return out;
 }
 
 // Number of departures to show; optional in saved configs.
@@ -1341,19 +1406,19 @@ function nextWindowStart(ms, trips) {
   return best;
 }
 
-// Trip index to show: a manual override `{ index, setAt }` holds until the next window start
-// after it was set; then a location match (`located`, from pickByLocation); then the first trip
-// whose window contains now; otherwise the last used.
+// Trip index to show: a manual override `{ id, setAt }` (a trip id) holds until the next window
+// start after it was set; then a location match (`located`, an index from pickByLocation); then
+// the first trip whose window contains now; otherwise the last used (a trip id).
 export function pickTrip(nowMs, cfg, override, lastUsed, located = -1) {
   const n = cfg.trips.length;
-  if (override && override.index >= 0 && override.index < n && nowMs < nextWindowStart(override.setAt, cfg.trips)) {
-    return override.index;
-  }
+  const picked = tripIndex(cfg.trips, override?.id);
+  if (picked >= 0 && nowMs < nextWindowStart(override.setAt, cfg.trips)) return picked;
   if (located >= 0 && located < n) return located;
   const m = minuteOfDay(nowMs);
   const inside = cfg.trips.findIndex(t => t.window && inWindow(m, t.window));
   if (inside >= 0) return inside;
-  return Number.isInteger(lastUsed) && lastUsed >= 0 && lastUsed < n ? lastUsed : 0;
+  const last = tripIndex(cfg.trips, lastUsed);
+  return last >= 0 ? last : 0;
 }
 
 // ---------- trips ----------
@@ -2868,7 +2933,7 @@ export function leaveStartText(tripName, row, nowMs) {
 // without a location fix.
 export function shownTrip(nowMs, cfg, oneOffAt, override, lastUsed, located = -1) {
   const one = oneOffAt != null && cfg.trips.length ? cfg.trips.length - 1 : -1;
-  if (one >= 0 && !(override && override.setAt >= oneOffAt && override.index !== one)) return one;
+  if (one >= 0 && !(override && override.setAt >= oneOffAt && override.id !== cfg.trips[one].id && tripIndex(cfg.trips, override.id) >= 0)) return one;
   return pickTrip(nowMs, cfg, override, lastUsed, located);
 }
 
@@ -2878,7 +2943,7 @@ export function shownTrip(nowMs, cfg, oneOffAt, override, lastUsed, located = -1
 export function widgetRequest(cfg, oneOffAt, override, lastUsed, state = null) {
   return {
     trips: cfg?.trips ?? [], stopSlackMinutes: cfg ? stopSlackMinutes(cfg) : DEFAULT_STOP_SLACK_MINUTES,
-    oneOffAt: oneOffAt ?? null, override: override ?? null, lastUsed: Number.isInteger(lastUsed) ? lastUsed : null, state,
+    oneOffAt: oneOffAt ?? null, override: override ?? null, lastUsed: typeof lastUsed === 'string' ? lastUsed : null, state,
   };
 }
 
@@ -2889,24 +2954,24 @@ const WIDGET_LEG_KEYS = ['route', 'label', 'routeLabels', 'vehicleRoute', 'color
 const toMinute = ms => Math.floor(ms / MIN) * MIN;
 const widgetLegs = legs => legs.map(l => Object.fromEntries(WIDGET_LEG_KEYS.filter(k => l[k] != null).map(k => [k, k === 'dep' || k === 'arr' || k === 'off' ? toMinute(l[k]) : l[k]])));
 
-// The one en-route state the widget follows (2026-10-31; KEY_EN_ROUTE's { [tripIdx]: state }): a
+// The one en-route state the widget follows (2026-10-31; KEY_EN_ROUTE's { [tripRef]: state }): a
 // ride first, then the boarding question, "Leaving now" / "At the stop", the bell. Null: none
-// (leave times). Only what the server needs: `trip` (its index) and `name`, `kind`, `at`, `atStop`,
+// (leave times). Only what the server needs: `trip` (its id), `kind`, `at`, `atStop`,
 // `pinned`, `target` ({ key, legs }), `asking`, `ride` ({ legs, boardedAt, missed }).
 export function widgetState(all, trips) {
-  const live = Object.entries(all ?? {}).filter(([i, s]) => s && trips?.[i]?.name === s.name);
+  const live = Object.entries(all ?? {}).filter(([ref, s]) => s && tripIndex(trips, ref) >= 0);
   const rank = s => (s.ride ? 0 : s.asking ? 1 : s.kind !== 'track' ? 2 : s.bell ? 3 : 4);
-  const [idx, s] = live.sort((x, y) => rank(x[1]) - rank(y[1]))[0] ?? [];
+  const [ref, s] = live.sort((x, y) => rank(x[1]) - rank(y[1]))[0] ?? [];
   if (!s || rank(s) === 4 || (rank(s) === 3 && !s.target)) return null;
-  const out = { trip: Number(idx), name: s.name, kind: s.kind, at: s.at, atStop: s.atStop ?? null, pinned: !!s.pinned };
+  const out = { trip: ref, kind: s.kind, at: s.at, atStop: s.atStop ?? null, pinned: !!s.pinned };
   if (s.target) out.target = { key: s.target.key, legs: widgetLegs(s.target.legs) };
   if (s.asking) out.asking = { dep: s.asking.dep };
   if (s.ride) out.ride = { legs: widgetLegs(s.ride.legs), boardedAt: s.ride.boardedAt, ...(s.ride.missed && { missed: s.ride.missed }) };
   return out;
 }
 function widgetStateError(st, trips) {
-  const trip = trips[st.trip];
-  if (!Number.isInteger(st.trip) || !trip || trip.name !== st.name) return 'state.trip is invalid';
+  const trip = typeof st.trip === 'string' ? trips[tripIndex(trips, st.trip)] : null;
+  if (!trip) return 'state.trip is invalid';
   if (!['track', 'leaving', 'stop'].includes(st.kind) || !Number.isFinite(st.at)) return 'state is invalid';
   const n = tripShape(trip).transit.length;
   const legsOk = legs => Array.isArray(legs) && legs.length === n && legs.every(l => typeof l?.tripId === 'string' && Number.isFinite(l.dep) && Number.isFinite(l.arr));
@@ -2919,11 +2984,11 @@ function widgetStateError(st, trips) {
 // The request's error message, or null.
 export function widgetRequestError(b) {
   if (!Array.isArray(b?.trips) || b.trips.length > 50) return 'trips is invalid';
-  if (b.trips.length && validateConfig({ trips: b.trips }).length) return 'trips is invalid';
+  if (b.trips.length && validateConfig({ trips: b.trips }, { requireIds: true }).length) return 'trips is invalid';
   if (!(Number.isFinite(b.stopSlackMinutes) && b.stopSlackMinutes >= 0 && b.stopSlackMinutes <= 60)) return 'stopSlackMinutes is invalid';
   if (b.oneOffAt != null && !Number.isFinite(b.oneOffAt)) return 'oneOffAt is invalid';
-  if (b.override != null && !(Number.isInteger(b.override.index) && Number.isFinite(b.override.setAt))) return 'override is invalid';
-  if (b.lastUsed != null && !Number.isInteger(b.lastUsed)) return 'lastUsed is invalid';
+  if (b.override != null && !(typeof b.override.id === 'string' && Number.isFinite(b.override.setAt))) return 'override is invalid';
+  if (b.lastUsed != null && typeof b.lastUsed !== 'string') return 'lastUsed is invalid';
   if (b.state != null) return typeof b.state === 'object' ? widgetStateError(b.state, b.trips) : 'state is invalid';
   return null;
 }
@@ -3254,9 +3319,9 @@ export function autoBellLabel(ab) {
   return `🔔 ${days} · by ${h % 12 || 12}:${pad(m)}${h < 12 ? 'am' : 'pm'}`;
 }
 
-// What the app sends the server (`PUT /auto-bells`): the saved trips with an auto-bell, by index.
+// What the app sends the server (`PUT /auto-bells`): the saved trips with an auto-bell, by id.
 export function autoBellTrips(cfg) {
-  return (cfg?.trips ?? []).flatMap((trip, index) => (validAutoBell(trip.autoBell) ? [{ index, tripName: trip.name, trip, autoBell: trip.autoBell }] : []));
+  return (cfg?.trips ?? []).flatMap(trip => (validAutoBell(trip.autoBell) ? [{ tripRef: trip.id, tripName: trip.name, trip, autoBell: trip.autoBell }] : []));
 }
 
 // ---------- formatting ----------
@@ -3520,11 +3585,11 @@ export function gpsArrival(track, stop, sinceMs) {
 }
 
 // The session the web app hands to native code (TMinus.boardingArm), with what native code adds:
-// web: { on, tripIdx, trip, timingIdx, slack, enRoute, alerts, subscription, card ({ id, token,
+// web: { on, tripRef (the trip's id), trip, timingIdx, slack, enRoute, alerts, subscription, card ({ id, token,
 //   kind }), reminderId, window ({ from, to }: the geofence's), points (legPoints) };
 // native: { geofence ({ lastInside }), track, positions, docs ({ p, s }), fetched ({ key: ms }),
 //   matched ({ leg: tripId }), rejected, pending }.
-const WEB_KEYS = ['on', 'tripIdx', 'trip', 'timingIdx', 'slack', 'enRoute', 'alerts', 'subscription', 'card', 'reminderId', 'window', 'points'];
+const WEB_KEYS = ['on', 'tripRef', 'trip', 'timingIdx', 'slack', 'enRoute', 'alerts', 'subscription', 'card', 'reminderId', 'window', 'points'];
 export function boardingSession(web) {
   return Object.fromEntries(WEB_KEYS.map(k => [k, web[k] ?? null]));
 }
@@ -3557,7 +3622,7 @@ export function boardingWants(s, nowMs) {
   const gps = st.kind !== 'track' && (!phase || phase.kind === 'riding' || phase.kind === 'transfer');
   const board = pointsOf(s)[0]?.board;
   const region = !st.ride && st.kind === 'track' && st.bell && s.window && nowMs < s.window.to && board
-    ? { id: `tminus-stop-${s.tripIdx}`, lat: board.lat, lon: board.lon, radius: GEOFENCE_METERS } : null;
+    ? { id: `tminus-stop-${s.tripRef}`, lat: board.lat, lon: board.lon, radius: GEOFENCE_METERS } : null;
   const watching = !st.ride && st.kind === 'track' && st.bell && s.window && nowMs < s.window.to;
   const queries = [];
   if (gps || watching) {
@@ -3599,7 +3664,7 @@ function applyVerdict(s, v, ctx, nowMs) {
     const L = ride ? ride.legs[leg] : st.target.legs[0];
     const toast = `Missed the ${formatTime(L.dep, nowMs)} ${vehicleLabel(L)}`;
     const sig = `missed:${leg}:${v.tripId}`;
-    if (!ride) return { state: st.asking ? answerBoarding(st, false) : { kind: 'stop', at: nowMs, atStop: nowMs, name: st.name }, toast, sig };
+    if (!ride) return { state: st.asking ? answerBoarding(st, false) : { kind: 'stop', at: nowMs, atStop: nowMs }, toast, sig };
     const r = missLeg({ ...st, ride: { ...st.ride, legs: ride.legs } }, leg, vehiclesByLeg, shape.transfers, nowMs);
     return r.note ? null : { state: r.state, toast, sig };
   }
@@ -3659,7 +3724,7 @@ function closedAppActions(s, prev, next, nowMs) {
 // The web app's (or a bell's) fields over what native code has gathered for the same trip; a new
 // ride starts its matches over.
 function armSession(s, web) {
-  const same = s && s.tripIdx === web.tripIdx && s.trip?.name === web.trip?.name;
+  const same = s && s.tripRef != null && s.tripRef === web.tripRef;
   const fresh = !same || s.enRoute?.ride?.boardedAt !== web.enRoute?.ride?.boardedAt;
   return { geofence: { lastInside: null }, track: [], positions: [], docs: { p: [], s: [] }, fetched: {}, matched: {}, rejected: [], pending: null,
     ...(same && s), ...(same && fresh && { matched: {}, rejected: [] }), ...web };
@@ -3685,11 +3750,11 @@ export function nativeBoardingStep(input) {
       // An auto-bell's leave card started with the page closed: its bell (POST /bells), with the
       // page's last `defaults` ({ trips, subscription, slack, alerts }). Not over a started trip.
       const { bell: b, defaults: d, card } = event;
-      const trip = d?.trips?.[b.index];
-      if (trip?.name !== b.tripName || (s?.enRoute && tripStarted(s.enRoute))) break;
+      const trip = d?.trips?.find(t => t.id === b.tripRef);
+      if (!trip || (s?.enRoute && tripStarted(s.enRoute))) break;
       s = armSession(s, boardingSession({
-        on: true, tripIdx: b.index, trip, timingIdx: b.timingIdx, slack: d.slack, alerts: d.alerts, subscription: d.subscription, card,
-        reminderId: b.id, window: boardingWindow(b.leaveBy, b.dep), enRoute: { ...pinTarget(null, { key: b.key, legs: b.legs }, nowMs), name: trip.name },
+        on: true, tripRef: b.tripRef, trip, timingIdx: b.timingIdx, slack: d.slack, alerts: d.alerts, subscription: d.subscription, card,
+        reminderId: b.id, window: boardingWindow(b.leaveBy, b.dep), enRoute: pinTarget(null, { key: b.key, legs: b.legs }, nowMs),
       }));
       log(`armed from the bell for ${trip.name}`);
       break;
@@ -3727,7 +3792,7 @@ export function nativeBoardingStep(input) {
   if (!s) return JSON.stringify({ session: null, wants: boardingWants(null, nowMs), actions });
   const commit = (next, toast, sig, what) => {
     const prev = s.enRoute;
-    const pending = { undoId: `${nowMs}:${what}`, tripIdx: s.tripIdx, tripName: s.trip.name, toast, at: nowMs, state: next, base: boardingBase(prev), from: s.pending?.from ?? boardingBase(prev), undo: prev, sig };
+    const pending = { undoId: `${nowMs}:${what}`, tripRef: s.tripRef, tripName: s.trip.name, toast, at: nowMs, state: next, base: boardingBase(prev), from: s.pending?.from ?? boardingBase(prev), undo: prev, sig };
     s = { ...s, enRoute: next, pending };
     actions.push({ type: 'state', ...pending });
     if (!active) actions.push(...closedAppActions(s, prev, next, nowMs));

@@ -211,7 +211,7 @@ test('the widget\'s request goes to the shared keychain on open, when the trip c
   expect(await bodies()).toHaveLength(1);
   await page.locator('#toggle button', { hasText: 'Office to home' }).click();
   await expect.poll(async () => (await bodies()).length).toBe(2);
-  expect((await bodies())[1]).toMatchObject({ override: { index: 1 }, lastUsed: 1 });
+  expect((await bodies())[1]).toMatchObject({ override: { id: 'office' }, lastUsed: 'office' });
   await tick(page, 3000);
   expect(await bodies()).toHaveLength(2); // the other trip's next ride is a new baseline, not a change
   // Back in the app: rewritten (reloading the widget), the request unchanged.
@@ -232,7 +232,7 @@ test('the widget\'s request carries the followed state: Leaving now, Cancel, At 
   await expect.poll(async () => (await last())?.state).toBe(null);
   await page.locator('#enroute').getByRole('button', { name: 'Leaving now' }).click();
   await expect.poll(async () => (await last()).state?.kind).toBe('leaving');
-  expect((await last()).state).toMatchObject({ trip: 0, name: 'Home to office', pinned: false, target: { key: expect.any(String) } });
+  expect((await last()).state).toMatchObject({ trip: 'home', pinned: false, target: { key: expect.any(String) } });
   await page.locator('#enroute').getByRole('button', { name: 'Cancel' }).click();
   await expect.poll(async () => (await last()).state).toBe(null);
   await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
@@ -468,7 +468,7 @@ test('at launch, the card of a bell the server set stays; a card from a gone rem
     { route: '132', label: 'Bus 132', color: 'FFC72C', tripId: 'b1', dep: at('07:08'), arr: at('07:20'), source: 'schedule' },
     { route: 'Orange', label: 'Orange', color: 'ED8B00', tripId: 'o1', dep: at('07:27'), arr: at('07:45'), source: 'schedule' },
   ];
-  await fakeServer(page, { bells: [{ id: 'auto1', index: 0, tripName: 'Home to office', key: '132in-0708', leaveBy: at('07:02'), dep: at('07:08'), headsUps: [60, 10, 5], timingIdx: 0, legs }] });
+  await fakeServer(page, { bells: [{ id: 'auto1', tripRef: 'home', tripName: 'Home to office', key: '132in-0708', leaveBy: at('07:02'), dep: at('07:08'), headsUps: [60, 10, 5], timingIdx: 0, legs }] });
   await page.addInitScript(capacitorStub, { server: PUSH, token: TOKEN, leave: true });
   await page.addInitScript(token => {
     localStorage.setItem('t-minus:apns-token', JSON.stringify(token));
@@ -521,13 +521,13 @@ const boardingCalls = (page, call) => page.evaluate(c => window.boardingCalls.fi
 async function detect(page, kind, toast) {
   await page.evaluate(async ([kind, toast]) => {
     const { boardingBase } = await import('/core.js');
-    const cur = JSON.parse(localStorage.getItem('t-minus:en-route'))[0];
+    const cur = JSON.parse(localStorage.getItem('t-minus:en-route')).home;
     const now = Date.now();
     const leg1 = f => ({ ...cur, ride: { ...cur.ride, legs: cur.ride.legs.map((l, i) => (i === 1 ? f(l) : l)) } });
     const state = kind === 'switch' ? leg1(l => ({ ...l, tripId: 'OLin-0726', dep: l.dep - 6 * 60_000, arr: l.arr - 6 * 60_000 }))
       : kind === 'missed' ? { kind: 'stop', at: now, atStop: now, name: cur.name }
         : leg1(l => ({ ...l, off: now }));
-    window.boardingAction = { undoId: 'u1', tripIdx: 0, tripName: cur.name, toast, at: now, state, base: boardingBase(cur), from: boardingBase(cur) };
+    window.boardingAction = { undoId: 'u1', tripRef: 'home', tripName: 'Home to office', toast, at: now, state, base: boardingBase(cur), from: boardingBase(cur) };
     window.emitBoarding();
   }, [kind, toast]);
   await tick(page, 300);
@@ -644,7 +644,7 @@ test('with the setting on, a belled ride is armed: its window and state, the cor
   await expect.poll(async () => (await boardingCalls(page, 'arm')).length).toBeGreaterThan(0);
   const { session, coreUrl } = (await boardingCalls(page, 'arm')).at(-1);
   expect(coreUrl).toMatch(/\/core\.js\?v=[0-9a-f]{10}$/);
-  expect(session).toMatchObject({ on: true, tripIdx: 0, reminderId: 'r1', window: { from: at('07:02') - 15 * 60_000, to: at('07:08') + 30 * 60_000 } });
+  expect(session).toMatchObject({ on: true, tripRef: 'home', reminderId: 'r1', window: { from: at('07:02') - 15 * 60_000, to: at('07:08') + 30 * 60_000 } });
   expect(session.enRoute).toMatchObject({ kind: 'track', bell: true });
   expect(session.subscription).toEqual({ endpoint: `apns:${TOKEN.toLowerCase()}` });
   for (const c of calls) expect(JSON.stringify(c.body ?? {})).not.toMatch(/"lat"|"lon"|latitude|longitude/);
@@ -704,8 +704,8 @@ test('Leaving now: "Walking" past the estimate with At the stop; arrival from GP
   // The native engine: at the stop from GPS at 7:06.
   await page.evaluate(async t => {
     const { boardingBase } = await import('/core.js');
-    const cur = JSON.parse(localStorage.getItem('t-minus:en-route'))[0];
-    window.boardingAction = { undoId: 'g1', tripIdx: 0, tripName: cur.name, toast: 'At the stop (location)', at: Date.now(), state: { ...cur, kind: 'stop', atStop: t }, base: boardingBase(cur), from: boardingBase(cur), sig: `arrive:${cur.at}` };
+    const cur = JSON.parse(localStorage.getItem('t-minus:en-route')).home;
+    window.boardingAction = { undoId: 'g1', tripRef: 'home', tripName: 'Home to office', toast: 'At the stop (location)', at: Date.now(), state: { ...cur, kind: 'stop', atStop: t }, base: boardingBase(cur), from: boardingBase(cur), sig: `arrive:${cur.at}` };
     window.emitBoarding();
   }, at('07:06'));
   await tick(page, 300);
@@ -724,7 +724,7 @@ test('at the next open: the latest action applies with its toast while its ride 
   await page.addInitScript(([t]) => {
     if (sessionStorage.getItem('opened')) return;
     sessionStorage.setItem('opened', '1');
-    window.boardingAction = { undoId: 'u2', tripIdx: 0, tripName: 'Home to office', toast: 'At the stop (location)', at: t, state: { kind: 'stop', at: t, atStop: t, name: 'Home to office' }, base: 'null', from: 'null' };
+    window.boardingAction = { undoId: 'u2', tripRef: 'home', tripName: 'Home to office', toast: 'At the stop (location)', at: t, state: { kind: 'stop', at: t, atStop: t}, base: 'null', from: 'null' };
   }, [at('06:58')]);
   await openApp(page, { time: '07:00' });
   await expect(toastEl(page)).toContainText('At the stop (location)');
@@ -736,7 +736,7 @@ test('at the next open: an action for a ride that is over is dropped', async ({ 
   await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, boarding: true, locStatus: 'always' });
   await page.addInitScript(([t]) => {
     const legs = [{ tripId: '132in-0544', dep: t, arr: t + 60_000 }, { tripId: 'OLin-0600', dep: t + 120_000, arr: t + 180_000 }];
-    window.boardingAction = { undoId: 'u3', tripIdx: 0, tripName: 'Home to office', toast: 'Got off at State', at: t, state: { kind: 'stop', at: t, atStop: t, ride: { legs, boardedAt: t }, name: 'Home to office' }, base: 'null', from: 'null' };
+    window.boardingAction = { undoId: 'u3', tripRef: 'home', tripName: 'Home to office', toast: 'Got off at State', at: t, state: { kind: 'stop', at: t, atStop: t, ride: { legs, boardedAt: t }}, base: 'null', from: 'null' };
   }, [at('05:44')]);
   await openApp(page, { time: '07:00' });
   await tick(page, 500);

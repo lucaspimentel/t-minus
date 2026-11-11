@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  validateConfig, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
+  validateConfig, TRIP_ID_RE, newTripId, withTripIds, withoutTripIds, tripIndex, reminderKeyOf, reminderRef, tripReminders, staleServerEntries, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
   tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, targetRow, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage, scrubApiKey, rumInitOptions,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
@@ -36,6 +36,8 @@ const veh = (tripId, dep, arr, source = 'scheduled') => ({ tripId, dep: at(dep),
 
 const EXAMPLE = JSON.parse(readFileSync('test/fixtures/bus-orange.json', 'utf8'));
 const [homeToOffice, officeToHome] = EXAMPLE.trips;
+// EXAMPLE with trip ids (the app assigns them on load).
+const WITH_IDS = { ...EXAMPLE, trips: EXAMPLE.trips.map((t, i) => ({ ...t, id: ['home', 'office'][i] })) };
 
 // ---------- config ----------
 
@@ -207,29 +209,93 @@ test('location: near trips, first-stop coordinates, pickByLocation, precedence',
   assert.equal(pickByLocation([{ name: 'x', near: true, legs: [] }], pos(42.4)), -1);
 
   // pickTrip: override > location > window > last used.
-  const cfgW = { trips: [{ ...work, near: undefined, window: { from: '06:00', to: '12:00' } }, home] };
-  assert.equal(pickTrip(at('08:00'), cfgW, null, 0, 1), 1);
-  assert.equal(pickTrip(at('08:00'), cfgW, null, 1, -1), 0);
-  assert.equal(pickTrip(at('08:00'), cfgW, { index: 0, setAt: at('07:59') }, 1, 1), 0);
+  const cfgW = { trips: [{ ...work, id: 'w', near: undefined, window: { from: '06:00', to: '12:00' } }, { ...home, id: 'h' }] };
+  assert.equal(pickTrip(at('08:00'), cfgW, null, 'w', 1), 1);
+  assert.equal(pickTrip(at('08:00'), cfgW, null, 'h', -1), 0);
+  assert.equal(pickTrip(at('08:00'), cfgW, { id: 'w', setAt: at('07:59') }, 'h', 1), 0);
+});
+
+test('trip ids: validation, newTripId, withTripIds, withoutTripIds, reminder keys, stale server entries', () => {
+  const two = { trips: EXAMPLE.trips.map((t, i) => ({ ...t, id: `t${i}` })) };
+  assert.deepEqual(validateConfig(EXAMPLE), []); // optional
+  assert.deepEqual(validateConfig(two, { requireIds: true }), []);
+  assert.deepEqual(validateConfig(EXAMPLE, { requireIds: true }).length, 2);
+  assert.match(validateConfig(EXAMPLE, { requireIds: true })[0], /id is required\.$/);
+  const bad = structuredClone(two);
+  bad.trips[0].id = 'a/b';
+  bad.trips[1].id = 't1';
+  assert.match(validateConfig(bad)[0], /id must be 1-40 letters, digits, "_" or "-"\.$/);
+  const dup = structuredClone(two);
+  dup.trips[1].id = 't0';
+  assert.deepEqual(validateConfig(dup).length, 1);
+  assert.match(validateConfig(dup)[0], /id is used by another trip\.$/);
+
+  // newTripId: 't' + 8 base36 characters, not one already taken.
+  const seq = (...xs) => { let i = 0; return () => xs[i++ % xs.length]; };
+  assert.equal(newTripId([], seq(0)), 't00000000');
+  assert.notEqual(newTripId(['t00000000'], seq(0, 0, 0, 0, 0, 0, 0, 0, 0.5)), 't00000000');
+  assert.match(newTripId(), TRIP_ID_RE);
+
+  // withTripIds: keeps valid unique ids, fills the rest; `added` says whether anything changed.
+  const kept = withTripIds(two);
+  assert.equal(kept.added, false);
+  assert.equal(kept.cfg, two);
+  const filled = withTripIds(EXAMPLE);
+  assert.equal(filled.added, true);
+  assert.ok(filled.cfg.trips.every(t => TRIP_ID_RE.test(t.id)));
+  assert.notEqual(filled.cfg.trips[0].id, filled.cfg.trips[1].id);
+  assert.equal(EXAMPLE.trips[0].id, undefined); // not mutated
+  const fixed = withTripIds(dup).cfg;
+  assert.equal(fixed.trips[0].id, 't0');
+  assert.notEqual(fixed.trips[1].id, 't0');
+  assert.notEqual(withTripIds({ trips: [{ ...EXAMPLE.trips[0], id: 'a/b' }] }).cfg.trips[0].id, 'a/b');
+  assert.notEqual(withTripIds({ trips: [{ ...EXAMPLE.trips[0], id: 't0' }] }, Math.random, ['t0']).cfg.trips[0].id, 't0'); // taken
+  assert.deepEqual(withTripIds({ trips: [] }), { cfg: { trips: [] }, added: false });
+  assert.deepEqual(withTripIds(null), { cfg: null, added: false });
+  // withoutTripIds: for export.
+  assert.deepEqual(withoutTripIds(two), { trips: EXAMPLE.trips });
+  assert.equal(withoutTripIds(null), null);
+  assert.equal(tripIndex(two.trips, 't1'), 1);
+  assert.equal(tripIndex(two.trips, 'x'), -1);
+  assert.equal(tripIndex(two.trips, null), -1);
+  // Ids aren't copied through the form (a return trip is a new trip).
+  assert.equal(formToTrip(tripToForm(two.trips[0])).id, undefined);
+  assert.equal(reverseTrip(two.trips[0]).id, undefined);
+  assert.equal(labelLegs(two, []).trips[0].id, 't0');
+  assert.equal(locateLegs(two, new Map()).trips[1].id, 't1');
+
+  // Reminder keys.
+  assert.equal(reminderKeyOf('t0', '132in-0708'), 't0/132in-0708');
+  assert.equal(reminderRef('t0/132in/0708'), 't0');
+  assert.equal(reminderRef('t0'), 't0');
+  assert.deepEqual(tripReminders({ 't0/a': 1, 't1/b': 2, 't0/c': 3 }, 't0'), { 't0/a': 1, 't0/c': 3 });
+  assert.deepEqual(tripReminders(null, 't0'), {});
+
+  // What the server holds: reminders and ride alerts.
+  assert.deepEqual(staleServerEntries({ '0/a': { id: 'r0' }, '1/b': {} }, { 0: { alert: { id: 'ride0' } }, 1: { kind: 'track' }, 2: null }),
+    [{ kind: 'reminder', id: 'r0' }, { kind: 'ride', id: 'ride0' }]);
+  assert.deepEqual(staleServerEntries(null, undefined), []);
 });
 
 test('pickTrip: windows, overlap order, override expiry, last used', () => {
   assert.equal(pickTrip(at('08:00'), EXAMPLE, null, null), 0);
   assert.equal(pickTrip(at('13:00'), EXAMPLE, null, null), 1);
 
-  const trips = (...windows) => ({ trips: windows.map((window, i) => ({ name: `t${i}`, legs: [], ...(window && { window }) })) });
+  const trips = (...windows) => ({ trips: windows.map((window, i) => ({ id: `t${i}`, name: `t${i}`, legs: [], ...(window && { window }) })) });
   // Overlapping windows: the first trip in the list wins.
   assert.equal(pickTrip(at('11:00'), trips({ from: '06:00', to: '12:00' }, { from: '10:00', to: '14:00' }), null, null), 0);
   // No window matches: last used, else the first trip.
   const none = trips(null, null, null);
-  assert.equal(pickTrip(at('11:00'), none, null, 2), 2);
-  assert.equal(pickTrip(at('11:00'), none, null, 7), 0);
+  assert.equal(pickTrip(at('11:00'), none, null, 't2'), 2);
+  assert.equal(pickTrip(at('11:00'), none, null, 't7'), 0); // no such trip
   // Without any windows, a manual choice holds indefinitely.
-  assert.equal(pickTrip(at('23:00'), none, { index: 1, setAt: at('06:00') }, 2), 1);
+  assert.equal(pickTrip(at('23:00'), none, { id: 't1', setAt: at('06:00') }, 't2'), 1);
+  // A pick or last used whose trip is gone is ignored.
+  assert.equal(pickTrip(at('23:00'), none, { id: 'gone', setAt: at('06:00') }, 't2'), 2);
 
   // A manual switch holds until the next window starts after it was set.
   const cfg = trips({ from: '06:00', to: '09:00' }, { from: '09:00', to: '18:00' }, null);
-  const override = { index: 2, setAt: at('07:00') };
+  const override = { id: 't2', setAt: at('07:00') };
   assert.equal(pickTrip(at('08:59'), cfg, override, null), 2);
   assert.equal(pickTrip(at('09:00'), cfg, override, null), 1);
 });
@@ -2423,17 +2489,18 @@ test('stop counts: from the trip\'s stop list (not stop_sequence), borrowed trip
 });
 
 test('shownTrip: the one-off unless another trip was picked by hand since; else pickTrip', () => {
-  const cfg = { trips: [{ name: 'a', legs: [] }, { name: 'b', legs: [] }, { name: 'one-off', legs: [] }] };
-  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), null, 0), 2);
-  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), { index: 0, setAt: at('06:00') }, 1), 2); // picked before the one-off
-  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), { index: 0, setAt: at('07:30') }, 1), 0);
-  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), { index: 2, setAt: at('07:30') }, 1), 2);
-  assert.equal(shownTrip(at('08:00'), cfg, null, null, 1), 1);
+  const cfg = { trips: [{ id: 'a', name: 'a', legs: [] }, { id: 'b', name: 'b', legs: [] }, { id: 'o', name: 'one-off', legs: [] }] };
+  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), null, 'a'), 2);
+  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), { id: 'a', setAt: at('06:00') }, 'b'), 2); // picked before the one-off
+  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), { id: 'a', setAt: at('07:30') }, 'b'), 0);
+  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), { id: 'o', setAt: at('07:30') }, 'b'), 2);
+  assert.equal(shownTrip(at('08:00'), cfg, at('07:00'), { id: 'gone', setAt: at('07:30') }, 'b'), 2); // its trip is gone
+  assert.equal(shownTrip(at('08:00'), cfg, null, null, 'b'), 1);
 });
 
 test('widgetRequest / widgetRequestError: the trips and the choice\'s inputs', () => {
-  const cfg = { ...EXAMPLE, stopSlackMinutes: 2 };
-  const b = widgetRequest(cfg, null, { index: 1, setAt: 5 }, 1);
+  const cfg = { ...WITH_IDS, stopSlackMinutes: 2 };
+  const b = widgetRequest(cfg, null, { id: 'office', setAt: 5 }, 'office');
   assert.deepEqual(Object.keys(b), ['trips', 'stopSlackMinutes', 'oneOffAt', 'override', 'lastUsed', 'state']);
   assert.equal(b.state, null);
   assert.equal(b.stopSlackMinutes, 2);
@@ -2441,29 +2508,33 @@ test('widgetRequest / widgetRequestError: the trips and the choice\'s inputs', (
   assert.equal(widgetRequestError(widgetRequest(null, null, null, null)), null); // no trips
   assert.equal(widgetRequestError({ ...b, trips: [{ name: 'x' }] }), 'trips is invalid');
   assert.equal(widgetRequestError({ ...b, stopSlackMinutes: 99 }), 'stopSlackMinutes is invalid');
-  assert.equal(widgetRequestError({ ...b, override: { index: 'a' } }), 'override is invalid');
+  assert.equal(widgetRequestError({ ...b, override: { id: 1, setAt: 5 } }), 'override is invalid');
+  assert.equal(widgetRequestError({ ...b, override: { index: 1, setAt: 5 } }), 'override is invalid');
+  assert.equal(widgetRequestError({ ...b, lastUsed: 1 }), 'lastUsed is invalid');
+  assert.equal(widgetRequestError({ ...b, trips: EXAMPLE.trips }), 'trips is invalid'); // without ids
+  assert.equal(widgetRequest(cfg, null, null, 1).lastUsed, null);
   assert.equal(widgetRequestError(null), 'trips is invalid');
 });
 
 test('widgetState: the one state the widget follows, ride first; only what the server needs', () => {
-  const trips = EXAMPLE.trips;
+  const trips = WITH_IDS.trips;
   const legs = leaveRow().legs.map(l => ({ ...l, stopName: 'x' }));
   const target = { key: 'b1', legs };
-  const bell = { name: trips[1].name, kind: 'track', at: at('07:00'), pinned: true, bell: true, target };
-  const walk = { name: trips[0].name, kind: 'leaving', at: at('07:30'), atStop: at('07:40'), target };
-  const ride = { name: trips[0].name, kind: 'stop', at: at('07:30'), atStop: at('07:40'), ride: { legs, boardedAt: at('07:48'), missed: { leg: 1, dep: at('08:06') } }, alert: { id: 'a' } };
+  const bell = { kind: 'track', at: at('07:00'), pinned: true, bell: true, target };
+  const walk = { kind: 'leaving', at: at('07:30'), atStop: at('07:40'), target };
+  const ride = { kind: 'stop', at: at('07:30'), atStop: at('07:40'), ride: { legs, boardedAt: at('07:48'), missed: { leg: 1, dep: at('08:06') } }, alert: { id: 'a' } };
   assert.equal(widgetState({}, trips), null);
-  assert.equal(widgetState({ 0: { name: trips[0].name, kind: 'track', at: 1 } }, trips), null); // a pin without a target
-  const b = widgetState({ 1: bell }, trips);
-  assert.deepEqual(b, { trip: 1, name: trips[1].name, kind: 'track', at: at('07:00'), atStop: null, pinned: true, target: { key: 'b1', legs: leaveRow().legs } });
-  assert.equal(widgetState({ 0: walk, 1: bell }, trips).kind, 'leaving');
-  const r = widgetState({ 0: ride, 1: bell }, trips);
+  assert.equal(widgetState({ home: { kind: 'track', at: 1 } }, trips), null); // a pin without a target
+  const b = widgetState({ office: bell }, trips);
+  assert.deepEqual(b, { trip: 'office', kind: 'track', at: at('07:00'), atStop: null, pinned: true, target: { key: 'b1', legs: leaveRow().legs } });
+  assert.equal(widgetState({ home: walk, office: bell }, trips).kind, 'leaving');
+  const r = widgetState({ home: ride, office: bell }, trips);
   assert.deepEqual(r.ride, { legs: leaveRow().legs, boardedAt: at('07:48'), missed: { leg: 1, dep: at('08:06') } });
-  assert.equal(widgetState({ 0: { ...walk, name: 'renamed' } }, trips), null); // the trip at that index changed
-  const body = st => widgetRequest(EXAMPLE, null, null, null, st);
-  for (const st of [b, r, widgetState({ 0: walk }, trips)]) assert.equal(widgetRequestError(body(st)), null);
-  assert.equal(widgetRequestError(body({ ...b, trip: 7 })), 'state.trip is invalid');
-  assert.equal(widgetRequestError(body({ ...b, name: 'x' })), 'state.trip is invalid');
+  assert.equal(widgetState({ gone: walk, 0: ride }, trips), null); // states for ids no trip has
+  const body = st => widgetRequest(WITH_IDS, null, null, null, st);
+  for (const st of [b, r, widgetState({ home: walk }, trips)]) assert.equal(widgetRequestError(body(st)), null);
+  assert.equal(widgetRequestError(body({ ...b, trip: 'nope' })), 'state.trip is invalid');
+  assert.equal(widgetRequestError(body({ ...b, trip: 1 })), 'state.trip is invalid');
   assert.equal(widgetRequestError(body({ ...b, kind: 'x' })), 'state is invalid');
   assert.equal(widgetRequestError(body({ ...b, target: { key: 'b1', legs: legs.slice(1) } })), 'state.target is invalid');
   assert.equal(widgetRequestError(body({ ...r, ride: { ...r.ride, boardedAt: 'x' } })), 'state.ride is invalid');
@@ -2646,7 +2717,7 @@ test('auto-bell: validation, labels, the form, and the trips sent to the server'
   assert.deepEqual(tripToForm(on).autoBell, { days: [2, 4], arriveBy: '10:00' });
   assert.deepEqual(validateConfig({ trips: [on] }), []);
   assert.equal(validateConfig({ trips: [{ ...on, autoBell: { days: [9], arriveBy: '10:00' } }] }).length, 1);
-  assert.deepEqual(autoBellTrips({ trips: [trip, on] }), [{ index: 1, tripName: 'Home to office', trip: on, autoBell: on.autoBell }]);
+  assert.deepEqual(autoBellTrips({ trips: [{ ...trip, id: 'a' }, { ...on, id: 'b' }] }), [{ tripRef: 'b', tripName: 'Home to office', trip: { ...on, id: 'b' }, autoBell: on.autoBell }]);
   assert.deepEqual(autoBellTrips(null), []);
 });
 
