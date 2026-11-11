@@ -779,7 +779,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     else if (outlook?.earlier) ride = { ...ride, legs: outlook.legs };
     let stops = null;
     if (phase.kind === 'riding') {
-      try { stops = rideStops(await mbta('/predictions', rideStopsQuery(ride.legs[phase.leg].tripId)), transit[phase.leg].alight, t); } catch (e) {
+      try { stops = rideStops(await mbta('/predictions', rideStopsQuery(ride.legs[phase.leg].tripId)), transit[phase.leg].alight, t, transit[phase.leg].stop); } catch (e) {
         log(`widget stops: ${e.message}`); // the minutes fallback applies
       }
     }
@@ -1296,7 +1296,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     const outlook = transferOutlook(ride, phase, tripVehicles(transit, maps, null, t), transfers, t);
     let stops = null;
     if (phase.kind === 'riding') {
-      try { stops = rideStops(await mbta('/predictions', rideStopsQuery(ride.legs[phase.leg].tripId)), transit[phase.leg].alight, t); } catch (e) {
+      try { stops = rideStops(await mbta('/predictions', rideStopsQuery(ride.legs[phase.leg].tripId)), transit[phase.leg].alight, t, transit[phase.leg].stop); } catch (e) {
         log(`${rec.id}: ${e.message}`); // the time fallback applies
       }
     }

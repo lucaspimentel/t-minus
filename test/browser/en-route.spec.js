@@ -302,6 +302,28 @@ test('stopped at a stop: an "At <stop>" row carries the vehicle on the bar', asy
   await expect(head(page)).toHaveText('Next stop: get off');
 });
 
+test('still at the boarding stop: its row carries the vehicle, listed once', async ({ page }) => {
+  const scenario = commute();
+  scenario.dwell = true;
+  await openApp(page, { time: '07:00', scenario });
+  await atTheStop(page);
+  await tickTo(page, '07:08:10'); // boarded; the bus still at Main St (7:08), dwelling
+  await page.locator('#refresh').click();
+  await tick(page, 1000);
+  const leg = card(page).locator('.tl-leg').first();
+  await expect(leg.locator('.step.mid')).toHaveText([/^Pond St @ Stone Zoo\s*7:12am$/]); // no "At Main St", no gap marker
+  await expect(card(page).getByText('Main St @ South St')).toHaveCount(1);
+  await expect(leg.locator('.step.stop').first().locator('.veh')).toHaveCount(1);
+  await expect(leg.locator('.step.stop').first().locator('.node')).toHaveCount(0);
+  await expect(head(page)).toHaveText(riding('Bus 132', 2));
+  // Once it leaves: the dot moves onto the bar.
+  await tickTo(page, '07:09');
+  await page.locator('#refresh').click();
+  await tick(page, 1000);
+  await expect(leg.locator('.step.stop').first().locator('.veh')).toHaveCount(0);
+  await expect(leg.locator('.step.mid.gap .veh')).toHaveCount(1);
+});
+
 test('with only the drop-off left, the headline says to get off; the timeline names the stop', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await atTheStop(page);

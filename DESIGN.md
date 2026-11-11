@@ -383,12 +383,16 @@ estimate: "since" only once arrival is recorded, by the tap, the geofence or GPS
   - Riding: on the ridden leg's bar, between its line and its drop-off row (`rideStopRows`):
     the vehicle, as a dot in the route's color, on an "At Downtown Crossing" row while stopped
     at a stop (which isn't listed), else just above the next stop (none while stopped at the
-    drop-off); then the stops left with predicted times, small dots on the bar: all of them up
+    drop-off). Until it leaves the boarding stop (approaching or stopped there), the dot is on the
+    boarding stop's own row instead, and the bar has no vehicle row. Then the stops left with predicted times, small dots on the bar: all of them up
     to 5 (counting the drop-off), else the next 2, "… N more" (at least 2), and the stop before the drop-off
     (the cue to get ready; `shownStops`). The drop-off is the leg's own bold row. Tapping "… N
     more" lists every stop ("Show fewer" collapses) for the rest of that leg. From
     `/predictions?filter[trip]=<id>&include=stop,vehicle` (`rideStops`; only remaining stops
-    are returned; the drop-off matches the leg's `alight` or a child platform of it). Fetched on
+    are returned; the drop-off matches the leg's `alight` or a child platform of it; the list
+    starts after the boarding stop, the leg's `stop` or a child platform of it, which stays
+    predicted while the vehicle pulls in: 2026-11-10, a ride started then listed Airport twice).
+    The headline's count, the Live Activity and the stop alerts use the same list. Fetched on
     every poll while riding, and right away when a ride starts; no data (trip id changed,
     request failed) shows no stops and no vehicle.
   - Leg times refresh every tick by trip id from the per-leg predictions already polled

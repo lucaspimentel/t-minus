@@ -2138,14 +2138,17 @@ export function missLeg(state, i, vehiclesByLeg, transfers, nowMs) {
 }
 
 // Remaining stops of the ridden vehicle from `/predictions?filter[trip]=…&include=stop,vehicle`:
-// `{ vehicle: { status, name, atDropOff } | null, stops: [{ id, name, time, dropOff }] }` up to the drop-off
-// (`alightId`, or a child platform of it), or null if the drop-off isn't listed.
+// `{ vehicle: { status, name, atDropOff, boarding? } | null, stops: [{ id, name, time, dropOff }] }` up to
+// the drop-off (`alightId`, or a child platform of it), or null if the drop-off isn't listed.
+// `boardId` (the leg's boarding stop, or a child platform of it): the stops left start after it,
+// and a vehicle that hasn't left it yet (approaching or stopped there) is `boarding`, named by it
+// (2026-11-10: a ride started as the train pulled in listed its boarding stop twice).
 // A commuter rail trip on two routes lists each stop twice (once per route): keep one.
 function onceEach(p, i, all) {
   return all.findIndex(q => q.seq === p.seq && q.id === p.id) === i;
 }
 
-export function rideStops(doc, alightId, nowMs) {
+export function rideStops(doc, alightId, nowMs, boardId = null) {
   const inc = new Map((doc?.included ?? []).map(x => [`${x.type}/${x.id}`, x]));
   const stopOf = id => inc.get(`stop/${id}`);
   const preds = (doc?.data ?? [])
@@ -2159,19 +2162,24 @@ export function rideStops(doc, alightId, nowMs) {
     .filter(p => p.id && p.time != null)
     .filter(onceEach)
     .sort((a, b) => a.seq - b.seq);
-  const isDropOff = id => id === alightId || stopOf(id)?.relationships?.parent_station?.data?.id === alightId;
+  const is = (id, want) => id === want || stopOf(id)?.relationships?.parent_station?.data?.id === want;
+  const isDropOff = id => is(id, alightId);
   const end = preds.findIndex(p => isDropOff(p.id));
   if (end < 0) return null;
+  const start = boardId ? preds.slice(0, end).findIndex(p => is(p.id, boardId)) : -1;
   const vid = preds.find(p => p.vehicleId)?.vehicleId;
   const v = vid && inc.get(`vehicle/${vid}`)?.attributes;
-  // Not listed: stops already left (stale doc), and the stop the vehicle is stopped at (named
-  // by `vehicle` instead), unless it's the drop-off.
-  const stops = preds.slice(0, end + 1)
+  const boarding = start >= 0 && Number.isFinite(v?.current_stop_sequence) && v.current_stop_sequence <= preds[start].seq;
+  // Not listed: the boarding stop and those before it, stops already left (stale doc), and the
+  // stop the vehicle is stopped at (named by `vehicle` instead), unless it's the drop-off.
+  const stops = preds.slice(start + 1, end + 1)
     .filter(p => p.last >= nowMs - 30_000)
     .filter(p => !(v?.current_status === 'STOPPED_AT' && p.seq === v.current_stop_sequence && !isDropOff(p.id)))
     .map(p => ({ id: p.id, name: stopOf(p.id)?.attributes?.name ?? p.id, time: p.time, dropOff: isDropOff(p.id) }));
   let vehicle = null;
-  if (v) {
+  if (v && boarding) {
+    vehicle = { status: v.current_status, name: stopOf(preds[start].id)?.attributes?.name ?? preds[start].id, atDropOff: false, boarding: true };
+  } else if (v) {
     const at = preds.find(p => p.seq === v.current_stop_sequence);
     const name = at ? stopOf(at.id)?.attributes?.name : null;
     if (name) vehicle = { status: v.current_status, name, atDropOff: v.current_status === 'STOPPED_AT' && isDropOff(at.id) };

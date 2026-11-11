@@ -810,6 +810,50 @@ test('rideStops: remaining stops to the drop-off and the vehicle', () => {
   assert.equal(rideStops(doc(vehicle('IN_TRANSIT_TO', 130)), 'place-ogmnl', at('07:30')).vehicle.atDropOff, false);
 });
 
+test('rideStops: the stops left start after the boarding stop; the vehicle before leaving it is `boarding`', () => {
+  const pred = (stop, seq, t) => ({ attributes: { arrival_time: iso(t), departure_time: iso(t), stop_sequence: seq },
+    relationships: { stop: { data: { id: stop } }, vehicle: { data: { id: 'v1' } } } });
+  const stop = (id, name, parent) => ({ type: 'stop', id, attributes: { name },
+    relationships: { parent_station: { data: parent ? { id: parent } : null } } });
+  const vehicle = (status, seq) => ({ type: 'vehicle', id: 'v1', attributes: { current_status: status, current_stop_sequence: seq } });
+  // Wonderland side: Wood Island (90), Airport (100, boarding), Maverick, Aquarium, State (drop-off).
+  const doc = (v, from = 0) => ({
+    data: [pred('70043', 90, '11:48'), pred('70045', 100, '11:50'), pred('70047', 110, '11:52'), pred('70049', 120, '11:55'), pred('70051', 130, '11:56')].slice(from),
+    included: [stop('70043', 'Wood Island', 'place-wimnl'), stop('70045', 'Airport', 'place-aport'), stop('70047', 'Maverick', 'place-mvbcl'),
+      stop('70049', 'Aquarium', 'place-aqucl'), stop('70051', 'State', 'place-state'), ...(v ? [v] : [])],
+  });
+  const names = r => r.stops.map(x => x.name);
+  // Approaching the boarding stop (by parent station or platform id): it isn't listed; the vehicle is there.
+  for (const board of ['place-aport', '70045']) {
+    const r = rideStops(doc(vehicle('INCOMING_AT', 100)), 'place-state', at('11:49'), board);
+    assert.deepEqual(names(r), ['Maverick', 'Aquarium', 'State']);
+    assert.deepEqual(r.vehicle, { status: 'INCOMING_AT', name: 'Airport', atDropOff: false, boarding: true });
+  }
+  // The stop the user saw twice (2026-11-10): Airport a minute past, still in the doc.
+  assert.deepEqual(names(rideStops(doc(vehicle('IN_TRANSIT_TO', 100)), 'place-state', at('11:50') + 20_000, 'place-aport')), ['Maverick', 'Aquarium', 'State']);
+  // Stopped at the boarding stop: no "At Airport" on the bar; `boarding` names it.
+  const stopped = rideStops(doc(vehicle('STOPPED_AT', 100)), 'place-state', at('11:49'), 'place-aport');
+  assert.deepEqual(names(stopped), ['Maverick', 'Aquarium', 'State']);
+  assert.deepEqual(stopped.vehicle, { status: 'STOPPED_AT', name: 'Airport', atDropOff: false, boarding: true });
+  // Still before it (at Wood Island): named by the boarding stop; Wood Island isn't listed.
+  const before = rideStops(doc(vehicle('STOPPED_AT', 90)), 'place-state', at('11:47'), 'place-aport');
+  assert.deepEqual(names(before), ['Maverick', 'Aquarium', 'State']);
+  assert.equal(before.vehicle.name, 'Airport');
+  assert.equal(before.vehicle.boarding, true);
+  // Past it: as before, no `boarding`.
+  const past = rideStops(doc(vehicle('IN_TRANSIT_TO', 110)), 'place-state', at('11:50'), 'place-aport');
+  assert.deepEqual(names(past), ['Maverick', 'Aquarium', 'State']);
+  assert.deepEqual(past.vehicle, { status: 'IN_TRANSIT_TO', name: 'Maverick', atDropOff: false });
+  // The boarding stop no longer in the doc: from the first stop listed.
+  const gone = rideStops(doc(vehicle('IN_TRANSIT_TO', 110), 2), 'place-state', at('11:51'), 'place-aport');
+  assert.deepEqual(names(gone), ['Maverick', 'Aquarium', 'State']);
+  assert.equal(gone.vehicle.boarding, undefined);
+  // No boarding stop given: from the first stop left.
+  assert.deepEqual(names(rideStops(doc(null), 'place-state', at('11:49'))), ['Airport', 'Maverick', 'Aquarium', 'State']);
+  // The drop-off isn't taken for the boarding stop; a boarding stop after the drop-off is ignored.
+  assert.deepEqual(names(rideStops(doc(null), 'place-aqucl', at('11:47'), 'place-state')), ['Wood Island', 'Airport', 'Maverick', 'Aquarium']);
+});
+
 test('getOffText: only with the drop-off left; "Get off here" while stopped there', () => {
   const s = (name, dropOff = false) => ({ id: name, name, time: 0, dropOff });
   const three = [s('Sullivan Square'), s('Wellington'), s('Oak Grove', true)];

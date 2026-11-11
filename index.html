@@ -227,6 +227,7 @@
   }
   .step.mid.here .veh { top: calc(2px + .2em); }
   .step.mid.gap .veh { top: -1px; }
+  .step.stop > .veh { top: calc(.35em - 1px); } /* on the boarding stop's node, centered like it */
   .step.mid.more button {
     padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
     text-decoration: underline; cursor: pointer; box-shadow: none !important; transform: none !important;
@@ -543,7 +544,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-10 · 5273c965b8</footer>
+    <footer class="version">Version 2026-11-11 · dca275a8f6</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -574,8 +575,8 @@ import {
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, FOLLOW_MIN_PX, nextFollowLevel, viewAt, viewShiftPx, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=44202753b1';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=943446dc16';
+} from './core.js?v=a0768f7fda';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=02ecd74405';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1353,7 +1354,7 @@ function rideCardData(s, now) {
   const phase = ridePhase(ride, walkAfter, now);
   const rs = cache[refOf(tripIdx)]?.rideStops;
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
-  const stops = (leg && rs?.tripId === leg.tripId && rideStops(rs.doc, transit[phase.leg].alight, now)) || null;
+  const stops = (leg && rs?.tripId === leg.tripId && rideStops(rs.doc, transit[phase.leg].alight, now, transit[phase.leg].stop)) || null;
   return { phase, stops, outlook: transferOutlook(ride, phase, rideVehicles(), transfers, now), walkAfter };
 }
 // `s`: the shown trip's en-route state (or null). Another trip's ride keeps its activity until
@@ -1571,7 +1572,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=44202753b1'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=a0768f7fda'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -1970,7 +1971,8 @@ function walkStep(line, step) {
 // LIVE" between them; walks and transfers on the dotted rail. Names not known yet show "—". Long names are cut; tapping a stop
 // shows it in full (kept per `key` across re-renders) without collapsing the row.
 // `phase` (ride card): what's done is dimmed, the current step is bold. `along` (ride card): rows
-// placed on the ridden leg's bar, before its drop-off ({ leg, rows }).
+// placed on the ridden leg's bar, before its drop-off ({ leg, rows, boarding }; `boarding`: the vehicle
+// hasn't left the boarding stop, its dot is on that stop's node).
 const fullStops = new Set();
 function renderTimeline(steps, now, { phase = null, key = '', along = null } = {}) {
   const timeline = el('div', 'timeline');
@@ -1990,12 +1992,13 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     if (kind === 'riding') return part === 'from' ? ' done' : ' current';
     return part === 'from' ? ' current' : '';
   };
-  const stopLine = (name, time, id, cls, leg, at) => {
+  // `veh`: the vehicle's dot on the node (the boarding stop, before the vehicle leaves it).
+  const stopLine = (name, time, id, cls, leg, at, veh = false) => {
     const line = el('div', `step stop${cls}${fullStops.has(id) ? ' full' : ''}`);
     const n = el('span', 'n', name ?? '—');
     // "Malden Center · Flag stop": tell the crew to stop there.
     if (name && flagStop(leg, at)) n.append(' · ', el('span', 'flag', flagStop(leg, at)));
-    line.append(el('span', 'node'), n, el('span', 't', time == null ? '' : legTime(leg, time, now)));
+    line.append(el('span', veh ? 'veh' : 'node'), n, el('span', 't', time == null ? '' : legTime(leg, time, now)));
     if (name) {
       line.onclick = e => {
         e.stopPropagation();
@@ -2031,7 +2034,7 @@ function renderTimeline(steps, now, { phase = null, key = '', along = null } = {
     const train = [s.leg.train && `Train ${s.leg.train}`, s.leg.track && `Track ${s.leg.track}`].filter(Boolean).join(' · ');
     if (train) ride.append(el('div', 'train', train));
     for (const a of s.leg.alerts ?? []) ride.append(el('div', 'leg-alert', a));
-    leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from'), s.leg, 'board'), ride,
+    leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from'), s.leg, 'board', along?.leg === i && along.boarding), ride,
       ...(along?.leg === i ? along.rows : []), stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to'), s.leg, 'alight'));
     timeline.append(leg);
     i++;
@@ -2380,7 +2383,8 @@ let nextOpen = false; // "Different connection?" / transfer "Different bus?" cho
 let stopsOpen = null; // trip id of the leg whose full stop list is shown ("… N more" tapped)
 let rideFetchFor = null; // trip id whose stops were last requested outside the poll
 // The ridden leg's rows on its timeline bar, before the drop-off: the vehicle ("At <stop>" while
-// stopped at one, else a marker just above the next stop; none at the drop-off), then the stops
+// stopped at one, else a marker just above the next stop; none at the drop-off, nor before it leaves
+// the boarding stop), then the stops
 // left (shownStops: next 2, "… N more", the stop before the drop-off; "… N more" expands).
 function rideStopRows(stops, tripId, now) {
   const mid = (cls, ...kids) => {
@@ -2390,7 +2394,8 @@ function rideStopRows(stops, tripId, now) {
   };
   const rows = [];
   const v = stops.vehicle;
-  if (v?.status === 'STOPPED_AT' && !v.atDropOff) rows.push(mid(' here', el('span', 'veh'), el('span', 'n', `At ${v.name}`)));
+  if (v?.boarding) ; // its dot is on the boarding stop's node (renderTimeline)
+  else if (v?.status === 'STOPPED_AT' && !v.atDropOff) rows.push(mid(' here', el('span', 'veh'), el('span', 'n', `At ${v.name}`)));
   else if (!v?.atDropOff) rows.push(mid(' gap', el('span', 'veh')));
   const open = stopsOpen === tripId;
   const toggle = (text, value) => {
@@ -2432,7 +2437,7 @@ function renderRideCard(s, now) {
   // final walk.
   // The timeline's legs with their trains' alerts (shown only, not kept on the ride).
   const steps = timelineSteps({ legs: withTripAlerts(ride, trainAlerts(cache[refOf(tripIdx)], now)).legs, eta: phase.eta, enRoute: true }, trip, 0, now, tripStopNames());
-  const along = stops && stops.stops.length ? { leg: phase.leg, rows: rideStopRows(stops, leg.tripId, now) } : null;
+  const along = stops && stops.stops.length ? { leg: phase.leg, rows: rideStopRows(stops, leg.tripId, now), boarding: !!stops.vehicle?.boarding } : null;
   li.append(renderTimeline(steps, now, { phase, key: `ride:${ride.legs[0].tripId}`, along }));
   if (rideNote) li.append(el('div', 'msg', rideNote));
   const btns = el('div', 'enroute-bar ride-btns');
