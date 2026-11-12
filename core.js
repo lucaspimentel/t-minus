@@ -4344,6 +4344,8 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
   const o = raw[0]?.stops[0] ?? start ?? end;
   if (!o) { const view = fitView([], { aspect }); return { origin: null, view, fits: mapFits(view, null), legs: [], stops: [], walks: [], vehicles: [], here: null, places: [], ride: null }; }
   const proj = projector(o.lat, o.lon);
+  // A { lat, lon, … } in the map's meters, keeping its other fields (the ride's fix and hold).
+  const xy = q => q && Number.isFinite(q.lat) && Number.isFinite(q.lon) ? { ...q, ...proj.toXY(q) } : null;
   const out = { origin: { lat: o.lat, lon: o.lon }, legs: [], stops: [], walks: [], vehicles: [], here: null, places: [], ride: null };
   // Each stop or station once (by id or parent station), stretches' stops first; only with
   // `incoming` or `also` (setup's maps as before).
@@ -4403,9 +4405,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     // The ridden vehicle at your GPS position (2026-11-12; rideMarker).
     if (ride && r.i === ride.leg && mine[r.i]) {
       const v = legVehicles.find(x => x.tripId === mine[r.i]);
-      // In the map's meters, keeping their other fields (accuracy, at).
-      const xy = q => q && Number.isFinite(q.lat) && Number.isFinite(q.lon) ? { ...q, ...proj.toXY(q) } : null;
-      const m = rideMarker({ path, nowMs, left: !!ride.left, vehicle: v ? proj.toXY(v) : null, fix: xy(ride.fix), hold: xy(ride.hold) });
+      const m = rideMarker({ path, nowMs, left: ride.left, vehicle: v ? proj.toXY(v) : null, fix: xy(ride.fix), hold: xy(ride.hold) });
       out.ride = { gps: !!m.point, hold: m.hold && { ...proj.toLatLon(m.hold), at: m.hold.at } };
       if (m.point) {
         const k = out.vehicles.findIndex(x => x.mine && x.id === v.id);

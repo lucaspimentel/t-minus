@@ -723,8 +723,8 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   location dot's blue, both themes) and without the dot. With no fix that counts (underground,
   coarse), the last point holds, still blue, until the MBTA position passes it along the line or
   60 s go by, then today's marker and the dot: it never moves back (a fix behind the held point
-  keeps the point). The hold is shared by the two maps (`rideGpsHold`) and kept only once a map
-  has vehicles. The ride's vehicle not in `/vehicles`: no marker of yours, the dot shows. No new
+  keeps the point). Each map keeps its hold (`rideHold`) and hands it over with the view, the
+  vehicles too (`mapSnap`: the sheet opens with the main map's vehicles and hold). The ride's vehicle not in `/vehicles`: no marker of yours, the dot shows. No new
   requests; it moves with each fix (`mapLocation` keeps the fix's accuracy and time).
 - **Zoomed out (2026-11-09):** with the view more than 1.5× wider than the chosen fit (2026-11-12:
   trip or trip + me; the first view while moved; until then the one fit)
