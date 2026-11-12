@@ -1379,7 +1379,10 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 - **Stop alerts (a tracked ride, followed by the server):**
   - **App:** every tracked ride (boarding detected, "I got on", a "Did you get on?" Yes) is posted
     (`POST /rides` with the trip, its legs and `boardedAt`) once notifications are allowed;
-    the en-route state keeps `alert: { id, tripIds }`. New trip ids ("On a different train?",
+    the en-route state keeps `alert: { id, tripIds }`. The server keeps one ride per device,
+    trip and `boardedAt`: a second `POST` returns the first one's id (200) with its legs,
+    `alerts` and activity token updated, and what was sent kept (the iOS app's native boarding
+    and its page posted the same ride 93 ms apart, 2026-11-12: two of each stop alert). New trip ids ("On a different train?",
     "Missed it", the app's own re-plan) send `PUT /rides/:id` (404: posted again); Cancel,
     Done, a replaced ride or the ride ending sends `DELETE`; Undo posts it again. Until
     permission is granted, the ride card shows "Turn on stop alerts" (hidden when denied,

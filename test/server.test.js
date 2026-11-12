@@ -694,6 +694,35 @@ test('a followed ride: heads-up, get off, a missed connection, get off again, th
   } finally { await s.close(); }
 });
 
+test('a ride posted twice (native boarding and the page): one entry, same id, sent alerts kept', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:12');
+    s.world.orange2 = '07:39';
+    const r1 = await s.call('POST', '/api/rides', followed());
+    assert.equal(r1.status, 201);
+    const { id } = await r1.json();
+    s.world.rideStops.b1 = busStops(5, '07:15');
+    await s.app.tick();
+    s.world.clock = at('07:18');
+    s.world.rideStops.b1 = busStops(3, '07:20');
+    await s.app.tick();
+    assert.equal(s.sent.length, 1);
+    const r2 = await s.call('POST', '/api/rides', followed({ activity: { token: 'ab'.repeat(32) } }));
+    assert.equal(r2.status, 200);
+    assert.equal((await r2.json()).id, id);
+    assert.equal(s.store.forEndpoint(subscription().endpoint).filter(e => e.kind === 'ride').length, 1);
+    assert.equal(s.store.get(id).activity.token, 'ab'.repeat(32));
+    s.world.clock = at('07:20');
+    await s.app.tick();
+    assert.equal(s.sent.length, 1); // the heads-up isn't sent again
+    // Another boarding of the same trip is a new ride.
+    const r3 = await s.call('POST', '/api/rides', followed({ ride: { ...followed().ride, boardedAt: at('07:11') } }));
+    assert.equal(r3.status, 201);
+    assert.notEqual((await r3.json()).id, id);
+  } finally { await s.close(); }
+});
+
 test('apnsActivityPush: liveactivity type, priority, timestamp, stale 2 min after the countdown, dismissal on end', () => {
   const nowMs = at('07:20');
   const sec = ms => ms / 1000;

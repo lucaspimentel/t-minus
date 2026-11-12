@@ -587,6 +587,19 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       const aErr = activityError(body.activity);
       if (aErr) return reply(res, 400, { error: aErr });
       if (body.alerts != null && typeof body.alerts !== 'boolean') return reply(res, 400, { error: 'alerts is invalid' });
+      // The same ride posted twice (the iOS app's native boarding and its page, 93 ms apart,
+      // 2026-11-12; a retry after a lost response): one entry, its id for both, what was sent kept.
+      const same = store.forEndpoint(body.subscription.endpoint)
+        .find(e => e.kind === 'ride' && e.trip?.id === body.trip.id && e.ride?.boardedAt === body.ride.boardedAt);
+      if (same) {
+        same.ride = { legs: body.ride.legs, boardedAt: body.ride.boardedAt };
+        if (body.activity && body.activity.token !== same.activity?.token) same.activity = { token: body.activity.token, last: null, sent: 0 };
+        if (body.alerts != null) same.alerts = body.alerts;
+        same.nextPollAt = t;
+        store.update(same);
+        log(`ride ${same.id} posted again`);
+        return reply(res, 200, { id: same.id });
+      }
       if (store.countFor(body.subscription.endpoint) >= MAX_PER_SUBSCRIPTION) {
         return reply(res, 429, { error: `At most ${MAX_PER_SUBSCRIPTION} reminders at a time` });
       }
