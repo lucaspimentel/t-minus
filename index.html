@@ -562,7 +562,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · 0dd2fac66f</footer>
+    <footer class="version">Version 2026-11-12 · 374f168fd8</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -593,8 +593,8 @@ import {
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=a7053ff07f';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=d35cb4d85a';
+} from './core.js?v=b4193ccce8';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=60f4577b4c';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1602,7 +1602,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=a7053ff07f'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=b4193ccce8'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -3376,8 +3376,8 @@ function mapLocation(onChange, seed = null) {
 // Your location (mapLocation), the legs' vehicles every 10 s (paused while the sheet is open,
 // in the background and while hidden), locate, back to the trip, and hide; a tap opens the
 // sheet. While riding: the ridden legs faded, your vehicle marked (at your GPS position when it
-// counts, 2026-11-12), fitted to the rest of the ride. Hidden ("Hide map"; one setting on the phone, KEY_MAP_HIDDEN): a "Show map ▾" button
-// instead, with no requests and no location. Kept across the once-a-second redraw.
+// counts, 2026-11-12), fitted to the rest of the ride. Hidden ("Hide map"; one setting on the
+// phone, KEY_MAP_HIDDEN): a "Show map ▾" button instead, with no requests and no location. Kept across the once-a-second redraw.
 const KEY_MAP_HIDDEN = 't-minus:mapHidden';
 let mainMap = null;
 let mapHidden = !!store.get(KEY_MAP_HIDDEN);
@@ -3410,15 +3410,16 @@ function mapState(trip, legs, now) {
   const mine = legs.map((_, i) => s?.ride?.legs[i]?.tripId ?? (s?.bell ? s.target?.legs?.[i]?.tripId ?? null : null));
   // Riding (2026-11-12): the leg, its trip and whether the vehicle has left the boarding stop
   // (the ride's stops, as the timeline's vehicle row), for the vehicle at your GPS position.
-  const phase = s?.ride ? ridePhase(s.ride, tripShape(trip).walkAfter, now) : null;
+  const { walkAfter, transit } = tripShape(trip);
+  const phase = s?.ride ? ridePhase(s.ride, walkAfter, now) : null;
   let ride = null;
   if (phase?.kind === 'riding') {
-    const leg = s.ride.legs[phase.leg], t = tripShape(trip).transit[phase.leg];
+    const leg = s.ride.legs[phase.leg], t = transit[phase.leg];
     const rs = c?.rideStops;
     const st = leg && t && rs?.tripId === leg.tripId ? rideStops(rs.doc, t.alight, now, t.stop) : null;
     if (leg?.tripId) ride = { leg: phase.leg, tripId: leg.tripId, left: !!st?.vehicle && !st.vehicle.boarding };
   }
-  return { points, finished: mapFinished(trip, now), mine, ride };
+  return { points, finished: phase?.leg ?? 0, mine, ride }; // finished: as mapFinished
 }
 // The last GPS point the ridden vehicle was drawn at (rideMarker's hold, lat/lon), shared by the
 // main map and the sheet: { tripId, hold }.

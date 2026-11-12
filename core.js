@@ -4120,8 +4120,9 @@ export function rideMarker({ path, fix, vehicle, left, hold, nowMs }) {
   const none = { point: null, heading: 0, gps: false, hold: null };
   if (!vehicle || !path || path.length < 2) return none;
   const held = hold ? nearestOnPath(path, hold) : null;
-  const snap = fix && fix.accuracy <= RIDE_GPS_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS && left
-    && Math.hypot(fix.x - vehicle.x, fix.y - vehicle.y) <= RIDE_GPS_VEHICLE_METERS ? nearestOnPath(path, fix) : null;
+  const usable = fix && left && fix.accuracy <= RIDE_GPS_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS
+    && Math.hypot(fix.x - vehicle.x, fix.y - vehicle.y) <= RIDE_GPS_VEHICLE_METERS;
+  const snap = usable ? nearestOnPath(path, fix) : null;
   if (snap && snap.meters <= RIDE_GPS_LINE_METERS) {
     const use = held && held.along > snap.along ? held : snap;
     return { point: use.point, heading: pathHeading(path, use.index), gps: true, hold: { x: use.point.x, y: use.point.y, at: fix.at } };
@@ -4403,13 +4404,9 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     // The ridden vehicle at your GPS position (2026-11-12; rideMarker).
     if (ride && r.i === ride.leg && mine[r.i]) {
       const v = legVehicles.find(x => x.tripId === mine[r.i]);
-      const xy = q => q && Number.isFinite(q.lat) && Number.isFinite(q.lon) ? proj.toXY(q) : null;
-      const fix = xy(ride.fix), held = xy(ride.hold);
-      const m = rideMarker({
-        path, nowMs, left: !!ride.left, vehicle: v ? proj.toXY(v) : null,
-        fix: fix && { ...fix, accuracy: ride.fix.accuracy, at: ride.fix.at },
-        hold: held && { ...held, at: ride.hold.at },
-      });
+      // In the map's meters, keeping their other fields (accuracy, at).
+      const xy = q => q && Number.isFinite(q.lat) && Number.isFinite(q.lon) ? { ...q, ...proj.toXY(q) } : null;
+      const m = rideMarker({ path, nowMs, left: !!ride.left, vehicle: v ? proj.toXY(v) : null, fix: xy(ride.fix), hold: xy(ride.hold) });
       out.ride = { gps: m.gps, hold: m.hold && { ...proj.toLatLon(m.hold), at: m.hold.at } };
       if (m.point) {
         const k = out.vehicles.findIndex(x => x.mine && x.id === v.id);
