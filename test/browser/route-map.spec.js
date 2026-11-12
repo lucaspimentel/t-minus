@@ -1242,4 +1242,111 @@ test('Hide map / Show map keeps the chosen fit', async ({ page, context }) => {
   await tick(page, 500);
   await expect.poll(() => dotShown(pic)).toBe(true);
   await expect(fitTool(map)).toHaveAttribute('aria-label', 'Show the whole trip');
+// The ridden vehicle at your GPS position (2026-11-12): a fix that counts puts your bus on its
+// line in a blue ring, without the dot; without one it holds until the MBTA position passes it
+// or 60 s go by. A stub granted up front (the watch starts with the map), its accuracy set.
+const RIDE_GEO = () => {
+  let cur = { latitude: 42.4740, longitude: -71.0900, accuracy: 10 }, ok = null;
+  const pos = () => ({ coords: { ...cur }, timestamp: Date.now() });
+  navigator.geolocation.getCurrentPosition = o => setTimeout(() => o(pos()), 0);
+  navigator.geolocation.watchPosition = o => { ok = o; return 1; };
+  navigator.geolocation.clearWatch = () => {};
+  window.geo = { move: (latitude, longitude, accuracy = 10) => { cur = { latitude, longitude, accuracy }; ok?.(pos()); } };
+};
+const geoAt = (page, k, accuracy = 10) => {
+  const s = busStop(busStops[k]);
+  return page.evaluate(([a, b, c]) => window.geo.move(a, b, c), [s.latitude, s.longitude, accuracy]);
+};
+// Your vehicle on a map: { gps, x, y } or null; the dot's count.
+const myVehicle = loc => loc.locator('svg.route-svg').evaluate(s => {
+  const g = s.querySelector('.map-vehicle.mine');
+  return g ? { gps: g.classList.contains('gps'), x: Math.round(+g.dataset.x), y: Math.round(+g.dataset.y), halo: !!g.querySelector('.halo'), stroke: getComputedStyle(g.querySelector('path')).stroke } : null;
+});
+const stopXY = (loc, k) => loc.locator('svg.route-svg').evaluate((s, id) => {
+  const g = s.querySelector(`.map-stop[data-stop="${id}"]`);
+  return g ? { x: Math.round(+g.dataset.x), y: Math.round(+g.dataset.y) } : null;
+}, busStops[k]);
+
+async function rideWithGps(page, context, vehicles) {
+  await context.grantPermissions(['geolocation']);
+  const scenario = { ...commute(), vehicles: [] };
+  const mbta = await openApp(page, { map: true, time: '07:00', scenario, init: RIDE_GEO });
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await tick(page, 1000);
+  await tickTo(page, '07:08:30');
+  await expect(page.locator('.ride-head')).toBeVisible();
+  const tripId = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('t-minus:en-route')))[0].ride.legs[0].tripId);
+  expect(tripId).toBe('132in-0708');
+  scenario.vehicles = vehicles(tripId);
+  await tick(page, 20_000); // the vehicle poll and the ride's stops
+  return { mbta, scenario, tripId };
+}
+
+test('riding: your bus at your GPS position in a blue ring, without the dot, on the main map and the sheet', async ({ page, context }) => {
+  await rideWithGps(page, context, t => [vehicleAt('mine', t, 12)]);
+  const map = mainMap(page);
+  await expect.poll(() => myVehicle(map)).toMatchObject({ gps: false });
+  await geoAt(page, 14);
+  await expect.poll(() => myVehicle(map)).toEqual(expect.objectContaining({ gps: true, halo: true, stroke: 'rgb(26, 115, 232)' }));
+  await expect(map.locator('.map-here')).toHaveCount(0);
+  await openMap(page);
+  // Held from the main map until the sheet's own watch has a fix.
+  await tick(page, 500);
+  await expect.poll(() => myVehicle(sheet(page)).then(v => v?.gps)).toBe(true);
+  await geoAt(page, 14);
+  await tick(page, 50);
+  const at = await myVehicle(sheet(page));
+  expect(at.gps).toBe(true);
+  await expect(sheet(page).locator('.map-here')).toHaveCount(0);
+  const stop = await stopXY(sheet(page), 14);
+  expect(Math.hypot(at.x - stop.x, at.y - stop.y)).toBeLessThan(20);
+});
+
+test('riding: without a counted fix the GPS point holds until the MBTA position passes it, or 60 s', async ({ page, context }) => {
+  const { scenario, tripId } = await rideWithGps(page, context, t => [vehicleAt('mine', t, 12)]);
+  const map = mainMap(page);
+  await geoAt(page, 14);
+  await expect.poll(() => myVehicle(map).then(v => v?.gps)).toBe(true);
+  const held = await myVehicle(map);
+  await geoAt(page, 15, 80); // too coarse to count
+  await tick(page, 50);
+  expect(await myVehicle(map)).toEqual(held);
+  await expect(map.locator('.map-here')).toHaveCount(0);
+  // The MBTA position passes the held point: back to it, with the dot.
+  scenario.vehicles = [vehicleAt('mine', tripId, 18)];
+  await tick(page, 10_000);
+  await expect.poll(() => myVehicle(map).then(v => v?.gps)).toBe(false);
+  expect((await myVehicle(map)).y).not.toBe(held.y);
+  await expect(map.locator('.map-here')).toHaveCount(1);
+  // 60 s: counted again ahead of the vehicle, then a coarse fix; held, then released.
+  await geoAt(page, 20);
+  await expect.poll(() => myVehicle(map).then(v => v?.gps)).toBe(true);
+  await geoAt(page, 20, 80);
+  await tick(page, 30_000);
+  expect((await myVehicle(map)).gps).toBe(true);
+  await tick(page, 31_000);
+  await expect.poll(() => myVehicle(map).then(v => v?.gps)).toBe(false);
+  await expect(map.locator('.map-here')).toHaveCount(1);
+});
+
+test('riding: the ride\'s vehicle not in /vehicles: no marker of yours, the dot shows', async ({ page, context }) => {
+  await rideWithGps(page, context, () => [vehicleAt('other', '132in-0612', 15)]);
+  const map = mainMap(page);
+  await geoAt(page, 14);
+  await tick(page, 50);
+  await expect(map.locator('.map-vehicle.mine')).toHaveCount(0);
+  await expect(map.locator('.map-vehicle.gps')).toHaveCount(0);
+  await expect(map.locator('.map-here')).toHaveCount(1);
+});
+
+test('before boarding (belled or waiting), a fix by your bus leaves it at its MBTA position', async ({ page, context }) => {
+  await context.grantPermissions(['geolocation']);
+  const scenario = { ...commute(), vehicles: [vehicleAt('mine', '132in-0708', 6)] };
+  await openApp(page, { map: true, time: '07:00', scenario, init: RIDE_GEO });
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await tick(page, 10_000);
+  await geoAt(page, 6);
+  await tick(page, 50);
+  await expect(mainMap(page).locator('.map-vehicle.gps')).toHaveCount(0);
+  await expect(mainMap(page).locator('.map-here')).toHaveCount(1);
 });
