@@ -4224,6 +4224,27 @@ export function zoomView(view, factor, cx, cy, limits) {
 // Moves the view by (dx, dy) meters (a drag to the right moves the map right: dx < 0 here).
 export const panView = (view, dx, dy, limits) => clampView({ ...view, x: view.x + dx, y: view.y + dy }, limits);
 
+// The route map's two fits (2026-11-12): `trip` (the trip alone; the rest of the ride with
+// fitFrom) and `me` (the trip and your location), me null when missing or less than ME_MIN times
+// as wide as trip (the two would look the same).
+export const ME_MIN = 1.1;
+export const mapFits = (trip, me) => ({ trip, me: me && me.w >= trip.w * ME_MIN ? me : null });
+// The first view: trip + me while it's at most ZOOMED_OUT times as wide as the trip, else the trip.
+export const firstFit = fits => (fits.me && fits.me.w <= fits.trip.w * ZOOMED_OUT ? 'me' : 'trip');
+// The fit a mode shows ('first' | 'trip' | 'me'); 'me' without trip + me shows the trip.
+export const fitChoice = (fits, mode) => (mode === 'first' ? firstFit(fits) : mode === 'me' && fits.me ? 'me' : 'trip');
+// The fit button's next tap: from a moved view, the first view; at a fit, the other one; null
+// (the button hides) with nothing to switch to. → { mode, fit: 'trip' | 'me' } | null
+export function fitTap({ fits, mode, moved }) {
+  if (moved) return { mode: 'first', fit: fitChoice(fits, 'first') };
+  if (!fits.me) return null;
+  return fitChoice(fits, mode) === 'me' ? { mode: 'trip', fit: 'trip' } : { mode: 'me', fit: 'me' };
+}
+// A moved view carried between the main map and the sheet (2026-11-12): its center and meters
+// per pixel, placed on a map `width` × `height` pixels within `limits` (span and edges kept).
+export const movedView = (view, widthPx) => ({ cx: view.x + view.w / 2, cy: view.y + view.h / 2, mpp: view.w / widthPx });
+export const placeMoved = (moved, width, height, limits = null) => viewAt({ x: moved.cx, y: moved.cy }, moved.mpp * width, width / height, limits);
+
 // Leg ends this close are one transfer: one dot if they share a name, else one label.
 const MERGE_METERS = 250;
 // The start and end pins (2026-11-09), in pixels: the pin's extent around its tip (a head of
@@ -4258,7 +4279,8 @@ const WALK_GAP_METERS = 25;
 // stretch; its vehicles on its own pattern. Every vehicle goes on its route's pattern (one without
 // a route, or whose route has none, on the leg's); a stop or station is drawn once per map (by id
 // or parent station). Both default off: setup's maps keep the drawing above, stops not deduplicated.
-// fitFrom (2026-11-12, the main screen's map while riding): the view fits the legs from this one
+// fits (2026-11-12): { trip, me } (mapFits), `view` the first of them (firstFit).
+// fitFrom (2026-11-12, the main screen's map and the sheet while riding): the view fits the legs from this one
 // on (their walks, the end walk and pin, `fitAlso`), the rest of the ride; 0 fits the whole trip.
 export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1, width = null, fitAlso = [], fitFrom = 0, incoming = false, also = [] }) {
   const raw = legs.map((leg, i) => {
@@ -4284,7 +4306,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     return fb.length >= 2 ? { leg, i, line: null, stops: fb } : null;
   }).filter(Boolean);
   const o = raw[0]?.stops[0] ?? start ?? end;
-  if (!o) return { origin: null, view: fitView([], { aspect }), legs: [], stops: [], walks: [], vehicles: [], here: null, places: [] };
+  if (!o) { const view = fitView([], { aspect }); return { origin: null, view, fits: { trip: view, me: null }, legs: [], stops: [], walks: [], vehicles: [], here: null, places: [] }; }
   const proj = projector(o.lat, o.lon);
   const out = { origin: { lat: o.lat, lon: o.lon }, legs: [], stops: [], walks: [], vehicles: [], here: null, places: [] };
   // Each stop or station once (by id or parent station), stretches' stops first; only with
@@ -4375,7 +4397,13 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     if (pl.label) b[pl.side] = Math.max(b[pl.side], PIN_LABEL_X + PIN_LABEL_CHAR_PX * pl.label.length + 2);
     return b;
   });
-  out.view = fitView([...fitPaths.flat(), ...(rest.length ? fitWalks : out.walks.flatMap(w => [w.from, w.to])), ...extra], { aspect, boxes, width });
+  // The two fits (2026-11-12): the trip alone, and the trip with your location (`fitAlso`); the
+  // first view is trip + me only while near (mapFits, firstFit).
+  const base = [...fitPaths.flat(), ...(rest.length ? fitWalks : out.walks.flatMap(w => [w.from, w.to]))];
+  const trip = fitView(base, { aspect, boxes, width });
+  const me = extra.length ? fitView([...base, ...extra], { aspect, boxes, width }) : null;
+  out.fits = mapFits(trip, me);
+  out.view = out.fits[firstFit(out.fits)];
   return out;
 }
 // A leg's stops from a kept /stops list (trimStopsDoc; a stop matches by id or child id), from
