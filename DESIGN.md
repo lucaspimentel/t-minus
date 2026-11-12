@@ -76,7 +76,7 @@ ones):
 | Connection lines ("then ● Bus 132 at 6:38pm"), Dynamic Island | "Orange" | none |
 | Riding: ride card, expanded island, both widgets (2026-11-06) | "Orange Line" | the drop-off instead: "to Malden Center" ("to 🚩 Malden Center" at a flag stop) |
 | Riding: the app's timeline, the ridden leg (2026-11-06) | "Orange Line" | none (the leg's last row names the drop-off) |
-| Route map: vehicle badges (2026-11-07) | "OL", "132" (the island's compact label) | none |
+| Route map: vehicle badges (2026-11-07) | "OL", "132" (the island's compact label); a Green branch's letter "B", a bus `also` route's "117" (2026-11-12) | none |
 | Route map: stop labels and the caption | the stop's name ("Oak Grove", "Main St @ South St") | none |
 | Route map: pin labels (2026-11-09) | the place's name to its first comma ("243 Condor St", "Current location") | none |
 
@@ -692,11 +692,25 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   and after the drop-off at 35% (like finished legs, beneath every leg's stretch), and the
   pattern's other stops as faded dots (tappable for their names on the sheet; thinned like
   intermediate stops). On every map (the sheet, the main screen's, setup's). The view still fits
-  your stretch, walks and location only. Subway and commuter rail legs stay trimmed (the base
-  map's faint lines show the rest); a leg drawn from its stops (no shape) too.
-- **Data:** a leg's main route only (an `also` route runs the same street between the stops).
-  The pattern is the one serving the boarding stop and then the drop-off (by id or parent
-  station): canonical first, then the most typical, then MBTA sort order. Kept on the phone as
+  your stretch, walks and location only. A leg drawn from its stops (no shape) stays trimmed.
+- **Incoming trains (2026-11-12):** on the main screen's map and the sheet (`incoming`), a rail
+  leg (subway, the Green branches, Mattapan, commuter rail, ferries: every leg `isBusRoute`
+  rejects) uses its whole pattern too: trains from the line's first stop to the drop-off (coming
+  toward your station; none past the drop-off), and the pattern's other stations as faded dots
+  (tappable for their names on the sheet). No line is drawn outside the stretch: the base map's
+  faint line is the track. The fit stays on your stretch. Setup's maps (planner options, trip
+  editor) keep the trimmed rail leg.
+- **A leg's other routes (2026-11-12):** on the same two maps, each `also` route's pattern
+  serving the boarding stop and then the drop-off: a bus route's whole line faded (as a bus leg's
+  ends) with its stops; a rail route's (Green B/C/D/E) stations outside the stretch, no line.
+  Each vehicle goes on its own route's pattern (`/vehicles` `relationships.route`); one without
+  a route, or whose route has no pattern, on the leg's. A stop or station is drawn once (same id
+  or parent station). Labels: a Green branch's train its letter ("B"), a bus `also` route's bus
+  its route ("117"), everything else the island's label ("OL", "132", "CR"). Yours (belled or
+  riding) is outlined, a belled train still coming toward your station too.
+- **Data:** a leg's route and each `also` route, each with its own shapes (the map draws the
+  main route first and redraws when the others arrive). The pattern is the one serving the
+  boarding stop and then the drop-off (by id or parent station): canonical first, then the most typical, then MBTA sort order. Kept on the phone as
   `t-minus:shapes:<route>/<dir>` (`trimShapesDoc`: patterns with their polyline and stop ids,
   stops with name, position and parent; 132 toward Malden 7.6 → 4 KB, Orange toward Forest Hills
   5.8 → 2.9 KB), 7 days like the stop lists. Without a shape (the MBTA down, nothing kept):
@@ -705,7 +719,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 - **Privacy:** positions never leave the phone; shape and vehicle requests carry the route and
   direction only.
 - **Code:** geometry in `core.js` ("route map": `decodePolyline` / `encodePolyline`,
-  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `fitView` / `zoomView` / `panView`, locate's `nextFollowLevel` / `viewAt`,
+  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `vehicleRouteLabel`, `fitView` / `zoomView` / `panView`, locate's `nextFollowLevel` / `viewAt`,
   `routeMapModel`, `basemapLayers`, `basemapNames`); the SVG, gestures and the sheet in
   `index.html` (`mapWidget`, `openMapSheet`, `routeMapEl` for setup, `loadBasemap`); the base
   map's build in `scripts/build-basemap.mjs` with its geometry in `scripts/basemap-geo.mjs`.
@@ -1109,7 +1123,8 @@ still holds, to stay well inside it either way:
   through the proxy (its 5 s cache for `/vehicles`): ~8 requests a minute per phone.
 - Route map (2026-11-07): one `/route_patterns` (`shapesQuery`) per leg's route and direction
   the first time, kept on the phone for 7 days like the stop lists (planner and editor maps
-  too); one `/vehicles` per leg every 10 s (6 a minute per leg, 12 for a 2-leg trip) from the
+  too), and on the main screen's map and the sheet one per `also` route and direction too
+  (2026-11-12; the first time only, kept 7 days); one `/vehicles` per leg every 10 s (6 a minute per leg, 12 for a 2-leg trip) from the
   main screen's map whenever it's shown (2026-11-12; until then only while the sheet was open,
   or the map of an empty screen) or from the sheet while open (the main map pauses: never
   both), through the proxy (its 5 s `vehicles` cache, 120/min per IP). None while the map is

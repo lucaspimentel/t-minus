@@ -243,7 +243,7 @@ export async function fakeMbta(context, scenario, { now }) {
     const dir = q.get('filter[direction_id]');
     return { data: (scenario.vehicles ?? []).filter(v => routes.includes(v.route) && (dir == null || String(v.direction) === dir)).map(v => ({
       type: 'vehicle', id: v.id, attributes: { latitude: v.lat, longitude: v.lon, updated_at: iso(mbta.now), current_status: 'IN_TRANSIT_TO' },
-      relationships: { trip: { data: { type: 'trip', id: v.trip } } },
+      relationships: { trip: { data: { type: 'trip', id: v.trip } }, route: { data: { type: 'route', id: v.route } } },
     })) };
   }
 

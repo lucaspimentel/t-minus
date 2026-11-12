@@ -2690,6 +2690,14 @@ export function islandLabel(leg) {
   if (l === 'Mattapan') return 'M';
   return l.slice(0, 4);
 }
+// A route map vehicle's label by its own route (2026-11-12): a Green branch's letter ("B"), a bus
+// `also` route's id ("117"), else the leg's islandLabel.
+export function vehicleRouteLabel(leg, route) {
+  const g = typeof route === 'string' ? route.match(/^Green-([A-Z])$/) : null;
+  if (g) return g[1];
+  if (route && route !== leg.route && isBusRoute(route)) return route;
+  return islandLabel(leg);
+}
 
 // The card's content: ActivityKit's ContentState (ios/App/TMinusWidgets/RideAttributes.swift).
 // The app builds it for local updates and the server for pushes, so both show the same thing.
@@ -3492,10 +3500,11 @@ export const BOARDING_LOG_DAYS = 7; // the on-device log
 export function vehiclesQuery(leg) {
   return { 'filter[route]': legRoutes(leg).join(','), 'filter[direction_id]': leg.direction_id, 'fields[vehicle]': 'latitude,longitude,updated_at,current_status' };
 }
-// /vehicles → [{ id, tripId, lat, lon, updatedAt, status }] (those with a position and a trip).
+// /vehicles → [{ id, tripId, route, lat, lon, updatedAt, status }] (those with a position and a
+// trip; `route`: the vehicle's route id, or null; the route map places it on its route's pattern).
 export function vehiclePositions(doc) {
   return (doc?.data ?? []).map(v => ({
-    id: v.id, tripId: v.relationships?.trip?.data?.id ?? null, lat: v.attributes?.latitude, lon: v.attributes?.longitude,
+    id: v.id, tripId: v.relationships?.trip?.data?.id ?? null, route: v.relationships?.route?.data?.id ?? null, lat: v.attributes?.latitude, lon: v.attributes?.longitude,
     updatedAt: Date.parse(v.attributes?.updated_at ?? ''), status: v.attributes?.current_status ?? null,
   })).filter(p => p.tripId && Number.isFinite(p.lat) && Number.isFinite(p.lon) && Number.isFinite(p.updatedAt));
 }
@@ -4224,9 +4233,18 @@ const WALK_GAP_METERS = 25;
 // Places (2026-11-09): a pin at each end, at a walk's place (labeled, on the side away from the
 // walk) or else on the first boarding / last drop-off stop (unlabeled: the stop's label names
 // it); the start pin fades once the first leg is finished.
+// incoming (2026-11-12, the main screen's map and the sheet): a rail leg's whole pattern too, for
+// its vehicles (from the line's start to the drop-off) and its other stations (`off` stops), with
+// no line outside the stretch (the base map's faint line is the track).
+// also[i] (2026-11-12): [{ route, shapes }], the leg's `also` routes with their trimShapesDoc (null:
+// skipped). Each one's pattern serving the leg's boarding stop and then its drop-off: a bus route's
+// whole line faded (`off`) with its stops, a rail route's (with `incoming`) stations outside the
+// stretch; its vehicles on its own pattern. Every vehicle goes on its route's pattern (one without
+// a route, or whose route has none, on the leg's); a stop or station is drawn once per map (by id
+// or parent station). Both default off: setup's maps keep the drawing above, stops not deduplicated.
 // fitFrom (2026-11-12, the main screen's map while riding): the view fits the legs from this one
 // on (their walks, the end walk and pin, `fitAlso`), the rest of the ride; 0 fits the whole trip.
-export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1, width = null, fitAlso = [], fitFrom = 0 }) {
+export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1, width = null, fitAlso = [], fitFrom = 0, incoming = false, also = [] }) {
   const raw = legs.map((leg, i) => {
     const picked = shapes[i] ? pickPattern(shapes[i], leg.stop, leg.alight) : null;
     if (picked) {
@@ -4236,9 +4254,14 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
         const at = k => ({ id: picked.pattern.stops[k], ...shapes[i].stops[picked.pattern.stops[k]] });
         const ok = s => Number.isFinite(s.lat) && Number.isFinite(s.lon);
         const whole = isBusRoute(leg.route);
-        const offBefore = whole ? picked.pattern.stops.slice(0, picked.from).map((_, k) => at(k)).filter(ok) : [];
-        const offAfter = whole ? picked.pattern.stops.slice(picked.to + 1).map((_, k) => at(picked.to + 1 + k)).filter(ok) : [];
-        return { leg, i, line: decodePolyline(picked.pattern.polyline), stops: st, whole, offBefore, offAfter };
+        const extend = whole || incoming; // a rail leg with `incoming`: its stations, no line
+        const offBefore = extend ? picked.pattern.stops.slice(0, picked.from).map((_, k) => at(k)).filter(ok) : [];
+        const offAfter = extend ? picked.pattern.stops.slice(picked.to + 1).map((_, k) => at(picked.to + 1 + k)).filter(ok) : [];
+        const others = (also[i] ?? []).map(a => {
+          const p = a?.shapes && a.route !== leg.route ? pickPattern(a.shapes, leg.stop, leg.alight) : null;
+          return p ? { route: a.route, shapes: a.shapes, picked: p, bus: isBusRoute(a.route) } : null;
+        }).filter(Boolean);
+        return { leg, i, line: decodePolyline(picked.pattern.polyline), stops: st, whole, extend, offBefore, offAfter, others };
       }
     }
     const fb = (fallback[i] ?? []).filter(s => Number.isFinite(s?.lat) && Number.isFinite(s?.lon));
@@ -4248,6 +4271,13 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
   if (!o) return { origin: null, view: fitView([], { aspect }), legs: [], stops: [], walks: [], vehicles: [], here: null, places: [] };
   const proj = projector(o.lat, o.lon);
   const out = { origin: { lat: o.lat, lon: o.lon }, legs: [], stops: [], walks: [], vehicles: [], here: null, places: [] };
+  // Each stop or station once (by id or parent station), stretches' stops first; only with
+  // `incoming` or `also` (setup's maps as before).
+  const dedupe = incoming || also.some(a => a?.length);
+  const seen = new Set();
+  const see = s => { seen.add(s.id); if (s.parent) seen.add(s.parent); };
+  const isSeen = s => seen.has(s.id) || (!!s.parent && seen.has(s.parent));
+  raw.forEach(r => r.stops.forEach(see));
   const drawn = raw.map(r => {
     const pts = r.stops.map(s => proj.toXY(s));
     const full = r.line ? r.line.map(p => proj.toXY(p)) : null;
@@ -4257,7 +4287,12 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     const color = r.leg.color ?? null;
     if (r.whole) for (const part of [split.before, split.after]) if (part.length) out.legs.push({ color, path: part, faded: true, off: true });
     out.legs.push({ color, path, faded: r.i < finished });
-    const offStop = s => { const p = proj.toXY(s); out.stops.push({ id: s.id, name: s.name, x: p.x, y: p.y, major: false, label: false, leg: r.i, color, off: true }); };
+    const offStop = s => {
+      if (dedupe && isSeen(s)) return;
+      see(s);
+      const p = proj.toXY(s);
+      out.stops.push({ id: s.id, name: s.name, x: p.x, y: p.y, major: false, label: false, leg: r.i, color, off: true });
+    };
     (r.offBefore ?? []).forEach(offStop);
     r.stops.forEach((s, k) => {
       const major = k === 0 || k === r.stops.length - 1;
@@ -4268,11 +4303,28 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
       out.stops.push({ id: s.id, name: s.name, x: p.x, y: p.y, major, label: major, leg: r.i, color: r.leg.color ?? null });
     });
     (r.offAfter ?? []).forEach(offStop);
-    const label = islandLabel(r.leg);
-    // A bus leg: vehicles from the line's start to the drop-off (those coming toward the stop).
-    const onLine = r.whole ? vehiclesOnStretch(vehicles[r.i], full, 0, split.to, proj, nowMs) : vehiclesOnStretch(vehicles[r.i], path, 0, length, proj, nowMs);
-    for (const v of onLine) {
-      out.vehicles.push({ id: v.id, x: v.point.x, y: v.point.y, heading: v.heading, color: r.leg.color ?? null, label, mine: !!mine[r.i] && v.tripId === mine[r.i] });
+    const place = (list, route) => {
+      for (const v of list) out.vehicles.push({ id: v.id, x: v.point.x, y: v.point.y, heading: v.heading, color, label: vehicleRouteLabel(r.leg, v.route ?? route), mine: !!mine[r.i] && v.tripId === mine[r.i] });
+    };
+    const own = new Set((r.others ?? []).map(a => a.route));
+    const legVehicles = vehicles[r.i] ?? [];
+    // A bus leg (or a rail leg with `incoming`): vehicles from the line's start to the drop-off
+    // (those coming toward the stop).
+    const mainVehicles = legVehicles.filter(v => !v.route || !own.has(v.route));
+    place(r.extend ? vehiclesOnStretch(mainVehicles, full, 0, split.to, proj, nowMs) : vehiclesOnStretch(mainVehicles, path, 0, length, proj, nowMs));
+    for (const a of r.others ?? []) {
+      const line = decodePolyline(a.picked.pattern.polyline).map(p => proj.toXY(p));
+      if (line.length < 2) continue;
+      const cut = splitPath(line, pts[0], pts.at(-1));
+      const ext = a.bus || incoming;
+      if (a.bus) out.legs.push({ color, path: line, faded: true, off: true });
+      const stop = k => ({ id: a.picked.pattern.stops[k], ...a.shapes.stops[a.picked.pattern.stops[k]] });
+      const ok = s => Number.isFinite(s.lat) && Number.isFinite(s.lon);
+      const ks = a.picked.pattern.stops.map((_, k) => k);
+      if (a.bus) ks.map(stop).filter(ok).forEach(offStop);
+      else if (incoming) ks.filter(k => k < a.picked.from || k > a.picked.to).map(stop).filter(ok).forEach(offStop);
+      const mineRoute = legVehicles.filter(v => v.route === a.route);
+      place(ext ? vehiclesOnStretch(mineRoute, line, 0, cut.to, proj, nowMs) : vehiclesOnStretch(mineRoute, line, cut.from, cut.to, proj, nowMs), a.route);
     }
     return path;
   });
@@ -4298,7 +4350,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
   out.legs.sort((a, b) => !!b.off - !!a.off); // faded line ends beneath every leg's stretch
   // `fitAlso` ({ lat, lon }): in the fit, drawn by the caller (the phone's location, 2026-11-09:
   // no walk to the first stop, only the dot).
-  const also = drawn.length ? fitAlso.filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lon)).map(p => proj.toXY(p)) : [];
+  const extra = drawn.length ? fitAlso.filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lon)).map(p => proj.toXY(p)) : [];
   // The rest of the ride; all of it when no leg is left from fitFrom (a stale index).
   const rest = drawn.filter((_, k) => raw[k].i >= fitFrom);
   const fitPaths = rest.length ? rest : drawn;
@@ -4307,7 +4359,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     if (pl.label) b[pl.side] = Math.max(b[pl.side], PIN_LABEL_X + PIN_LABEL_CHAR_PX * pl.label.length + 2);
     return b;
   });
-  out.view = fitView([...fitPaths.flat(), ...(rest.length ? fitWalks : out.walks.flatMap(w => [w.from, w.to])), ...also], { aspect, boxes, width });
+  out.view = fitView([...fitPaths.flat(), ...(rest.length ? fitWalks : out.walks.flatMap(w => [w.from, w.to])), ...extra], { aspect, boxes, width });
   return out;
 }
 // A leg's stops from a kept /stops list (trimStopsDoc; a stop matches by id or child id), from

@@ -375,8 +375,11 @@ test('boardingWants: the region only before the trip starts, during its window; 
 
 test('vehiclePositions, stopPoint and legPoints read the MBTA documents', () => {
   const p = vehiclePositions(vehiclesDoc([snap('O726', at('07:26'), OAK_GROVE)]));
-  assert.deepEqual(p, [{ id: 'v-O726', tripId: 'O726', lat: OAK_GROVE.lat, lon: OAK_GROVE.lon, updatedAt: at('07:26'), status: 'IN_TRANSIT_TO' }]);
+  assert.deepEqual(p, [{ id: 'v-O726', tripId: 'O726', route: null, lat: OAK_GROVE.lat, lon: OAK_GROVE.lon, updatedAt: at('07:26'), status: 'IN_TRANSIT_TO' }]);
   assert.deepEqual(vehiclePositions({ data: [{ id: 'x', attributes: { latitude: null }, relationships: {} }] }), []);
+  const routed = vehiclesDoc([snap('O726', at('07:26'), OAK_GROVE)]);
+  routed.data[0].relationships.route = { data: { type: 'route', id: 'Orange' } };
+  assert.equal(vehiclePositions(routed)[0].route, 'Orange');
   const d = docs('schedule');
   assert.deepEqual(stopPoint(d, 'place-state'), { lat: STATE.lat, lon: STATE.lon, name: 'State' });
   assert.equal(stopPoint(d, 'nope'), null);

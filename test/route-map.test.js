@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
   fitView, viewLimits, areaRect, insideReach, wholeView, easeView, nextFollowLevel, viewAt, viewShiftPx, FOLLOW_SPANS, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
-  placeLabel, PIN_BOX, PIN_LABEL_X,
+  placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -22,7 +22,7 @@ const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} ≉ $
 
 // A north-south line of 5 stops (~111 m apart), and the doc /route_patterns returns for it.
 const LINE = [0, 1, 2, 3, 4].map(k => ({ id: `s${k}`, name: `Stop ${k}`, lat: Math.round((42.4 + k * 0.001) * 1e5) / 1e5, lon: -71.07 }));
-function doc({ patterns = [{ id: 'p1', canonical: false, typicality: 1, stops: LINE.map(s => s.id) }], parent = {} } = {}) {
+function doc({ patterns = [{ id: 'p1', canonical: false, typicality: 1, stops: LINE.map(s => s.id) }], parent = {}, line = LINE } = {}) {
   return {
     data: patterns.map((p, k) => ({
       type: 'route_pattern', id: p.id, attributes: { canonical: p.canonical, typicality: p.typicality, sort_order: k },
@@ -30,8 +30,8 @@ function doc({ patterns = [{ id: 'p1', canonical: false, typicality: 1, stops: L
     })),
     included: [
       ...patterns.map(p => ({ type: 'trip', id: `t${p.id}`, relationships: { shape: { data: { type: 'shape', id: `sh${p.id}` } }, stops: { data: p.stops.map(id => ({ type: 'stop', id })) } } })),
-      ...patterns.map(p => ({ type: 'shape', id: `sh${p.id}`, attributes: { polyline: encode(p.stops.map(id => LINE.find(s => s.id === id) ?? LINE[0])) } })),
-      ...LINE.map(s => ({ type: 'stop', id: s.id, attributes: { name: s.name, latitude: s.lat + 1e-7, longitude: s.lon }, links: { self: 'x' }, relationships: { parent_station: { data: parent[s.id] ? { id: parent[s.id] } : null } } })),
+      ...patterns.map(p => ({ type: 'shape', id: `sh${p.id}`, attributes: { polyline: encode(p.stops.map(id => line.find(s => s.id === id) ?? line[0])) } })),
+      ...line.map(s => ({ type: 'stop', id: s.id, attributes: { name: s.name, latitude: s.lat + 1e-7, longitude: s.lon }, links: { self: 'x' }, relationships: { parent_station: { data: parent[s.id] ? { id: parent[s.id] } : null } } })),
     ],
   };
 }
@@ -531,4 +531,80 @@ test('routeMapModel: without walks the pins sit on the first and last stops, unl
   assert.deepEqual([m.places[0].x, m.places[0].y], at('A'));
   assert.deepEqual([m.places[1].x, m.places[1].y], at('B'));
   assert.deepEqual(routeMapModel({ legs: [{ stop: 'x0', alight: 'x1' }], shapes: [], fallback: [] }).places, []);
+});
+
+test('vehicleRouteLabel: a Green branch\'s letter, a bus also route\'s id, else the leg\'s label', () => {
+  const green = { route: 'Green-B', label: 'Green B' };
+  assert.equal(vehicleRouteLabel(green, 'Green-C'), 'C');
+  assert.equal(vehicleRouteLabel(green, 'Green-B'), 'B');
+  assert.equal(vehicleRouteLabel(green, null), 'GL B');
+  const bus = { route: '116', label: 'Bus 116' };
+  assert.equal(vehicleRouteLabel(bus, '117'), '117');
+  assert.equal(vehicleRouteLabel(bus, '116'), '116');
+  assert.equal(vehicleRouteLabel({ route: 'Orange', label: 'Orange' }, 'Orange'), 'OL');
+  assert.equal(vehicleRouteLabel({ route: 'CR-Lowell', label: 'CR Lowell' }, 'CR-Lowell'), 'CR');
+});
+
+test('routeMapModel incoming: a rail leg\'s trains coming toward the stop and its other stations, no line', () => {
+  const kept = trimShapesDoc(doc());
+  const now = 1_000;
+  const v = (id, k, off = 0.0004) => ({ id, tripId: id, route: 'Orange', lat: LINE[k].lat + off, lon: -71.07, updatedAt: now });
+  const leg = { route: 'Orange', stop: 's2', alight: 's3', label: 'Orange', color: 'ED8B00' };
+  const vehicles = [[v('coming', 0, 0), v('in', 2), v('past', 4)]];
+  const m = routeMapModel({ legs: [leg], shapes: [kept], vehicles, nowMs: now, incoming: true, mine: ['coming'] });
+  assert.deepEqual(m.vehicles.map(x => [x.id, x.label, x.mine]), [['in', 'OL', false], ['coming', 'OL', true]]); // never past the drop-off
+  assert.deepEqual(m.legs.map(l => !!l.off), [false]); // no line outside the stretch
+  assert.deepEqual(m.stops.map(s => [s.id, !!s.off]), [['s0', true], ['s1', true], ['s2', false], ['s3', false], ['s4', true]]);
+  const plain = routeMapModel({ legs: [leg], shapes: [kept], vehicles, nowMs: now });
+  assert.deepEqual(plain.vehicles.map(x => x.id), ['in']);
+  assert.deepEqual(plain.stops.map(s => s.id), ['s2', 's3']);
+  assert.deepEqual(m.view, plain.view);
+});
+
+// A branch joining LINE at s1 from the west: c0, c1, then s1..s4 (the Green C onto the trunk).
+const BRANCH = [{ id: 'c0', name: 'C 0', lat: 42.4, lon: -71.074 }, { id: 'c1', name: 'C 1', lat: 42.4005, lon: -71.072 }];
+const BOTH = [...LINE, ...BRANCH];
+
+test('routeMapModel also (rail): a branch\'s trains on its own pattern, labeled by letter; shared stations once', () => {
+  const now = 1_000;
+  const b = trimShapesDoc(doc({ line: BOTH, parent: { s1: 'place-s1', s2: 'place-s2', s3: 'place-s3' } }));
+  // The C pattern's trunk platforms are other ids under the same parent stations.
+  const cLine = [...BRANCH, ...LINE.slice(1).map(s => ({ ...s, id: `${s.id}c` }))];
+  const c = trimShapesDoc(doc({ line: cLine, patterns: [{ id: 'pc', canonical: true, typicality: 1, stops: cLine.map(s => s.id) }], parent: { s1c: 'place-s1', s2c: 'place-s2', s3c: 'place-s3', s4c: 's4' } }));
+  const leg = { route: 'Green-B', stop: 'place-s1', alight: 'place-s3', label: 'Green B', color: '00843D' };
+  const vehicles = [[
+    { id: 'vc', tripId: 'vc', route: 'Green-C', lat: BRANCH[0].lat, lon: BRANCH[0].lon + 0.0003, updatedAt: now },
+    { id: 'vb', tripId: 'vb', route: 'Green-B', lat: LINE[0].lat + 0.0004, lon: -71.07, updatedAt: now },
+  ]];
+  const m = routeMapModel({ legs: [leg], shapes: [b], vehicles, nowMs: now, incoming: true, also: [[{ route: 'Green-C', shapes: c }]] });
+  assert.deepEqual(m.vehicles.map(x => [x.id, x.label]).sort(), [['vb', 'B'], ['vc', 'C']]);
+  const vc = m.vehicles.find(x => x.id === 'vc'), c0 = projector(m.origin.lat, m.origin.lon).toXY(BRANCH[0]);
+  assert.ok(Math.hypot(vc.x - c0.x, vc.y - c0.y) < 30); // on the branch, before the trunk
+  assert.deepEqual(m.legs.map(l => !!l.off), [false]); // no line for a rail also route
+  // Shared stations once: s4 (B's) and s4c (parent s4); the C branch's own stations off.
+  assert.deepEqual(m.stops.map(s => [s.id, !!s.off]), [['s0', true], ['s1', false], ['s2', false], ['s3', false], ['s4', true], ['c0', true], ['c1', true]]);
+  // Without the also shapes, the C train isn't on the B pattern.
+  const alone = routeMapModel({ legs: [leg], shapes: [b], vehicles, nowMs: now, incoming: true });
+  assert.deepEqual(alone.vehicles.map(x => x.id), ['vb']);
+  assert.deepEqual(alone.view, m.view);
+});
+
+test('routeMapModel also (bus): the other route\'s whole line faded, its stops once, its buses labeled by route', () => {
+  const now = 1_000;
+  const main = trimShapesDoc(doc());
+  const other = trimShapesDoc(doc({ line: BOTH, patterns: [{ id: 'p117', canonical: true, typicality: 1, stops: ['c0', 'c1', 's1', 's2', 's3'] }] }));
+  const leg = { route: '116', stop: 's1', alight: 's3', label: 'Bus 116', color: 'FFC72C' };
+  const vehicles = [[
+    { id: 'b117', tripId: 't117', route: '117', lat: BRANCH[0].lat, lon: BRANCH[0].lon + 0.0003, updatedAt: now },
+    { id: 'b116', tripId: 't116', route: '116', lat: LINE[2].lat, lon: -71.0703, updatedAt: now },
+  ]];
+  const m = routeMapModel({ legs: [leg], shapes: [main], vehicles, nowMs: now, mine: ['t117'], also: [[{ route: '117', shapes: other }, { route: '999', shapes: null }]] });
+  const off = m.legs.filter(l => l.off);
+  assert.equal(off.length, 3); // the main line's two ends, and 117's whole line
+  assert.ok(off.every(l => l.faded));
+  assert.ok(off.some(l => l.path.length === 5));
+  assert.deepEqual(m.stops.filter(s => s.off).map(s => s.id), ['s0', 's4', 'c0', 'c1']);
+  assert.deepEqual(m.vehicles.map(x => [x.id, x.label, x.mine]), [['b116', '116', false], ['b117', '117', true]]);
+  // Without `also`, the 117 bus (off the 116's line) isn't drawn: setup's maps.
+  assert.deepEqual(routeMapModel({ legs: [leg], shapes: [main], vehicles, nowMs: now }).vehicles.map(x => x.id), ['b116']);
 });

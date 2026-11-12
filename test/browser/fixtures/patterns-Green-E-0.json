@@ -1,0 +1,784 @@
+{
+ "data": [
+  {
+   "type": "route_pattern",
+   "id": "Green-E-886-0",
+   "attributes": {
+    "canonical": true,
+    "sort_order": 100350000,
+    "typicality": 1
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "canonical-Green-E-C1-0",
+      "type": "trip"
+     }
+    }
+   }
+  },
+  {
+   "type": "route_pattern",
+   "id": "Green-E-885-0",
+   "attributes": {
+    "canonical": false,
+    "sort_order": 100350040,
+    "typicality": 3
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "77745105",
+      "type": "trip"
+     }
+    }
+   }
+  },
+  {
+   "type": "route_pattern",
+   "id": "Green-E-86-0",
+   "attributes": {
+    "canonical": false,
+    "sort_order": 100350070,
+    "typicality": 3
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "79503656",
+      "type": "trip"
+     }
+    }
+   }
+  }
+ ],
+ "included": [
+  {
+   "type": "stop",
+   "id": "70155",
+   "attributes": {
+    "latitude": 42.350126,
+    "longitude": -71.077376,
+    "name": "Copley"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-coecl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70157",
+   "attributes": {
+    "latitude": 42.351902,
+    "longitude": -71.070893,
+    "name": "Arlington"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-armnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70159",
+   "attributes": {
+    "latitude": 42.353214,
+    "longitude": -71.064545,
+    "name": "Boylston"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-boyls",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70199",
+   "attributes": {
+    "latitude": 42.3563946,
+    "longitude": -71.0624242,
+    "name": "Park Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-pktrm",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70202",
+   "attributes": {
+    "latitude": 42.359705,
+    "longitude": -71.059215,
+    "name": "Government Center"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-gover",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70204",
+   "attributes": {
+    "latitude": 42.363021,
+    "longitude": -71.05829,
+    "name": "Haymarket"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-haecl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70206",
+   "attributes": {
+    "latitude": 42.36528,
+    "longitude": -71.060205,
+    "name": "North Station"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-north",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70208",
+   "attributes": {
+    "latitude": 42.366664,
+    "longitude": -71.067666,
+    "name": "Science Park/West End"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-spmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70239",
+   "attributes": {
+    "latitude": 42.34557,
+    "longitude": -71.081696,
+    "name": "Prudential"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-prmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70241",
+   "attributes": {
+    "latitude": 42.342687,
+    "longitude": -71.085056,
+    "name": "Symphony"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-symcl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70243",
+   "attributes": {
+    "latitude": 42.339897,
+    "longitude": -71.09021,
+    "name": "Northeastern University"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-nuniv",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70245",
+   "attributes": {
+    "latitude": 42.337875,
+    "longitude": -71.09524,
+    "name": "Museum of Fine Arts"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-mfa",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70247",
+   "attributes": {
+    "latitude": 42.33608,
+    "longitude": -71.099883,
+    "name": "Longwood Medical Area"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-lngmd",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70249",
+   "attributes": {
+    "latitude": 42.334331,
+    "longitude": -71.104487,
+    "name": "Brigham Circle"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-brmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70251",
+   "attributes": {
+    "latitude": 42.33374,
+    "longitude": -71.105721,
+    "name": "Fenwood Road"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-fenwd",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70253",
+   "attributes": {
+    "latitude": 42.333279,
+    "longitude": -71.109276,
+    "name": "Mission Park"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-mispk",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70255",
+   "attributes": {
+    "latitude": 42.331391,
+    "longitude": -71.111925,
+    "name": "Riverway"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-rvrwy",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70257",
+   "attributes": {
+    "latitude": 42.329369,
+    "longitude": -71.111046,
+    "name": "Back of the Hill"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-bckhl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70260",
+   "attributes": {
+    "latitude": 42.328316,
+    "longitude": -71.110252,
+    "name": "Heath Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-hsmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70502",
+   "attributes": {
+    "latitude": 42.370989,
+    "longitude": -71.07586,
+    "name": "Lechmere"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-lech",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70504",
+   "attributes": {
+    "latitude": 42.37699,
+    "longitude": -71.093993,
+    "name": "Union Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-unsqu",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70506",
+   "attributes": {
+    "latitude": 42.387831,
+    "longitude": -71.096629,
+    "name": "Gilman Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-gilmn",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70508",
+   "attributes": {
+    "latitude": 42.39405,
+    "longitude": -71.106688,
+    "name": "Magoun Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-mgngl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70510",
+   "attributes": {
+    "latitude": 42.400103,
+    "longitude": -71.111207,
+    "name": "Ball Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-balsq",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70512",
+   "attributes": {
+    "latitude": 42.40828,
+    "longitude": -71.117339,
+    "name": "Medford/Tufts"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-mdftf",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70514",
+   "attributes": {
+    "latitude": 42.379624,
+    "longitude": -71.086829,
+    "name": "East Somerville"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-esomr",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "trip",
+   "id": "77745105",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "8000043",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "70504",
+       "type": "stop"
+      },
+      {
+       "id": "70502",
+       "type": "stop"
+      },
+      {
+       "id": "70208",
+       "type": "stop"
+      },
+      {
+       "id": "70206",
+       "type": "stop"
+      },
+      {
+       "id": "70204",
+       "type": "stop"
+      },
+      {
+       "id": "70202",
+       "type": "stop"
+      },
+      {
+       "id": "70199",
+       "type": "stop"
+      },
+      {
+       "id": "70159",
+       "type": "stop"
+      },
+      {
+       "id": "70157",
+       "type": "stop"
+      },
+      {
+       "id": "70155",
+       "type": "stop"
+      },
+      {
+       "id": "70239",
+       "type": "stop"
+      },
+      {
+       "id": "70241",
+       "type": "stop"
+      },
+      {
+       "id": "70243",
+       "type": "stop"
+      },
+      {
+       "id": "70245",
+       "type": "stop"
+      },
+      {
+       "id": "70247",
+       "type": "stop"
+      },
+      {
+       "id": "70249",
+       "type": "stop"
+      },
+      {
+       "id": "70251",
+       "type": "stop"
+      },
+      {
+       "id": "70253",
+       "type": "stop"
+      },
+      {
+       "id": "70255",
+       "type": "stop"
+      },
+      {
+       "id": "70257",
+       "type": "stop"
+      },
+      {
+       "id": "70260",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "trip",
+   "id": "79503656",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "8000040",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "70512",
+       "type": "stop"
+      },
+      {
+       "id": "70510",
+       "type": "stop"
+      },
+      {
+       "id": "70508",
+       "type": "stop"
+      },
+      {
+       "id": "70506",
+       "type": "stop"
+      },
+      {
+       "id": "70514",
+       "type": "stop"
+      },
+      {
+       "id": "70502",
+       "type": "stop"
+      },
+      {
+       "id": "70208",
+       "type": "stop"
+      },
+      {
+       "id": "70206",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "shape",
+   "id": "8000040",
+   "attributes": {
+    "polyline": "awyaG|~`qLZSLKNMl@a@jCeBpCkBhDaCrA}@NKzAgA^Uz@k@bAs@f@_@f@]TOf@]d@Yb@[f@]`@YRM\\W~@k@bAo@n@c@j@c@d@[JG??l@a@v@i@~@o@^Wx@i@l@c@v@g@b@[l@a@bAq@r@i@r@e@fBmALK`@Yh@]x@i@POJGf@]d@[f@]`@Wp@e@z@k@bAs@z@m@TM??DEp@a@p@g@TQr@u@z@}@l@m@r@_AJQZi@n@eAl@eAZm@`@aANe@xAwDhCsHd@sA`A_Dj@wAX}@j@yAz@yBDO??h@yAv@}B`B{En@eBbAwBdAqBj@w@r@_ApAwAt@q@j@q@jAqAhBoAhA{@rDgDzH}HzCyC??zByBd@o@`AsAr@{@vKeK~@_AbAeAz@_A^g@LYN_@H[Z{@d@aA\\i@V]XS~@_@PE`@Gd@SXSx@w@r@w@n@_BlEkLTgAVkAPk@Zi@T[NOVQ\\Y??@?n@a@tAkBr@oBN_@rBgFv@kBpA_DjBoEdBmEn@{A@C??z@iCvAgDDMd@kAPe@Ti@To@Rq@Ru@TuAJcAJs@^aC\\_ABO@OCc@Ea@Mm@g@}AcB_FK[CWCi@?SBOFQtCsCNO"
+   }
+  },
+  {
+   "type": "shape",
+   "id": "8000043",
+   "attributes": {
+    "polyline": "_xsaGpr|pLFM|AeFf@aC|@oHJiALuBzAmUz@mQFq@Fq@Dm@Hy@F{@Fm@F[FOJ[JQNSLOLMJI`@Gd@SXSx@w@r@w@n@_BlEkLTgAVkAPk@Zi@T[NOVQ\\Y??@?n@a@tAkBr@oBN_@rBgFv@kBpA_DjBoEdBmEn@{A@C??z@iCvAgDDMd@kAPe@Ti@To@Rq@Ru@TuAJcAJs@^aC\\_ABO@OCc@Ea@Mm@g@}AcB_FK[CWCi@?SBOFQtCsCNO??lIkHxAcBLQh@c@LIZQ??NGREZC`@I`GSf@AT@TNtE|Dp@n@PPRN??XVZTdElCt@p@tB~Bn@t@`@b@VPTXp@z@??T\\z@dAZ^^b@VZh@b@n@\\\\BXNp@TfBv@RH`@PPFNPh@R`@T\\LB@??tAZHJDJBLB^Y`LJbBRbCd@bDvArI??F^bJng@??Lr@^`CXbBX`AHRPFlBg@NBhHhAv@Z^XV\\xEzG^h@??RXxMfQ??l@v@`@f@~C|DfAzAVd@d@`ANd@Pl@\\jAXbAr@xB??Ph@f@~AzAbFHVp@bCp@|B^nAT`AfAxDX`A~A`FXhA??d@dBbB~F|B|Hl@|Bj@dB??JZNh@\\dAj@lBLj@l@lCRv@|AtFDNj@nBPh@DL??Rr@Nh@`@dAZr@??HPNX\\|@Nh@Lp@Dd@?Z?pA@tCB~@?v@@v@?v@@l@D^??@L@FFXH`@Xt@N^L\\n@nAZh@T`@P\\PZPXDDD@ZGTI??tDcA~Bq@??VG`Bo@fAa@d@U^e@PYVa@HKJMFENCB@BB"
+   }
+  },
+  {
+   "type": "shape",
+   "id": "canonical-8000018",
+   "attributes": {
+    "polyline": "awyaG|~`qLZSLKNMl@a@jCeBpCkBhDaCrA}@NKzAgA^Uz@k@bAs@f@_@f@]TOf@]d@Yb@[f@]`@YRM\\W~@k@bAo@n@c@j@c@d@[JG??l@a@v@i@~@o@^Wx@i@l@c@v@g@b@[l@a@bAq@r@i@r@e@fBmALK`@Yh@]x@i@POJGf@]d@[f@]`@Wp@e@z@k@bAs@z@m@TM??DEp@a@p@g@TQr@u@z@}@l@m@r@_AJQZi@n@eAl@eAZm@`@aANe@xAwDhCsHd@sA`A_Dj@wAX}@j@yAz@yBDO??h@yAv@}B`B{En@eBbAwBdAqBj@w@r@_ApAwAt@q@j@q@jAqAhBoAhA{@rDgDzH}HzCyC??zByBd@o@`AsAr@{@vKeK~@_AbAeAz@_A^g@LYN_@H[Z{@d@aA\\i@V]XS~@_@PE`@Gd@SXSx@w@r@w@n@_BlEkLTgAVkAPk@Zi@T[NOVQ\\Y??@?n@a@tAkBr@oBN_@rBgFv@kBpA_DjBoEdBmEn@{A@C??z@iCvAgDDMd@kAPe@Ti@To@Rq@Ru@TuAJcAJs@^aC\\_ABO@OCc@Ea@Mm@g@}AcB_FK[CWCi@?SBOFQtCsCNO??lIkHxAcBLQh@c@LIZQ??NGREZC`@I`GSf@AT@TNtE|Dp@n@PPRN??XVZTdElCt@p@tB~Bn@t@`@b@VPTXp@z@??T\\z@dAZ^^b@VZh@b@n@\\\\BXNp@TfBv@RH`@PPFNPh@R`@T\\LB@??tAZHJDJBLB^Y`LJbBRbCd@bDvArI??F^bJng@??Lr@^`CXbBX`AHRPFlBg@NBhHhAv@Z^XV\\xEzG^h@??RXxMfQ??l@v@`@f@~C|DfAzAVd@d@`ANd@Pl@\\jAXbAr@xB??Ph@f@~AzAbFHVp@bCp@|B^nAT`AfAxDX`A~A`FXhA??d@dBbB~F|B|Hl@|Bj@dB??JZNh@\\dAj@lBLj@l@lCRv@|AtFDNj@nBPh@DL??Rr@Nh@`@dAZr@??HPNX\\|@Nh@Lp@Dd@?Z?pA@tCB~@?v@@v@?v@@l@D^??@L@FFXH`@Xt@N^L\\n@nAZh@T`@P\\PZPXDDD@ZGTI??tDcA~Bq@??VG`Bo@fAa@d@Uf@Bd@CT?b@MBa@CYG]"
+   }
+  },
+  {
+   "type": "trip",
+   "id": "canonical-Green-E-C1-0",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "canonical-8000018",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "70512",
+       "type": "stop"
+      },
+      {
+       "id": "70510",
+       "type": "stop"
+      },
+      {
+       "id": "70508",
+       "type": "stop"
+      },
+      {
+       "id": "70506",
+       "type": "stop"
+      },
+      {
+       "id": "70514",
+       "type": "stop"
+      },
+      {
+       "id": "70502",
+       "type": "stop"
+      },
+      {
+       "id": "70208",
+       "type": "stop"
+      },
+      {
+       "id": "70206",
+       "type": "stop"
+      },
+      {
+       "id": "70204",
+       "type": "stop"
+      },
+      {
+       "id": "70202",
+       "type": "stop"
+      },
+      {
+       "id": "70199",
+       "type": "stop"
+      },
+      {
+       "id": "70159",
+       "type": "stop"
+      },
+      {
+       "id": "70157",
+       "type": "stop"
+      },
+      {
+       "id": "70155",
+       "type": "stop"
+      },
+      {
+       "id": "70239",
+       "type": "stop"
+      },
+      {
+       "id": "70241",
+       "type": "stop"
+      },
+      {
+       "id": "70243",
+       "type": "stop"
+      },
+      {
+       "id": "70245",
+       "type": "stop"
+      },
+      {
+       "id": "70247",
+       "type": "stop"
+      },
+      {
+       "id": "70249",
+       "type": "stop"
+      },
+      {
+       "id": "70251",
+       "type": "stop"
+      },
+      {
+       "id": "70253",
+       "type": "stop"
+      },
+      {
+       "id": "70255",
+       "type": "stop"
+      },
+      {
+       "id": "70257",
+       "type": "stop"
+      },
+      {
+       "id": "70260",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

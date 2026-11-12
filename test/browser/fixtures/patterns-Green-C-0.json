@@ -1,0 +1,1049 @@
+{
+ "data": [
+  {
+   "type": "route_pattern",
+   "id": "Green-C-832-0",
+   "attributes": {
+    "canonical": true,
+    "sort_order": 100330000,
+    "typicality": 1
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "canonical-Green-C-C1-0",
+      "type": "trip"
+     }
+    }
+   }
+  },
+  {
+   "type": "route_pattern",
+   "id": "Green-C-836-0",
+   "attributes": {
+    "canonical": false,
+    "sort_order": 100330040,
+    "typicality": 3
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "77744752",
+      "type": "trip"
+     }
+    }
+   }
+  },
+  {
+   "type": "route_pattern",
+   "id": "Shuttle-BackBayClevelandCircle-0-0",
+   "attributes": {
+    "canonical": false,
+    "sort_order": 626020990,
+    "typicality": 4
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "Green-C-39-Weekday-7a16c-0-05:43:00",
+      "type": "trip"
+     }
+    }
+   }
+  }
+ ],
+ "included": [
+  {
+   "type": "stop",
+   "id": "70208",
+   "attributes": {
+    "latitude": 42.366664,
+    "longitude": -71.067666,
+    "name": "Science Park/West End"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-spmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9070227",
+   "attributes": {
+    "latitude": 42.339857,
+    "longitude": -71.1317,
+    "name": "Fairbanks Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9070231",
+   "attributes": {
+    "latitude": 42.338794,
+    "longitude": -71.138504,
+    "name": "Tappan Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "shape",
+   "id": "BackBayToClevelandCircle-S",
+   "attributes": {
+    "polyline": "odnaGt`ypL]mBmA{EKw@iBiKaDpAuAf@sBx@}@ZeFnBWLw@XpC`PlD~RfMvs@JrADlG@?BfG@VD`FFdM@T?zBF~@DVB`@BP?LB^?PJh@TzA\\lBTh@lAvGBx@`B`JVj@Jd@|BpMDz@n@jDbA|Fr@jE`AtFFVbAxFRfABHF`@tArHbBpJ`CvMH^Fb@Ll@f@tC~AnI\\nB`@pBZjBf@|BNv@^`CfAfIr@fENfABFNx@Jb@H\\V|@Pz@FPVjAZxATlATtA^tCN`BBl@Dh@HlBDrC?dGAZ?tB@R?TBXb@dDH\\?DBFF\\Lf@x@pEfDtTfAhIl@fFlAxJBXF^nAxJl@jEbBjKDj@@t@Bf@?X@HVWFaB@G?]YuBCKWeB"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9170153",
+   "attributes": {
+    "latitude": 42.34937,
+    "longitude": -71.088504,
+    "name": "Hynes - Commonwealth Ave @ Massachusetts Ave"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70235",
+   "attributes": {
+    "latitude": 42.336964,
+    "longitude": -71.145867,
+    "name": "Englewood Avenue"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-engav",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70213",
+   "attributes": {
+    "latitude": 42.344758,
+    "longitude": -71.111761,
+    "name": "Hawes Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-hwsst",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70502",
+   "attributes": {
+    "latitude": 42.370989,
+    "longitude": -71.07586,
+    "name": "Lechmere"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-lech",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9070235",
+   "attributes": {
+    "latitude": 42.33715,
+    "longitude": -71.14601,
+    "name": "Englewood Avenue - 1856 Beacon St"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70237",
+   "attributes": {
+    "latitude": 42.336216,
+    "longitude": -71.149201,
+    "name": "Cleveland Circle"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-clmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "shape",
+   "id": "8000017",
+   "attributes": {
+    "polyline": "awyaG|~`qLZSLKNMl@a@jCeBpCkBhDaCrA}@NKzAgA^Uz@k@bAs@f@_@f@]TOf@]d@Yb@[f@]`@YRM\\W~@k@bAo@n@c@j@c@d@[JG??l@a@v@i@~@o@^Wx@i@l@c@v@g@b@[l@a@bAq@r@i@r@e@fBmALK`@Yh@]x@i@POJGf@]d@[f@]`@Wp@e@z@k@bAs@z@m@TM??DEp@a@p@g@TQr@u@z@}@l@m@r@_AJQZi@n@eAl@eAZm@`@aANe@xAwDhCsHd@sA`A_Dj@wAX}@j@yAz@yBDO??h@yAv@}B`B{En@eBbAwBdAqBj@w@r@_ApAwAt@q@j@q@jAqAhBoAhA{@rDgDzH}HzCyC??zByBd@o@`AsAr@{@vKeK~@_AbAeAz@_A^g@LYN_@H[Z{@d@aA\\i@V]XS~@_@PE`@Gd@SXSx@w@r@w@n@_BlEkLTgAVkAPk@Zi@T[NOVQ\\Y??@?n@a@tAkBr@oBN_@rBgFv@kBpA_DjBoEdBmEn@{A@C??z@iCvAgDDMd@kAPe@Ti@To@Rq@Ru@TuAJcAJs@^aC\\_ABO@OCc@Ea@Mm@g@}AcB_FK[CWCi@?SBOFQtCsCNO??lIkHxAcBLQh@c@LIZQ??NGREZC`@I`GSf@AT@TNtE|Dp@n@PPRN??XVZTdElCt@p@tB~Bn@t@`@b@VPTXp@z@??T\\z@dAZ^^b@VZh@b@n@\\\\BXNp@TfBv@RH`@PPFNPh@R`@T\\LB@??tAZHJDJBLB^Y`LJbBRbCd@bDvArI??F^bJng@??Lr@^`CXbBzIfg@F`@@N?Rc@`JCl@Ez@??Cl@?jAPtRAPCPGVM^IN{AjBu@`AGPALAR?nC?D???BP|B?DBjBBtA@hEBN??@RfFzZjFpXr@bE\\`BNp@DP??Pl@Jb@z@rELx@TxAXtA~@dF??@JTlAf@nC`@vB~@jFDR??Nx@n@tDr@lDN`ATlA??RpAbB`Jb@vBRhAZnBDd@@XFd@??BTDTR~@bAhGf@bEJv@f@~CX~A??Jf@BN`@fBHXJVH\\^lANh@d@rBThAPhAPbA??Hj@RfBL~AHdBDv@??Bn@@h@@zA?nDA~B@x@D`AJdBFh@DXJl@FR??DNTt@DLHd@TtAfAlHh@hD??F`@AQ\\dCf@fDj@xDVxB??Jx@D`@PtAb@pD^vCRhBJv@L`AFZ??z@dHf@jDDXPbA^tC"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9070229",
+   "attributes": {
+    "latitude": 42.339687,
+    "longitude": -71.135035,
+    "name": "Washington Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70231",
+   "attributes": {
+    "latitude": 42.338498,
+    "longitude": -71.138731,
+    "name": "Tappan Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-tapst",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70217",
+   "attributes": {
+    "latitude": 42.34334,
+    "longitude": -71.116927,
+    "name": "Saint Paul Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-stpul",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70233",
+   "attributes": {
+    "latitude": 42.337621,
+    "longitude": -71.142706,
+    "name": "Dean Road"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-denrd",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9170151",
+   "attributes": {
+    "latitude": 42.34916,
+    "longitude": -71.0949,
+    "name": "Kenmore - Commonwealth Ave @ Kenmore St"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70227",
+   "attributes": {
+    "latitude": 42.33969,
+    "longitude": -71.131228,
+    "name": "Fairbanks Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-fbkst",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70510",
+   "attributes": {
+    "latitude": 42.400103,
+    "longitude": -71.111207,
+    "name": "Ball Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-balsq",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9070223",
+   "attributes": {
+    "latitude": 42.34105,
+    "longitude": -71.12621,
+    "name": "Summit Avenue - 1428 Beacon St"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70153",
+   "attributes": {
+    "latitude": 42.347888,
+    "longitude": -71.087903,
+    "name": "Hynes Convention Center"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-hymnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70206",
+   "attributes": {
+    "latitude": 42.36528,
+    "longitude": -71.060205,
+    "name": "North Station"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-north",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70159",
+   "attributes": {
+    "latitude": 42.353214,
+    "longitude": -71.064545,
+    "name": "Boylston"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-boyls",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70151",
+   "attributes": {
+    "latitude": 42.348949,
+    "longitude": -71.095169,
+    "name": "Kenmore"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-kencl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "trip",
+   "id": "77744752",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "8000017",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "70512",
+       "type": "stop"
+      },
+      {
+       "id": "70510",
+       "type": "stop"
+      },
+      {
+       "id": "70508",
+       "type": "stop"
+      },
+      {
+       "id": "70506",
+       "type": "stop"
+      },
+      {
+       "id": "70514",
+       "type": "stop"
+      },
+      {
+       "id": "70502",
+       "type": "stop"
+      },
+      {
+       "id": "70208",
+       "type": "stop"
+      },
+      {
+       "id": "70206",
+       "type": "stop"
+      },
+      {
+       "id": "70204",
+       "type": "stop"
+      },
+      {
+       "id": "70202",
+       "type": "stop"
+      },
+      {
+       "id": "70197",
+       "type": "stop"
+      },
+      {
+       "id": "70159",
+       "type": "stop"
+      },
+      {
+       "id": "70157",
+       "type": "stop"
+      },
+      {
+       "id": "70155",
+       "type": "stop"
+      },
+      {
+       "id": "70153",
+       "type": "stop"
+      },
+      {
+       "id": "70151",
+       "type": "stop"
+      },
+      {
+       "id": "70211",
+       "type": "stop"
+      },
+      {
+       "id": "70213",
+       "type": "stop"
+      },
+      {
+       "id": "70215",
+       "type": "stop"
+      },
+      {
+       "id": "70217",
+       "type": "stop"
+      },
+      {
+       "id": "70219",
+       "type": "stop"
+      },
+      {
+       "id": "70223",
+       "type": "stop"
+      },
+      {
+       "id": "70225",
+       "type": "stop"
+      },
+      {
+       "id": "70227",
+       "type": "stop"
+      },
+      {
+       "id": "70229",
+       "type": "stop"
+      },
+      {
+       "id": "70231",
+       "type": "stop"
+      },
+      {
+       "id": "70233",
+       "type": "stop"
+      },
+      {
+       "id": "70235",
+       "type": "stop"
+      },
+      {
+       "id": "70237",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70202",
+   "attributes": {
+    "latitude": 42.359705,
+    "longitude": -71.059215,
+    "name": "Government Center"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-gover",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70225",
+   "attributes": {
+    "latitude": 42.340053,
+    "longitude": -71.128869,
+    "name": "Brandon Hall"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-bndhl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70514",
+   "attributes": {
+    "latitude": 42.379624,
+    "longitude": -71.086829,
+    "name": "East Somerville"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-esomr",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9070213",
+   "attributes": {
+    "latitude": 42.345234,
+    "longitude": -71.110831,
+    "name": "Hawes Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70211",
+   "attributes": {
+    "latitude": 42.345884,
+    "longitude": -71.107697,
+    "name": "Saint Mary's Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-smary",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70506",
+   "attributes": {
+    "latitude": 42.387831,
+    "longitude": -71.096629,
+    "name": "Gilman Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-gilmn",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9070219",
+   "attributes": {
+    "latitude": 42.342387,
+    "longitude": -71.121007,
+    "name": "Coolidge Corner"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70204",
+   "attributes": {
+    "latitude": 42.363021,
+    "longitude": -71.05829,
+    "name": "Haymarket"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-haecl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "trip",
+   "id": "Green-C-39-Weekday-7a16c-0-05:43:00",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "BackBayToClevelandCircle-S",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "71855",
+       "type": "stop"
+      },
+      {
+       "id": "9170153",
+       "type": "stop"
+      },
+      {
+       "id": "9170151",
+       "type": "stop"
+      },
+      {
+       "id": "9070213",
+       "type": "stop"
+      },
+      {
+       "id": "9070217",
+       "type": "stop"
+      },
+      {
+       "id": "9070219",
+       "type": "stop"
+      },
+      {
+       "id": "9070223",
+       "type": "stop"
+      },
+      {
+       "id": "9070227",
+       "type": "stop"
+      },
+      {
+       "id": "9070229",
+       "type": "stop"
+      },
+      {
+       "id": "9070231",
+       "type": "stop"
+      },
+      {
+       "id": "9070233",
+       "type": "stop"
+      },
+      {
+       "id": "9070235",
+       "type": "stop"
+      },
+      {
+       "id": "9070238",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9070238",
+   "attributes": {
+    "latitude": 42.336033,
+    "longitude": -71.149119,
+    "name": "Cleveland Circle"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9070233",
+   "attributes": {
+    "latitude": 42.338027,
+    "longitude": -71.141682,
+    "name": "Dean Road"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "71855",
+   "attributes": {
+    "latitude": 42.348245,
+    "longitude": -71.076218,
+    "name": "Stuart St @ Dartmouth St"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70512",
+   "attributes": {
+    "latitude": 42.40828,
+    "longitude": -71.117339,
+    "name": "Medford/Tufts"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-mdftf",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70223",
+   "attributes": {
+    "latitude": 42.34112,
+    "longitude": -71.125652,
+    "name": "Summit Avenue"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-sumav",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9070217",
+   "attributes": {
+    "latitude": 42.343636,
+    "longitude": -71.116713,
+    "name": "Saint Paul Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70157",
+   "attributes": {
+    "latitude": 42.351902,
+    "longitude": -71.070893,
+    "name": "Arlington"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-armnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70155",
+   "attributes": {
+    "latitude": 42.350126,
+    "longitude": -71.077376,
+    "name": "Copley"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-coecl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70229",
+   "attributes": {
+    "latitude": 42.339471,
+    "longitude": -71.135139,
+    "name": "Washington Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-bcnwa",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70215",
+   "attributes": {
+    "latitude": 42.344117,
+    "longitude": -71.114097,
+    "name": "Kent Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-kntst",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "shape",
+   "id": "canonical-8000006",
+   "attributes": {
+    "polyline": "{hpaGdxupLXVZTdElCt@p@tB~Bn@t@`@b@VPTXp@z@??T\\z@dAZ^^b@VZh@b@n@\\\\BXNp@TfBv@RH`@PPFNPh@R`@T\\LB@??tAZHJDJBLB^Y`LJbBRbCd@bDvArI??F^bJng@??Lr@^`CXbBzIfg@F`@@N?Rc@`JCl@Ez@??Cl@?jAPtRAPCPGVM^IN{AjBu@`AGPALAR?nC?D???BP|B?DBjBBtA@hEBN??@RfFzZjFpXr@bE\\`BNp@DP??Pl@Jb@z@rELx@TxAXtA~@dF??@JTlAf@nC`@vB~@jFDR??Nx@n@tDr@lDN`ATlA??RpAbB`Jb@vBRhAZnBDd@@XFd@??BTDTR~@bAhGf@bEJv@f@~CX~A??Jf@BN`@fBHXJVH\\^lANh@d@rBThAPhAPbA??Hj@RfBL~AHdBDv@??Bn@@h@@zA?nDA~B@x@D`AJdBFh@DXJl@FR??DNTt@DLHd@TtAfAlHh@hD??F`@AQ\\dCf@fDj@xDVxB??Jx@D`@PtAb@pD^vCRhBJv@L`AFZ??z@dHf@jDDXPbA^tC"
+   }
+  },
+  {
+   "type": "trip",
+   "id": "canonical-Green-C-C1-0",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "canonical-8000006",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "70202",
+       "type": "stop"
+      },
+      {
+       "id": "70197",
+       "type": "stop"
+      },
+      {
+       "id": "70159",
+       "type": "stop"
+      },
+      {
+       "id": "70157",
+       "type": "stop"
+      },
+      {
+       "id": "70155",
+       "type": "stop"
+      },
+      {
+       "id": "70153",
+       "type": "stop"
+      },
+      {
+       "id": "70151",
+       "type": "stop"
+      },
+      {
+       "id": "70211",
+       "type": "stop"
+      },
+      {
+       "id": "70213",
+       "type": "stop"
+      },
+      {
+       "id": "70215",
+       "type": "stop"
+      },
+      {
+       "id": "70217",
+       "type": "stop"
+      },
+      {
+       "id": "70219",
+       "type": "stop"
+      },
+      {
+       "id": "70223",
+       "type": "stop"
+      },
+      {
+       "id": "70225",
+       "type": "stop"
+      },
+      {
+       "id": "70227",
+       "type": "stop"
+      },
+      {
+       "id": "70229",
+       "type": "stop"
+      },
+      {
+       "id": "70231",
+       "type": "stop"
+      },
+      {
+       "id": "70233",
+       "type": "stop"
+      },
+      {
+       "id": "70235",
+       "type": "stop"
+      },
+      {
+       "id": "70237",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70197",
+   "attributes": {
+    "latitude": 42.3563946,
+    "longitude": -71.0624242,
+    "name": "Park Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-pktrm",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70508",
+   "attributes": {
+    "latitude": 42.39405,
+    "longitude": -71.106688,
+    "name": "Magoun Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-mgngl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70219",
+   "attributes": {
+    "latitude": 42.342274,
+    "longitude": -71.120915,
+    "name": "Coolidge Corner"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-cool",
+      "type": "stop"
+     }
+    }
+   }
+  }
+ ]
+}

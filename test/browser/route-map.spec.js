@@ -5,6 +5,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { openApp, tick, tickTo, commute, riding, planOptions, expandOption, cssColor } from './helpers.js';
 import { encodePolyline, areaRect, projector } from '../../core.js';
+import { series } from './fake-mbta.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -289,7 +290,8 @@ test('setup: a planner option\'s map (a picture with both end walks; taps keep t
   await expect(editorMap.locator('.map-pin.on-stop')).toHaveCount(2);
   // The bus's whole line there too, its other stops as plain (not tappable) dots (2026-11-09).
   await expect(editorMap.locator('polyline.map-leg.off')).not.toHaveCount(0);
-  await expect(editorMap.locator('.map-stop.off')).not.toHaveCount(0);
+  // The bus's other stops only: no Orange stations outside the stretch, as before 2026-11-12.
+  await expect(editorMap.locator('.map-stop.off')).toHaveCount(8 + (busStops.length - 25));
   // Small and zoomed out: the leg ends stay, the bus's crowded stops thin out.
   const stopDisplay = sel => editorMap.locator(sel).evaluateAll(gs => gs.map(g => g.getAttribute('display') !== 'none'));
   expect(await stopDisplay('.map-stop.major')).not.toContain(false);
@@ -810,7 +812,9 @@ test('the bus leg\'s whole line, faded outside the stretch, with its stops and t
   const name = busStop(busStops[3]).name;
   const dot = svg(page).locator(`.map-stop.off[aria-label="${name}"]`);
   await expect(dot).toHaveCount(1);
-  await expect(svg(page).locator('.map-stop.off')).toHaveCount(8 + (busStops.length - 25));
+  // The 132's 8 before and the rest after, less Malden Center (its parent station is on the Orange
+  // leg: drawn once); and the Orange pattern's 11 stations past State (2026-11-12).
+  await expect(svg(page).locator('.map-stop.off')).toHaveCount(8 + (busStops.length - 25) - 1 + 11);
   await dot.dispatchEvent('click'); // off the screen at the fit
   await expect(page.locator('#map-caption')).toHaveText(name);
   // A bus coming toward your stop shows; one past the drop-off doesn't.
@@ -1024,4 +1028,84 @@ test('no rows, locate follows you on the empty map too; opening the sheet ends i
   await sheet(page).getByRole('button', { name: 'Done' }).click();
   await expect(btn).toHaveAttribute('aria-pressed', 'false');
   await expect(btn).toHaveAttribute('aria-label', 'Center on my location');
+});
+
+// ---------- incoming trains and a leg's other routes (2026-11-12) ----------
+// The Orange Line's recorded pattern toward Oak Grove (Office to home boards at State).
+const OL = JSON.parse(readFileSync(new URL('./fixtures/patterns-Orange-1.json', import.meta.url), 'utf8'));
+const olStop = id => OL.included.find(x => x.type === 'stop' && x.id === id);
+const olStops = OL.included.find(x => x.type === 'trip' && x.id === OL.data[0].relationships.representative_trip.data.id).relationships.stops.data.map(s => s.id);
+const olAt = (id, trip, name) => {
+  const s = olStops.map(olStop).find(x => x.attributes.name === name).attributes;
+  return { id, trip, route: 'Orange', direction: 1, lat: s.latitude, lon: s.longitude };
+};
+
+test('a rail leg: trains still coming toward your station, its other stations faded, no line; yours outlined', async ({ page }) => {
+  const scenario = { ...commute(), vehicles: [olAt('coming', 'OLout-0659', 'Back Bay'), olAt('on', 'OLout-0641', 'Sullivan Square')] };
+  await openApp(page, { map: true, time: '07:00', scenario, init: DENIED });
+  await page.locator('#toggle select').selectOption({ label: 'Office to home' });
+  await tick(page, 1000);
+  await openMap(page);
+  await expect(svg(page).locator('.map-vehicle')).toHaveCount(2);
+  await expect(svg(page).locator('.map-vehicle text')).toHaveText(['OL', 'OL']);
+  // No line before State or after Oak Grove: only the bus leg's faded ends.
+  expect(await svg(page).locator('polyline.map-leg.off').evaluateAll(ls => ls.map(l => l.dataset.color))).toEqual(['FFC72C', 'FFC72C']);
+  // The stations before State, faded and named on a tap.
+  const bb = svg(page).locator('.map-stop.off[aria-label="Back Bay"]');
+  await expect(bb).toHaveCount(1);
+  await expect(svg(page).locator('.map-stop.off[aria-label="Forest Hills"]')).toHaveCount(1);
+  await bb.dispatchEvent('click');
+  await expect(page.locator('#map-caption')).toHaveText('Back Bay');
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  // Bell the ride whose train is still coming: outlined as yours.
+  const first = page.locator('.row').first();
+  await first.click();
+  await first.getByRole('button', { name: 'Track', exact: true }).click();
+  await tick(page, 1000);
+  const trip = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:en-route')).office.target.legs[0].tripId);
+  scenario.vehicles[0].trip = trip;
+  await openMap(page);
+  await expect(svg(page).locator('.map-vehicle.mine')).toHaveAttribute('data-vehicle', 'coming');
+});
+
+const GREEN_LABELS = { 'Green-B': 'Green B', 'Green-C': 'Green C', 'Green-D': 'Green D' };
+const GREEN = { trips: [{ id: 'green', name: 'Downtown', legs: [
+  { kind: 'walk', minutes: 5 },
+  { kind: 'transit', route: 'Green-B', also: ['Green-C', 'Green-D'], direction_id: 1, stop: 'place-kencl', alight: 'place-pktrm', label: 'Green', color: '00843D', routeLabels: GREEN_LABELS },
+  { kind: 'walk', minutes: 5 },
+] }] };
+const greenAt = (id, route, name) => {
+  const doc = JSON.parse(readFileSync(new URL(`./fixtures/patterns-${route}-1.json`, import.meta.url), 'utf8'));
+  const s = doc.included.find(x => x.type === 'stop' && x.attributes.name === name).attributes;
+  return { id, trip: `${id}-trip`, route, direction: 1, lat: s.latitude, lon: s.longitude };
+};
+
+test('a leg\'s other routes: each branch\'s trains on its own line, labeled by letter; their shapes kept on the phone', async ({ page }) => {
+  const stops = [['place-kencl', 0], ['place-pktrm', 10]];
+  const scenario = { alerts: [], trips: [
+    ...series({ prefix: 'GB', route: 'Green-B', direction: 1, first: '06:05', every: 10, count: 20, stops }),
+    ...series({ prefix: 'GC', route: 'Green-C', direction: 1, first: '06:00', every: 10, count: 20, stops }),
+  ], vehicles: [greenAt('c', 'Green-C', 'Saint Mary\'s Street'), greenAt('b', 'Green-B', 'Boston University East')] };
+  const mbta = await openApp(page, { map: true, time: '06:40', config: GREEN, scenario, init: DENIED });
+  await tick(page, 1000);
+  const base = vehicleHits(mbta).length;
+  await openMap(page);
+  await expect(svg(page).locator('.map-vehicle')).toHaveCount(2);
+  expect(await svg(page).locator('.map-vehicle').evaluateAll(gs => gs.map(g => [g.dataset.vehicle, g.querySelector('text').textContent]).sort())).toEqual([['b', 'B'], ['c', 'C']]);
+  // The C branch's stations before Kenmore, faded; Kenmore itself once.
+  await expect(svg(page).locator('.map-stop.off[aria-label="Saint Mary\'s Street"]')).toHaveCount(1);
+  await expect(svg(page).locator('.map-stop[aria-label="Kenmore"]')).toHaveCount(1);
+  await expect(svg(page).locator('polyline.map-leg.off')).toHaveCount(0);
+  // One /vehicles request per leg and poll, as before.
+  expect(vehicleHits(mbta).length).toBe(base + 1);
+  await tick(page, 10_000);
+  expect(vehicleHits(mbta).length).toBe(base + 2);
+  // One shapes request per route and direction, kept across a reload.
+  const routesAsked = () => shapeHits(mbta).map(h => h.query.get('filter[route]')).sort();
+  expect(routesAsked()).toEqual(['Green-B', 'Green-C', 'Green-D']);
+  await page.reload();
+  await tick(page, 1000);
+  await openMap(page);
+  await expect(svg(page).locator('.map-vehicle')).toHaveCount(2);
+  expect(routesAsked()).toEqual(['Green-B', 'Green-C', 'Green-D']);
 });

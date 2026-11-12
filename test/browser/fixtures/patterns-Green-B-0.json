@@ -1,0 +1,1122 @@
+{
+ "data": [
+  {
+   "type": "route_pattern",
+   "id": "Green-B-812-0",
+   "attributes": {
+    "canonical": true,
+    "sort_order": 100320000,
+    "typicality": 1
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "canonical-Green-B-C1-0",
+      "type": "trip"
+     }
+    }
+   }
+  },
+  {
+   "type": "route_pattern",
+   "id": "Green-B-816-0",
+   "attributes": {
+    "canonical": false,
+    "sort_order": 100320040,
+    "typicality": 3
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "77745922",
+      "type": "trip"
+     }
+    }
+   }
+  },
+  {
+   "type": "route_pattern",
+   "id": "Green-B-81-0",
+   "attributes": {
+    "canonical": false,
+    "sort_order": 100320070,
+    "typicality": 3
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "79235440",
+      "type": "trip"
+     }
+    }
+   }
+  },
+  {
+   "type": "route_pattern",
+   "id": "Shuttle-BabcockStreetBackBay-0-0",
+   "attributes": {
+    "canonical": false,
+    "sort_order": 626010990,
+    "typicality": 4
+   },
+   "relationships": {
+    "representative_trip": {
+     "data": {
+      "id": "Green-B-9-Weekday-7a16c-0-05:52:00",
+      "type": "trip"
+     }
+    }
+   }
+  }
+ ],
+ "included": [
+  {
+   "type": "stop",
+   "id": "70208",
+   "attributes": {
+    "latitude": 42.366664,
+    "longitude": -71.067666,
+    "name": "Science Park/West End"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-spmnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70117",
+   "attributes": {
+    "latitude": 42.341577,
+    "longitude": -71.146607,
+    "name": "Sutherland Road"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-sthld",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "shape",
+   "id": "canonical-8000013",
+   "attributes": {
+    "polyline": "{hpaGdxupLXVZTdElCt@p@tB~Bn@t@`@b@VPTXp@z@??T\\z@dAZ^^b@VZh@b@n@\\\\BXNp@TfBv@RH`@PPFNPh@R`@T\\LB@??tAZHJDJBLB^Y`LJbBRbCd@bDvArI??F^bJng@??Lr@^`CXbBzIfg@F`@@N?Rc@`JCl@Ez@??Cl@?jAPtRAPCPGVM^IN{AjBu@`AGPALAR?nC?D???BLpFDpGA`BWhFWxEKrBEj@??IjASfDU~Da@`H??G~@o@pKM~B??QtCk@tI]tFIfA?DE`@Gv@AZCV]xFMjC_@`G??]pFShD]lFK~BCn@IlASvC??AXa@vGYzEi@rI?X@NHPX`@??NVf@n@p@jAXh@d@~@b@dATn@Nl@Jd@PrADp@@d@?fAAj@MxBGxA?l@@h@Df@Fb@Nj@r@jB??DJ|@dC^~@r@pBbAhCtAzD^`A@@??\\`ANl@Fj@Fh@@f@?^A`@Eb@Kn@On@y@fD????e@~BI`@C\\A\\?f@Dv@Hh@Jb@Td@PXHFTJVJ??x@Vf@LhCTb@Hp@RxAj@~Az@ZTPHl@ZtCdBz@l@tAx@D@??dAn@v@h@n@f@\\\\\\`@^d@t@nAVj@Zx@\\dAR~@Ln@Hl@Dp@??BZDh@D|A?|@ChBAj@BbBF~@Fn@P|@ZrA`@jAj@nABD??|@xAv@fAZ^`@^b@^b@Vn@^b@Rf@Tf@RXPl@f@DDLPRX????B@JVDRBTM`BEXMj@Mf@o@jBeArCe@jAa@lAWv@[vAYvA??EVSjAKv@WbCKzAInAE`BAdEK|K@pD@xAFlBJlBA|@AVC^??"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9170153",
+   "attributes": {
+    "latitude": 42.34937,
+    "longitude": -71.088504,
+    "name": "Hynes - Commonwealth Ave @ Massachusetts Ave"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "shape",
+   "id": "BackBayToBabcock-S",
+   "attributes": {
+    "polyline": "odnaGt`ypL]mBmA{EKw@iBiKaDpAuAf@sBx@}@ZeFnBWLw@XpC`PlD~RfMvs@JrADlG@?BfG@VD`FFdM@T?zBHx@Jn@HlA@|@sAxTAXgAbQA\\Gr@{@nNI~@i@tICnAMfB?JWdEA\\KpA[lF]vEw@xMEf@MzCe@tH?HCVg@pIK|@Q`DEd@f@F@YTqDNcBTwDBUDgA"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "951",
+   "attributes": {
+    "latitude": 42.349458,
+    "longitude": -71.10074,
+    "name": "Commonwealth Ave @ Silber Way"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "953",
+   "attributes": {
+    "latitude": 42.350162,
+    "longitude": -71.10663,
+    "name": "Commonwealth Ave @ St Mary's St"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70502",
+   "attributes": {
+    "latitude": 42.370989,
+    "longitude": -71.07586,
+    "name": "Lechmere"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-lech",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70125",
+   "attributes": {
+    "latitude": 42.348819,
+    "longitude": -71.140051,
+    "name": "Warren Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-wrnst",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "71151",
+   "attributes": {
+    "latitude": 42.348949,
+    "longitude": -71.095169,
+    "name": "Kenmore"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-kencl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70135",
+   "attributes": {
+    "latitude": 42.351651,
+    "longitude": -71.12551,
+    "name": "Packard's Corner"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-brico",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "9170151",
+   "attributes": {
+    "latitude": 42.34916,
+    "longitude": -71.0949,
+    "name": "Kenmore - Commonwealth Ave @ Kenmore St"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70129",
+   "attributes": {
+    "latitude": 42.348919,
+    "longitude": -71.134305,
+    "name": "Griggs Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-grigg",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70510",
+   "attributes": {
+    "latitude": 42.400103,
+    "longitude": -71.111207,
+    "name": "Ball Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-balsq",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "170141",
+   "attributes": {
+    "latitude": 42.351066,
+    "longitude": -71.115027,
+    "name": "Amory Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-amory",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70153",
+   "attributes": {
+    "latitude": 42.347888,
+    "longitude": -71.087903,
+    "name": "Hynes Convention Center"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-hymnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70206",
+   "attributes": {
+    "latitude": 42.36528,
+    "longitude": -71.060205,
+    "name": "North Station"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-north",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "956",
+   "attributes": {
+    "latitude": 42.35131,
+    "longitude": -71.115933,
+    "name": "Commonwealth Ave @ Buick St"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70113",
+   "attributes": {
+    "latitude": 42.33829,
+    "longitude": -71.153025,
+    "name": "Chestnut Hill Avenue"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-chill",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70159",
+   "attributes": {
+    "latitude": 42.353214,
+    "longitude": -71.064545,
+    "name": "Boylston"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-boyls",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "trip",
+   "id": "77745922",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "8000019",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "70512",
+       "type": "stop"
+      },
+      {
+       "id": "70510",
+       "type": "stop"
+      },
+      {
+       "id": "70508",
+       "type": "stop"
+      },
+      {
+       "id": "70506",
+       "type": "stop"
+      },
+      {
+       "id": "70514",
+       "type": "stop"
+      },
+      {
+       "id": "70502",
+       "type": "stop"
+      },
+      {
+       "id": "70208",
+       "type": "stop"
+      },
+      {
+       "id": "70206",
+       "type": "stop"
+      },
+      {
+       "id": "70204",
+       "type": "stop"
+      },
+      {
+       "id": "70202",
+       "type": "stop"
+      },
+      {
+       "id": "70196",
+       "type": "stop"
+      },
+      {
+       "id": "70159",
+       "type": "stop"
+      },
+      {
+       "id": "70157",
+       "type": "stop"
+      },
+      {
+       "id": "70155",
+       "type": "stop"
+      },
+      {
+       "id": "70153",
+       "type": "stop"
+      },
+      {
+       "id": "71151",
+       "type": "stop"
+      },
+      {
+       "id": "70149",
+       "type": "stop"
+      },
+      {
+       "id": "70147",
+       "type": "stop"
+      },
+      {
+       "id": "70145",
+       "type": "stop"
+      },
+      {
+       "id": "170141",
+       "type": "stop"
+      },
+      {
+       "id": "170137",
+       "type": "stop"
+      },
+      {
+       "id": "70135",
+       "type": "stop"
+      },
+      {
+       "id": "70131",
+       "type": "stop"
+      },
+      {
+       "id": "70129",
+       "type": "stop"
+      },
+      {
+       "id": "70127",
+       "type": "stop"
+      },
+      {
+       "id": "70125",
+       "type": "stop"
+      },
+      {
+       "id": "70121",
+       "type": "stop"
+      },
+      {
+       "id": "70117",
+       "type": "stop"
+      },
+      {
+       "id": "70115",
+       "type": "stop"
+      },
+      {
+       "id": "70113",
+       "type": "stop"
+      },
+      {
+       "id": "70111",
+       "type": "stop"
+      },
+      {
+       "id": "70107",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "trip",
+   "id": "Green-B-9-Weekday-7a16c-0-05:52:00",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "BackBayToBabcock-S",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "71855",
+       "type": "stop"
+      },
+      {
+       "id": "9170153",
+       "type": "stop"
+      },
+      {
+       "id": "9170151",
+       "type": "stop"
+      },
+      {
+       "id": "951",
+       "type": "stop"
+      },
+      {
+       "id": "952",
+       "type": "stop"
+      },
+      {
+       "id": "953",
+       "type": "stop"
+      },
+      {
+       "id": "956",
+       "type": "stop"
+      },
+      {
+       "id": "933",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70202",
+   "attributes": {
+    "latitude": 42.359705,
+    "longitude": -71.059215,
+    "name": "Government Center"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-gover",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "trip",
+   "id": "79235440",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "8000118",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "170137",
+       "type": "stop"
+      },
+      {
+       "id": "70135",
+       "type": "stop"
+      },
+      {
+       "id": "70131",
+       "type": "stop"
+      },
+      {
+       "id": "70129",
+       "type": "stop"
+      },
+      {
+       "id": "70127",
+       "type": "stop"
+      },
+      {
+       "id": "70125",
+       "type": "stop"
+      },
+      {
+       "id": "70121",
+       "type": "stop"
+      },
+      {
+       "id": "70117",
+       "type": "stop"
+      },
+      {
+       "id": "70115",
+       "type": "stop"
+      },
+      {
+       "id": "70113",
+       "type": "stop"
+      },
+      {
+       "id": "70111",
+       "type": "stop"
+      },
+      {
+       "id": "70107",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70514",
+   "attributes": {
+    "latitude": 42.379624,
+    "longitude": -71.086829,
+    "name": "East Somerville"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-esomr",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70506",
+   "attributes": {
+    "latitude": 42.387831,
+    "longitude": -71.096629,
+    "name": "Gilman Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-gilmn",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70204",
+   "attributes": {
+    "latitude": 42.363021,
+    "longitude": -71.05829,
+    "name": "Haymarket"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-haecl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70131",
+   "attributes": {
+    "latitude": 42.350602,
+    "longitude": -71.130727,
+    "name": "Harvard Avenue"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-harvd",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70149",
+   "attributes": {
+    "latitude": 42.349276,
+    "longitude": -71.100213,
+    "name": "Blandford Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-bland",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "170137",
+   "attributes": {
+    "latitude": 42.351695,
+    "longitude": -71.120257,
+    "name": "Babcock Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-babck",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70196",
+   "attributes": {
+    "latitude": 42.3563946,
+    "longitude": -71.0624242,
+    "name": "Park Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-pktrm",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70145",
+   "attributes": {
+    "latitude": 42.350148,
+    "longitude": -71.107455,
+    "name": "Boston University Central"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-bucen",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "shape",
+   "id": "8000019",
+   "attributes": {
+    "polyline": "awyaG|~`qLZSLKNMl@a@jCeBpCkBhDaCrA}@NKzAgA^Uz@k@bAs@f@_@f@]TOf@]d@Yb@[f@]`@YRM\\W~@k@bAo@n@c@j@c@d@[JG??l@a@v@i@~@o@^Wx@i@l@c@v@g@b@[l@a@bAq@r@i@r@e@fBmALK`@Yh@]x@i@POJGf@]d@[f@]`@Wp@e@z@k@bAs@z@m@TM??DEp@a@p@g@TQr@u@z@}@l@m@r@_AJQZi@n@eAl@eAZm@`@aANe@xAwDhCsHd@sA`A_Dj@wAX}@j@yAz@yBDO??h@yAv@}B`B{En@eBbAwBdAqBj@w@r@_ApAwAt@q@j@q@jAqAhBoAhA{@rDgDzH}HzCyC??zByBd@o@`AsAr@{@vKeK~@_AbAeAz@_A^g@LYN_@H[Z{@d@aA\\i@V]XS~@_@PE`@Gd@SXSx@w@r@w@n@_BlEkLTgAVkAPk@Zi@T[NOVQ\\Y??@?n@a@tAkBr@oBN_@rBgFv@kBpA_DjBoEdBmEn@{A@C??z@iCvAgDDMd@kAPe@Ti@To@Rq@Ru@TuAJcAJs@^aC\\_ABO@OCc@Ea@Mm@g@}AcB_FK[CWCi@?SBOFQtCsCNO??lIkHxAcBLQh@c@LIZQ??NGREZC`@I`GSf@AT@TNtE|Dp@n@PPRN??XVZTdElCt@p@tB~Bn@t@`@b@VPTXp@z@??T\\z@dAZ^^b@VZh@b@n@\\\\BXNp@TfBv@RH`@PPFNPh@R`@T\\LB@??tAZHJDJBLB^Y`LJbBRbCd@bDvArI??F^bJng@??Lr@^`CXbBzIfg@F`@@N?Rc@`JCl@Ez@??Cl@?jAPtRAPCPGVM^IN{AjBu@`AGPALAR?nC?D???BLpFDpGA`BWhFWxEKrBEj@??IjASfDU~Da@`H??G~@o@pKM~B??QtCk@tI]tFIfA?DE`@Gv@AZCV]xFMjC_@`G??]pFShD]lFK~BCn@IlASvC??AXa@vGYzEi@rI?X@NHPX`@??NVf@n@p@jAXh@d@~@b@dATn@Nl@Jd@PrADp@@d@?fAAj@MxBGxA?l@@h@Df@Fb@Nj@r@jB??DJ|@dC^~@r@pBbAhCtAzD^`A@@??\\`ANl@Fj@Fh@@f@?^A`@Eb@Kn@On@y@fD??e@~BI`@C\\A\\?f@Dv@Hh@Jb@Td@PXHFTJVH??x@Xf@LhCTb@Hp@RxAj@~Az@ZTPHl@ZtCdBz@l@tAx@D@??dAn@v@h@n@f@\\\\\\`@^d@t@nAVj@Zx@\\dAR~@Ln@Hl@Dp@??BZDh@D|A?|@ChBAj@BbBF~@Fn@P|@ZrA`@jAj@nABD??|@xAv@fAZ^`@^b@^b@Vn@^b@Rf@Tf@RXPl@f@DDLPRX????B@JVDRBTM`BEXMj@Mf@o@jBeArCe@jAa@lAWv@[vAYvA??EVSjAKv@WbCKzAInAE`BAdEK|K@pD@xAFlBJlBA|@AVC^??"
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70147",
+   "attributes": {
+    "latitude": 42.349811,
+    "longitude": -71.104657,
+    "name": "Boston University East"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-buest",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70111",
+   "attributes": {
+    "latitude": 42.339581,
+    "longitude": -71.157499,
+    "name": "South Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-sougr",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "71855",
+   "attributes": {
+    "latitude": 42.348245,
+    "longitude": -71.076218,
+    "name": "Stuart St @ Dartmouth St"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70115",
+   "attributes": {
+    "latitude": 42.34054,
+    "longitude": -71.15114,
+    "name": "Chiswick Road"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-chswk",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70107",
+   "attributes": {
+    "latitude": 42.34024,
+    "longitude": -71.166849,
+    "name": "Boston College"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-lake",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70512",
+   "attributes": {
+    "latitude": 42.40828,
+    "longitude": -71.117339,
+    "name": "Medford/Tufts"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-mdftf",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70127",
+   "attributes": {
+    "latitude": 42.348546,
+    "longitude": -71.137362,
+    "name": "Allston Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-alsgr",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "933",
+   "attributes": {
+    "latitude": 42.351568,
+    "longitude": -71.121168,
+    "name": "Commonwealth Ave @ Babcock St"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70157",
+   "attributes": {
+    "latitude": 42.351902,
+    "longitude": -71.070893,
+    "name": "Arlington"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-armnl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70155",
+   "attributes": {
+    "latitude": 42.350126,
+    "longitude": -71.077376,
+    "name": "Copley"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-coecl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70121",
+   "attributes": {
+    "latitude": 42.343974,
+    "longitude": -71.142731,
+    "name": "Washington Street"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-wascm",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "952",
+   "attributes": {
+    "latitude": 42.349831,
+    "longitude": -71.103801,
+    "name": "Commonwealth Ave @ Granby St"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": null
+    }
+   }
+  },
+  {
+   "type": "stop",
+   "id": "70508",
+   "attributes": {
+    "latitude": 42.39405,
+    "longitude": -71.106688,
+    "name": "Magoun Square"
+   },
+   "relationships": {
+    "parent_station": {
+     "data": {
+      "id": "place-mgngl",
+      "type": "stop"
+     }
+    }
+   }
+  },
+  {
+   "type": "shape",
+   "id": "8000118",
+   "attributes": {
+    "polyline": "qxnaGdtaqLAXa@vGYzEi@rI?X@NHPX`@??NVf@n@p@jAXh@d@~@b@dATn@Nl@Jd@PrADp@@d@?fAAj@MxBGxA?l@@h@Df@Fb@Nj@r@jB??DJ|@dC^~@r@pBbAhCtAzD^`A@@??\\`ANl@Fj@Fh@@f@?^A`@Eb@Kn@On@y@fD??e@~BI`@C\\A\\?f@Dv@Hh@Jb@Td@PXHFTJVH??x@Xf@LhCTb@Hp@RxAj@~Az@ZTPHl@ZtCdBz@l@tAx@D@??dAn@v@h@n@f@\\\\\\`@^d@t@nAVj@Zx@\\dAR~@Ln@Hl@Dp@??BZDh@D|A?|@ChBAj@BbBF~@Fn@P|@ZrA`@jAj@nABD??|@xAv@fAZ^`@^b@^b@Vn@^b@Rf@Tf@RXPl@f@DDLPRX????B@JVDRBTM`BEXMj@Mf@o@jBeArCe@jAa@lAWv@[vAYvA??EVSjAKv@WbCKzAInAE`BAdEK|K@pD@xAFlBJlBA|@AVC^??"
+   }
+  },
+  {
+   "type": "trip",
+   "id": "canonical-Green-B-C1-0",
+   "relationships": {
+    "shape": {
+     "data": {
+      "id": "canonical-8000013",
+      "type": "shape"
+     }
+    },
+    "stops": {
+     "data": [
+      {
+       "id": "70202",
+       "type": "stop"
+      },
+      {
+       "id": "70196",
+       "type": "stop"
+      },
+      {
+       "id": "70159",
+       "type": "stop"
+      },
+      {
+       "id": "70157",
+       "type": "stop"
+      },
+      {
+       "id": "70155",
+       "type": "stop"
+      },
+      {
+       "id": "70153",
+       "type": "stop"
+      },
+      {
+       "id": "71151",
+       "type": "stop"
+      },
+      {
+       "id": "70149",
+       "type": "stop"
+      },
+      {
+       "id": "70147",
+       "type": "stop"
+      },
+      {
+       "id": "70145",
+       "type": "stop"
+      },
+      {
+       "id": "170141",
+       "type": "stop"
+      },
+      {
+       "id": "170137",
+       "type": "stop"
+      },
+      {
+       "id": "70135",
+       "type": "stop"
+      },
+      {
+       "id": "70131",
+       "type": "stop"
+      },
+      {
+       "id": "70129",
+       "type": "stop"
+      },
+      {
+       "id": "70127",
+       "type": "stop"
+      },
+      {
+       "id": "70125",
+       "type": "stop"
+      },
+      {
+       "id": "70121",
+       "type": "stop"
+      },
+      {
+       "id": "70117",
+       "type": "stop"
+      },
+      {
+       "id": "70115",
+       "type": "stop"
+      },
+      {
+       "id": "70113",
+       "type": "stop"
+      },
+      {
+       "id": "70111",
+       "type": "stop"
+      },
+      {
+       "id": "70107",
+       "type": "stop"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

@@ -1,6 +1,6 @@
 // Refreshes the browser tests' static MBTA data (route list, stop lists) from the live API.
 // Run: NODE_USE_ENV_PROXY=1 node scripts/record-fixtures.mjs   (MBTA_API_KEY optional, never stored)
-// `… record-fixtures.mjs shapes` records only the route map's shapes.
+// `… record-fixtures.mjs shapes [route…]` records only the route map's shapes (of those routes).
 import { writeFileSync } from 'node:fs';
 import { shapesQuery } from '../core.js';
 
@@ -8,7 +8,7 @@ const API = 'https://api-v3.mbta.com';
 const OUT = new URL('../test/browser/fixtures/', import.meta.url);
 const RAIL = ['Red', 'Mattapan', 'Orange', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue', 'CR-Haverhill'];
 const ROUTES = ['132', '136', '137', ...RAIL];
-const SHAPES = ['132', 'Orange'].flatMap(r => [[r, 0], [r, 1]]);
+const SHAPES = ['132', 'Orange', 'Green-B', 'Green-C', 'Green-D', 'Green-E'].flatMap(r => [[r, 0], [r, 1]]);
 const STOPS = ['132', 'Orange', 'Red', 'Green-B', 'Green-C', 'Green-D', 'Green-E', 'Blue', 'CR-Haverhill'].flatMap(r => [[r, 0], [r, 1]]);
 // Keyless limit is 20 requests/min: pace the requests unless a key is set.
 const PACE_MS = process.env.MBTA_API_KEY ? 0 : 3500;
@@ -26,7 +26,8 @@ const save = (name, doc) => writeFileSync(new URL(name, OUT), JSON.stringify(doc
 const onlyShapes = process.argv[2] === 'shapes';
 if (!onlyShapes) await recordAll();
 // The route map's shapes (index.html legShapes): patterns with their trip's shape and stops.
-for (const [route, dir] of SHAPES) {
+const only = process.argv.slice(3);
+for (const [route, dir] of SHAPES.filter(([r]) => !only.length || only.includes(r))) {
   const doc = await get('/route_patterns', shapesQuery(route, dir));
   save(`patterns-${route}-${dir}.json`, {
     data: doc.data.map(p => ({ type: p.type, id: p.id, attributes: p.attributes, relationships: { representative_trip: { data: p.relationships.representative_trip.data } } })),

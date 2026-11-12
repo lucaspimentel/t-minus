@@ -559,7 +559,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-11 · 89e258155d</footer>
+    <footer class="version">Version 2026-11-11 · b756abf5e2</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -590,8 +590,8 @@ import {
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, FOLLOW_MIN_PX, nextFollowLevel, viewAt, viewShiftPx, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=e5fd3acd61';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=5cc8aa9259';
+} from './core.js?v=87a83bccf1';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=3221ed6d96';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1592,7 +1592,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=e5fd3acd61'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=87a83bccf1'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2828,6 +2828,10 @@ function legShapes(leg) {
   return shapeLoads.get(k);
 }
 const loadedShapes = legs => legs.map(l => shapeDocs.get(stopsKey(l.route, l.direction_id)) ?? null);
+// Each leg's `also` routes with their shapes, once loaded (the main map and the sheet, 2026-11-12).
+const loadedAlso = legs => legs.map(l => (l.also ?? []).map(route => ({ route, shapes: shapeDocs.get(stopsKey(route, l.direction_id)) ?? null })));
+// Every route's shapes of every leg (its own and its `also` routes', each cached on its own).
+const allShapes = legs => Promise.all(legs.flatMap(l => legRoutes(l).map(route => legShapes({ ...l, route }))));
 // Without a shape: the leg's stops from setup's kept stop list, else its two ends from the
 // loaded predictions and schedules (`points`: legPoints); else nothing (the leg isn't drawn).
 function mapFallback(leg, point = null) {
@@ -3311,7 +3315,7 @@ function drawMainMap() {
   const out = outsideMap(e.loc.here), here = out ? null : e.loc.here;
   e.widget.draw({
     legs: e.legs, shapes: loadedShapes(e.legs), fallback: e.legs.map((l, i) => mapFallback(l, points[i])),
-    fitAlso: [here], finished, fitFrom: finished, vehicles: e.vehicles, mine, nowMs: now,
+    fitAlso: [here], finished, fitFrom: finished, vehicles: e.vehicles, mine, nowMs: now, incoming: true, also: loadedAlso(e.legs),
   }, here);
   e.widget.setLocateOutside(out);
   e.finished = finished;
@@ -3374,7 +3378,7 @@ function mainMapItem() {
   widget.onLocate = () => e.loc.locate();
   widget.onZoomIn = () => { if (mainMap === e && !(Date.now() - e.polled < BOARDING_POLL_MS)) pollMainVehicles(); };
   widget.onBasemap = () => { if (mainMap === e) drawMainMap(); };
-  Promise.all(legs.map(legShapes)).then(() => { if (mainMap === e) drawMainMap(); });
+  allShapes(legs).then(() => { if (mainMap === e) drawMainMap(); });
   drawMainMap();
   pollMainVehicles();
   e.timer = setInterval(pollMainVehicles, BOARDING_POLL_MS);
@@ -3409,7 +3413,7 @@ function drawMapSheet() {
   const out = outsideMap(m.loc.here), here = out ? null : m.loc.here;
   m.widget.draw({
     legs: m.legs, shapes: loadedShapes(m.legs), fallback: m.legs.map((l, i) => mapFallback(l, points[i])),
-    fitAlso: [here], finished, vehicles: m.vehicles, mine, nowMs: now,
+    fitAlso: [here], finished, vehicles: m.vehicles, mine, nowMs: now, incoming: true, also: loadedAlso(m.legs),
   }, here, m.loc.off ? 'Location off' : m.loc.asked && out ? 'Outside the map' : '');
   m.widget.setLocateOutside(out);
   m.mine = mine;
@@ -3448,7 +3452,7 @@ function openMapSheet() {
   $('map-done').focus();
   drawMapSheet();
   widget.onBasemap = () => { if (mapSheet === m) drawMapSheet(); }; // also shows the credit
-  Promise.all(legs.map(legShapes)).then(() => { if (mapSheet === m) drawMapSheet(); });
+  allShapes(legs).then(() => { if (mapSheet === m) drawMapSheet(); });
   pollMapVehicles();
   m.timer = setInterval(pollMapVehicles, BOARDING_POLL_MS);
 }
