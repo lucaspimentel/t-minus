@@ -562,7 +562,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · 374f168fd8</footer>
+    <footer class="version">Version 2026-11-12 · b23cc3ea7d</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -593,8 +593,8 @@ import {
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=b4193ccce8';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=60f4577b4c';
+} from './core.js?v=a57e41ef8d';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=f700352f30';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1376,14 +1376,18 @@ if (native) {
 }
 // The card's data for a ride: its phase, the ridden vehicle's stops (or null) and the outlook.
 function rideCardData(s, now) {
-  const trip = config.trips[tripIdx];
-  const { walkAfter, transit, transfers } = tripShape(trip);
-  const ride = s.ride;
+  const { walkAfter, transfers } = tripShape(config.trips[tripIdx]);
+  const { phase, stops } = rideLegStops(config.trips[tripIdx], s.ride, now);
+  return { phase, stops, outlook: transferOutlook(s.ride, phase, rideVehicles(), transfers, now), walkAfter };
+}
+// A ride's phase, the ridden leg (riding) and its vehicle's stops (null until fetched for it).
+function rideLegStops(trip, ride, now) {
+  const { walkAfter, transit } = tripShape(trip);
   const phase = ridePhase(ride, walkAfter, now);
-  const rs = cache[refOf(tripIdx)]?.rideStops;
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
+  const rs = cache[trip.id]?.rideStops;
   const stops = (leg && rs?.tripId === leg.tripId && rideStops(rs.doc, transit[phase.leg].alight, now, transit[phase.leg].stop)) || null;
-  return { phase, stops, outlook: transferOutlook(ride, phase, rideVehicles(), transfers, now), walkAfter };
+  return { phase, leg, stops };
 }
 // `s`: the shown trip's en-route state (or null). Another trip's ride keeps its activity until
 // that ride is gone.
@@ -1602,7 +1606,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=b4193ccce8'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=a57e41ef8d'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -3328,7 +3332,7 @@ function mapLocation(onChange, seed = null) {
   loc.adopt(seed);
   const opts = { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 };
   // With the fix's accuracy and time: the ridden vehicle at your position (2026-11-12, rideMarker).
-  const at = p => ({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy, at: Number.isFinite(p.timestamp) ? p.timestamp : Date.now() });
+  const at = p => ({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy, at: p.timestamp });
   const watch = () => {
     if (loc.stopped || loc.watchId != null || !navigator.geolocation) return;
     loc.watchId = navigator.geolocation.watchPosition(p => {
@@ -3401,7 +3405,7 @@ const mapLegs = trip => tripShape(trip).transit.map(l => ({ route: l.route, also
 // The ride's leg (legs before it are done): 0 before boarding.
 function mapFinished(trip, now) {
   const s = enRouteState();
-  return s?.ride ? ridePhase(s.ride, tripShape(trip).walkAfter, now)?.leg ?? 0 : 0;
+  return s?.ride ? ridePhase(s.ride, tripShape(trip).walkAfter, now)?.leg ?? 0 : 0; // as mapState's
 }
 function mapState(trip, legs, now) {
   const s = enRouteState();
@@ -3410,21 +3414,14 @@ function mapState(trip, legs, now) {
   const mine = legs.map((_, i) => s?.ride?.legs[i]?.tripId ?? (s?.bell ? s.target?.legs?.[i]?.tripId ?? null : null));
   // Riding (2026-11-12): the leg, its trip and whether the vehicle has left the boarding stop
   // (the ride's stops, as the timeline's vehicle row), for the vehicle at your GPS position.
-  const { walkAfter, transit } = tripShape(trip);
-  const phase = s?.ride ? ridePhase(s.ride, walkAfter, now) : null;
-  let ride = null;
-  if (phase?.kind === 'riding') {
-    const leg = s.ride.legs[phase.leg], t = transit[phase.leg];
-    const rs = c?.rideStops;
-    const st = leg && t && rs?.tripId === leg.tripId ? rideStops(rs.doc, t.alight, now, t.stop) : null;
-    if (leg?.tripId) ride = { leg: phase.leg, tripId: leg.tripId, left: !!st?.vehicle && !st.vehicle.boarding };
-  }
-  return { points, finished: phase?.leg ?? 0, mine, ride }; // finished: as mapFinished
+  const r = s?.ride ? rideLegStops(trip, s.ride, now) : null;
+  const ride = r?.leg?.tripId ? { leg: r.phase.leg, tripId: r.leg.tripId, left: !!r.stops?.vehicle && !r.stops.vehicle.boarding } : null;
+  return { points, finished: r?.phase.leg ?? 0, mine, ride };
 }
 // The last GPS point the ridden vehicle was drawn at (rideMarker's hold, lat/lon), shared by the
 // main map and the sheet: { tripId, hold }.
 let rideGpsHold = null;
-const rideInput = (ride, here) => ride && { leg: ride.leg, fix: here, left: ride.left, hold: rideGpsHold?.tripId === ride.tripId ? rideGpsHold.hold : null };
+const rideInput = (ride, here) => ride && { ...ride, fix: here, hold: rideGpsHold?.tripId === ride.tripId ? rideGpsHold.hold : null };
 // Not before the map's first /vehicles answer (the sheet just opened: no vehicle yet).
 function keepRideHold(ride, model, vehicles) {
   if (!vehicles?.length) return;

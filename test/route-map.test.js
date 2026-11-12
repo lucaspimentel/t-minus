@@ -5,7 +5,7 @@ import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
   fitView, viewLimits, areaRect, insideReach, wholeView, easeView, nextFollowLevel, viewAt, viewShiftPx, FOLLOW_SPANS, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
   placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel, ME_MIN, mapFits, firstFit, fitChoice, fitTap, sameView,
-  rideMarker, RIDE_GPS_ACCURACY_METERS, RIDE_GPS_MAX_AGE_MS, RIDE_GPS_LINE_METERS, RIDE_GPS_VEHICLE_METERS, RIDE_GPS_HOLD_MS,
+  rideMarker, GPS_MAX_ACCURACY_METERS, RIDE_GPS_MAX_AGE_MS, RIDE_GPS_LINE_METERS, RIDE_GPS_VEHICLE_METERS, RIDE_GPS_HOLD_MS,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -683,25 +683,25 @@ const gpsFix = (along, o = {}) => ({ ...up(along, o.off ?? 20), accuracy: o.accu
 
 test('rideMarker: a counted fix snaps onto the line, heading along it, and becomes the hold', () => {
   const m = rideMarker({ path: NORTH, fix: gpsFix(300), vehicle: up(100), left: true, hold: null, nowMs: NOW });
-  assert.equal(m.gps, true);
+  assert.ok(m.point);
   assert.ok(Math.abs(m.point.x) < 1e-9 && Math.abs(m.point.y + 300) < 1e-9);
   assert.equal(m.heading, pathHeading(NORTH, 0));
   assert.deepEqual(m.hold, { x: m.point.x, y: m.point.y, at: NOW - 1000 });
 });
 
 test('rideMarker: each gate, at its limit and just past it', () => {
-  const none = { point: null, heading: 0, gps: false, hold: null };
+  const none = { point: null, heading: 0, hold: null };
   const run = (o = {}) => rideMarker({ path: NORTH, fix: gpsFix(300, o), vehicle: o.vehicle === undefined ? up(100) : o.vehicle, left: o.left ?? true, hold: o.hold ?? null, nowMs: NOW });
-  assert.equal(run({ accuracy: RIDE_GPS_ACCURACY_METERS }).gps, true);
-  assert.deepEqual(run({ accuracy: RIDE_GPS_ACCURACY_METERS + 1 }), none);
-  assert.equal(run({ at: NOW - RIDE_GPS_MAX_AGE_MS }).gps, true);
+  assert.equal(run({ accuracy: GPS_MAX_ACCURACY_METERS }).point !== null, true);
+  assert.deepEqual(run({ accuracy: GPS_MAX_ACCURACY_METERS + 1 }), none);
+  assert.equal(run({ at: NOW - RIDE_GPS_MAX_AGE_MS }).point !== null, true);
   assert.deepEqual(run({ at: NOW - RIDE_GPS_MAX_AGE_MS - 1 }), none);
-  assert.equal(run({ off: RIDE_GPS_LINE_METERS }).gps, true);
+  assert.equal(run({ off: RIDE_GPS_LINE_METERS }).point !== null, true);
   assert.deepEqual(run({ off: RIDE_GPS_LINE_METERS + 1 }), none);
   assert.deepEqual(run({ left: false }), none);
   // The vehicle 1 km from the fix (the fix 20 m off the line, the vehicle on it).
   const d = Math.sqrt(RIDE_GPS_VEHICLE_METERS ** 2 - 20 ** 2);
-  assert.equal(run({ vehicle: up(300 + d - 0.01) }).gps, true);
+  assert.equal(run({ vehicle: up(300 + d - 0.01) }).point !== null, true);
   assert.deepEqual(run({ vehicle: up(300 + d + 1) }), none);
   // Not in /vehicles: no marker, a hold too.
   assert.deepEqual(run({ vehicle: null }), none);
@@ -712,19 +712,19 @@ test('rideMarker: without a counted fix, the hold stays until the vehicle passes
   const hold = { ...up(300), at: NOW - 30_000 };
   const run = (o = {}) => rideMarker({ path: NORTH, fix: o.fix ?? null, vehicle: up(o.vehicle ?? 200), left: true, hold: o.hold ?? hold, nowMs: NOW });
   const held = run();
-  assert.equal(held.gps, true);
+  assert.ok(held.point);
   assert.deepEqual(held.point, { x: 0, y: -300 });
   assert.equal(held.hold, hold);
-  assert.equal(run({ fix: gpsFix(320, { accuracy: 80 }) }).gps, true); // a fix that doesn't count
-  assert.equal(run({ vehicle: 300 }).gps, false); // reached
+  assert.equal(run({ fix: gpsFix(320, { accuracy: 80 }) }).point !== null, true); // a fix that doesn't count
+  assert.equal(run({ vehicle: 300 }).point !== null, false); // reached
   assert.equal(run({ vehicle: 450 }).hold, null);
-  assert.equal(run({ hold: { ...up(300), at: NOW - RIDE_GPS_HOLD_MS } }).gps, false);
-  assert.equal(run({ hold: { ...up(300), at: NOW - RIDE_GPS_HOLD_MS + 1 } }).gps, true);
+  assert.equal(run({ hold: { ...up(300), at: NOW - RIDE_GPS_HOLD_MS } }).point !== null, false);
+  assert.equal(run({ hold: { ...up(300), at: NOW - RIDE_GPS_HOLD_MS + 1 } }).point !== null, true);
 });
 
 test('rideMarker: never backwards; a fix behind the hold keeps the hold\'s point with the fix\'s time', () => {
   const m = rideMarker({ path: NORTH, fix: gpsFix(250), vehicle: up(100), left: true, hold: { ...up(300), at: NOW - 5000 }, nowMs: NOW });
-  assert.equal(m.gps, true);
+  assert.ok(m.point);
   assert.ok(Math.abs(m.point.y + 300) < 1e-9);
   assert.equal(m.hold.at, NOW - 1000);
 });

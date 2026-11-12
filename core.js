@@ -4104,31 +4104,30 @@ export function pathHeading(path, index) {
 
 // Your vehicle at your position (2026-11-12): while riding, the ridden vehicle's marker goes to
 // the phone's GPS fix, snapped onto the leg's stretch, since MBTA positions lag (track circuits,
-// the 10 s poll, up to 90 s old). A fix counts when its accuracy is within 50 m, it's at most
+// the 10 s poll, up to 90 s old). A fix counts when its accuracy is within 50 m (GPS_MAX_ACCURACY_METERS), it's at most
 // 10 s old, it's within 75 m of the line, the vehicle has left the boarding stop (`left`) and the
 // vehicle's MBTA position is within 1 km. Without one, the last counted point (`hold`) stays until
 // the MBTA position passes it along the line or 60 s go by, so the marker never moves back.
-export const RIDE_GPS_ACCURACY_METERS = 50;
 export const RIDE_GPS_MAX_AGE_MS = 10_000;
 export const RIDE_GPS_LINE_METERS = 75;
 export const RIDE_GPS_VEHICLE_METERS = 1000;
 export const RIDE_GPS_HOLD_MS = 60_000;
 // path: the ridden stretch [{ x, y }]; fix: { x, y, accuracy, at } or null; vehicle: the ride's
 // MBTA position { x, y } or null (not in /vehicles: no marker); hold: { x, y, at } or null.
-// → { point, heading, gps, hold }: point null (and gps false) keeps the MBTA marker.
+// → { point, heading, hold }: point null keeps the MBTA marker.
 export function rideMarker({ path, fix, vehicle, left, hold, nowMs }) {
-  const none = { point: null, heading: 0, gps: false, hold: null };
+  const none = { point: null, heading: 0, hold: null };
   if (!vehicle || !path || path.length < 2) return none;
   const held = hold ? nearestOnPath(path, hold) : null;
-  const usable = fix && left && fix.accuracy <= RIDE_GPS_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS
+  const usable = fix && left && fix.accuracy <= GPS_MAX_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS
     && Math.hypot(fix.x - vehicle.x, fix.y - vehicle.y) <= RIDE_GPS_VEHICLE_METERS;
   const snap = usable ? nearestOnPath(path, fix) : null;
   if (snap && snap.meters <= RIDE_GPS_LINE_METERS) {
     const use = held && held.along > snap.along ? held : snap;
-    return { point: use.point, heading: pathHeading(path, use.index), gps: true, hold: { x: use.point.x, y: use.point.y, at: fix.at } };
+    return { point: use.point, heading: pathHeading(path, use.index), hold: { x: use.point.x, y: use.point.y, at: fix.at } };
   }
   if (held && nowMs - hold.at < RIDE_GPS_HOLD_MS && nearestOnPath(path, vehicle).along < held.along) {
-    return { point: held.point, heading: pathHeading(path, held.index), gps: true, hold };
+    return { point: held.point, heading: pathHeading(path, held.index), hold };
   }
   return none;
 }
@@ -4407,7 +4406,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
       // In the map's meters, keeping their other fields (accuracy, at).
       const xy = q => q && Number.isFinite(q.lat) && Number.isFinite(q.lon) ? { ...q, ...proj.toXY(q) } : null;
       const m = rideMarker({ path, nowMs, left: !!ride.left, vehicle: v ? proj.toXY(v) : null, fix: xy(ride.fix), hold: xy(ride.hold) });
-      out.ride = { gps: m.gps, hold: m.hold && { ...proj.toLatLon(m.hold), at: m.hold.at } };
+      out.ride = { gps: !!m.point, hold: m.hold && { ...proj.toLatLon(m.hold), at: m.hold.at } };
       if (m.point) {
         const k = out.vehicles.findIndex(x => x.mine && x.id === v.id);
         const at = { x: m.point.x, y: m.point.y, heading: m.heading, gps: true };

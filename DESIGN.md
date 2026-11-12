@@ -715,7 +715,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 - **Your vehicle at your position (2026-11-12):** MBTA positions lag (subway: track circuits; the
   10 s poll, the proxy's 5 s cache, up to 90 s old), so while riding the ridden leg's vehicle is
   drawn at the phone's GPS fix, snapped onto the leg's stretch, heading along the line there
-  (`rideMarker`, `routeMapModel`'s `ride`). Both maps (the main screen's, the sheet); nothing
+  (`rideMarker`, `routeMapModel`'s `ride`; `rideLegStops` in `index.html`, shared with the ride card). Both maps (the main screen's, the sheet); nothing
   else uses it (stop counts, cards, widgets and alerts stay on predictions). A fix counts when its
   accuracy is 50 m or better, it's at most 10 s old, within 75 m of the line, the vehicle has left
   the boarding stop (the ride's stops, as the timeline's vehicle row) and its MBTA position is
