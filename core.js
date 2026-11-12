@@ -4232,7 +4232,10 @@ export const mapFits = (trip, me) => ({ trip, me: me && me.w >= trip.w * ME_MIN 
 // The first view: trip + me while it isn't zoomed out from the trip (ZOOMED_OUT), else the trip.
 export const firstFit = fits => (fits.me && !zoomedOut(fits.me, fits.trip) ? 'me' : 'trip');
 // The fit a mode shows ('first' | 'trip' | 'me'); 'me' without trip + me shows the trip.
-export const fitChoice = (fits, mode) => (mode === 'first' ? firstFit(fits) : mode === 'me' && fits.me ? 'me' : 'trip');
+export function fitChoice(fits, mode) {
+  if (mode === 'first') return firstFit(fits);
+  return mode === 'me' && fits.me ? 'me' : 'trip';
+}
 // The fit button's next tap, the mode it goes to: from a moved view the first view; at a fit the
 // other one; null (the button hides) with nothing to switch to.
 export function fitTap({ fits, mode, moved }) {

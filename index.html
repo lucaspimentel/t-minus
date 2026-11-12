@@ -559,7 +559,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · 3c00f4806a</footer>
+    <footer class="version">Version 2026-11-12 · 40dff88a0c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -590,8 +590,8 @@ import {
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=6dc8a6ecde';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=2a9b128462';
+} from './core.js?v=7cb5dc5a65';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=985174d54c';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1597,7 +1597,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=6dc8a6ecde'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=7cb5dc5a65'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2926,10 +2926,12 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   const size = () => ({ width: svg.clientWidth || 340, height: svg.clientHeight || 200 });
   const mpp = () => (w.view ? w.view.w / size().width : 1); // meters per pixel
   let fitBtn = null, wholeBtn = null, limitsOf = null;
+  // The mode the fit button's next tap goes to; null: nothing to switch to.
+  const nextFit = () => (w.fits ? fitTap({ fits: w.fits, mode: w.mode, moved: w.touched }) : null);
   function apply() {
     // The fit button (2026-11-12): hidden with nothing to switch to; its label and icon name the next tap.
     if (fitBtn) {
-      const next = w.fits ? fitTap({ fits: w.fits, mode: w.mode, moved: w.touched }) : null;
+      const next = nextFit();
       fitBtn.hidden = !next;
       const kind = next ? fitChoice(w.fits, next) : 'trip';
       if (fitBtn.dataset.kind !== kind) {
@@ -2974,20 +2976,20 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     w.selected = w.selected === id ? null : id;
     w.redraw?.();
   }
-  // Moves the view to `to`, eased over FIT_MS (a jump with Reduce Motion), then `done`. A pan,
-  // pinch or another move takes over (fitAnim).
+  // Moves the view to `to`, eased over FIT_MS (a jump with Reduce Motion). A pan, pinch or
+  // another move takes over (fitAnim).
   const FIT_MS = 250;
   let fitAnim = 0;
   let animGoal = null; // the view an ease is heading to (follow and refits compare against it)
-  const animateTo = (to, done = () => {}) => {
+  const animateTo = to => {
     const id = ++fitAnim;
-    if (!w.view || matchMedia('(prefers-reduced-motion: reduce)').matches) { animGoal = null; w.view = to; done(); apply(); return; }
+    if (!w.view || matchMedia('(prefers-reduced-motion: reduce)').matches) { animGoal = null; w.view = to; apply(); return; }
     const from = w.view, t0 = performance.now();
     animGoal = to;
     const step = now => {
       if (id !== fitAnim) return;
       const t = (now - t0) / FIT_MS;
-      if (t >= 1) { animGoal = null; w.view = to; done(); apply(); return; }
+      if (t >= 1) { animGoal = null; w.view = to; apply(); return; }
       w.view = easeView(from, to, t);
       apply();
       requestAnimationFrame(step);
@@ -3194,7 +3196,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   // From a moved view, the first view; at a fit, the other one (2026-11-12).
   fitBtn.addEventListener('click', e => {
     e.stopPropagation();
-    const next = w.fits && fitTap({ fits: w.fits, mode: w.mode, moved: w.touched });
+    const next = nextFit();
     if (!next || !w.view) return;
     w.stopFollow?.();
     Object.assign(w, { mode: next, touched: false });
@@ -3438,8 +3440,8 @@ function mainMapItem() {
   const sig = JSON.stringify(trip); // the same trip, even from a reloaded config
   if (mainMap && (mainMap.idx !== tripIdx || mainMap.sig !== sig)) closeMainMap();
   if (mainMap) {
-    // A new phase of the ride (boarded, transferred): faded legs and the fit follow.
-    // A new phase of the ride: the view resets to the first view in draw (2026-11-12).
+    // A new phase of the ride (boarded, transferred): faded legs; the view back to the first view
+    // (the widget's draw, 2026-11-12).
     if (mapFinished(mainMap.trip, Date.now()) !== mainMap.finished) drawMainMap();
     return mainMap.li;
   }
