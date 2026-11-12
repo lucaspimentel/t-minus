@@ -21,6 +21,7 @@
     --alert-bg: #fff4e0; --alert-border: #f0c070;
     --press: rgba(0, 0, 0, .07); /* pressed overlay */
     --map-water: #dbe7f0; --map-land: var(--card); --map-line: var(--border); /* the route map's base map */
+    --here: #1a73e8; /* your location on the maps (both themes): the dot, your vehicle at your GPS position */
     --map-green: #e4efdc; /* parks: softer in light, stronger in dark (2026-11-09) */
   }
   @media (prefers-color-scheme: dark) {
@@ -516,6 +517,9 @@
   .map-vehicle.mine text { font-size: 11px; }
   .map-vehicle path { stroke: var(--card); stroke-width: 1.5; stroke-linejoin: round; }
   .map-vehicle.mine path { stroke: var(--text); stroke-width: 2.5; }
+  /* The ridden vehicle at your GPS position (2026-11-12): the location dot's blue. */
+  .map-vehicle.gps path { stroke: var(--here); }
+  .map-vehicle .halo { fill: var(--here); opacity: .2; stroke: none; }
   /* The base map: beneath the trip, sizes in px at any zoom, not interactive. */
   .map-base { pointer-events: none; }
   .map-water { fill: var(--map-water); }
@@ -534,8 +538,8 @@
   .map-name.town { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
   .map-name.hood { font-size: 10px; font-style: italic; }
   .map-credit { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
-  .map-here .halo { fill: #1a73e8; opacity: .2; }
-  .map-here .dot { fill: #1a73e8; stroke: #fff; stroke-width: 2; }
+  .map-here .halo { fill: var(--here); opacity: .2; }
+  .map-here .dot { fill: var(--here); stroke: #fff; stroke-width: 2; }
 </style>
 </head>
 <body>
@@ -559,7 +563,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · df978ba000</footer>
+    <footer class="version">Version 2026-11-12 · 56310f0efd</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -590,8 +594,8 @@ import {
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=7cb5dc5a65';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=985174d54c';
+} from './core.js?v=26643b3209';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=e3b2d9c1a8';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1373,14 +1377,19 @@ if (native) {
 }
 // The card's data for a ride: its phase, the ridden vehicle's stops (or null) and the outlook.
 function rideCardData(s, now) {
-  const trip = config.trips[tripIdx];
-  const { walkAfter, transit, transfers } = tripShape(trip);
-  const ride = s.ride;
-  const phase = ridePhase(ride, walkAfter, now);
-  const rs = cache[refOf(tripIdx)]?.rideStops;
+  const { shape: { walkAfter, transfers }, phase, stops } = rideLegStops(config.trips[tripIdx], s.ride, now);
+  return { phase, stops, outlook: transferOutlook(s.ride, phase, rideVehicles(), transfers, now), walkAfter };
+}
+// A ride's phase, the ridden leg (riding) and its vehicle's stops (null until fetched for it),
+// with the trip's shape.
+function rideLegStops(trip, ride, now) {
+  const shape = tripShape(trip);
+  const phase = ridePhase(ride, shape.walkAfter, now);
   const leg = phase.kind === 'riding' ? ride.legs[phase.leg] : null;
-  const stops = (leg && rs?.tripId === leg.tripId && rideStops(rs.doc, transit[phase.leg].alight, now, transit[phase.leg].stop)) || null;
-  return { phase, stops, outlook: transferOutlook(ride, phase, rideVehicles(), transfers, now), walkAfter };
+  const rs = cache[trip.id]?.rideStops;
+  const t = leg && shape.transit[phase.leg];
+  const stops = (leg && rs?.tripId === leg.tripId && rideStops(rs.doc, t.alight, now, t.stop)) || null;
+  return { shape, phase, leg, stops };
 }
 // `s`: the shown trip's en-route state (or null). Another trip's ride keeps its activity until
 // that ride is gone.
@@ -1599,7 +1608,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=7cb5dc5a65'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=26643b3209'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -3086,16 +3095,18 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     }
     w.vehicleMarks = [];
     for (const v of model.vehicles) {
-      const g = mark(v.x, v.y, `map-vehicle${v.mine ? ' mine' : ''}`);
+      const g = mark(v.x, v.y, `map-vehicle${v.mine ? ' mine' : ''}${v.gps ? ' gps' : ''}`);
       // A circle with a point at `heading` (the travel direction); the label stays upright.
       const r = Math.max(11, v.label.length * 3 + 3) * (v.mine ? 1.25 : 1), tip = r + 7;
       const pin = svgEl('path', { d: `M${tip} 0L${r * 0.5} ${-r * 0.866}A${r} ${r} 0 1 0 ${r * 0.5} ${r * 0.866}Z`, fill: mapColor(v.color), transform: `rotate(${v.heading ?? 0})` });
+      // At your GPS position (2026-11-12): a blue ring and halo, like the location dot it replaces.
+      if (v.gps) g.append(svgEl('circle', { r: r + 9, class: 'halo' }));
       g.append(pin, svgEl('text', { y: v.mine ? 4 : 3.2, 'text-anchor': 'middle', fill: textOn(v.color) }, v.label));
       Object.assign(g.dataset, { vehicle: v.id, heading: Math.round(v.heading ?? 0) });
       w.vehicleMarks.push({ g, v });
       parts.push(g);
     }
-    if (p) { const g = mark(p.x, p.y, 'map-here'); g.append(svgEl('circle', { r: 14, class: 'halo' }), svgEl('circle', { r: 6, class: 'dot' })); parts.push(g); }
+    if (p && !model.ride?.gps) { const g = mark(p.x, p.y, 'map-here'); g.append(svgEl('circle', { r: 14, class: 'halo' }), svgEl('circle', { r: 6, class: 'dot' })); parts.push(g); }
     // The base map beneath, built once per origin (a vehicle or location redraw reuses it).
     const baseKey = model.origin && basemap ? `${model.origin.lat},${model.origin.lon}` : null;
     if (w.base?.key !== baseKey) {
@@ -3322,7 +3333,8 @@ function mapLocation(onChange, seed = null) {
   };
   loc.adopt(seed);
   const opts = { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 };
-  const at = p => ({ lat: p.coords.latitude, lon: p.coords.longitude });
+  // With the fix's accuracy and time: the ridden vehicle at your position (2026-11-12, rideMarker).
+  const at = p => ({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy, at: p.timestamp });
   const watch = () => {
     if (loc.stopped || loc.watchId != null || !navigator.geolocation) return;
     loc.watchId = navigator.geolocation.watchPosition(p => {
@@ -3369,20 +3381,21 @@ function mapLocation(onChange, seed = null) {
 // sheet has the credit; "Location off" / "Outside the map" show under it when they apply).
 // Your location (mapLocation), the legs' vehicles every 10 s (paused while the sheet is open,
 // in the background and while hidden), locate, back to the trip, and hide; a tap opens the
-// sheet. While riding: the ridden legs faded, your vehicle marked, fitted to the rest of the
-// ride. Hidden ("Hide map"; one setting on the phone, KEY_MAP_HIDDEN): a "Show map ▾" button
-// instead, with no requests and no location. Kept across the once-a-second redraw.
+// sheet. While riding: the ridden legs faded, your vehicle marked (at your GPS position when it
+// counts, 2026-11-12), fitted to the rest of the ride. Hidden ("Hide map"; one setting on the
+// phone, KEY_MAP_HIDDEN): a "Show map ▾" button instead, with no requests and no location.
+// Kept across the once-a-second redraw.
 const KEY_MAP_HIDDEN = 't-minus:mapHidden';
 let mainMap = null;
 let mapHidden = !!store.get(KEY_MAP_HIDDEN);
 // The shown trip's map view (2026-11-12), shared by the main map and the sheet, in memory only:
 // kept here while the main map is hidden or gone (Hide map, the sheet closing over a hidden map):
-// { idx, sig, finished, view: a widget's viewState(), loc: { here, asked, off } }. A trip, config
+// { idx, sig, finished, view: a widget's viewState(), loc: { here, asked, off }, vehicles, rideHold }. A trip, config
 // or ride phase that doesn't match: the first view.
 let tripMapView = null;
 const sameTrip = (a, b) => !!(a && b) && a.idx === b.idx && a.sig === b.sig;
-// A map's view and location to hand over (`e`: mainMap or mapSheet).
-const mapSnap = e => ({ idx: e.idx, sig: e.sig, finished: e.finished, view: e.widget.viewState(), loc: { here: e.loc.here, asked: e.loc.asked, off: e.loc.off } });
+// A map's view, location, vehicles and GPS hold to hand over (`e`: mainMap or mapSheet).
+const mapSnap = e => ({ idx: e.idx, sig: e.sig, finished: e.finished, view: e.widget.viewState(), loc: { here: e.loc.here, asked: e.loc.asked, off: e.loc.off }, vehicles: e.vehicles, rideHold: e.rideHold });
 // The kept view for this trip and phase, taken (read once).
 const takeMapView = at => {
   const k = sameTrip(tripMapView, at) && tripMapView.finished === at.finished ? tripMapView : null;
@@ -3402,18 +3415,27 @@ function mapState(trip, legs, now) {
   const c = cache[trip.id];
   const points = legPoints(trip, [...(c?.predictions ?? []), ...(c?.schedules?.docs ?? [])]);
   const mine = legs.map((_, i) => s?.ride?.legs[i]?.tripId ?? (s?.bell ? s.target?.legs?.[i]?.tripId ?? null : null));
-  return { points, finished: mapFinished(trip, now), mine };
+  // Riding (2026-11-12): the leg, its trip and whether the vehicle has left the boarding stop
+  // (the ride's stops, as the timeline's vehicle row), for the vehicle at your GPS position.
+  const r = s?.ride ? rideLegStops(trip, s.ride, now) : null;
+  const ride = r?.leg?.tripId ? { leg: r.phase.leg, left: !!r.stops?.vehicle && !r.stops.vehicle.boarding } : null;
+  return { points, finished: mapFinished(trip, now), mine, ride };
 }
+// routeMapModel's `ride`: your fix and the map's last GPS point for the ridden vehicle (`e.rideHold`,
+// rideMarker's hold, handed between the main map and the sheet with the view: mapSnap).
+const rideInput = (ride, here, hold) => ride && { ...ride, fix: here, hold };
 function drawMainMap() {
   const e = mainMap;
   if (!e) return;
   const now = Date.now();
-  const { points, finished, mine } = mapState(e.trip, e.legs, now);
+  const { points, finished, mine, ride } = mapState(e.trip, e.legs, now);
   const out = outsideMap(e.loc.here), here = out ? null : e.loc.here;
   e.widget.draw({
     legs: e.legs, shapes: loadedShapes(e.legs), fallback: e.legs.map((l, i) => mapFallback(l, points[i])),
     fitAlso: [here], finished, fitFrom: finished, vehicles: e.vehicles, mine, nowMs: now, incoming: true, also: loadedAlso(e.legs),
+    ride: rideInput(ride, here, e.rideHold),
   }, here);
+  e.rideHold = e.widget.model.ride?.hold ?? null;
   e.widget.setLocateOutside(out);
   e.finished = finished;
   e.mine = mine;
@@ -3472,7 +3494,7 @@ function mainMapItem() {
   // The shared view (Hide map / Show map, the sheet closed while hidden): kept for the same trip and phase.
   const finished = mapFinished(trip, Date.now());
   const keep = takeMapView({ idx: tripIdx, sig, finished });
-  const e = mainMap = { idx: tripIdx, trip, sig, legs, widget, li, cap, vehicles: [], loc: null, timer: null, finished };
+  const e = mainMap = { idx: tripIdx, trip, sig, legs, widget, li, cap, vehicles: keep?.vehicles ?? [], rideHold: keep?.rideHold ?? null, loc: null, timer: null, finished };
   e.loc = mapLocation(center => {
     if (mainMap !== e) return;
     drawMainMap();
@@ -3514,13 +3536,15 @@ function drawMapSheet() {
   const m = mapSheet;
   if (!m) return;
   const now = Date.now();
-  const { points, finished, mine } = mapState(m.trip, m.legs, now);
+  const { points, finished, mine, ride } = mapState(m.trip, m.legs, now);
   m.finished = finished; // a ride phase change resets the view (the widget's draw)
   const out = outsideMap(m.loc.here), here = out ? null : m.loc.here;
   m.widget.draw({
     legs: m.legs, shapes: loadedShapes(m.legs), fallback: m.legs.map((l, i) => mapFallback(l, points[i])),
     fitAlso: [here], finished, fitFrom: finished, vehicles: m.vehicles, mine, nowMs: now, incoming: true, also: loadedAlso(m.legs),
+    ride: rideInput(ride, here, m.rideHold),
   }, here, m.loc.off ? 'Location off' : m.loc.asked && out ? 'Outside the map' : '');
+  m.rideHold = m.widget.model.ride?.hold ?? null;
   m.widget.setLocateOutside(out);
   m.mine = mine;
   $('map-credit').textContent = m.widget.base ? basemap.credit ?? '' : '';
@@ -3544,7 +3568,7 @@ function openMapSheet() {
   // The main map's view (2026-11-12; until then the sheet started at the fit and ended follow there).
   const kept = sameTrip(mainMap, at) ? mapSnap(mainMap) : takeMapView(at);
   const widget = mapWidget({ label: `Map of ${trip.name}`, interactive: true, focusKey: 'sheet', caption: $('map-caption'), locate: true, live: true });
-  const m = mapSheet = { ...at, trip, legs, widget, vehicles: [], loc: null, timer: null, opener: document.activeElement };
+  const m = mapSheet = { ...at, trip, legs, widget, vehicles: kept?.vehicles ?? [], rideHold: kept?.rideHold ?? null, loc: null, timer: null, opener: document.activeElement };
   m.loc = mapLocation(center => {
     if (mapSheet !== m) return;
     drawMapSheet();
@@ -3582,6 +3606,7 @@ function closeMapSheet() {
     mainMap.loc.adopt(snap.loc);
     if (!document.hidden) mainMap.loc.resume();
     mainMap.widget.restore(snap.view);
+    Object.assign(mainMap, { vehicles: snap.vehicles, rideHold: snap.rideHold });
     drawMainMap();
   } else tripMapView = snap;
   render();

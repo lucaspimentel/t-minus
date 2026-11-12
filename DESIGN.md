@@ -712,6 +712,20 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   `bearing` (missing or stale at stops); the label stays upright (2026-11-09; a rectangular badge
   before). The belled or tracked ride's vehicle is larger and outlined. Once riding, finished
   legs fade.
+- **Your vehicle at your position (2026-11-12):** MBTA positions lag (subway: track circuits; the
+  10 s poll, the proxy's 5 s cache, up to 90 s old), so while riding the ridden leg's vehicle is
+  drawn at the phone's GPS fix, snapped onto the leg's stretch, heading along the line there
+  (`rideMarker`, `routeMapModel`'s `ride`; `rideLegStops` in `index.html`, shared with the ride card). Both maps (the main screen's, the sheet); nothing
+  else uses it (stop counts, cards, widgets and alerts stay on predictions). A fix counts when its
+  accuracy is 50 m or better, it's at most 10 s old, within 75 m of the line, the vehicle has left
+  the boarding stop (the ride's stops, as the timeline's vehicle row) and its MBTA position is
+  within 1 km (a missed train stays on its MBTA position). Drawn with a blue ring and halo (the
+  location dot's blue, both themes) and without the dot. With no fix that counts (underground,
+  coarse), the last point holds, still blue, until the MBTA position passes it along the line or
+  60 s go by, then today's marker and the dot: it never moves back (a fix behind the held point
+  keeps the point). Each map keeps its hold (`rideHold`) and hands it over with the view, the
+  vehicles too (`mapSnap`: the sheet opens with the main map's vehicles and hold). The ride's vehicle not in `/vehicles`: no marker of yours, the dot shows. No new
+  requests; it moves with each fix (`mapLocation` keeps the fix's accuracy and time).
 - **Zoomed out (2026-11-09):** with the view more than 1.5× wider than the chosen fit (2026-11-12:
   trip or trip + me; the first view while moved; until then the one fit)
   (`zoomedOut`, `ZOOMED_OUT`), only your ride's vehicle shows; back to the trip or zooming back in shows the
@@ -750,7 +764,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 - **Privacy:** positions never leave the phone; shape and vehicle requests carry the route and
   direction only.
 - **Code:** geometry in `core.js` ("route map": `decodePolyline` / `encodePolyline`,
-  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `vehicleRouteLabel`, `fitView` / `zoomView` / `panView`, the two fits' `mapFits` / `firstFit` / `fitChoice` / `fitTap`, `sameView`, locate's `nextFollowLevel` / `viewAt`,
+  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `rideMarker`, `vehicleRouteLabel`, `fitView` / `zoomView` / `panView`, the two fits' `mapFits` / `firstFit` / `fitChoice` / `fitTap`, `sameView`, locate's `nextFollowLevel` / `viewAt`,
   `routeMapModel`, `basemapLayers`, `basemapNames`); the SVG, gestures and the sheet in
   `index.html` (`mapWidget`, `openMapSheet`, `routeMapEl` for setup, `loadBasemap`); the base
   map's build in `scripts/build-basemap.mjs` with its geometry in `scripts/basemap-geo.mjs`.
