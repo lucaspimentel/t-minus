@@ -196,8 +196,8 @@ for (const scheme of ['light', 'dark']) {
     await page.emulateMedia({ colorScheme: scheme });
     await context.grantPermissions(['geolocation']);
     await context.setGeolocation({ latitude: 42.4655, longitude: -71.0990 });
-    await openApp(page, { time: '07:00', scenario: { ...commute(), trips: [] }, waitForRows: false });
-    await expect(page.locator('#rows .empty-map-item .map-here')).toHaveCount(1);
+    await openApp(page, { map: true, time: '07:00', scenario: { ...commute(), trips: [] }, waitForRows: false });
+    await expect(page.locator('#rows .main-map-item .map-here')).toHaveCount(1);
     expect(await violations(page)).toEqual([]);
     await page.getByRole('button', { name: 'Center on my location' }).click();
     await tick(page, 300);
@@ -209,11 +209,26 @@ for (const scheme of ['light', 'dark']) {
     expect(await violations(page)).toEqual([]);
     await locate.focus();
     await tick(page, 2000);
-    expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('empty-map:locate');
+    expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('main-map:locate');
     // Focus survives the once-a-second redraw.
     await page.getByRole('button', { name: 'Show the whole trip' }).focus();
     await tick(page, 2000);
-    expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('empty-map:fit');
+    expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('main-map:fit');
+    expect(await violations(page)).toEqual([]);
+  });
+
+  test(`axe finds nothing on the main screen with its map, "Open the full map" focused, and hidden (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openApp(page, { map: true, time: '07:00' });
+    await expect(page.locator('#rows .main-map-item .map-leg').first()).toBeAttached();
+    expect(await violations(page)).toEqual([]);
+    await page.getByRole('button', { name: 'Open the full map' }).focus();
+    await expect(page.getByRole('button', { name: 'Open the full map' })).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+    await page.getByRole('button', { name: 'Hide map' }).click();
+    await expect(page.getByRole('button', { name: 'Show map ▾' })).toBeFocused();
+    await tick(page, 2000); // focus survives the redraw
+    await expect(page.getByRole('button', { name: 'Show map ▾' })).toBeFocused();
     expect(await violations(page)).toEqual([]);
   });
 
@@ -221,8 +236,8 @@ for (const scheme of ['light', 'dark']) {
     await page.emulateMedia({ colorScheme: scheme });
     await context.grantPermissions(['geolocation']);
     await context.setGeolocation({ latitude: 42.4655, longitude: -71.0990 });
-    await openApp(page, { time: '07:00', scenario: { ...commute(), vehicles: [{ id: 'v1', trip: '132in-0708', route: '132', direction: 1, lat: 42.452742, lon: -71.071966 }] } });
-    await page.getByRole('button', { name: 'Route map' }).click();
+    await openApp(page, { map: true, time: '07:00', scenario: { ...commute(), vehicles: [{ id: 'v1', trip: '132in-0708', route: '132', direction: 1, lat: 42.452742, lon: -71.071966 }] } });
+    await page.locator('#rows .main-map svg.route-svg').click({ position: { x: 12, y: 12 } });
     await tick(page, 300);
     await expect(page.locator('.map-vehicle')).toHaveCount(1);
     await expect(page.locator('.map-base')).toHaveCount(1); // the real basemap.json

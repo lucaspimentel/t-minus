@@ -1,9 +1,9 @@
-// The route map (DESIGN.md "Route map"): 🗺 in the header opens the shown trip at true positions,
-// with the phone's location and the legs' vehicles while open; setup's planner options and trip
+// The route map (DESIGN.md "Route map"): the main screen's map (2026-11-12) opens the sheet with
+// the shown trip at true positions, the phone's location and the legs' vehicles while open; setup's planner options and trip
 // editor draw the same map inline. Shapes come from the recorded patterns (fake-mbta.js).
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { openApp, tick, tickTo, commute, planOptions, expandOption, cssColor } from './helpers.js';
+import { openApp, tick, tickTo, commute, riding, planOptions, expandOption, cssColor } from './helpers.js';
 import { encodePolyline, areaRect, projector } from '../../core.js';
 
 test.beforeEach(({ page }) => {
@@ -11,6 +11,7 @@ test.beforeEach(({ page }) => {
 });
 
 const sheet = page => page.getByRole('dialog');
+const mainMap = page => page.locator('#rows .main-map-item');
 const svg = page => sheet(page).locator('svg.route-svg');
 const locateBtn = loc => loc.getByRole('button', { name: 'Center on my location' });
 const legs = loc => loc.locator('polyline.map-leg:not(.off)');
@@ -32,15 +33,16 @@ const DENIED = () => {
   for (const k of ['watchPosition', 'getCurrentPosition']) { const f = navigator.geolocation[k]; navigator.geolocation[k] = (...a) => { window.geoAsks++; return f(...a); }; }
 };
 
+// A tap on the main screen's map, away from its corner buttons.
 async function openMap(page) {
-  await page.getByRole('button', { name: 'Route map' }).click();
+  await mainMap(page).locator('svg.route-svg').click({ position: { x: 12, y: 12 } });
   await tick(page, 300);
   await expect(sheet(page)).toBeVisible();
 }
 
-test('🗺 opens the trip: both legs at their shapes, labeled ends, stop names on tap; shapes kept on the phone', async ({ page }) => {
-  const mbta = await openApp(page, { time: '07:00', init: DENIED });
-  await expect(page.locator('header').getByRole('button', { name: 'Route map' })).toBeVisible();
+test('a tap on the main screen\'s map opens the trip: both legs at their shapes, labeled ends, stop names on tap; shapes kept on the phone', async ({ page }) => {
+  const mbta = await openApp(page, { map: true, time: '07:00', init: DENIED });
+  await expect(page.locator('header').getByRole('button', { name: 'Route map' })).toHaveCount(0); // until 2026-11-12
   await openMap(page);
   await expect(sheet(page).getByRole('heading')).toHaveText('Home to office');
   await expect(svg(page)).toHaveAttribute('aria-label', 'Map of Home to office');
@@ -70,7 +72,16 @@ test('🗺 opens the trip: both legs at their shapes, labeled ends, stop names o
   await sheet(page).getByRole('button', { name: 'Done' }).click();
   await expect(sheet(page)).toBeHidden();
   await expect(page.locator('#rows')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Route map' })).toBeFocused();
+  await expect(page.locator('#toggle select')).toBeFocused(); // a tap focuses nothing: the trip picker
+  // From the keyboard: "Open the full map", shown while focused, opens it and gets the focus back.
+  const open = mainMap(page).getByRole('button', { name: 'Open the full map' });
+  await open.focus();
+  await expect(open).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(sheet(page)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(sheet(page)).toBeHidden();
+  await expect(open).toBeFocused();
   expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('t-minus:shapes:')).sort())).toEqual(['t-minus:shapes:132/1', 't-minus:shapes:Orange/0']);
   await page.reload();
   await page.locator('.row').first().waitFor();
@@ -79,15 +90,15 @@ test('🗺 opens the trip: both legs at their shapes, labeled ends, stop names o
   expect(shapeHits(mbta)).toHaveLength(2);
 });
 
-test('no trips: no 🗺', async ({ page }) => {
-  await openApp(page, { time: '07:00', config: { trips: [] }, waitForRows: false });
-  await expect(page.locator('#map-btn')).toBeHidden();
+test('no trips: no map', async ({ page }) => {
+  await openApp(page, { map: true, time: '07:00', config: { trips: [] }, waitForRows: false });
+  await expect(page.locator('.route-map')).toHaveCount(0);
 });
 
 test('the phone\'s location, already granted: the dot in the fit, no walk to the first stop; locate centers on it', async ({ page, context }) => {
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ latitude: 42.4740, longitude: -71.0900 }); // north of the first stop
-  await openApp(page, { time: '07:00' });
+  await openApp(page, { map: true, time: '07:00' });
   await openMap(page);
   await expect(svg(page).locator('.map-here')).toHaveCount(1);
   await expect(svg(page).locator('.map-walk')).toHaveCount(1); // the transfer's only (2026-11-09)
@@ -122,7 +133,7 @@ test('the phone\'s location, already granted: the dot in the fit, no walk to the
 });
 
 test('location not granted: no prompt on opening, no dot; locate asks, and "Location off" once denied', async ({ page }) => {
-  await openApp(page, { time: '07:00', init: DENIED });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
   await openMap(page);
   await tick(page, 1000);
   expect(await page.evaluate(() => window.geoAsks)).toBe(0);
@@ -139,21 +150,22 @@ test('location not granted: no prompt on opening, no dot; locate asks, and "Loca
 
 test('vehicles on the legs every 10 s while open, yours outlined; nothing after Done', async ({ page }) => {
   const scenario = { ...commute(), vehicles: [vehicleAt('before', '132in-0640', 3), vehicleAt('inside', '132in-0612', 15), vehicleAt('mine', '132in-0736', 18)] };
-  const mbta = await openApp(page, { time: '07:00', scenario, init: DENIED });
+  const mbta = await openApp(page, { map: true, time: '07:00', scenario, init: DENIED });
   // Bell the 7:36 bus (the second row).
   const second = page.locator('.row').nth(1);
   await second.click();
   await second.getByRole('button', { name: 'Track', exact: true }).click();
   await tick(page, 1000);
+  const base = vehicleHits(mbta).length; // the main screen's map's
   await openMap(page);
   await expect(svg(page).locator('.map-vehicle')).toHaveCount(3); // the one before the boarding stop too (2026-11-09: coming toward it)
   await expect(svg(page).locator('.map-vehicle.mine')).toHaveCount(1);
   await expect(svg(page).locator('.map-vehicle.mine')).toHaveAttribute('data-vehicle', 'mine');
   await expect(svg(page).locator('.map-vehicle text').first()).toHaveText('132');
   const first = vehicleHits(mbta).length;
-  expect(first).toBe(2); // one per leg at opening
+  expect(first).toBe(base + 2); // one per leg at opening
   await tick(page, 10_000);
-  expect(vehicleHits(mbta).length).toBe(4);
+  expect(vehicleHits(mbta).length).toBe(base + 4); // the sheet's only: the main map's wait
   // Route and direction only, never a position.
   for (const h of vehicleHits(mbta)) expect([...h.query.keys()].sort()).toEqual(['fields[vehicle]', 'filter[direction_id]', 'filter[route]']);
   // The bus moves on.
@@ -164,11 +176,11 @@ test('vehicles on the legs every 10 s while open, yours outlined; nothing after 
   await sheet(page).getByRole('button', { name: 'Done' }).click();
   const after = vehicleHits(mbta).length;
   await tick(page, 30_000);
-  expect(vehicleHits(mbta).length).toBe(after);
+  expect(vehicleHits(mbta).length).toBeLessThanOrEqual(after + 6); // the main screen's map's again, no more
 });
 
 test('riding: the first walk is gone and finished legs fade', async ({ page }) => {
-  await openApp(page, { time: '07:00', init: DENIED });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
   await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
   await tick(page, 1000);
   await tickTo(page, '07:24');
@@ -181,7 +193,7 @@ test('riding: the first walk is gone and finished legs fade', async ({ page }) =
 });
 
 test('without shapes (MBTA down, nothing kept): straight lines through the stops, no message', async ({ page }) => {
-  await openApp(page, { time: '07:00', scenario: { ...commute(), noShapes: true }, init: DENIED });
+  await openApp(page, { map: true, time: '07:00', scenario: { ...commute(), noShapes: true }, init: DENIED });
   await openMap(page);
   await expect(legs(svg(page))).toHaveCount(2);
   expect(await legs(svg(page)).evaluateAll(ls => ls.map(l => l.points.length))).toEqual([2, 2]); // the legs' ends from the loaded times
@@ -189,7 +201,7 @@ test('without shapes (MBTA down, nothing kept): straight lines through the stops
 });
 
 test('pinch zooms and a drag pans', async ({ page }) => {
-  await openApp(page, { time: '07:00', init: DENIED });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
   await openMap(page);
   const box = await svg(page).boundingBox();
   const view = async () => (await svg(page).getAttribute('viewBox')).split(' ').map(Number);
@@ -224,7 +236,7 @@ const PLAN = {
 };
 
 test('setup: a planner option\'s map (a picture with both end walks; taps keep the card open); the trip editor\'s', async ({ page }) => {
-  await openApp(page, { time: '07:00' });
+  await openApp(page, { map: true, time: '07:00' });
   await page.route(/\/api\/places\?/, route => route.fulfill({ json: { places: [{ ...PLAN_FROM, detail: 'Melrose' }] } }));
   await page.route(/\/api\/plan\?/, route => route.fulfill({ json: PLAN }));
   const setup = page.locator('#setup');
@@ -320,7 +332,7 @@ const viewWidth = async page => Number((await svg(page).getAttribute('viewBox'))
 
 test('the base map beneath the trip, fetched once; names: towns, then neighborhoods, larger first, fully inside', async ({ page }) => {
   const served = await serveBase(page);
-  await openApp(page, { time: '07:00', init: DENIED });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
   await openMap(page);
   const base = svg(page).locator('> g.map-base');
   await expect(base).toHaveAttribute('aria-hidden', 'true');
@@ -353,7 +365,7 @@ test('the base map beneath the trip, fetched once; names: towns, then neighborho
 
 test('base map names follow the view: zoomed out, Boston instead of neighborhoods; zoomed in, both neighborhoods; panned, the town at the edge', async ({ page }) => {
   await serveBase(page);
-  await openApp(page, { time: '07:00', init: DENIED });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
   await openMap(page);
   const box = await svg(page).boundingBox();
   // Out (the wheel, about the map's middle) past 10 km across.
@@ -387,7 +399,7 @@ test('base map names follow the view: zoomed out, Boston instead of neighborhood
 
 test('without the base map the map draws as today; the next opening tries again', async ({ page }) => {
   const served = await serveBase(page, { fail: true });
-  await openApp(page, { time: '07:00', init: DENIED });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
   await openMap(page);
   await expect(legs(svg(page))).toHaveCount(2);
   await expect(svg(page).locator('.map-base')).toHaveCount(0);
@@ -397,7 +409,7 @@ test('without the base map the map draws as today; the next opening tries again'
   await openMap(page);
   await expect(svg(page).locator('.map-base')).toHaveCount(1);
   await expect(page.locator('#map-credit')).toBeVisible();
-  expect(served.hits).toBe(2);
+  expect(served.hits).toBe(3); // the main screen's map at load, then each opening
 });
 
 // Panning and zooming out (2026-11-08; the view's edges within the bound since 2026-11-09):
@@ -414,7 +426,7 @@ async function zoomOut(page, n = 30) {
 }
 test('the sheet zooms out to all of commuter rail\'s reach and pans over it; without it, twice the trip', async ({ page }) => {
   await serveBase(page, { base: REACH });
-  await openApp(page, { time: '07:00', init: DENIED });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
   await openMap(page);
   const fit = await view(page);
   await zoomOut(page);
@@ -444,8 +456,9 @@ test('the sheet zooms out to all of commuter rail\'s reach and pans over it; wit
   await sheet(page).getByRole('button', { name: 'Done' }).click();
   // The old file (no `reach`): today's limits.
   await page.unroute('**/basemap.json');
-  await page.reload();
   await serveBase(page);
+  await page.reload();
+  await page.locator('.row').first().waitFor();
   await openMap(page);
   const fit2 = await view(page);
   await zoomOut(page);
@@ -454,7 +467,7 @@ test('the sheet zooms out to all of commuter rail\'s reach and pans over it; wit
 
 test('back to the trip (an icon) shows once the view moves and eases back; with Reduce Motion it jumps', async ({ page }) => {
   await serveBase(page, { base: REACH });
-  await openApp(page, { time: '07:00', init: DENIED });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
   await openMap(page);
   const fitBtn = sheet(page).getByRole('button', { name: 'Show the whole trip' });
   await expect(fitBtn).toBeHidden();
@@ -488,7 +501,7 @@ test('the whole map button: shown once the base map is in, eases all the way out
   let release;
   const held = new Promise(r => { release = r; });
   await page.route('**/basemap.json', async route => { await held; return route.fulfill({ json: REACH }); });
-  await openApp(page, { time: '07:00', init: DENIED });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
   await openMap(page);
   const whole = sheet(page).getByRole('button', { name: 'Show the whole map' });
   await expect(whole).toBeHidden(); // no bound yet
@@ -517,7 +530,7 @@ test('your location outside the map: no dot, not in the fit, locate disabled; ba
   await serveBase(page, { base: REACH });
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ latitude: 40.71, longitude: -74.0 }); // New York
-  await openApp(page, { time: '07:00' });
+  await openApp(page, { map: true, time: '07:00' });
   await openMap(page);
   await expect(svg(page).locator('.map-base')).toHaveCount(1);
   await expect(svg(page).locator('.map-here')).toHaveCount(0);
@@ -532,7 +545,7 @@ test('your location outside the map: no dot, not in the fit, locate disabled; ba
 
 test('locate tapped while outside the map: no move, "Outside the map", the button off', async ({ page }) => {
   await serveBase(page, { base: REACH });
-  await openApp(page, {
+  await openApp(page, { map: true,
     time: '07:00',
     init: () => {
       const at = { coords: { latitude: 40.71, longitude: -74.0, accuracy: 10 } };
@@ -553,63 +566,158 @@ test('locate tapped while outside the map: no move, "Outside the map", the butto
   await expect(svg(page).locator('.map-here')).toHaveCount(0);
 });
 
-// The empty main screen's map (2026-11-09): no rows once loaded.
-const emptyMap = page => page.locator('#rows .empty-map-item');
-test('no rows: the trip\'s map fills the space (vehicles, the hint, the credit); a tap opens the sheet; gone with rows', async ({ page }) => {
+// The main screen's map (2026-11-12; on the empty screen only from 2026-11-09): first in the
+// list, 26% of the screen's height, no caption or credit, vehicles every 10 s; hidden on demand.
+const mapSvg = page => mainMap(page).locator('svg.route-svg');
+test('the main screen\'s map: above the rows, 26% of the screen, vehicles every 10 s (paused for the sheet); a tap opens the sheet', async ({ page }) => {
   await serveBase(page);
   const scenario = { ...commute(), vehicles: [vehicleAt('inside', '132in-0612', 15)] };
-  const trips = scenario.trips;
-  scenario.trips = [];
-  const mbta = await openApp(page, { time: '07:00', scenario, init: DENIED, waitForRows: false });
-  await expect(page.locator('#rows .empty')).toHaveText('No upcoming departures found.');
-  const map = emptyMap(page);
-  await expect(map.locator('svg.route-svg')).toHaveAttribute('role', 'img');
+  const mbta = await openApp(page, { map: true, time: '07:00', scenario, init: DENIED });
+  const map = mainMap(page);
+  // First in the list, above the rows.
+  expect(await page.evaluate(() => document.querySelector('#rows').firstElementChild.className)).toBe('main-map-item');
+  await expect(mapSvg(page)).toHaveAttribute('role', 'img');
+  await expect(mapSvg(page)).toHaveAttribute('aria-label', 'Map of Home to office');
   await expect(legs(map)).toHaveCount(2);
-  await expect(map.locator('.map-caption')).toHaveText('Tap for the full map');
-  await expect(locateBtn(map).locator('svg path')).toHaveCount(1);
-  await expect(locateBtn(map)).toHaveText('');
-  await expect(map.locator('.map-credit')).toHaveText('Base map: test credit');
-  await expect(map.locator('.map-vehicle')).toHaveCount(1);
   await expect(pins(map)).toHaveCount(2);
-  // Fills the space: the page ends at the screen's bottom (the footer in view), not scrolling.
-  const h = await map.locator('svg.route-svg').evaluate(s => s.getBoundingClientRect().height);
-  expect(h).toBeGreaterThanOrEqual(250);
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(1);
+  // 26% of the 844 px screen; no caption, no credit (the sheet has it).
+  const h = await mapSvg(page).evaluate(s => s.getBoundingClientRect().height);
+  expect(Math.abs(h - 844 * 0.26)).toBeLessThanOrEqual(1);
+  await expect(map.locator('.map-caption')).toBeHidden();
+  await expect(map.locator('.map-credit')).toHaveCount(0);
+  await expect(map.getByRole('button', { name: 'Center on my location' })).toBeVisible();
+  await expect(map.getByRole('button', { name: 'Hide map' })).toBeVisible();
+  await expect(map.locator('.map-vehicle')).toHaveCount(1);
   // No prompt on its own; the once-a-second redraw keeps the same map.
   await tick(page, 3000);
   expect(await page.evaluate(() => window.geoAsks)).toBe(0);
-  expect(await map.locator('svg.route-svg').evaluate(s => (s.dataset.kept = '1'))).toBe('1');
+  expect(await mapSvg(page).evaluate(s => (s.dataset.kept = '1'))).toBe('1');
   await tick(page, 2000);
   await expect(map.locator('svg.route-svg[data-kept="1"]')).toHaveCount(1);
-  // Vehicles every 10 s (the first poll at once: one per leg), paused while the sheet is open.
-  await expect.poll(() => vehicleHits(mbta).length).toBeGreaterThanOrEqual(2);
+  // Vehicles every 10 s, one per leg; paused while the sheet is open (it polls instead).
   await tick(page, 1000);
   const polled = vehicleHits(mbta).length;
   await tick(page, 10_000);
   expect(vehicleHits(mbta).length).toBe(polled + 2);
   const beforeSheet = vehicleHits(mbta).length;
-  await map.locator('svg.route-svg').click();
-  await expect(sheet(page)).toBeVisible();
+  await openMap(page);
   await expect.poll(() => vehicleHits(mbta).length).toBe(beforeSheet + 2); // the sheet's first poll
   const sheetOpen = vehicleHits(mbta).length;
   await tick(page, 10_000);
   expect(vehicleHits(mbta).length).toBe(sheetOpen + 2); // the sheet's only
+  await expect(page.locator('#map-credit')).toHaveText('Base map: test credit');
   await sheet(page).getByRole('button', { name: 'Done' }).click();
-  // Rides again: the map goes, and its polling stops.
+  await expect(mapSvg(page)).toBeVisible();
+});
+
+test('no rows: the map first, then the message; kept across a refresh with rows', async ({ page }) => {
+  const scenario = { ...commute() };
+  const trips = scenario.trips;
+  scenario.trips = [];
+  await openApp(page, { map: true, time: '07:00', scenario, init: DENIED, waitForRows: false });
+  await expect(page.locator('#rows .empty')).toHaveText('No upcoming departures found.');
+  expect(await page.evaluate(() => [...document.querySelector('#rows').children].map(li => li.className))).toEqual(['main-map-item', 'empty']);
+  const h = await mapSvg(page).evaluate(s => s.getBoundingClientRect().height);
+  expect(Math.abs(h - 844 * 0.26)).toBeLessThanOrEqual(1); // no longer down to the footer
+  expect(await mapSvg(page).evaluate(s => (s.dataset.kept = '1'))).toBe('1');
   scenario.trips = trips;
   await page.locator('#refresh').click();
   await tick(page, 1000);
   await expect(page.locator('.row').first()).toBeVisible();
-  await expect(emptyMap(page)).toHaveCount(0);
-  const after = vehicleHits(mbta).length;
+  await expect(mainMap(page).locator('svg.route-svg[data-kept="1"]')).toHaveCount(1);
+});
+
+test('Hide map: "Show map ▾" instead, no requests and no location, kept across a reload; Show map polls at once', async ({ page, context }) => {
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 42.4740, longitude: -71.0900 });
+  await page.addInitScript(() => {
+    window.watches = 0;
+    const w = navigator.geolocation.watchPosition.bind(navigator.geolocation), c = navigator.geolocation.clearWatch.bind(navigator.geolocation);
+    navigator.geolocation.watchPosition = (...a) => { window.watches++; return w(...a); };
+    navigator.geolocation.clearWatch = id => { window.watches--; c(id); };
+  });
+  const mbta = await openApp(page, { map: true, time: '07:00' });
+  await expect(mainMap(page).locator('.map-here')).toHaveCount(1);
+  expect(await page.evaluate(() => window.watches)).toBe(1);
+  await mainMap(page).getByRole('button', { name: 'Hide map' }).click();
+  const show = page.getByRole('button', { name: 'Show map ▾' });
+  await expect(show).toBeVisible();
+  await expect(show).toBeFocused();
+  await expect(page.locator('.route-map')).toHaveCount(0);
+  await expect(page.locator('#rows > li').first()).toContainText('Show map ▾');
+  await expect(sheet(page)).toBeHidden(); // the button doesn't open the sheet
+  expect(await page.evaluate(() => window.watches)).toBe(0);
+  const hits = vehicleHits(mbta).length;
   await tick(page, 30_000);
-  expect(vehicleHits(mbta).length).toBe(after);
+  expect(vehicleHits(mbta).length).toBe(hits);
+  expect(await page.evaluate(() => localStorage.getItem('t-minus:mapHidden'))).toBe('true');
+  await page.reload();
+  await page.locator('.row').first().waitFor();
+  await expect(page.getByRole('button', { name: 'Show map ▾' })).toBeVisible();
+  await expect(page.locator('.route-map')).toHaveCount(0);
+  // Shown again: drawn at once, polled at once, the focus on Hide map.
+  const before = vehicleHits(mbta).length;
+  await page.getByRole('button', { name: 'Show map ▾' }).click();
+  await expect(legs(mainMap(page))).toHaveCount(2);
+  await expect.poll(() => vehicleHits(mbta).length).toBe(before + 2);
+  await expect(mainMap(page).getByRole('button', { name: 'Hide map' })).toBeFocused();
+  expect(await page.evaluate(() => localStorage.getItem('t-minus:mapHidden'))).toBe(null);
+});
+
+test('in the background: no vehicle polls and no location watch; back: both again', async ({ page, context }) => {
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 42.4740, longitude: -71.0900 });
+  await page.addInitScript(() => {
+    window.watches = 0;
+    const w = navigator.geolocation.watchPosition.bind(navigator.geolocation), c = navigator.geolocation.clearWatch.bind(navigator.geolocation);
+    navigator.geolocation.watchPosition = (...a) => { window.watches++; return w(...a); };
+    navigator.geolocation.clearWatch = id => { window.watches--; c(id); };
+    let hidden = false;
+    Object.defineProperty(document, 'hidden', { get: () => hidden });
+    Object.defineProperty(document, 'visibilityState', { get: () => (hidden ? 'hidden' : 'visible') });
+    window.setHidden = h => { hidden = h; document.dispatchEvent(new Event('visibilitychange')); };
+  });
+  const mbta = await openApp(page, { map: true, time: '07:00' });
+  await expect(mainMap(page).locator('.map-here')).toHaveCount(1);
+  await page.evaluate(() => window.setHidden(true));
+  expect(await page.evaluate(() => window.watches)).toBe(0);
+  const hits = vehicleHits(mbta).length;
+  await tick(page, 30_000);
+  expect(vehicleHits(mbta).length).toBe(hits);
+  await page.evaluate(() => window.setHidden(false));
+  await expect.poll(() => page.evaluate(() => window.watches)).toBe(1);
+  await tick(page, 10_000);
+  expect(vehicleHits(mbta).length).toBeGreaterThan(hits);
+});
+
+test('riding: the map stays above the ride card, the ridden leg faded, fitted to the rest of the ride', async ({ page }) => {
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await tick(page, 1000);
+  await tickTo(page, '07:08:30');
+  await expect(page.locator('.ride-head')).toBeVisible();
+  expect(await page.evaluate(() => [...document.querySelector('#rows').children].map(li => li.className.split(' ')[0]))).toEqual(['main-map-item', 'row']);
+  await expect(mainMap(page).locator('polyline.map-leg.faded:not(.off)')).toHaveCount(0);
+  // The first leg: the whole trip, the boarding stop in view.
+  const boardingInView = () => mapSvg(page).evaluate(s => {
+    const [x, y, w, h] = s.getAttribute('viewBox').split(' ').map(Number);
+    const g = [...s.querySelectorAll('.map-stop')].find(m => m.querySelector('text')?.textContent === 'Main St @ South St');
+    return g.dataset.x >= x && g.dataset.x <= x + w && g.dataset.y >= y && g.dataset.y <= y + h;
+  });
+  expect(await boardingInView()).toBe(true);
+  await tickTo(page, '07:33');
+  await expect(page.locator('.ride-head')).toHaveText(riding('Orange'));
+  await expect(mainMap(page).locator('polyline.map-leg.faded:not(.off)')).toHaveCount(1);
+  expect(await mainMap(page).locator('polyline.map-leg:not(.off)').evaluateAll(ls => ls.map(l => [l.dataset.color, l.classList.contains('faded')])))
+    .toEqual([['FFC72C', true], ['ED8B00', false]]);
+  // The rest of the ride: the bus's boarding stop is out of the view.
+  await expect.poll(boardingInView).toBe(false);
 });
 
 test('no rows, locate: asks, then "Location off" when denied; granted: centered on you with back to the trip', async ({ page, context }) => {
   const scenario = { ...commute(), trips: [] };
-  await openApp(page, { time: '07:00', scenario, init: DENIED, waitForRows: false });
-  const map = emptyMap(page);
+  await openApp(page, { map: true, time: '07:00', scenario, init: DENIED, waitForRows: false });
+  const map = mainMap(page);
   await expect(map.locator('.map-here')).toHaveCount(0);
   await locateBtn(map).click();
   await tick(page, 100);
@@ -620,8 +728,8 @@ test('no rows, locate: asks, then "Location off" when denied; granted: centered 
   const p2 = await context.newPage();
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ latitude: 42.4740, longitude: -71.0900 });
-  await openApp(p2, { time: '07:00', scenario, waitForRows: false });
-  const map2 = emptyMap(p2);
+  await openApp(p2, { map: true, time: '07:00', scenario, waitForRows: false });
+  const map2 = mainMap(p2);
   await expect(map2.locator('.map-here')).toHaveCount(1);
   await tick(p2, 1500); // its height settled
   const fit = await map2.locator('svg.route-svg').getAttribute('viewBox');
@@ -641,7 +749,7 @@ test('no rows, locate: asks, then "Location off" when denied; granted: centered 
 // Vehicles point the way they travel; zoomed out past 1.5× the fit, only your ride's (2026-11-09).
 test('vehicles point along the route; zoomed out, hidden and not polled until you zoom back in', async ({ page }) => {
   const scenario = { ...commute(), vehicles: [vehicleAt('inside', '132in-0612', 15)] };
-  const mbta = await openApp(page, { time: '07:00', scenario, init: DENIED });
+  const mbta = await openApp(page, { map: true, time: '07:00', scenario, init: DENIED });
   await openMap(page);
   const bus = svg(page).locator('[data-vehicle="inside"]');
   await expect(bus).toBeVisible();
@@ -671,7 +779,7 @@ test('vehicles point along the route; zoomed out, hidden and not polled until yo
 
 test('zoomed out with a ride: your vehicle stays, the others hide, polls go on', async ({ page }) => {
   const scenario = { ...commute(), vehicles: [vehicleAt('inside', '132in-0612', 15), vehicleAt('mine', '132in-0736', 18)] };
-  const mbta = await openApp(page, { time: '07:00', scenario, init: DENIED });
+  const mbta = await openApp(page, { map: true, time: '07:00', scenario, init: DENIED });
   const second = page.locator('.row').nth(1);
   await second.click();
   await second.getByRole('button', { name: 'Track', exact: true }).click();
@@ -691,7 +799,7 @@ test('zoomed out with a ride: your vehicle stays, the others hide, polls go on',
 test('the bus leg\'s whole line, faded outside the stretch, with its stops and the buses coming toward yours', async ({ page }) => {
   const past = busStops.length - 2; // the pattern runs on past the drop-off (index 24)
   const scenario = { ...commute(), vehicles: [vehicleAt('coming', '132in-0640', 3), vehicleAt('past', '132in-0540', past)] };
-  await openApp(page, { time: '07:00', scenario, init: DENIED });
+  await openApp(page, { map: true, time: '07:00', scenario, init: DENIED });
   await openMap(page);
   const off = svg(page).locator('polyline.map-leg.off');
   await expect(off).toHaveCount(2); // before the boarding stop, after the drop-off
@@ -719,12 +827,12 @@ test('no rows, your location outside the map: no dot, locate off, no whole-map b
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ latitude: 40.71, longitude: -74.0 }); // New York
   const scenario = { ...commute(), trips: [] };
-  await openApp(page, { time: '07:00', scenario, waitForRows: false });
-  const map = emptyMap(page);
+  await openApp(page, { map: true, time: '07:00', scenario, waitForRows: false });
+  const map = mainMap(page);
   await expect(map.locator('.map-base')).toHaveCount(1);
   await expect(map.locator('.map-here')).toHaveCount(0);
   await expect(map.getByRole('button', { name: 'Center on my location (outside the map)' })).toBeDisabled();
-  await expect(map.locator('.map-caption')).toHaveText('Tap for the full map');
+  await expect(map.locator('.map-caption')).toBeHidden(); // "Outside the map" only after a locate tap
   await expect(map.getByRole('button', { name: 'Show the whole map' })).toHaveCount(0); // the sheet only
 });
 
@@ -751,7 +859,7 @@ const dotIn = s => s.evaluate(s => {
 const move = (page, lat, lon) => page.evaluate(([a, b]) => window.geo.move(a, b), [lat, lon]);
 
 test('locate follows you: street first, then each tap switches area / street', async ({ page }) => {
-  await openApp(page, { time: '07:00', init: GEO });
+  await openApp(page, { map: true, time: '07:00', init: GEO });
   await openMap(page);
   const btn = locateTool(sheet(page));
   await expect(btn).toHaveAttribute('aria-pressed', 'false');
@@ -776,7 +884,7 @@ test('locate follows you: street first, then each tap switches area / street', a
 });
 
 test('following: a new position recenters; a lost one keeps follow and the map still; under 2 px, no move', async ({ page }) => {
-  await openApp(page, { time: '07:00', init: GEO });
+  await openApp(page, { map: true, time: '07:00', init: GEO });
   await openMap(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await locateTool(sheet(page)).click();
@@ -803,7 +911,7 @@ test('following: a new position recenters; a lost one keeps follow and the map s
 });
 
 test('a drag ends following; the next tap starts again at street level', async ({ page }) => {
-  await openApp(page, { time: '07:00', init: GEO });
+  await openApp(page, { map: true, time: '07:00', init: GEO });
   await openMap(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const btn = locateTool(sheet(page));
@@ -829,7 +937,7 @@ test('a drag ends following; the next tap starts again at street level', async (
 });
 
 test('a pinch keeps following at its zoom; the next tap goes to the farther level', async ({ page }) => {
-  await openApp(page, { time: '07:00', init: GEO });
+  await openApp(page, { map: true, time: '07:00', init: GEO });
   await openMap(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const btn = locateTool(sheet(page));
@@ -859,7 +967,7 @@ test('a pinch keeps following at its zoom; the next tap goes to the farther leve
 
 test('following ends when you leave the map, on back to the trip and on the whole map', async ({ page }) => {
   await serveBase(page, { base: REACH });
-  await openApp(page, { time: '07:00', init: GEO });
+  await openApp(page, { map: true, time: '07:00', init: GEO });
   await openMap(page);
   await expect(svg(page).locator('.map-base')).toHaveCount(1);
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -893,8 +1001,8 @@ test('following ends when you leave the map, on back to the trip and on the whol
 });
 
 test('no rows, locate follows you on the empty map too; opening the sheet ends it', async ({ page }) => {
-  await openApp(page, { time: '07:00', scenario: { ...commute(), trips: [] }, init: GEO, waitForRows: false });
-  const map = emptyMap(page), pic = map.locator('svg.route-svg');
+  await openApp(page, { map: true, time: '07:00', scenario: { ...commute(), trips: [] }, init: GEO, waitForRows: false });
+  const map = mainMap(page), pic = map.locator('svg.route-svg');
   await tick(page, 1500); // its height settled
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const btn = locateTool(map);

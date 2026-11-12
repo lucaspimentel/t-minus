@@ -584,18 +584,28 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 The trip drawn at true positions, in addition to the timeline (mockups accepted 2026-11-07).
 Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 
-- **Where:** the map button in the header (a folded-map outline in the text color, like ↻ and the
-  setup gear; the 🗺 and ⚙ emoji until 2026-11-09), beside ↻, opens a full-screen sheet ("Done" or Escape closes)
-  with the shown trip; the trip doesn't switch while it's open. Setup draws the same map inline,
-  as a static picture fitted to the trip: above an expanded planner option's timeline, and under
-  the legs in the trip editor (redrawn when a leg changes). Only the sheet pans and zooms
-  (2026-11-08: the planner's map did too, the editor's didn't; both are pictures now, so the page
-  scrolls over them). The main screen with no rows once loaded ("No upcoming departures found",
-  2026-11-09, mockups accepted) draws the shown trip under the message as a picture filling the
-  space down to the footer (at least 250 px; the page doesn't scroll), with the dot, the legs'
-  vehicles, the base map's credit and "Tap for the full map" under it; a tap opens the sheet.
-  It's kept across the once-a-second redraw and closed (its location and polling stopped) when
-  rows come back, while riding, or without trips.
+- **Where:** the main screen's map (2026-11-12, mockups accepted): the shown trip at the top of
+  the list, above the rows, the empty message ("No upcoming departures found") or the ride card;
+  26% of the screen's height, 160-300 px (`clamp`, `svh`); no caption or credit line ("Location
+  off" / "Outside the map" show under it when they apply; the base map's credit is in the sheet).
+  A picture (no pan or zoom) with the dot, the legs' vehicles, and the corner buttons: locate,
+  back to the trip, and **Hide map** (an up chevron, at the bottom). Hidden, it's a "Show map ▾"
+  button in its place (one setting on the phone, `t-minus:mapHidden`, for every trip and state),
+  with no vehicle polls and no location watch; shown again, it draws at once and polls at once.
+  While riding it stays above the ride card: the ridden legs faded, your vehicle marked, the view
+  fitted to the rest of the ride (`routeMapModel`'s `fitFrom`: the legs from the one you're on,
+  the end walk; redrawn when the phase changes). A tap opens a full-screen sheet ("Done" or
+  Escape closes) with the shown trip; the trip doesn't switch while it's open. From the keyboard:
+  "Open the full map", a button over the map's corner shown only while focused; focus returns to
+  it, or to the trip picker after a tap. Kept across the once-a-second redraw; replaced when the
+  shown trip changes, closed without trips. Before: the map button in the header (a folded-map
+  outline; the 🗺 emoji until 2026-11-09) opened the sheet, and from 2026-11-09 the main screen
+  drew the map only with no rows, under the message, filling the space down to the footer (at
+  least 250 px), with "Tap for the full map" and the credit under it.
+  Setup draws the same map inline, as a static picture fitted to the trip: above an expanded
+  planner option's timeline, and under the legs in the trip editor (redrawn when a leg changes).
+  Only the sheet pans and zooms (2026-11-08: the planner's map did too, the editor's didn't; both
+  are pictures now, so the page scrolls over them).
 - **Drawing:** an SVG outline with no street map (equirectangular, north up, in meters from the
   first boarding stop). Each leg is its route's shape (`route_patterns` with
   `representative_trip.shape`), trimmed to its boarding and drop-off stops, in the route's
@@ -634,8 +644,9 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   finished, like the leg. No walk from the phone's location
   (2026-11-09: the sheet drew one before boarding; the dot alone now, inside the fit:
   `routeMapModel`'s `fitAlso`).
-- **Location (the sheet and the empty screen's map, 2026-11-09):** never asked for on its own.
-  Already granted (the Permissions API): the dot, live (`watchPosition`, cleared on close). Not
+- **Location (the sheet and the main screen's map, 2026-11-09):** never asked for on its own.
+  Already granted (the Permissions API): the dot, live (`watchPosition`, cleared on close; the
+  main screen's map clears it in the background and while hidden, 2026-11-12). Not
   granted: no dot until locate. Locate (an arrow, the top corner button) asks the first time
   (`getCurrentPosition`, then the watch); from the first position it **follows you** (2026-11-10):
   - **Taps:** the first zooms to the street, 400 m across the map's width, centered on you; each
@@ -648,7 +659,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
     wheel keeps following at its zoom, about you. A lost position (a watch error) keeps it: the
     map stays until the next one.
   - **Ends on:** a drag; back to the trip; the whole map; closing the sheet; the sheet opening
-    (the empty screen's map) or that map replaced; your position leaving the bound.
+    (the main screen's map) or that map replaced; your position leaving the bound.
   - **Button:** an outline arrow, filled while following (`aria-pressed`); its label names the
     next tap: "Center on my location", "Zoom out to the area", "Zoom in to the street". Back to
     the trip shows while following (on the picture too).
@@ -661,7 +672,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   off" in the caption line, only after that tap; the button stays (the iOS app also toasts
   "Location is off for T-Minus · Settings", "Permissions in setup"). Until 2026-11-09 the sheet
   asked on opening and showed "Location off" whenever denied. `mapLocation` in `index.html`.
-- **Live while open (the sheet; the empty screen's map too):** the phone's location as above, and every
+- **Live while open (the sheet; the main screen's map too):** the phone's location as above, and every
   vehicle on the legs' routes and directions (`/vehicles`, `vehiclesQuery`, every 10 s), as a
   round marker in the route's color ("132", "OL"), between the boarding and drop-off stops, and
   on a bus leg from the line's first stop to the drop-off (buses coming toward your stop, full
@@ -680,7 +691,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   shape is drawn end to end along its pattern (`splitPath`): the parts before the boarding stop
   and after the drop-off at 35% (like finished legs, beneath every leg's stretch), and the
   pattern's other stops as faded dots (tappable for their names on the sheet; thinned like
-  intermediate stops). On every map (the sheet, the empty screen's, setup's). The view still fits
+  intermediate stops). On every map (the sheet, the main screen's, setup's). The view still fits
   your stretch, walks and location only. Subway and commuter rail legs stay trimmed (the base
   map's faint lines show the rest); a leg drawn from its stops (no shape) too.
 - **Data:** a leg's main route only (an `also` route runs the same street between the stops).
@@ -1098,14 +1109,16 @@ still holds, to stay well inside it either way:
   through the proxy (its 5 s cache for `/vehicles`): ~8 requests a minute per phone.
 - Route map (2026-11-07): one `/route_patterns` (`shapesQuery`) per leg's route and direction
   the first time, kept on the phone for 7 days like the stop lists (planner and editor maps
-  too); while the 🗺 sheet is open, one `/vehicles` per leg every 10 s (6 a minute per leg,
-  12 for a 2-leg trip), through the proxy (its 5 s `vehicles` cache). Keyless and direct, a
-  3-leg trip's polls come near 20 a minute with the sheet open; the sheet is short-lived, and
-  a 429 only skips a round. Nothing once closed. The empty main screen's map (2026-11-09) polls
-  the same way while shown, paused while the sheet is open (never both) and in the background;
-  with no rows the list's own polling is light, so the total stays as with the sheet open.
+  too); one `/vehicles` per leg every 10 s (6 a minute per leg, 12 for a 2-leg trip) from the
+  main screen's map whenever it's shown (2026-11-12; until then only while the sheet was open,
+  or the map of an empty screen) or from the sheet while open (the main map pauses: never
+  both), through the proxy (its 5 s `vehicles` cache, 120/min per IP). None while the map is
+  hidden, setup is open, the app is in the background, or zoomed out with no ride of yours on it. Keyless and direct (the
+  proxy unreachable), a 2-leg trip's polls with the list's come near the 20-a-minute limit; a
+  429 only skips a round, and "Hide map" stops them.
 - Route map's base map: one same-origin `basemap.json` per page load when a map first opens
-  (revalidated, 304 when unchanged); no MBTA requests.
+  (the main screen's, at load since 2026-11-12; revalidated, 304 when unchanged); no MBTA
+  requests.
 - Expanding a row: one `/schedules?filter[trip]=…` per transit leg for its stop counts, once per
   trip and service date (memory); collapsed rows cost nothing.
 - Schedule window: from 30 min ago (for missed rows, with the 15-min refresh) to
