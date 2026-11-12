@@ -239,8 +239,8 @@ for (const scheme of ['light', 'dark']) {
     await openApp(page, { map: true, time: '07:00', scenario: { ...commute(), vehicles: [{ id: 'v1', trip: '132in-0708', route: '132', direction: 1, lat: 42.452742, lon: -71.071966 }] } });
     await page.locator('#rows .main-map svg.route-svg').click({ position: { x: 12, y: 12 } });
     await tick(page, 300);
-    await expect(page.locator('.map-vehicle')).toHaveCount(1);
-    await expect(page.locator('.map-base')).toHaveCount(1); // the real basemap.json
+    await expect(page.locator('#map-sheet .map-vehicle')).toHaveCount(1);
+    await expect(page.locator('#map-sheet .map-base')).toHaveCount(1); // the real basemap.json
     await expect(page.locator('#map-credit')).toBeVisible();
     expect(await violations(page)).toEqual([]);
     await expect(page.getByRole('button', { name: 'Show the whole map' })).toBeVisible(); // 2026-11-09
