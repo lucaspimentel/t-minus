@@ -603,7 +603,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   the end walk; redrawn when the phase changes). A tap opens a full-screen sheet ("Done" or
   Escape closes) with the shown trip; the trip doesn't switch while it's open. From the keyboard:
   "Open the full map", a button over the map's corner shown only while focused; focus returns to
-  it, or to the trip picker after a tap. Kept across the once-a-second redraw; replaced when the
+  it; after a tap, nothing is focused (focusing the trip picker opened its menu on iOS, 2026-11-12). Kept across the once-a-second redraw; replaced when the
   shown trip changes, closed without trips. Before: the map button in the header (a folded-map
   outline; the 🗺 emoji until 2026-11-09) opened the sheet, and from 2026-11-09 the main screen
   drew the map only with no rows, under the message, filling the space down to the footer (at

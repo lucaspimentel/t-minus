@@ -559,7 +559,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · af14b04328</footer>
+    <footer class="version">Version 2026-11-12 · 93c6473e85</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -3473,9 +3473,10 @@ function closeMapSheet() {
   $('map-credit').hidden = true;
   $('app').hidden = false;
   render();
-  // Back to what opened it (the main screen's map), else the trip picker.
-  const back = m.opener?.isConnected && m.opener !== document.body ? m.opener : document.querySelector('#toggle select');
-  back?.focus();
+  // Back to what opened it from the keyboard ("Open the full map"). After a tap, nothing: focusing
+  // the trip picker opened its menu on iOS (2026-11-12).
+  if (m.opener?.isConnected && m.opener !== document.body) m.opener.focus();
+  else document.activeElement?.blur();
 }
 $('map-done').onclick = closeMapSheet;
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && mapSheet) closeMapSheet(); });

@@ -73,7 +73,9 @@ test('a tap on the main screen\'s map opens the trip: both legs at their shapes,
   await sheet(page).getByRole('button', { name: 'Done' }).click();
   await expect(sheet(page)).toBeHidden();
   await expect(page.locator('#rows')).toBeVisible();
-  await expect(page.locator('#toggle select')).toBeFocused(); // a tap focuses nothing: the trip picker
+  // A tap focuses nothing, and nothing gets the focus back (focusing the trip picker opened it on iOS).
+  await expect(page.locator('#toggle select')).not.toBeFocused();
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
   // From the keyboard: "Open the full map", shown while focused, opens it and gets the focus back.
   const open = mainMap(page).getByRole('button', { name: 'Open the full map' });
   await open.focus();
