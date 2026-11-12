@@ -600,7 +600,16 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   with no vehicle polls and no location watch; shown again, it draws at once and polls at once.
   While riding it stays above the ride card: the ridden legs faded, your vehicle marked, the view
   fitted to the rest of the ride (`routeMapModel`'s `fitFrom`: the legs from the one you're on,
-  the end walk; redrawn when the phase changes). A tap opens a full-screen sheet ("Done" or
+  the end walk; redrawn when the phase changes; the sheet too from 2026-11-12).
+  **One view for both (2026-11-12):** the main map and the sheet share the shown trip's view, in
+  memory only: the fit (the first view, trip or trip + me, below), locate's follow (with its
+  level), or a moved view (its center and meters per pixel). The sheet opens with the main map's;
+  closing it carries the sheet's back. A fit or follow is recomputed at each map's size; a moved
+  view keeps its center and scale within that map's limits (on a phone the two are as wide, so
+  the sheet shows more north-south). Kept across Hide map / Show map; the first view again on a
+  trip change, a reload, or a ride phase change (an open sheet too, and follow ends). The sheet's
+  selected stop isn't carried. Until 2026-11-12 the sheet opened at its fit and ended the main
+  map's follow. A tap opens a full-screen sheet ("Done" or
   Escape closes) with the shown trip; the trip doesn't switch while it's open. From the keyboard:
   "Open the full map", a button over the map's corner shown only while focused; focus returns to
   it; after a tap, nothing is focused (focusing the trip picker opened its menu on iOS, 2026-11-12). Kept across the once-a-second redraw; replaced when the
@@ -634,10 +643,23 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   in the box 5 km more, which showed blank card color past it; before that it stopped one
   trip-size past the trip and at twice its width, short of the outer towns. Without the base map,
   the old limits (the center within the fit grown by its size, out to twice its width).
+  **Two fits (2026-11-12):** the trip (while riding, the rest of the ride), and trip + me, the
+  trip with your location: only with a known position inside the bound, and at least 1.1× as
+  wide as the trip's (`ME_MIN`; else the two would look the same). The **first view** is trip + me
+  while it's at most 1.5× as wide (`ZOOMED_OUT`), else the trip, so far from the trip the route
+  isn't drawn tiny (`mapFits`, `firstFit`). Until 2026-11-12 the fit always took you in.
+  At a fit (not moved), the view follows the changes (a new position, the shapes arriving, a ride
+  phase change), eased in 250 ms like back to the trip (a move under 2 px skipped; at once with
+  Reduce Motion); the first drawing and a size change jump. A choice from the fit button holds
+  even when the first-view rule flips; with trip + me gone, the trip.
   **Corner buttons** (top right, 40 px, card style, SVG icons, top to bottom): locate (below);
-  back to the trip ("Show the whole trip", a route in frame corners; ⤢ until 2026-11-09), shown
-  once the view moves, eases back to the trip's fit in 250 ms (`easeView`; at once with Reduce
-  Motion) and hides; and on the sheet only, the whole map ("Show the whole map", a folded map;
+  the fit button (2026-11-12, `fitTap`): from a moved view (a pan, pinch, locate, the whole map) it
+  goes to the first view; at one fit, to the other. Shown while the two fits differ or the view
+  is moved; its label and icon name the next tap: "Show the whole trip" (a route in frame
+  corners; ⤢ until 2026-11-09) or "Show the trip and my location" (the same with a filled dot in
+  the top-left corner, mockup accepted 2026-11-12). Eased in 250 ms (`easeView`; at once with
+  Reduce Motion); a tap ends follow. Until 2026-11-12 it only went back to the one fit, shown
+  once the view moved; and on the sheet only, the whole map ("Show the whole map", a folded map;
   2026-11-09), shown once the base map is in and while the view isn't all the way out, eases out
   to the whole bound (`wholeView`) the same way. A pan or pinch during an ease takes over. Marks keep their size in pixels; lines their width.
 - **Walks at the ends:** planner options draw dashed walks from the place's point (an address or
@@ -648,8 +670,8 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   an end (a station, a saved trip) the pin's tip is on the first boarding or last drop-off
   stop's dot, unlabeled (the stop's label names it). The start pin fades once the first leg is
   finished, like the leg. No walk from the phone's location
-  (2026-11-09: the sheet drew one before boarding; the dot alone now, inside the fit:
-  `routeMapModel`'s `fitAlso`).
+  (2026-11-09: the sheet drew one before boarding; the dot alone now, in the trip + me fit:
+  `routeMapModel`'s `fitAlso`, `fits`).
 - **Location (the sheet and the main screen's map, 2026-11-09):** never asked for on its own.
   Already granted (the Permissions API): the dot, live (`watchPosition`, cleared on close; the
   main screen's map clears it in the background and while hidden, 2026-11-12). Not
@@ -664,8 +686,10 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
     The view's limits hold near the bound's edge (you can be off center there). A pinch or the
     wheel keeps following at its zoom, about you. A lost position (a watch error) keeps it: the
     map stays until the next one.
-  - **Ends on:** a drag; back to the trip; the whole map; closing the sheet; the sheet opening
-    (the main screen's map) or that map replaced; your position leaving the bound.
+  - **Ends on:** a drag; the fit button; the whole map; a ride phase change; the main screen's
+    map replaced; your position leaving the bound. It goes on into the sheet at the same level
+    and back to the main map when the sheet closes (2026-11-12; until then the sheet opening and
+    closing ended it).
   - **Button:** an outline arrow, filled while following (`aria-pressed`); its label names the
     next tap: "Center on my location", "Zoom out to the area", "Zoom in to the street". Back to
     the trip shows while following (on the picture too).
@@ -674,7 +698,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   (2026-11-09; `insideReach`, `outsideMap`; once the base map is in): your position is left out
   of the fit and not drawn, and locate is disabled ("Center on my location (outside the map)")
   until the live position is back inside; a tap whose answer is outside doesn't move the map and
-  shows "Outside the map" in the caption line (like "Location off", only after a locate tap). Nothing else on the maps is animated (follow's recenters are locate's ease). Denied: "Location
+  shows "Outside the map" in the caption line (like "Location off", only after a locate tap). Nothing else on the maps is animated (follow's recenters are locate's ease; from 2026-11-12, refits at a fit too). Denied: "Location
   off" in the caption line, only after that tap; the button stays (the iOS app also toasts
   "Location is off for T-Minus · Settings", "Permissions in setup"). Until 2026-11-09 the sheet
   asked on opening and showed "Location off" whenever denied. `mapLocation` in `index.html`.
@@ -688,7 +712,8 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   `bearing` (missing or stale at stops); the label stays upright (2026-11-09; a rectangular badge
   before). The belled or tracked ride's vehicle is larger and outlined. Once riding, finished
   legs fade.
-- **Zoomed out (2026-11-09):** with the view more than 1.5× wider than the trip's fit
+- **Zoomed out (2026-11-09):** with the view more than 1.5× wider than the chosen fit (2026-11-12:
+  trip or trip + me; the first view while moved; until then the one fit)
   (`zoomedOut`, `ZOOMED_OUT`), only your ride's vehicle shows; back to the trip or zooming back in shows the
   others. With no ride of yours on the map (none belled or tracked; the empty-screen map), the
   10 s `/vehicles` poll is skipped while zoomed out and runs at once on zooming back in, unless
@@ -725,7 +750,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 - **Privacy:** positions never leave the phone; shape and vehicle requests carry the route and
   direction only.
 - **Code:** geometry in `core.js` ("route map": `decodePolyline` / `encodePolyline`,
-  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `vehicleRouteLabel`, `fitView` / `zoomView` / `panView`, locate's `nextFollowLevel` / `viewAt`,
+  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `vehicleRouteLabel`, `fitView` / `zoomView` / `panView`, the two fits' `mapFits` / `firstFit` / `fitChoice` / `fitTap`, `sameView`, locate's `nextFollowLevel` / `viewAt`,
   `routeMapModel`, `basemapLayers`, `basemapNames`); the SVG, gestures and the sheet in
   `index.html` (`mapWidget`, `openMapSheet`, `routeMapEl` for setup, `loadBasemap`); the base
   map's build in `scripts/build-basemap.mjs` with its geometry in `scripts/basemap-geo.mjs`.

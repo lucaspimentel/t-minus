@@ -367,6 +367,10 @@ test('the base map beneath the trip, fetched once; names: towns, then neighborho
   expect(served.hits).toBe(1);
 });
 
+const backToFit = async page => {
+  await sheet(page).locator('.map-fit').click();
+  await tick(page, 400);
+};
 test('base map names follow the view: zoomed out, Boston instead of neighborhoods; zoomed in, both neighborhoods; panned, the town at the edge', async ({ page }) => {
   await serveBase(page);
   await openApp(page, { map: true, time: '07:00', init: DENIED });
@@ -379,9 +383,9 @@ test('base map names follow the view: zoomed out, Boston instead of neighborhood
   const out = await shownNames(page);
   expect(out).toEqual(expect.arrayContaining(['Boston', 'Malden']));
   expect(out.filter(n => ['Charlestown', 'Downtown', 'North End'].includes(n))).toEqual([]);
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
-  // A fresh fit, zoomed in over Downtown: North End separates from it.
-  await openMap(page);
+  // Back to the fit (the view carries to the next opening, 2026-11-12), zoomed in over Downtown:
+  // North End separates from it.
+  await backToFit(page);
   const at = await svg(page).evaluate(s => {
     const g = [...s.querySelectorAll('.map-name')].find(x => x.textContent === 'Downtown').closest('g');
     const [vx, vy, vw, vh] = s.getAttribute('viewBox').split(' ').map(Number), r = s.getBoundingClientRect();
@@ -390,9 +394,8 @@ test('base map names follow the view: zoomed out, Boston instead of neighborhood
   await page.mouse.move(at.x, at.y);
   for (let i = 0; i < 8; i++) await page.mouse.wheel(0, -100);
   expect(await shownNames(page)).toEqual(expect.arrayContaining(['Downtown', 'North End']));
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
-  // Another, dragged east: Arlington comes into view.
-  await openMap(page);
+  // Back to the fit, dragged east: Arlington comes into view.
+  await backToFit(page);
   expect(await shownNames(page)).not.toContain('Arlington');
   await page.mouse.move(box.x + 100, box.y + 300);
   await page.mouse.down();
@@ -1006,7 +1009,7 @@ test('following ends when you leave the map, on back to the trip and on the whol
   }
 });
 
-test('no rows, locate follows you on the empty map too; opening the sheet ends it', async ({ page }) => {
+test('no rows, locate follows you on the empty map too, and on into the sheet and back (2026-11-12)', async ({ page }) => {
   await openApp(page, { map: true, time: '07:00', scenario: { ...commute(), trips: [] }, init: GEO, waitForRows: false });
   const map = mainMap(page), pic = map.locator('svg.route-svg');
   await tick(page, 1500); // its height settled
@@ -1023,13 +1026,41 @@ test('no rows, locate follows you on the empty map too; opening the sheet ends i
   await move(page, 42.4758, -71.0900);
   await tick(page, 50);
   expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 2000 });
+  // The sheet goes on following at the same level (until 2026-11-12 opening it ended follow).
   await pic.click();
   await tick(page, 300);
   await expect(sheet(page)).toBeVisible();
-  await expect(locateTool(sheet(page))).toHaveAttribute('aria-label', 'Center on my location');
+  const sbtn = locateTool(sheet(page));
+  await expect(sbtn).toHaveAttribute('aria-pressed', 'true');
+  await expect(sbtn).toHaveAttribute('aria-label', 'Zoom in to the street');
+  expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: 2000 });
+  await move(page, 42.4776, -71.0900);
+  await tick(page, 50);
+  expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: 2000 });
+  // Back on the main map, still following.
   await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await tick(page, 100);
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 2000 });
+  // A drag in the sheet ends it; the main map gets the moved view.
+  await pic.click();
+  await tick(page, 300);
+  const box = await svg(page).boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(box.x + box.width / 2 + i * 10, box.y + box.height / 2);
+  await page.mouse.up();
+  await expect(sbtn).toHaveAttribute('aria-pressed', 'false');
+  const moved = await dotIn(svg(page));
+  expect(moved.x).toBeGreaterThan(0.55);
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await tick(page, 100);
   await expect(btn).toHaveAttribute('aria-pressed', 'false');
   await expect(btn).toHaveAttribute('aria-label', 'Center on my location');
+  const back = await dotIn(pic);
+  expect(back.w).toBeCloseTo(2000, -1);
+  expect(back.x).toBeGreaterThan(0.55);
+  await expect(map.locator('.map-fit')).toBeVisible();
 });
 
 // ---------- incoming trains and a leg's other routes (2026-11-12) ----------
@@ -1110,4 +1141,105 @@ test('a leg\'s other routes: each branch\'s trains on its own line, labeled by l
   await openMap(page);
   await expect(svg(page).locator('.map-vehicle')).toHaveCount(2);
   expect(routesAsked()).toEqual(['Green-B', 'Green-C', 'Green-D']);
+});
+
+// ---------- the two fits and the shared view (2026-11-12) ----------
+// Far from the trip (Framingham, inside commuter rail's reach) and within its fit (Malden).
+const FAR = { latitude: 42.2793, longitude: -71.4162 };
+const WITHIN = { latitude: 42.43, longitude: -71.075 };
+const dotShown = async s => { const d = await dotIn(s); return !!d && d.x >= 0 && d.x <= 1 && d.y >= 0 && d.y <= 1; };
+const fitTool = loc => loc.locator('.map-fit');
+async function granted(page, context, at) {
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation(at);
+  await openApp(page, { map: true, time: '07:00' });
+  await tick(page, 1500); // the main map's height settled, the base map in
+}
+
+test('far from the trip: the first view is the trip alone; the fit button switches to the trip and you, and back', async ({ page, context }) => {
+  await granted(page, context, FAR);
+  const map = mainMap(page), pic = map.locator('svg.route-svg'), fit = fitTool(map);
+  await expect(fit).toBeVisible();
+  await expect(fit).toHaveAttribute('aria-label', 'Show the trip and my location');
+  await expect(fit.locator('circle')).toHaveCount(3); // the route's ends and you
+  await expect.poll(() => dotShown(pic)).toBe(false);
+  const first = await pic.getAttribute('viewBox');
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
+  await fit.click();
+  await tick(page, 300);
+  await expect(sheet(page)).toBeHidden(); // the button doesn't open the sheet
+  expect(await dotShown(pic)).toBe(true);
+  await expect(fit).toHaveAttribute('aria-label', 'Show the whole trip');
+  await expect(fit.locator('circle')).toHaveCount(2);
+  await fit.click();
+  await tick(page, 300);
+  expect(await pic.getAttribute('viewBox')).toBe(first);
+  await expect(fit).toHaveAttribute('aria-label', 'Show the trip and my location');
+});
+
+test('within the trip\'s fit: you in the first view, the fit button only once the view moves', async ({ page, context }) => {
+  await granted(page, context, WITHIN);
+  const map = mainMap(page), pic = map.locator('svg.route-svg');
+  await expect.poll(() => dotShown(pic)).toBe(true);
+  await expect(fitTool(map)).toBeHidden();
+  await openMap(page);
+  await expect.poll(() => dotShown(svg(page))).toBe(true);
+  await expect(fitTool(sheet(page))).toBeHidden();
+  await zoomOut(page, 3);
+  await expect(fitTool(sheet(page))).toBeVisible();
+  await expect(fitTool(sheet(page))).toHaveAttribute('aria-label', 'Show the whole trip');
+  await fitTool(sheet(page)).click();
+  await tick(page, 400);
+  await expect(fitTool(sheet(page))).toBeHidden();
+});
+
+test('one view for both maps: the sheet opens at the main map\'s fit, and a pan there comes back to the main map', async ({ page, context }) => {
+  await granted(page, context, FAR);
+  const map = mainMap(page), pic = map.locator('svg.route-svg');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await fitTool(map).click(); // trip + me
+  await tick(page, 100);
+  await openMap(page);
+  await expect.poll(() => dotShown(svg(page))).toBe(true);
+  await expect(fitTool(sheet(page))).toHaveAttribute('aria-label', 'Show the whole trip');
+  await fitTool(sheet(page)).click(); // the trip alone
+  await tick(page, 100);
+  expect(await dotShown(svg(page))).toBe(false);
+  const box = await svg(page).boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(box.x + box.width / 2 + i * 10, box.y + box.height / 2 + i * 5);
+  await page.mouse.up();
+  const scaleOf = async s => s.evaluate(el => {
+    const [x, y, w, h] = el.getAttribute('viewBox').split(' ').map(Number);
+    return { cx: x + w / 2, cy: y + h / 2, mpp: w / el.getBoundingClientRect().width };
+  });
+  const there = await scaleOf(svg(page));
+  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await tick(page, 100);
+  // The same center and scale (both maps' origin is the first boarding stop).
+  const here = await scaleOf(pic);
+  expect(here.cx).toBeCloseTo(there.cx, -1);
+  expect(here.cy).toBeCloseTo(there.cy, -1);
+  expect(here.mpp).toBeCloseTo(there.mpp, 3);
+  // Moved: the fit button goes to the first view (the trip alone, you far away).
+  await expect(fitTool(map)).toHaveAttribute('aria-label', 'Show the whole trip');
+  await fitTool(map).click();
+  await tick(page, 100);
+  await expect(fitTool(map)).toHaveAttribute('aria-label', 'Show the trip and my location');
+  expect(await dotShown(pic)).toBe(false);
+});
+
+test('Hide map / Show map keeps the chosen fit', async ({ page, context }) => {
+  await granted(page, context, FAR);
+  const map = mainMap(page), pic = map.locator('svg.route-svg');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await fitTool(map).click();
+  await tick(page, 100);
+  expect(await dotShown(pic)).toBe(true);
+  await map.getByRole('button', { name: 'Hide map' }).click();
+  await page.getByRole('button', { name: 'Show map ▾' }).click();
+  await tick(page, 500);
+  await expect.poll(() => dotShown(pic)).toBe(true);
+  await expect(fitTool(map)).toHaveAttribute('aria-label', 'Show the whole trip');
 });

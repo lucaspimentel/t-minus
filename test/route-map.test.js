@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
   fitView, viewLimits, areaRect, insideReach, wholeView, easeView, nextFollowLevel, viewAt, viewShiftPx, FOLLOW_SPANS, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
-  placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel,
+  placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel, ME_MIN, mapFits, firstFit, fitChoice, fitTap, sameView,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -465,18 +465,83 @@ test('viewShiftPx: how far the centers are apart, in screen pixels', () => {
   near(viewShiftPx(a, { ...a, y: 3, x: 4 }, 200), 2.5);
 });
 
-test('routeMapModel fitAlso: the fit takes in the phone without a walk to it', () => {
+const inside = (v, p) => p.x >= v.x && p.x <= v.x + v.w && p.y >= v.y && p.y <= v.y + v.h;
+test('routeMapModel fitAlso: trip + me, the first view while near, without a walk to you', () => {
   const legs = [{ route: 'Orange', direction_id: 0, stop: 'a', alight: 'b', color: 'ED8B00', label: 'Orange' }];
   const fallback = [[{ id: 'a', name: 'A', lat: 42.40, lon: -71.07 }, { id: 'b', name: 'B', lat: 42.36, lon: -71.06 }]];
-  const plain = routeMapModel({ legs, fallback });
-  const me = { lat: 42.47, lon: -71.10 };
-  const m = routeMapModel({ legs, fallback, fitAlso: [me] });
+  const plain = routeMapModel({ legs, fallback, aspect: 1 });
+  assert.deepEqual(plain.fits, { trip: plain.view, me: null });
+  // Near (1.5 km north of A): trip + me, between ME_MIN and ZOOMED_OUT times as wide, is the view.
+  const me = { lat: 42.4135, lon: -71.07 };
+  const m = routeMapModel({ legs, fallback, aspect: 1, fitAlso: [me] });
   assert.deepEqual(m.walks, []);
-  const p = mapPoint(m, me);
-  assert.ok(p.y > m.view.y && p.x > m.view.x && p.y < m.view.y + m.view.h && p.x < m.view.x + m.view.w);
-  assert.ok(m.view.w > plain.view.w);
-  assert.deepEqual(routeMapModel({ legs, fallback, fitAlso: [null, { lat: NaN, lon: 1 }] }).view, plain.view);
+  assert.deepEqual(m.fits.trip, plain.view);
+  assert.ok(m.fits.me.w >= m.fits.trip.w * ME_MIN && m.fits.me.w <= m.fits.trip.w * ZOOMED_OUT);
+  assert.deepEqual(m.view, m.fits.me);
+  assert.ok(inside(m.view, mapPoint(m, me)));
+  // Far (8 km north): trip + me exists but the view is the trip alone.
+  const far = { lat: 42.47, lon: -71.10 };
+  const f = routeMapModel({ legs, fallback, aspect: 1, fitAlso: [far] });
+  assert.ok(f.fits.me.w > f.fits.trip.w * ZOOMED_OUT);
+  assert.deepEqual(f.view, f.fits.trip);
+  assert.ok(inside(f.fits.me, mapPoint(f, far)) && !inside(f.view, mapPoint(f, far)));
+  // Inside the trip's fit: no trip + me (the two would look the same).
+  const within = routeMapModel({ legs, fallback, aspect: 1, fitAlso: [{ lat: 42.38, lon: -71.065 }] });
+  assert.equal(within.fits.me, null);
+  assert.deepEqual(within.view, plain.view);
+  // Missing or invalid: none.
+  assert.equal(routeMapModel({ legs, fallback, fitAlso: [null, { lat: NaN, lon: 1 }] }).fits.me, null);
 });
+
+test('routeMapModel fits with fitFrom: the rest of the ride, and you with it', () => {
+  const bus = [{ id: 's0', name: 'S0', lat: 42.39, lon: -71.08 }, { id: 's1', name: 'S1', lat: 42.4015, lon: -71.067 }];
+  const train = [{ id: 'r0', name: 'Station', lat: 42.402, lon: -71.0663 }, { id: 'r2', name: 'End', lat: 42.41, lon: -71.0663 }];
+  const args = { legs: [{ route: '132', stop: 's0', alight: 's1' }, { route: 'Orange', stop: 'r0', alight: 'r2' }], fallback: [bus, train], finished: 1, fitFrom: 1, aspect: 1, width: 340 };
+  const rest = routeMapModel(args);
+  const me = { lat: 42.416, lon: -71.0663 };
+  const m = routeMapModel({ ...args, fitAlso: [me] });
+  assert.deepEqual(m.fits.trip, rest.view);
+  assert.ok(!inside(m.fits.trip, m.stops.find(s => s.name === 'S0')));
+  assert.ok(m.fits.me && inside(m.fits.me, mapPoint(m, me)));
+});
+
+test('mapFits, firstFit, fitChoice: the two fits and the first view', () => {
+  const trip = { x: 0, y: 0, w: 1000, h: 1000 };
+  assert.equal(mapFits(trip, null).me, null);
+  assert.equal(mapFits(trip, { ...trip, w: 1099 }).me, null);
+  assert.equal(mapFits(trip, { ...trip, w: 1100 }).me.w, 1100);
+  assert.equal(firstFit(mapFits(trip, { ...trip, w: 1500 })), 'me');
+  assert.equal(firstFit(mapFits(trip, { ...trip, w: 1501 })), 'trip');
+  assert.equal(firstFit(mapFits(trip, null)), 'trip');
+  const near = mapFits(trip, { ...trip, w: 1200 }), far = mapFits(trip, { ...trip, w: 3000 }), none = mapFits(trip, null);
+  assert.equal(fitChoice(near, 'first'), 'me');
+  assert.equal(fitChoice(far, 'first'), 'trip');
+  assert.equal(fitChoice(far, 'me'), 'me');
+  assert.equal(fitChoice(none, 'me'), 'trip');
+  assert.equal(fitChoice(near, 'trip'), 'trip');
+});
+
+test('fitTap: from a moved view the first view, at a fit the other one', () => {
+  const trip = { x: 0, y: 0, w: 1000, h: 1000 };
+  const near = mapFits(trip, { ...trip, w: 1200 }), far = mapFits(trip, { ...trip, w: 3000 }), none = mapFits(trip, null);
+  for (const fits of [none, near, far]) assert.equal(fitTap({ fits, mode: 'me', moved: true }), 'first');
+  assert.equal(fitTap({ fits: none, mode: 'first', moved: false }), null);
+  assert.equal(fitTap({ fits: none, mode: 'me', moved: false }), null);
+  assert.equal(fitTap({ fits: near, mode: 'first', moved: false }), 'trip'); // the first view is trip + me
+  assert.equal(fitTap({ fits: far, mode: 'first', moved: false }), 'me');
+  assert.equal(fitTap({ fits: far, mode: 'me', moved: false }), 'trip');
+  assert.equal(fitTap({ fits: near, mode: 'trip', moved: false }), 'me');
+});
+
+test('sameView: centers and widths under 2 px apart on screen', () => {
+  const a = { x: 0, y: 0, w: 400, h: 800 };
+  assert.ok(sameView(a, a, 400));
+  assert.ok(sameView(a, { ...a, x: 1.9 }, 400));
+  assert.ok(!sameView(a, { ...a, x: 2 }, 400));
+  assert.ok(sameView(a, { ...a, w: 401.9, x: -0.95 }, 400));
+  assert.ok(!sameView(a, { ...a, w: 402 }, 400));
+});
+
 test('placeLabel: a place\'s name up to its first comma', () => {
   assert.equal(placeLabel('243 Condor St, East Boston'), '243 Condor St');
   assert.equal(placeLabel('Current location'), 'Current location');

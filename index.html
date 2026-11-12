@@ -559,7 +559,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · 6841100b0e</footer>
+    <footer class="version">Version 2026-11-12 · df978ba000</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -589,9 +589,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, FOLLOW_MIN_PX, nextFollowLevel, viewAt, viewShiftPx, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=bb6405d75f';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=cb010fcca1';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
+} from './core.js?v=7cb5dc5a65';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=985174d54c';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1599,7 +1599,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=bb6405d75f'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=7cb5dc5a65'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2908,22 +2908,40 @@ function basemapGroup(layers) {
 // (input: routeMapModel's, without `aspect`; here: the phone's { lat, lon } or null). Interactive:
 // pinch / drag / wheel to zoom and pan, stops as buttons whose names show in the caption.
 // The view the rider zoomed to is kept across redraws; marks keep their size in pixels.
-function mapWidget({ label, interactive = false, focusKey = 'map', caption = null, locate = false }) {
+// `live` (the main screen's map and the sheet, 2026-11-12): refits at a fit are eased.
+function mapWidget({ label, interactive = false, focusKey = 'map', caption = null, locate = false, live = false }) {
   const svg = svgEl('svg', { class: 'route-svg', role: interactive ? 'group' : 'img', 'aria-label': label });
   const el = document.createElement('div');
   el.className = 'route-map';
   el.append(svg);
   const cap = caption ?? (interactive ? Object.assign(document.createElement('p'), { className: 'map-caption' }) : null);
   if (cap && !caption) { cap.setAttribute('aria-live', 'polite'); el.append(cap); }
-  const w = { el, svg, model: null, view: null, fit: null, touched: false, selected: null, marks: [], stopMarks: [], vehicleMarks: [], note: '', base: null, out: false,
-    following: false, level: null, followSpan: null, followAt: null }; // locate's follow (2026-11-10)
+  const w = { el, svg, model: null, view: null, touched: false, selected: null, marks: [], stopMarks: [], vehicleMarks: [], note: '', base: null, out: false,
+    following: false, level: null, followSpan: null, followAt: null, // locate's follow (2026-11-10)
+    // The two fits (2026-11-12): `fits` { trip, me }, the chosen `mode` ('first' | 'trip' | 'me';
+    // `fit` is its view), a view state to restore on the next draw (`pending`, from the other
+    // map: w.restore), the ride's phase drawn last (`finished`: a change resets the view).
+    fits: null, mode: 'first', pending: null, finished: null };
+  Object.defineProperty(w, 'fit', { get: () => (w.fits ? w.fits[fitChoice(w.fits, w.mode)] : null) });
   basemapWidgets.add(w);
   loadBasemap();
   const size = () => ({ width: svg.clientWidth || 340, height: svg.clientHeight || 200 });
   const mpp = () => (w.view ? w.view.w / size().width : 1); // meters per pixel
   let fitBtn = null, wholeBtn = null, limitsOf = null;
+  // The mode the fit button's next tap goes to; null: nothing to switch to.
+  const nextFit = () => (w.fits ? fitTap({ fits: w.fits, mode: w.mode, moved: w.touched }) : null);
   function apply() {
-    if (fitBtn) fitBtn.hidden = !w.touched;
+    // The fit button (2026-11-12): hidden with nothing to switch to; its label and icon name the next tap.
+    if (fitBtn) {
+      const next = nextFit();
+      fitBtn.hidden = !next;
+      const kind = next ? fitChoice(w.fits, next) : 'trip';
+      if (fitBtn.dataset.kind !== kind) {
+        fitBtn.dataset.kind = kind;
+        fitBtn.setAttribute('aria-label', kind === 'me' ? 'Show the trip and my location' : 'Show the whole trip');
+        fitBtn.replaceChildren(fitIcon(kind));
+      }
+    }
     if (wholeBtn) {
       const lim = w.fit && limitsOf ? limitsOf() : null;
       wholeBtn.hidden = !lim?.edges || (!!w.view && Math.abs(w.view.w - lim.maxSpan) / lim.maxSpan < 0.01);
@@ -2960,15 +2978,83 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     w.selected = w.selected === id ? null : id;
     w.redraw?.();
   }
-  w.draw = (input, here = null, note = '') => {
-    w.redraw = () => w.draw(input, here, note);
+  // Moves the view to `to`, eased over FIT_MS (a jump with Reduce Motion). A pan, pinch or
+  // another move takes over (fitAnim).
+  const FIT_MS = 250;
+  let fitAnim = 0;
+  let animGoal = null; // the view an ease is heading to (follow and refits compare against it)
+  const animateTo = to => {
+    const id = ++fitAnim;
+    if (!w.view || matchMedia('(prefers-reduced-motion: reduce)').matches) { animGoal = null; w.view = to; apply(); return; }
+    const from = w.view, t0 = performance.now();
+    animGoal = to;
+    const step = now => {
+      if (id !== fitAnim) return;
+      const t = (now - t0) / FIT_MS;
+      if (t >= 1) { animGoal = null; w.view = to; apply(); return; }
+      w.view = easeView(from, to, t);
+      apply();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
+  // Off the fits (a pan, pinch, wheel, locate, the whole map): the next fit tap goes to the first view.
+  const markMoved = () => { w.touched = true; w.mode = 'first'; };
+  // The view's state for the other map (2026-11-12): the fit mode, follow, or a moved view (its
+  // center as a position, the two maps' origins can differ; meters per pixel).
+  w.viewState = () => {
+    const o = w.model?.origin, v = animGoal ?? w.view;
+    const moved = w.touched && !w.following && v && o;
+    return {
+      mode: w.mode,
+      follow: w.following ? { level: w.level, span: w.followSpan } : null,
+      moved: moved ? { center: projector(o.lat, o.lon).toLatLon({ x: v.x + v.w / 2, y: v.y + v.h / 2 }), mpp: v.w / size().width } : null,
+    };
+  };
+  w.restore = state => { w.pending = state; };
+  // A ride phase change: the first view, follow off.
+  const reset = () => { w.stopFollow?.(); w.mode = 'first'; w.touched = false; w.pending = null; };
+  // A restored state at this map's size: fits and follow recomputed, a moved view at its center
+  // and scale within this map's limits.
+  function restoreNow(st, p, width, height) {
+    if (w.following && !st.follow) w.stopFollow?.();
+    const lim = limitsOf?.() ?? null;
+    if (st.follow && w.startFollow) {
+      markMoved();
+      Object.assign(w, { following: true, level: st.follow.level, followSpan: st.follow.span });
+      if (p) { w.followAt = p; w.view = viewAt(p, w.followSpan, width / height, lim); } else w.view = w.fit;
+      w.updateLocate();
+    } else if (st.moved && w.model.origin) {
+      markMoved();
+      w.view = viewAt(mapPoint(w.model, st.moved.center), st.moved.mpp * width, width / height, lim);
+    } else {
+      Object.assign(w, { mode: st.mode ?? 'first', touched: false });
+      w.view = w.fit;
+    }
+  }
+  // `jump`: a size change, no ease.
+  w.draw = (input, here = null, note = '', { jump = false } = {}) => {
+    w.redraw = opts => w.draw(input, here, note, opts);
+    // A ride phase change: the first view, follow off (2026-11-12).
+    if (w.finished != null && input.finished !== w.finished) reset();
+    w.finished = input.finished;
     const { width, height } = size();
     const model = routeMapModel({ ...input, aspect: width / height, width });
     const focused = svg.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
     w.model = model;
     w.note = note;
-    if (!w.touched || !w.view) w.view = model.view;
-    w.fit = model.view;
+    w.fits = model.fits;
+    const p = mapPoint(model, here);
+    if (w.pending) {
+      const st = w.pending;
+      w.pending = null;
+      restoreNow(st, p, width, height);
+    } else if (!w.touched || !w.view) {
+      // At a fit, it follows the changes (2026-11-12): eased on the live maps; the first drawing
+      // and a size change jump.
+      if (!w.view || jump || !live) w.view = w.fit;
+      else if (!sameView(animGoal ?? w.view, w.fit, width)) animateTo(w.fit);
+    }
     const mark = (x, y, cls) => { const g = svgEl('g', { class: cls }); g.dataset.x = x; g.dataset.y = y; w.marks.push(g); return g; };
     w.marks = [];
     w.stopMarks = [];
@@ -3009,7 +3095,6 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
       w.vehicleMarks.push({ g, v });
       parts.push(g);
     }
-    const p = mapPoint(model, here);
     if (p) { const g = mark(p.x, p.y, 'map-here'); g.append(svgEl('circle', { r: 14, class: 'halo' }), svgEl('circle', { r: 6, class: 'dot' })); parts.push(g); }
     // The base map beneath, built once per origin (a vehicle or location redraw reuses it).
     const baseKey = model.origin && basemap ? `${model.origin.lat},${model.origin.lon}` : null;
@@ -3024,7 +3109,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     showCaption();
     if (focused) svg.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
   };
-  new ResizeObserver(() => { if (!w.touched && w.redraw) w.redraw(); else apply(); }).observe(svg);
+  new ResizeObserver(() => { if (!w.touched && w.redraw) w.redraw({ jump: true }); else apply(); }).observe(svg);
   // Inside an option card: a tap on the map doesn't toggle the card (a picture too).
   el.addEventListener('click', e => e.stopPropagation());
   const pointers = new Map(); // the sheet's fingers on the map (a gesture holds off follow's recenter)
@@ -3039,9 +3124,6 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     const { width, height } = size();
     return viewLimits(w.fit, { area, aspect: width / height });
   };
-  // Back to the trip's fit: eased over FIT_MS (a jump with Reduce Motion).
-  const FIT_MS = 250;
-  let fitAnim = 0;
   const tools = Object.assign(document.createElement('div'), { className: 'map-tools' });
   // Locate (2026-11-09; `w.onLocate`, the caller's: the location, then w.startFollow). From
   // 2026-11-10 it follows you: a first tap zooms to the street, later ones switch street / area.
@@ -3085,7 +3167,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
       const p = mapPoint(w.model, here);
       if (!p || !w.fit) return;
       Object.assign(w, { following: true, level: 'street', followSpan: FOLLOW_SPANS.street, followAt: p });
-      w.touched = true; // back to the trip shows; a redraw keeps the view
+      markMoved(); // the fit button shows; a redraw keeps the view
       followTo(p, true);
       w.updateLocate();
     };
@@ -3101,41 +3183,27 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
       const to = viewAt(p, w.followSpan, width / height, limits());
       if (!force) {
         if (pointers.size) return;
-        const from = animGoal ?? w.view;
-        if (Math.abs(from.w - to.w) < 1e-6 && viewShiftPx(from, to, width) < FOLLOW_MIN_PX) return;
+        if (sameView(animGoal ?? w.view, to, width)) return;
       }
-      animateTo(to, () => {});
+      animateTo(to);
     };
   }
-  // Moves the view to `to`, eased over FIT_MS (a jump with Reduce Motion), then `done`. A pan,
-  // pinch or another move takes over (fitAnim).
-  let animGoal = null; // the view an ease is heading to (follow compares against it)
-  const animateTo = (to, done) => {
-    const id = ++fitAnim;
-    if (!w.view || matchMedia('(prefers-reduced-motion: reduce)').matches) { animGoal = null; w.view = to; done(); apply(); return; }
-    const from = w.view, t0 = performance.now();
-    animGoal = to;
-    const step = now => {
-      if (id !== fitAnim) return;
-      const t = (now - t0) / FIT_MS;
-      if (t >= 1) { animGoal = null; w.view = to; done(); apply(); return; }
-      w.view = easeView(from, to, t);
-      apply();
-      requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  };
   // Back to the trip (⤢ until 2026-11-09): a route inside frame corners.
   const toolIcon = (...parts) => { const i = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }); i.append(...parts); return i; };
+  // Trip + me (2026-11-12): the same with a filled dot, you, in the top-left corner.
+  const fitIcon = kind => toolIcon(svgEl('path', { d: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4' }), svgEl('circle', { cx: 9, cy: 15, r: 1.6 }), svgEl('circle', { cx: 15, cy: 9, r: 1.6 }), svgEl('path', { d: 'M10.2 13.8 13.8 10.2' }),
+    ...(kind === 'me' ? [svgEl('circle', { cx: 8.6, cy: 8.6, r: 2.2, fill: 'currentColor', stroke: 'none' })] : []));
   fitBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-fit', hidden: true });
-  fitBtn.setAttribute('aria-label', 'Show the whole trip');
-  fitBtn.append(toolIcon(svgEl('path', { d: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4' }), svgEl('circle', { cx: 9, cy: 15, r: 1.6 }), svgEl('circle', { cx: 15, cy: 9, r: 1.6 }), svgEl('path', { d: 'M10.2 13.8 13.8 10.2' })));
   fitBtn.dataset.focus = `${focusKey}:fit`;
+  // From a moved view, the first view; at a fit, the other one (2026-11-12).
   fitBtn.addEventListener('click', e => {
     e.stopPropagation();
-    if (!w.fit || !w.view) return;
+    const next = nextFit();
+    if (!next || !w.view) return;
     w.stopFollow?.();
-    animateTo(w.fit, () => { w.touched = false; });
+    Object.assign(w, { mode: next, touched: false });
+    animateTo(w.fit);
+    apply(); // the button's label now, not after the ease
   });
   tools.append(fitBtn);
   // The whole map (the sheet, 2026-11-09): fully zoomed out over the bound; hidden until the base
@@ -3151,8 +3219,8 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
       if (!lim?.edges || !w.view) return;
       w.stopFollow?.();
       const { width, height } = size();
-      w.touched = true;
-      animateTo(wholeView(lim, width / height), () => {});
+      markMoved();
+      animateTo(wholeView(lim, width / height));
     });
     tools.append(wholeBtn);
   }
@@ -3200,7 +3268,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
       w.view = panView(w.view, -(cur.x - prev.x) * mpp(), -(cur.y - prev.y) * mpp(), limits());
     }
     pointers.set(e.pointerId, cur);
-    w.touched = true;
+    markMoved();
     apply();
   });
   const up = e => { pointers.delete(e.pointerId); if (!pointers.size) setTimeout(() => { dragged = false; }); };
@@ -3211,7 +3279,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     stopFit();
     e.preventDefault();
     zoomFollow(e.deltaY < 0 ? 1.25 : 0.8, toView(e.clientX, e.clientY));
-    w.touched = true;
+    markMoved();
     apply();
   }, { passive: false });
   // Drags don't reach the card either.
@@ -3243,8 +3311,16 @@ const outsideMap = here => !!(basemap && here && !insideReach(basemap.reach, her
 // own. Watched while the map is shown when the permission is already granted (Permissions API);
 // otherwise only after a tap on locate (`locate()`: the prompt, then the watch), which also
 // starts following you (`onChange(true)`, 2026-11-10). Denied: `off` ("Location off") only after that tap.
-function mapLocation(onChange) {
+// `seed` ({ here, asked, off }): the other map's, so a view carried over (follow) has you at once.
+function mapLocation(onChange, seed = null) {
   const loc = { here: null, off: false, asked: false, watchId: null, stopped: false };
+  // The other map's: a tap there counts here; its last position until this one's watch answers.
+  loc.adopt = s => {
+    if (!s) return;
+    if (s.asked && !loc.asked) Object.assign(loc, { asked: true, off: s.off });
+    if (s.here) loc.here = s.here;
+  };
+  loc.adopt(seed);
   const opts = { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 };
   const at = p => ({ lat: p.coords.latitude, lon: p.coords.longitude });
   const watch = () => {
@@ -3299,6 +3375,20 @@ function mapLocation(onChange) {
 const KEY_MAP_HIDDEN = 't-minus:mapHidden';
 let mainMap = null;
 let mapHidden = !!store.get(KEY_MAP_HIDDEN);
+// The shown trip's map view (2026-11-12), shared by the main map and the sheet, in memory only:
+// kept here while the main map is hidden or gone (Hide map, the sheet closing over a hidden map):
+// { idx, sig, finished, view: a widget's viewState(), loc: { here, asked, off } }. A trip, config
+// or ride phase that doesn't match: the first view.
+let tripMapView = null;
+const sameTrip = (a, b) => !!(a && b) && a.idx === b.idx && a.sig === b.sig;
+// A map's view and location to hand over (`e`: mainMap or mapSheet).
+const mapSnap = e => ({ idx: e.idx, sig: e.sig, finished: e.finished, view: e.widget.viewState(), loc: { here: e.loc.here, asked: e.loc.asked, off: e.loc.off } });
+// The kept view for this trip and phase, taken (read once).
+const takeMapView = at => {
+  const k = sameTrip(tripMapView, at) && tripMapView.finished === at.finished ? tripMapView : null;
+  tripMapView = null;
+  return k;
+};
 const mapLegs = trip => tripShape(trip).transit.map(l => ({ route: l.route, also: l.also, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: l.color ?? null, label: l.label ?? l.route }));
 // What the main map and the sheet draw from the app's state: the legs' stop points (no shape
 // yet), the ride's phase, and your trip per leg (the ride's, else the belled one's).
@@ -3342,6 +3432,8 @@ async function pollMainVehicles() {
 }
 // The list's first item: the map, or "Show map ▾" while hidden.
 function mainMapItem() {
+  // A ride phase change while the sheet is open: it resets too (drawMapSheet).
+  if (mapSheet && mapFinished(mapSheet.trip, Date.now()) !== mapSheet.finished) drawMapSheet();
   if (mapHidden) {
     closeMainMap();
     return listItem([listButtonEl('Show map ▾', 'show-map', () => setMapHidden(false))]);
@@ -3350,12 +3442,13 @@ function mainMapItem() {
   const sig = JSON.stringify(trip); // the same trip, even from a reloaded config
   if (mainMap && (mainMap.idx !== tripIdx || mainMap.sig !== sig)) closeMainMap();
   if (mainMap) {
-    // A new phase of the ride (boarded, transferred): faded legs and the fit follow.
+    // A new phase of the ride (boarded, transferred): faded legs; the view back to the first view
+    // (the widget's draw, 2026-11-12).
     if (mapFinished(mainMap.trip, Date.now()) !== mainMap.finished) drawMainMap();
     return mainMap.li;
   }
   const legs = mapLegs(trip);
-  const widget = mapWidget({ label: `Map of ${trip.name}`, locate: true, focusKey: 'main-map' });
+  const widget = mapWidget({ label: `Map of ${trip.name}`, locate: true, live: true, focusKey: 'main-map' });
   widget.el.classList.add('main-map');
   widget.el.addEventListener('click', openMapSheet);
   const hide = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-hide' });
@@ -3376,12 +3469,16 @@ function mainMapItem() {
   cap.setAttribute('aria-live', 'polite');
   cap.hidden = true;
   li.append(widget.el, cap);
-  const e = mainMap = { idx: tripIdx, trip, sig, legs, widget, li, cap, vehicles: [], loc: null, timer: null, finished: 0 };
+  // The shared view (Hide map / Show map, the sheet closed while hidden): kept for the same trip and phase.
+  const finished = mapFinished(trip, Date.now());
+  const keep = takeMapView({ idx: tripIdx, sig, finished });
+  const e = mainMap = { idx: tripIdx, trip, sig, legs, widget, li, cap, vehicles: [], loc: null, timer: null, finished };
   e.loc = mapLocation(center => {
     if (mainMap !== e) return;
     drawMainMap();
     if (center && !outsideMap(e.loc.here)) widget.startFollow(e.loc.here);
-  });
+  }, keep?.loc);
+  if (keep) widget.restore(keep.view);
   widget.onLocate = () => e.loc.locate();
   widget.onZoomIn = () => { if (mainMap === e && !(Date.now() - e.polled < BOARDING_POLL_MS)) pollMainVehicles(); };
   widget.onBasemap = () => { if (mainMap === e) drawMainMap(); };
@@ -3394,6 +3491,7 @@ function mainMapItem() {
 function closeMainMap() {
   const e = mainMap;
   if (!e) return;
+  tripMapView = mapSnap(e);
   clearInterval(e.timer);
   e.loc.stop();
   basemapWidgets.delete(e.widget);
@@ -3417,10 +3515,11 @@ function drawMapSheet() {
   if (!m) return;
   const now = Date.now();
   const { points, finished, mine } = mapState(m.trip, m.legs, now);
+  m.finished = finished; // a ride phase change resets the view (the widget's draw)
   const out = outsideMap(m.loc.here), here = out ? null : m.loc.here;
   m.widget.draw({
     legs: m.legs, shapes: loadedShapes(m.legs), fallback: m.legs.map((l, i) => mapFallback(l, points[i])),
-    fitAlso: [here], finished, vehicles: m.vehicles, mine, nowMs: now, incoming: true, also: loadedAlso(m.legs),
+    fitAlso: [here], finished, fitFrom: finished, vehicles: m.vehicles, mine, nowMs: now, incoming: true, also: loadedAlso(m.legs),
   }, here, m.loc.off ? 'Location off' : m.loc.asked && out ? 'Outside the map' : '');
   m.widget.setLocateOutside(out);
   m.mine = mine;
@@ -3439,16 +3538,19 @@ async function pollMapVehicles() {
 }
 function openMapSheet() {
   if (!config || mapSheet) return;
-  mainMap?.widget.stopFollow?.(); // the sheet takes over (2026-11-10)
   const trip = config.trips[tripIdx];
   const legs = mapLegs(trip);
-  const widget = mapWidget({ label: `Map of ${trip.name}`, interactive: true, focusKey: 'sheet', caption: $('map-caption'), locate: true });
-  const m = mapSheet = { idx: tripIdx, trip, legs, widget, vehicles: [], loc: null, timer: null, opener: document.activeElement };
+  const at = { idx: tripIdx, sig: JSON.stringify(trip), finished: mapFinished(trip, Date.now()) };
+  // The main map's view (2026-11-12; until then the sheet started at the fit and ended follow there).
+  const kept = sameTrip(mainMap, at) ? mapSnap(mainMap) : takeMapView(at);
+  const widget = mapWidget({ label: `Map of ${trip.name}`, interactive: true, focusKey: 'sheet', caption: $('map-caption'), locate: true, live: true });
+  const m = mapSheet = { ...at, trip, legs, widget, vehicles: [], loc: null, timer: null, opener: document.activeElement };
   m.loc = mapLocation(center => {
     if (mapSheet !== m) return;
     drawMapSheet();
     if (center && !outsideMap(m.loc.here)) widget.startFollow(m.loc.here);
-  });
+  }, kept?.loc);
+  if (kept) widget.restore(kept.view);
   widget.onLocate = () => m.loc.locate();
   widget.onZoomIn = () => { if (mapSheet === m && !(Date.now() - m.polled < BOARDING_POLL_MS)) pollMapVehicles(); };
   widget.onBasemap = () => { if (mapSheet === m) drawMapSheet(); }; // the bound: your location in or out
@@ -3468,12 +3570,20 @@ function closeMapSheet() {
   if (!m) return;
   clearInterval(m.timer);
   m.loc.stop();
+  const snap = mapSnap(m);
   mapSheet = null;
   $('map-sheet').hidden = true;
   $('map-body').replaceChildren();
   $('map-caption').textContent = '';
   $('map-credit').hidden = true;
   $('app').hidden = false;
+  // The sheet's view back to the main map (2026-11-12), at the main map's size (shown again first).
+  if (sameTrip(mainMap, m)) {
+    mainMap.loc.adopt(snap.loc);
+    if (!document.hidden) mainMap.loc.resume();
+    mainMap.widget.restore(snap.view);
+    drawMainMap();
+  } else tripMapView = snap;
   render();
   // Back to what opened it from the keyboard ("Open the full map"). After a tap, nothing: focusing
   // the trip picker opened its menu on iOS (2026-11-12).
