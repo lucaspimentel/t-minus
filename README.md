@@ -5,7 +5,8 @@ leave?** It combines live predictions and schedules for every leg (bus, subway, 
 your walking and transfer times, and shows the next departures you can still catch, with a
 countdown to each leave time.
 
-Live at **https://t-minus.lucasp.net/**. Add it to your Home Screen to get notifications.
+Live at **https://t-minus.lucasp.net/**. See [Web, Home Screen or iOS app](#web-home-screen-or-ios-app)
+for what each way of running it adds.
 
 ## Features
 
@@ -21,13 +22,46 @@ Live at **https://t-minus.lucasp.net/**. Add it to your Home Screen to get notif
   for the ride that gets you there.
 - **Route map:** the trip's lines, stops, vehicles and your location over a base map of Boston
   and commuter rail's reach.
-- **iOS app** (TestFlight): the same app in a native shell, with Live Activities (leave, walk and
-  ride cards on the Lock Screen and Dynamic Island) and a Home Screen widget.
 - **Offline-tolerant:** a service worker keeps the app shell; the server caches MBTA data and
   serves stale copies when the MBTA is down.
 
 No build step and no runtime dependencies in the app: plain HTML, CSS and ES modules
 (`index.html`, `core.js`, `setup.js`, `sw.js`).
+
+## Web, Home Screen or iOS app
+
+The same app runs three ways; each adds to the one before.
+
+**In the browser** (any phone or desktop browser):
+
+- Leave times, previous and more rides, setup, auto-route and the planner, the route map.
+- En route: "Leaving now", "I got on", the ride's stops and connections, the screen kept on
+  near leave time and while riding (Screen Wake Lock).
+- The bell pins a ride. Notifications and auto-bell work where the browser has Web Push
+  (Chrome, Firefox, desktop Safari, Android); on iOS, Safari has it only for Home Screen apps.
+- Offline: the service worker serves a saved copy when the server is slow or unreachable.
+
+**Added to the Home Screen** (iOS: Share → Add to Home Screen):
+
+- Full screen, with its own pull-to-refresh, and a "New version available" card when the app
+  resumes after a deploy.
+- On iOS, notifications through Web Push: heads-ups before leave time, "Leave now", stop alerts
+  before each drop-off and when a connection is missed; the bell sends them and auto-bell
+  becomes available.
+
+**The iOS app** (TestFlight; loads the live site in a native shell, so web changes need no new
+build):
+
+- Notifications through APNs instead of Web Push, including time-sensitive ones.
+- Live Activities on the Lock Screen and Dynamic Island: the leave card before leave time,
+  the walk card on the way to the stop, the ride card on board, kept current by pushes.
+- A Home Screen widget (small, medium) with the next leave times, following the belled ride.
+- Boarding from location: with Location on, it tells which vehicle you got on, a missed one,
+  and getting off, without tapping "I got on".
+- Permissions (notifications, Live Activities, location) in setup.
+
+Use either the Home Screen app or the iOS app on a phone, not both: with two subscriptions every
+reminder arrives twice.
 
 ## Running locally
 
