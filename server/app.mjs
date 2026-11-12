@@ -579,6 +579,15 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
     // Stop alerts: the server follows a tracked ride (re-planning connections) and pushes before
     // each drop-off. PUT replaces the legs (the app switched vehicles), keeping what was sent.
+    const newActivity = a => (a ? { token: a.token, last: null, sent: 0 } : null);
+    // A validated update's `ride` (new legs), `activity` (a new token starts over) and `alerts`,
+    // each optional; polled at the next tick.
+    const applyRideUpdate = (b, ride) => {
+      if (b.ride != null) ride.ride = { legs: b.ride.legs, boardedAt: b.ride.boardedAt };
+      if (b.activity && b.activity.token !== ride.activity?.token) ride.activity = newActivity(b.activity);
+      if (b.alerts != null) ride.alerts = b.alerts;
+      ride.nextPollAt = t;
+    };
     if (req.method === 'POST' && path === '/rides') {
       if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' });
       const err = checkRide(body.trip, body.ride, t);
@@ -589,25 +598,22 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       if (body.alerts != null && typeof body.alerts !== 'boolean') return reply(res, 400, { error: 'alerts is invalid' });
       // The same ride posted twice (the iOS app's native boarding and its page, 93 ms apart,
       // 2026-11-12; a retry after a lost response): one entry, its id for both, what was sent kept.
-      const same = store.forEndpoint(body.subscription.endpoint)
-        .find(e => e.kind === 'ride' && e.trip?.id === body.trip.id && e.ride?.boardedAt === body.ride.boardedAt);
+      const mine = store.forEndpoint(body.subscription.endpoint);
+      const same = mine.find(e => e.kind === 'ride' && e.trip?.id === body.trip.id && e.ride?.boardedAt === body.ride.boardedAt);
       if (same) {
-        same.ride = { legs: body.ride.legs, boardedAt: body.ride.boardedAt };
-        if (body.activity && body.activity.token !== same.activity?.token) same.activity = { token: body.activity.token, last: null, sent: 0 };
-        if (body.alerts != null) same.alerts = body.alerts;
-        same.nextPollAt = t;
+        applyRideUpdate(body, same);
         store.update(same);
         log(`ride ${same.id} posted again`);
         return reply(res, 200, { id: same.id });
       }
-      if (store.countFor(body.subscription.endpoint) >= MAX_PER_SUBSCRIPTION) {
+      if (mine.length >= MAX_PER_SUBSCRIPTION) {
         return reply(res, 429, { error: `At most ${MAX_PER_SUBSCRIPTION} reminders at a time` });
       }
       // `alerts: false`: followed only for its Live Activity (stop alerts off), no notifications.
       const ride = {
         kind: 'ride', id: randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
         ride: { legs: body.ride.legs, boardedAt: body.ride.boardedAt }, alert: { sent: {}, missedDep: null, none: false },
-        alerts: body.alerts !== false, activity: body.activity ? { token: body.activity.token, last: null, sent: 0 } : null,
+        alerts: body.alerts !== false, activity: newActivity(body.activity),
         nextPollAt: t, createdAt: t,
       };
       store.add(ride);
@@ -638,18 +644,13 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       // saved the trip with the same legs: renamed, other walks or transfers).
       const tErr = tripUpdateError(b, ride);
       if (tErr) return reply(res, 400, { error: tErr });
-      if (b?.ride != null) {
-        const err = checkRide(ride.trip, b.ride, t);
-        if (err) return reply(res, 400, { error: err });
-        ride.ride = { legs: b.ride.legs, boardedAt: b.ride.boardedAt };
-      }
+      const err = b?.ride != null && checkRide(ride.trip, b.ride, t);
+      if (err) return reply(res, 400, { error: err });
       const aErr = activityError(b?.activity);
       if (aErr) return reply(res, 400, { error: aErr });
       if (b?.alerts != null && typeof b.alerts !== 'boolean') return reply(res, 400, { error: 'alerts is invalid' });
-      if (b?.activity && b.activity.token !== ride.activity?.token) ride.activity = { token: b.activity.token, last: null, sent: 0 };
-      if (b?.alerts != null) ride.alerts = b.alerts;
+      applyRideUpdate(b ?? {}, ride);
       applyTripUpdate(b, ride);
-      ride.nextPollAt = t;
       store.update(ride);
       return reply(res, 204, undefined);
     }
