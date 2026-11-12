@@ -4229,21 +4229,21 @@ export const panView = (view, dx, dy, limits) => clampView({ ...view, x: view.x 
 // as wide as trip (the two would look the same).
 export const ME_MIN = 1.1;
 export const mapFits = (trip, me) => ({ trip, me: me && me.w >= trip.w * ME_MIN ? me : null });
-// The first view: trip + me while it's at most ZOOMED_OUT times as wide as the trip, else the trip.
-export const firstFit = fits => (fits.me && fits.me.w <= fits.trip.w * ZOOMED_OUT ? 'me' : 'trip');
+// The first view: trip + me while it isn't zoomed out from the trip (ZOOMED_OUT), else the trip.
+export const firstFit = fits => (fits.me && !zoomedOut(fits.me, fits.trip) ? 'me' : 'trip');
 // The fit a mode shows ('first' | 'trip' | 'me'); 'me' without trip + me shows the trip.
 export const fitChoice = (fits, mode) => (mode === 'first' ? firstFit(fits) : mode === 'me' && fits.me ? 'me' : 'trip');
-// The fit button's next tap: from a moved view, the first view; at a fit, the other one; null
-// (the button hides) with nothing to switch to. → { mode, fit: 'trip' | 'me' } | null
+// The fit button's next tap, the mode it goes to: from a moved view the first view; at a fit the
+// other one; null (the button hides) with nothing to switch to.
 export function fitTap({ fits, mode, moved }) {
-  if (moved) return { mode: 'first', fit: fitChoice(fits, 'first') };
+  if (moved) return 'first';
   if (!fits.me) return null;
-  return fitChoice(fits, mode) === 'me' ? { mode: 'trip', fit: 'trip' } : { mode: 'me', fit: 'me' };
+  return fitChoice(fits, mode) === 'me' ? 'trip' : 'me';
 }
-// A moved view carried between the main map and the sheet (2026-11-12): its center and meters
-// per pixel, placed on a map `width` × `height` pixels within `limits` (span and edges kept).
-export const movedView = (view, widthPx) => ({ cx: view.x + view.w / 2, cy: view.y + view.h / 2, mpp: view.w / widthPx });
-export const placeMoved = (moved, width, height, limits = null) => viewAt({ x: moved.cx, y: moved.cy }, moved.mpp * width, width / height, limits);
+// Two views a map `widthPx` wide shows alike: centers and widths under FOLLOW_MIN_PX apart (a
+// refit or recenter that close is skipped).
+export const sameView = (a, b, widthPx) =>
+  Math.abs(a.w - b.w) * (widthPx / a.w) < FOLLOW_MIN_PX && viewShiftPx(a, b, widthPx) < FOLLOW_MIN_PX;
 
 // Leg ends this close are one transfer: one dot if they share a name, else one label.
 const MERGE_METERS = 250;
@@ -4306,7 +4306,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     return fb.length >= 2 ? { leg, i, line: null, stops: fb } : null;
   }).filter(Boolean);
   const o = raw[0]?.stops[0] ?? start ?? end;
-  if (!o) { const view = fitView([], { aspect }); return { origin: null, view, fits: { trip: view, me: null }, legs: [], stops: [], walks: [], vehicles: [], here: null, places: [] }; }
+  if (!o) { const view = fitView([], { aspect }); return { origin: null, view, fits: mapFits(view, null), legs: [], stops: [], walks: [], vehicles: [], here: null, places: [] }; }
   const proj = projector(o.lat, o.lon);
   const out = { origin: { lat: o.lat, lon: o.lon }, legs: [], stops: [], walks: [], vehicles: [], here: null, places: [] };
   // Each stop or station once (by id or parent station), stretches' stops first; only with
@@ -4401,7 +4401,11 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
   // first view is trip + me only while near (mapFits, firstFit).
   const base = [...fitPaths.flat(), ...(rest.length ? fitWalks : out.walks.flatMap(w => [w.from, w.to]))];
   const trip = fitView(base, { aspect, boxes, width });
-  const me = extra.length ? fitView([...base, ...extra], { aspect, boxes, width }) : null;
+  // You inside the trip's points' box: the same fit, so none (fitView's passes are the cost).
+  const xs = base.map(q => q.x), ys = base.map(q => q.y);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const outside = extra.filter(q => q.x < x0 || q.x > x1 || q.y < y0 || q.y > y1);
+  const me = outside.length ? fitView([...base, ...outside], { aspect, boxes, width }) : null;
   out.fits = mapFits(trip, me);
   out.view = out.fits[firstFit(out.fits)];
   return out;

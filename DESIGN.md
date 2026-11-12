@@ -750,7 +750,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
 - **Privacy:** positions never leave the phone; shape and vehicle requests carry the route and
   direction only.
 - **Code:** geometry in `core.js` ("route map": `decodePolyline` / `encodePolyline`,
-  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `vehicleRouteLabel`, `fitView` / `zoomView` / `panView`, the two fits' `mapFits` / `firstFit` / `fitChoice` / `fitTap`, the shared view's `movedView` / `placeMoved`, locate's `nextFollowLevel` / `viewAt`,
+  `pickPattern`, `trimPath`, `vehiclesOnStretch`, `vehicleRouteLabel`, `fitView` / `zoomView` / `panView`, the two fits' `mapFits` / `firstFit` / `fitChoice` / `fitTap`, `sameView`, locate's `nextFollowLevel` / `viewAt`,
   `routeMapModel`, `basemapLayers`, `basemapNames`); the SVG, gestures and the sheet in
   `index.html` (`mapWidget`, `openMapSheet`, `routeMapEl` for setup, `loadBasemap`); the base
   map's build in `scripts/build-basemap.mjs` with its geometry in `scripts/basemap-geo.mjs`.

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
   fitView, viewLimits, areaRect, insideReach, wholeView, easeView, nextFollowLevel, viewAt, viewShiftPx, FOLLOW_SPANS, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
-  placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel, ME_MIN, mapFits, firstFit, fitChoice, fitTap, movedView, placeMoved,
+  placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel, ME_MIN, mapFits, firstFit, fitChoice, fitTap, sameView,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -524,27 +524,24 @@ test('mapFits, firstFit, fitChoice: the two fits and the first view', () => {
 test('fitTap: from a moved view the first view, at a fit the other one', () => {
   const trip = { x: 0, y: 0, w: 1000, h: 1000 };
   const near = mapFits(trip, { ...trip, w: 1200 }), far = mapFits(trip, { ...trip, w: 3000 }), none = mapFits(trip, null);
-  assert.deepEqual(fitTap({ fits: none, mode: 'first', moved: true }), { mode: 'first', fit: 'trip' });
-  assert.deepEqual(fitTap({ fits: near, mode: 'trip', moved: true }), { mode: 'first', fit: 'me' });
-  assert.deepEqual(fitTap({ fits: far, mode: 'me', moved: true }), { mode: 'first', fit: 'trip' });
+  for (const fits of [none, near, far]) assert.equal(fitTap({ fits, mode: 'me', moved: true }), 'first');
   assert.equal(fitTap({ fits: none, mode: 'first', moved: false }), null);
   assert.equal(fitTap({ fits: none, mode: 'me', moved: false }), null);
-  assert.deepEqual(fitTap({ fits: near, mode: 'first', moved: false }), { mode: 'trip', fit: 'trip' });
-  assert.deepEqual(fitTap({ fits: far, mode: 'first', moved: false }), { mode: 'me', fit: 'me' });
-  assert.deepEqual(fitTap({ fits: far, mode: 'me', moved: false }), { mode: 'trip', fit: 'trip' });
-  assert.deepEqual(fitTap({ fits: near, mode: 'trip', moved: false }), { mode: 'me', fit: 'me' });
+  assert.equal(fitTap({ fits: near, mode: 'first', moved: false }), 'trip'); // the first view is trip + me
+  assert.equal(fitTap({ fits: far, mode: 'first', moved: false }), 'me');
+  assert.equal(fitTap({ fits: far, mode: 'me', moved: false }), 'trip');
+  assert.equal(fitTap({ fits: near, mode: 'trip', moved: false }), 'me');
 });
 
-test('movedView, placeMoved: a view carried to another shape keeps its center and scale', () => {
-  const mv = movedView({ x: 0, y: 0, w: 1000, h: 2000 }, 500);
-  assert.deepEqual(mv, { cx: 500, cy: 1000, mpp: 2 });
-  assert.deepEqual(placeMoved(mv, 400, 200), { x: 100, y: 800, w: 800, h: 400 });
-  const fit = { x: 0, y: 0, w: 1000, h: 1000 };
-  near(placeMoved({ cx: 500, cy: 500, mpp: 20 }, 400, 200, viewLimits(fit)).w, 2000);
-  const lim = viewLimits(fit, { area: { x: 0, y: 0, w: 4000, h: 4000 }, aspect: 2 });
-  const e = placeMoved({ cx: 50, cy: 2000, mpp: 2 }, 400, 200, lim);
-  near(e.x, 0); near(e.w, 800); near(e.y + e.h / 2, 2000);
+test('sameView: centers and widths under 2 px apart on screen', () => {
+  const a = { x: 0, y: 0, w: 400, h: 800 };
+  assert.ok(sameView(a, a, 400));
+  assert.ok(sameView(a, { ...a, x: 1.9 }, 400));
+  assert.ok(!sameView(a, { ...a, x: 2 }, 400));
+  assert.ok(sameView(a, { ...a, w: 401.9, x: -0.95 }, 400));
+  assert.ok(!sameView(a, { ...a, w: 402 }, 400));
 });
+
 test('placeLabel: a place\'s name up to its first comma', () => {
   assert.equal(placeLabel('243 Condor St, East Boston'), '243 Condor St');
   assert.equal(placeLabel('Current location'), 'Current location');
