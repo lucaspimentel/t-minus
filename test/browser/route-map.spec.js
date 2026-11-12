@@ -1242,6 +1242,8 @@ test('Hide map / Show map keeps the chosen fit', async ({ page, context }) => {
   await tick(page, 500);
   await expect.poll(() => dotShown(pic)).toBe(true);
   await expect(fitTool(map)).toHaveAttribute('aria-label', 'Show the whole trip');
+});
+
 // The ridden vehicle at your GPS position (2026-11-12): a fix that counts puts your bus on its
 // line in a blue ring, without the dot; without one it holds until the MBTA position passes it
 // or 60 s go by. A stub granted up front (the watch starts with the map), its accuracy set.
