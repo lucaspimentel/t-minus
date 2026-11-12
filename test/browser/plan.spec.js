@@ -98,17 +98,17 @@ async function goSomewhere(page) {
 
 test('main screen: Plan a trip… and See departures make a one-off trip, kept across reloads, removed with Undo, then saved', async ({ page }) => {
   await openApp(page, { time: '07:00' });
-  // Under the trip buttons, above the rows; the status line at the bottom, above the version.
-  const order = await page.evaluate(() => ['header', '#plan-trip', '#rows', '#status', 'footer.version']
+  // The rows under the header; the status line at the bottom, above the version.
+  const order = await page.evaluate(() => ['header', '#rows', '#status', 'footer.version']
     .map(sel => document.querySelector(sel).getBoundingClientRect().top));
   expect(order).toEqual([...order].sort((x, y) => x - y));
   await expect(page.locator('#status-text')).toHaveText('Updated 7:00am');
   await goSomewhere(page);
   const bar = page.locator('#oneoff');
   await expect(bar).toBeVisible();
-  // A banner under the trip buttons, above "Plan a trip…" and the trip's own bar.
+  // A banner under the header, above the trip's own bar.
   await expect(bar).toHaveText(/^One-off trip: not saved\s*Save\s*✕$/);
-  const tops = await page.evaluate(() => ['header', '#oneoff', '#plan-trip', '#enroute']
+  const tops = await page.evaluate(() => ['header', '#oneoff', '#enroute']
     .map(sel => document.querySelector(sel).getBoundingClientRect().top));
   expect(tops).toEqual([...tops].sort((x, y) => x - y));
   await expect(page.locator('#toggle select')).toHaveValue('2');
