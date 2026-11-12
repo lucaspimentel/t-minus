@@ -88,7 +88,7 @@ const TIMED_OAK_STATE = () => ({ from: 'Oak Grove', to: 'State', timed: true, op
 }] });
 async function goSomewhere(page) {
   await page.route(/\/api\/plan\?/, route => route.fulfill({ json: TIMED_OAK_STATE() }));
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   await expect(setup(page)).toContainText('Pick one to see its departures or save it');
@@ -132,7 +132,7 @@ test('main screen: Plan a trip… and See departures make a one-off trip, kept a
   // ✕ (Remove), then Undo.
   await bar.getByRole('button', { name: 'Remove one-off trip' }).click();
   await expect(bar).toBeHidden();
-  await expect(page.locator('#toggle button')).toHaveText(['Home to office', 'Office to home']);
+  await expect(page.locator('#toggle select option')).toHaveText(['Home to office', 'Office to home', 'Plan a trip…']);
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(bar).toBeVisible();
   await expect(page.locator('#toggle select option:checked')).toHaveText('Oak Grove → State (one-off)');
@@ -158,6 +158,6 @@ test('a one-off trip ends with its ride', async ({ page }) => {
   await tickTo(page, '07:23'); // off at 7:17, 5-min walk: arrived
   await page.locator('.row.ride').getByRole('button', { name: 'Done' }).click();
   await expect(page.locator('#oneoff')).toBeHidden();
-  await expect(page.locator('#toggle button')).toHaveText(['Home to office', 'Office to home']);
+  await expect(page.locator('#toggle select option')).toHaveText(['Home to office', 'Office to home', 'Plan a trip…']);
   expect(await page.evaluate(() => localStorage.getItem('t-minus:one-off'))).toBeNull();
 });

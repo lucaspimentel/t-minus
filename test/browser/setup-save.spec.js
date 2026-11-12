@@ -60,7 +60,7 @@ async function pickStation(page, field, query, name) {
 }
 // "Plan a trip…" → Oak Grove → State → See departures: the one-off.
 async function goSomewhere(page) {
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   await expect(setup(page)).toContainText('Pick one to see its departures or save it');

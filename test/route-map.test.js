@@ -254,6 +254,28 @@ test('routeMapModel: legs from shapes, transfer and end walks, fallbacks, faded 
   assert.deepEqual([none.origin, none.legs, mapPoint(none, { lat: 1, lon: 1 })], [null, [], null]);
 });
 
+test('routeMapModel: fitFrom fits the rest of the ride (the main screen\'s map while riding)', () => {
+  const bus = [{ id: 's0', name: 'S0', lat: 42.39, lon: -71.08 }, { id: 's1', name: 'S1', lat: 42.4015, lon: -71.067 }];
+  const train = [{ id: 'r0', name: 'Station', lat: 42.402, lon: -71.0663 }, { id: 'r1', name: 'Mid', lat: 42.405, lon: -71.0663 }, { id: 'r2', name: 'End', lat: 42.41, lon: -71.0663 }];
+  const args = { legs: [{ route: '132', stop: 's0', alight: 's1' }, { route: 'Orange', stop: 'r0', alight: 'r2' }], fallback: [bus, train],
+    start: { lat: 42.389, lon: -71.081 }, end: { lat: 42.41, lon: -71.065 }, finished: 1, aspect: 1, width: 340 };
+  const inView = (m, p) => p.x >= m.view.x && p.x <= m.view.x + m.view.w && p.y >= m.view.y && p.y <= m.view.y + m.view.h;
+  const whole = routeMapModel(args);
+  const rest = routeMapModel({ ...args, fitFrom: 1 });
+  const at = (m, name) => m.stops.find(s => s.name === name);
+  // The ridden leg is still drawn (faded), but out of the view; the rest and the end walk are in it.
+  assert.equal(rest.legs.length, 2);
+  assert.ok(inView(whole, at(whole, 'S0')));
+  assert.ok(!inView(rest, at(rest, 'S0')));
+  for (const name of ['Station', 'Mid', 'End']) assert.ok(inView(rest, at(rest, name)));
+  const endWalk = rest.walks.find(w => w.kind === 'end');
+  assert.ok(inView(rest, endWalk.to));
+  assert.ok(rest.view.w < whole.view.w);
+  // 0 (the default) and an index past the last leg fit the whole trip.
+  assert.deepEqual(routeMapModel({ ...args, fitFrom: 0 }).view, whole.view);
+  assert.deepEqual(routeMapModel({ ...args, fitFrom: 5 }).view, whole.view);
+});
+
 test('routeMapModel: a transfer at one station is one labeled dot, with no walk', () => {
   const a = [{ id: 'x0', name: 'A', lat: 42.40, lon: -71.07 }, { id: 'x1', name: 'Hub', lat: 42.41, lon: -71.07 }];
   const b = [{ id: 'y0', name: 'Hub', lat: 42.41, lon: -71.0701 }, { id: 'y1', name: 'B', lat: 42.42, lon: -71.07 }];

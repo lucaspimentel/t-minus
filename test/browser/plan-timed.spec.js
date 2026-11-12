@@ -45,7 +45,7 @@ async function pickStation(page, field, query, name) {
 test('Plan a trip…: timed options, best 3, not refreshed', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   const calls = await stubPlan(page, [FIRST]);
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   expect(calls).toEqual(['?from=place-ogmnl&to=place-state&now=1&wb=5&wa=5&slack=1']);
@@ -78,7 +78,7 @@ test('one expanded option at a time', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 500 });
   await openApp(page, { time: '07:00' });
   await stubPlan(page, [FIRST]);
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   await expandOption(page, 0);
@@ -95,12 +95,12 @@ test('one expanded option at a time', async ({ page }) => {
 test('a closed search never redraws over a later one', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   const calls = await stubPlan(page, [FIRST]);
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   await expect(options(page)).toHaveCount(3);
   await setup(page).getByRole('button', { name: 'Cancel' }).click();
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await expect(setup(page).locator('#plan-from')).toHaveText('Choose a stop or station');
   await tick(page, 60_000);
   expect(calls.length).toBe(1);
@@ -112,7 +112,7 @@ test('nothing within 2 hours, or times failing: the untimed options under a note
   await openApp(page, { time: '07:00' });
   const untimed = { from: 'Oak Grove', to: 'State', options: [option(VIA_OAK)] };
   await stubPlan(page, [{ ...untimed, none: true }]);
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   await expect(setup(page)).toContainText('Nothing runs in the next 2 hours.');
@@ -146,16 +146,16 @@ test('Save trip from the main screen: Save shows the new trip there; Cancel goes
   await openApp(page, { time: '07:00' });
   await stubPlan(page, [FIRST]);
   // Cancel in the editor: back to the main screen, nothing saved.
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   await pickOption(page, 0, 'Save trip');
   await expect(setup(page).getByLabel('Trip name')).toHaveValue('Oak Grove → State');
   await setup(page).getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(setup(page)).toBeHidden();
-  await expect(page.locator('#toggle button')).toHaveText(['Home to office', 'Office to home']);
+  await expect(page.locator('#toggle select option')).toHaveText(['Home to office', 'Office to home', 'Plan a trip…']);
   // Save: setup closes on the new trip.
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   await pickOption(page, 0, 'Save trip');
@@ -171,7 +171,7 @@ test('while the server times the ways, "Finding ways…" shows a loading ring', 
   let release;
   const held = new Promise(r => { release = r; });
   await page.route(/\/api\/plan\?/, async route => { await held; await route.fulfill({ json: FIRST }); });
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   const wait = setup(page).locator('.wait');

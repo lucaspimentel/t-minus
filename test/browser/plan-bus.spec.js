@@ -91,7 +91,7 @@ test('setup: a route\'s stop to a station; the pick opens in the editor with the
 test('main screen: a one-off trip from a bus stop has the bus and the train', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await stubPlan(page, TIMED);
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStop(page, 'from', '132', 'Main St @ South St');
   await pickStation(page, 'to', 'state', 'State');
   await pickOption(page, 0, 'See departures');
@@ -106,7 +106,7 @@ test('Show nearby in the picker; To by route lists the stops you can get off at;
   await page.context().setGeolocation({ latitude: 42.4367, longitude: -71.0711 });
   await openApp(page, { time: '07:00' });
   await stubPlan(page);
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await setup(page).locator('#plan-from').click();
   await button(page, 'Show nearby stops and stations').click();
   await setup(page).locator('.list .item.station', { hasText: 'Oak Grove' }).click();
@@ -126,7 +126,7 @@ test('Show nearby in the picker; To by route lists the stops you can get off at;
 test('without the server: stations still plan in the browser (rail only); a bus stop needs the server', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await page.route(/\/api\/plan\?/, route => route.fulfill({ status: 503, json: { error: 'Network unavailable' } }));
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await pickStation(page, 'from', 'oak gr', 'Oak Grove');
   await pickStation(page, 'to', 'state', 'State');
   await expect(lines(page, 0)).toHaveText(['8 stops', /^Orange$/]);

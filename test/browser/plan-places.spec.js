@@ -108,7 +108,7 @@ test('main screen: Current location as From makes a one-off trip named from its 
   await context.setGeolocation({ latitude: 42.450312, longitude: -71.070288 });
   await openApp(page, { time: '07:00' });
   const calls = await stub(page, { timed: true });
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await setup(page).locator('#plan-from').click();
   await expect(setup(page).locator('#plan-here')).toHaveText('Current location · plan from where you are');
   await setup(page).locator('#plan-here').click();
@@ -145,7 +145,7 @@ test('Current location without permission says so and keeps the list', async ({ 
   };
   await openApp(page, { time: '07:00', init });
   await stub(page);
-  await page.getByRole('button', { name: 'Plan a trip…' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
   await setup(page).locator('#plan-from').click();
   await setup(page).locator('#plan-here').click();
   await tick(page, 100);

@@ -250,16 +250,15 @@ picked by hand after it was made (`shownTrip`; the iOS widget uses it without st
 
 ### One-off trip ("Plan a trip…" → "See departures")
 
-- "Plan a trip…" (named "Go somewhere else…" until 2026-10-28) sits under the trip buttons (moved
-  there from the end of the list, 2026-10-12), shown with the rows (not during a ride, nor without
-  trips). It opens the planner (see Setup view); a timed option's "See departures" makes a one-off trip (`t-minus:one-off`,
+- "Plan a trip…" (named "Go somewhere else…" until 2026-10-28) is the trip picker's last item,
+  after the trips and a separator (2026-11-12; a button under the trip buttons from 2026-10-12,
+  before that at the end of the list); choosing it leaves the shown trip selected. It opens the planner (see Setup view); a timed option's "See departures" makes a one-off trip (`t-minus:one-off`,
   `{ trip, at }`), labeled from the route list like a saved trip but never written into the saved
   config. It gets its own trip id (a new one for each plan) and is shown after the saved trips
   (`withOneOff`); it works like any trip: rows, tracking, reminders, stop alerts.
-- The trip dropdown names it "Oak Grove → State (one-off)" (with one saved trip the two side-by-side
-  buttons stay). While it is shown, a banner under the trip buttons, above "Plan a trip…" (a
-  bordered card, 2026-10-13, chosen from three mockups: the old plain line and the "Leaving
-  now" bar below it didn't line up), reads "One-off trip: not saved" with Save and "✕" (Remove).
+- The trip picker names it "Oak Grove → State (one-off)". While it is shown, a banner under the
+  header (a bordered card, 2026-10-13, chosen from three mockups: the old plain line and the
+  "Leaving now" bar below it didn't line up), reads "One-off trip: not saved" with Save and "✕" (Remove).
 - Save: it becomes the last saved trip at once (same name, no time window; same trip id, so its
   state carries over), toast "Trip saved". ✕ (Remove): its reminders, en-route state and stop
   alerts are dropped, toast with Undo (restores them). A new plan replaces it. It is removed by
@@ -326,7 +325,7 @@ out.
 
 ### En route ("Leaving now" / "At the stop")
 
-For leaving earlier or later than leave-by. A bar under the trip buttons always offers
+For leaving earlier or later than leave-by. A bar under the header always offers
 [Leaving now] [At the stop]; while active it reads "Walking · at the stop ~9:25am"
 [At the stop] [Cancel] or "At the stop since 9:23am" [Cancel]. "Walking" stays past the
 estimate: "since" only once arrival is recorded, by the tap, the geofence or GPS (2026-11-10;
@@ -537,8 +536,12 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   trip list, leg summaries, and route picker; the timing dropdown keeps full names.
   The route picker follows each label with the route's ends: a bus's long name, or a rail line's
   `direction_destinations` ("Forest Hills - Oak Grove"); search matches the ends too.
-- Trip switcher: two buttons for two trips, a dropdown for three or more, hidden with a
-  single trip.
+- Trip picker (2026-11-12, mockups accepted): a native select for any number of trips (until
+  then two buttons for two trips, a dropdown for three or more, hidden with one), card style with
+  a line chevron like the header icons (`appearance: none`; the browsers' arrows differ). Its
+  items: the trips, a separator (`<hr>` in the select: Chromium 119+, Safari 17+; skipped
+  elsewhere), "Plan a trip…". The header: the picker, ↻ and the setup gear; the map button
+  (2026-11-07) went with the main screen's map (Route map). A custom popover menu is in TODO.md.
 - Alerts above the list: only alerts active now whose `informed_entity` matches a
   configured route **and** (stop, or no stop given), with service-impacting effects
   (e.g. `DELAY`, `DETOUR`, `SUSPENSION`, `SHUTTLE`, `STOP_CLOSURE`, `STATION_CLOSURE`,
@@ -825,7 +828,7 @@ maps (the sheet, the planner's options, the trip editor).
 - One planner for every new trip (2026-10-28; before: "+ Add trip (auto-route)" and "+ Add trip
   (manual)" in setup, "Set up a trip" opening the manual editor on first run, and "Go somewhere
   else…" as a second, timed mode): titled "Plan a trip", opened from setup's "+ Plan a trip"
-  (`origin: 'setup'`), the main screen's "Plan a trip…" and the empty main screen's "Plan a trip"
+  (`origin: 'setup'`), the trip picker's "Plan a trip…" and the empty main screen's "Plan a trip"
   (`origin: 'main'`). It always asks for live times (`now=1`, see "Live times"). A timed option
   has "See departures" (a one-off trip on the main screen, from either origin) and "Save trip"
   (the trip editor, prefilled); an untimed one (the rail-only fallback, or the server's `none` /

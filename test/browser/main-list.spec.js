@@ -208,7 +208,7 @@ test('alerts for the trip\'s routes are listed', async ({ page }) => {
 test('switching to a trip with no data yet shows its own Loading…, then "Still loading…"', async ({ page }) => {
   const mbta = await openApp(page, { time: '07:00' });
   mbta.mode = 'hang';
-  await page.locator('#toggle button', { hasText: 'Office to home' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Office to home' });
   await expect(page.locator('#status-text')).toHaveText('Loading…');
   await expect(page.locator('.row')).toHaveCount(0);
   await expect(page.locator('.empty')).toHaveText('');
@@ -315,13 +315,13 @@ test('a subway leg with no predictions shows its headway and "~" times; a predic
   await expect(tl.locator('.step.stop .t')).toHaveText([/^~\d+:\d+pm$/, /^~\d+:\d+pm$/, /^\d+:\d+pm$/, /^\d+:\d+pm$/]);
   await expect(tl.locator('.step.end .t')).toHaveText([/^\d+:\d+pm$/, /^\d+:\d+pm$/]); // Leave and Arrive stay plain
   // Home to office ends on the Orange Line: the arrival is "~".
-  await page.locator('#toggle button').first().click();
+  await page.locator('#toggle select').selectOption('0');
   await expect(page.locator('.row .summary .arrive').first()).toHaveText(/^arrive ~\d+:\d+pm$/);
   // One Orange train predicted: predictions first, no headway.
   const one = scenario.trips.find(t => t.id === 'OLout-1729');
   one.live = true;
   mbta.scenario = scenario;
-  await page.locator('#toggle button').nth(1).click();
+  await page.locator('#toggle select').selectOption('1');
   await page.locator('#refresh').click();
   await tick(page, 1000);
   await expect(page.locator('.row .summary .badge', { hasText: 'live' }).first()).toBeVisible(); // the 5:29 train
@@ -337,4 +337,26 @@ test('with only the next service day\'s trains left, rows keep SCHEDULED', async
   await openApp(page, { time: '23:58', config, scenario });
   await expect(page.locator('.row .summary .badge').first()).toHaveText('scheduled');
   await expect(page.locator('.badge', { hasText: 'every' })).toHaveCount(0);
+});
+
+// The header (2026-11-12): the trip picker is a select for any number of trips, with
+// "Plan a trip…" after the trips; no map button and no "Plan a trip…" button.
+test('the trip picker: a select even for one trip, "Plan a trip…" opens the planner and keeps the shown trip', async ({ page }) => {
+  await openApp(page, { time: '07:00', config: { ...CONFIG, trips: [CONFIG.trips[0]] } });
+  const picker = page.locator('header #toggle select');
+  await expect(picker).toBeVisible();
+  await expect(picker).toHaveAccessibleName('Trip');
+  await expect(picker.locator('option')).toHaveText(['Home to office', 'Plan a trip…']);
+  await expect(picker.locator('hr')).toHaveCount(1);
+  await expect(page.locator('header button')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Route map' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Plan a trip…' })).toHaveCount(0);
+  await picker.selectOption({ label: 'Plan a trip…' });
+  await expect(page.locator('#setup')).toBeVisible();
+  await expect(page.locator('#setup')).toContainText('Plan a trip');
+  await expect(picker).toHaveValue('0');
+  await page.locator('#setup').getByRole('button', { name: 'Cancel' }).first().click();
+  await expect(page.locator('#app')).toBeVisible();
+  await expect(picker).toHaveValue('0');
+  await expect(picker.locator('option:checked')).toHaveText('Home to office');
 });

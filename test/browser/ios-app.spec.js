@@ -209,7 +209,7 @@ test('the widget\'s request goes to the shared keychain on open, when the trip c
   expect(first).toMatchObject({ stopSlackMinutes: 1, oneOffAt: null, override: null });
   await tick(page, 3000);
   expect(await bodies()).toHaveLength(1);
-  await page.locator('#toggle button', { hasText: 'Office to home' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Office to home' });
   await expect.poll(async () => (await bodies()).length).toBe(2);
   expect((await bodies())[1]).toMatchObject({ override: { id: 'office' }, lastUsed: 'office' });
   await tick(page, 3000);

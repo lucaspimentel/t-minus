@@ -136,7 +136,7 @@ test('Show more rides adds 4 rows per tap', async ({ page }) => {
   while (await listBtn(page, 'Show more rides ▾').count()) await listBtn(page, 'Show more rides ▾').click();
   await expect(listBtn(page, 'Show fewer rides ▴')).toHaveCount(1);
   // Switching trips resets it.
-  await page.locator('#toggle').getByRole('button', { name: 'Home to office' }).click();
-  await page.locator('#toggle').getByRole('button', { name: 'Office to home' }).click();
+  await page.locator('#toggle select').selectOption({ label: 'Home to office' });
+  await page.locator('#toggle select').selectOption({ label: 'Office to home' });
   await expect(rows).toHaveCount(4);
 });

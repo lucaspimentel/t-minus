@@ -4224,7 +4224,9 @@ const WALK_GAP_METERS = 25;
 // Places (2026-11-09): a pin at each end, at a walk's place (labeled, on the side away from the
 // walk) or else on the first boarding / last drop-off stop (unlabeled: the stop's label names
 // it); the start pin fades once the first leg is finished.
-export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1, width = null, fitAlso = [] }) {
+// fitFrom (2026-11-12, the main screen's map while riding): the view fits the legs from this one
+// on (their walks, the end walk and pin, `fitAlso`), the rest of the ride; 0 fits the whole trip.
+export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1, width = null, fitAlso = [], fitFrom = 0 }) {
   const raw = legs.map((leg, i) => {
     const picked = shapes[i] ? pickPattern(shapes[i], leg.stop, leg.alight) : null;
     if (picked) {
@@ -4274,12 +4276,16 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     }
     return path;
   });
+  const fitWalks = [];
   for (let k = 0; k + 1 < drawn.length; k++) {
     const a = drawn[k].at(-1), b = drawn[k + 1][0];
-    if (Math.hypot(a.x - b.x, a.y - b.y) > WALK_GAP_METERS) out.walks.push({ from: a, to: b, kind: 'transfer' });
+    if (Math.hypot(a.x - b.x, a.y - b.y) > WALK_GAP_METERS) {
+      out.walks.push({ from: a, to: b, kind: 'transfer' });
+      if (raw[k].i >= fitFrom) fitWalks.push(a, b);
+    }
   }
-  if (start && drawn.length) { const p = proj.toXY(start); out.walks.push({ from: p, to: drawn[0][0], kind: 'start' }); }
-  if (end && drawn.length) out.walks.push({ from: drawn.at(-1).at(-1), to: proj.toXY(end), kind: 'end' });
+  if (start && drawn.length) { const p = proj.toXY(start); out.walks.push({ from: p, to: drawn[0][0], kind: 'start' }); if (fitFrom <= 0) fitWalks.push(p, drawn[0][0]); }
+  if (end && drawn.length) { const p = proj.toXY(end); out.walks.push({ from: drawn.at(-1).at(-1), to: p, kind: 'end' }); fitWalks.push(drawn.at(-1).at(-1), p); }
   if (drawn.length) {
     const place = (kind, at, stop, faded) => {
       if (!at) return { kind, x: stop.x, y: stop.y, onStop: true, label: null, side: 'right', faded };
@@ -4293,12 +4299,15 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
   // `fitAlso` ({ lat, lon }): in the fit, drawn by the caller (the phone's location, 2026-11-09:
   // no walk to the first stop, only the dot).
   const also = drawn.length ? fitAlso.filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lon)).map(p => proj.toXY(p)) : [];
-  const boxes = out.places.map(pl => {
+  // The rest of the ride; all of it when no leg is left from fitFrom (a stale index).
+  const rest = drawn.filter((_, k) => raw[k].i >= fitFrom);
+  const fitPaths = rest.length ? rest : drawn;
+  const boxes = out.places.filter(pl => !rest.length || fitFrom <= 0 || pl.kind !== 'start').map(pl => {
     const b = { x: pl.x, y: pl.y, ...PIN_BOX };
     if (pl.label) b[pl.side] = Math.max(b[pl.side], PIN_LABEL_X + PIN_LABEL_CHAR_PX * pl.label.length + 2);
     return b;
   });
-  out.view = fitView([...drawn.flat(), ...out.walks.flatMap(w => [w.from, w.to]), ...also], { aspect, boxes, width });
+  out.view = fitView([...fitPaths.flat(), ...(rest.length ? fitWalks : out.walks.flatMap(w => [w.from, w.to])), ...also], { aspect, boxes, width });
   return out;
 }
 // A leg's stops from a kept /stops list (trimStopsDoc; a stop matches by id or child id), from

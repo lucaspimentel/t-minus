@@ -44,6 +44,10 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
 
 ## Deferred
 
+- Trip picker as a custom popover menu (2026-11-12: a native select for now): the trips with a
+  check on the shown one, a divider, "Plan a trip…"; then the one-off trip's Save and Remove move
+  into it from the banner.
+
 - Route map: names for green areas, lakes, ponds and rivers on the base map ("Boston Common",
   "Middlesex Fells", "Spot Pond", "Charles River"), placed like town and neighborhood names.
 

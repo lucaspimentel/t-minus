@@ -162,7 +162,7 @@ for (const scheme of ['light', 'dark']) {
       // Timed from now.
       leave: at('07:04'), arrive: at('07:55'), deps: [{ dep: at('07:10'), live: false }, { dep: at('07:33'), live: true }] }], timed: true } }));
     await page.route(/\/api\/places\?/, route => route.fulfill({ json: { places: [{ name: 'Fenway Park', detail: '4 Jersey Street, Boston', lat: 42.34646, lon: -71.0971 }] } }));
-    await page.getByRole('button', { name: 'Plan a trip…' }).click();
+    await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
     expect(await violations(page)).toEqual([]);
     await page.locator('#plan-from').click();
     await expect(page.locator('#plan-here')).toBeVisible(); // Current location

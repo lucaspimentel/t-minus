@@ -54,7 +54,7 @@ test('the first load without trip ids: ids assigned, position-keyed state cleare
   await expect.poll(() => calls.filter(c => c.method === 'DELETE').map(c => c.path).sort()).toEqual(['/reminders/r0', '/rides/ride0']);
   await expect(page.locator('.bell')).toHaveCount(0);
   // The override is gone: the 7:00 window's trip, not the one picked by hand.
-  await expect(page.locator('#toggle button[aria-pressed="true"]')).toHaveText('Home to office');
+  await expect(page.locator('#toggle select option:checked')).toHaveText('Home to office');
 
   // Reloaded: ids are there, nothing is cleared again.
   await page.evaluate(id => localStorage.setItem('t-minus:last-trip', JSON.stringify(id)), ids[1]);
