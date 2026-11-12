@@ -562,7 +562,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · b23cc3ea7d</footer>
+    <footer class="version">Version 2026-11-12 · 4c2193ab16</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -3381,7 +3381,8 @@ function mapLocation(onChange, seed = null) {
 // in the background and while hidden), locate, back to the trip, and hide; a tap opens the
 // sheet. While riding: the ridden legs faded, your vehicle marked (at your GPS position when it
 // counts, 2026-11-12), fitted to the rest of the ride. Hidden ("Hide map"; one setting on the
-// phone, KEY_MAP_HIDDEN): a "Show map ▾" button instead, with no requests and no location. Kept across the once-a-second redraw.
+// phone, KEY_MAP_HIDDEN): a "Show map ▾" button instead, with no requests and no location.
+// Kept across the once-a-second redraw.
 const KEY_MAP_HIDDEN = 't-minus:mapHidden';
 let mainMap = null;
 let mapHidden = !!store.get(KEY_MAP_HIDDEN);
