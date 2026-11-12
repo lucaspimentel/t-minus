@@ -118,7 +118,7 @@ test('a riding trip whose legs change in setup continues as the one-off, with it
   await page.locator('#setup-done').click();
   await expect(page.locator('.row.ride')).toBeVisible();
   await expect(banner(page)).toBeVisible();
-  await expect(page.locator('#toggle select option:checked')).toHaveText('Home to office (one-off)');
+  await expect(page.locator('#toggle select option:checked')).toHaveText('🚌 Home to office (one-off)'); // riding: the picker marks it
   const { trip } = await stored(page, 't-minus:one-off');
   expect(trip).toEqual({ ...before, id: trip.id });
   expect(trip.id).not.toBe('home');
