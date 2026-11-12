@@ -483,7 +483,8 @@ test('Reset deletes all trips and saved data after a confirm, keeping the API ke
   await reset.click();
   await expect(page.locator('.empty .big-btn')).toBeVisible(); // reloaded into the empty main screen
   expect(asked).toBe('Delete all trips and settings?');
-  const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('t-minus:')));
+  // t-minus:mapHidden: openApp's init script sets it again on the reload.
+  const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('t-minus:') && k !== 't-minus:mapHidden'));
   expect(keys).toEqual(['t-minus:config']);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')))).toEqual({ trips: [], apiKey: 'k1' });
 });
