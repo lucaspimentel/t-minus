@@ -370,6 +370,34 @@ test('Leaving now then Cancel ends the walk card', async ({ page }) => {
   await expect.poll(async () => (await leaveCalls(page)).at(-1)?.call).toBe('end');
 });
 
+// Seen 2026-11-12: reopened mid-walk, the card ended before the first fetch (no rows yet).
+test('reopened while walking: the walk card stays, with At the stop from location while it was closed', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true, boarding: true, locStatus: 'whenInUse' });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await page.addInitScript(() => { window.fakeActivities = [{ id: 'leave1', reminderId: 'r1', tripName: 'Home to office' }]; });
+  await page.evaluate(() => { window.fakeActivities = [{ id: 'leave1', reminderId: 'r1', tripName: 'Home to office' }]; });
+  await tickTo(page, '07:00');
+  await page.locator('#enroute').getByRole('button', { name: 'Leaving now' }).click();
+  await expect.poll(async () => (await leaveCalls(page))[0]?.call).toBe('update');
+  const action = await page.evaluate(async t => {
+    const { boardingBase } = await import('/core.js');
+    const cur = JSON.parse(localStorage.getItem('t-minus:en-route')).home;
+    return { undoId: 'g1', tripRef: 'home', tripName: 'Home to office', toast: 'At the stop (location)', at: t, state: { ...cur, kind: 'stop', atStop: t }, base: boardingBase(cur), from: boardingBase(cur), sig: `arrive:${cur.at}` };
+  }, at('07:04'));
+  await tickTo(page, '07:04');
+  await page.addInitScript(a => {
+    if (sessionStorage.getItem('reopened')) return;
+    sessionStorage.setItem('reopened', '1');
+    window.boardingAction = a;
+  }, action);
+  await page.reload();
+  await expect(page.locator('#enroute .en-status')).toHaveText('At the stop since 7:04am');
+  await expect.poll(async () => (await leaveCalls(page)).at(-1)?.state?.sub).toMatch(/^At the stop since 7:04am/);
+  expect((await leaveCalls(page)).some(c => c.call === 'end')).toBe(false);
+});
+
 test('bell off: a plain DELETE (the server ends the card), and the app ends it too', async ({ page }) => {
   const calls = await fakeServer(page);
   await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });

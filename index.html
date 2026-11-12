@@ -559,7 +559,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · 40dff88a0c</footer>
+    <footer class="version">Version 2026-11-12 · df978ba000</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -1549,6 +1549,8 @@ function syncLeaveCard(now) {
   const s = (store.get(KEY_EN_ROUTE) ?? {})[leaveCard.tripRef];
   const cardTrip = config?.trips[idxOf(leaveCard.tripRef)];
   const shown = !!s && leaveCard.tripRef === refOf(tripIdx);
+  // Opened mid-walk: no rows until the first fetch, which isn't the ride gone (2026-11-12).
+  if (shown && !s.ride && !s.asking && !cache[leaveCard.tripRef]?.lastOk) return;
   const row = shown && !s.ride ? currentRows(now, s).find(r => r.key === leaveCard.key) : null;
   if (!s || s.ride || s.kind === 'track' || (shown && !s.asking && (!row || now >= row.firstDep))) {
     const { id } = leaveCard;
