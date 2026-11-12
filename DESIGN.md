@@ -1811,7 +1811,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   the bell, a reminder is deleted with `?reason=started`) and the app takes over the card (`TMinus.liveActivityList`, by `reminderId`): "Departs in 6
   min · 6:15pm" (`head`; builds before 35 show the `title` "Bus 132 in 6 minutes"), "At the stop ~7:45am · 3 min to spare" ("since 7:45am" once arrival is recorded: the tap, the geofence or GPS, not the estimate passing, 2026-11-10; "2 min late" in
   red, 2026-11-08; amber in build 54 and before), "Arrive 8:25am" (`walkActivityState`; on both cards "~" only when a leg is a headway estimate), updated by the app while open, no alerts.
-  A missed departure turns it into the boarding question (app and server). Boarding ends it just before the ride card starts; Cancel or the vehicle leaving end it. Known
+  A missed departure turns it into the boarding question (app and server). Boarding ends it just before the ride card starts; Cancel or the vehicle leaving end it. Opened mid-walk, the app keeps the card until its first fetch has the rows (it ended the card at once, its ride not found in the empty rows, 2026-11-12). Known
   limit: with the app closed it isn't updated (stale 2 min after its countdown; ended at the next
   open).
 - **Late bell (2026-10-30; seen 2026-10-29: belled at 12:18 for a 12:16 leave-by, nothing
