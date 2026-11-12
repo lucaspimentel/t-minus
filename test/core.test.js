@@ -14,7 +14,7 @@ import {
   legQuery, predictionQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, vehicleArrow, withoutArrived, stopConnections, groupConnections, rowConnections,
   shownTrip, widgetRequest, widgetRequestError, scheduleTimingLeg, widgetView, WIDGET_HORIZON_MIN, widgetState, widgetFollow,
-  leavePhase, leaveActivityState, modeEmoji, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, LEAVE_CARD_EARLY_MIN, LEAVE_CARD_MAX_MIN, leaveCardEarly, leaveStartText, firstVehicleLine,
+  leavePhase, leaveActivityState, modeEmoji, tripMarker, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, LEAVE_CARD_EARLY_MIN, LEAVE_CARD_MAX_MIN, leaveCardEarly, leaveStartText, firstVehicleLine,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -2450,6 +2450,25 @@ test('modeEmoji: 🚌 bus and Silver Line, 🚇 subway, 🚊 light rail, 🚆 co
   const e = label => modeEmoji({ label });
   assert.deepEqual(['Bus 132', 'Silver SL1', 'Red', 'Orange', 'Blue', 'Green B', 'Green', 'Mattapan', 'CR Haverhill', 'CR', 'Boat'].map(e), ['🚌', '🚌', '🚇', '🚇', '🚇', '🚊', '🚊', '🚊', '🚆', '🚆', '']);
   assert.equal(modeEmoji({ label: 'Green', vehicleRoute: 'Green-D', routeLabels: { 'Green-D': 'Green D' } }), '🚊');
+});
+
+test('tripMarker: 🔔 while belled, the ridden leg\'s mode while riding, else none', () => {
+  const t = s => at(s);
+  assert.equal(tripMarker(null, 0, t('07:00')), '');
+  assert.equal(tripMarker({ kind: 'track', at: t('07:00') }, 0, t('07:00')), '');
+  assert.equal(tripMarker({ kind: 'leaving', at: t('07:00') }, 0, t('07:00')), ''); // started without the bell
+  assert.equal(tripMarker({ kind: 'track', bell: true, pinned: true }, 0, t('07:00')), '🔔');
+  assert.equal(tripMarker({ kind: 'leaving', bell: true, pinned: true }, 0, t('07:00')), '🔔');
+  const ride = { boardedAt: t('07:48'), legs: [
+    { label: 'Bus 132', route: '132', dep: t('07:48'), arr: t('08:05') },
+    { label: 'Orange', route: 'Orange', dep: t('08:10'), arr: t('08:25') }] };
+  const m = now => tripMarker({ kind: 'track', ride }, 5, t(now));
+  assert.deepEqual(['07:50', '08:07', '08:15', '08:27', '09:00'].map(m), ['🚌', '🚌', '🚇', '🚇', '']);
+  const one = leg => tripMarker({ ride: { boardedAt: t('07:48'), legs: [{ dep: t('07:48'), arr: t('08:05'), ...leg }] } }, 0, t('07:50'));
+  assert.equal(one({ label: 'Green B', route: 'Green-B' }), '🚊');
+  assert.equal(one({ label: 'CR Haverhill', route: 'CR-Haverhill' }), '🚆');
+  assert.equal(one({ label: 'Ferry', route: 'Boat-F1' }), '⛴');
+  assert.equal(one({ label: 'Shuttle', route: 'Shuttle-X' }), '🔔');
 });
 
 test('walkActivityState: on the way, at the stop, late', () => {

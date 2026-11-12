@@ -542,6 +542,12 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   items: the trips, a separator (`<hr>` in the select: Chromium 119+, Safari 17+; skipped
   elsewhere), "Plan a trip…". The header: the picker, ↻ and the setup gear; the map button
   (2026-11-07) went with the main screen's map (Route map). A custom popover menu is in TODO.md.
+  Markers (2026-11-12, mockups accepted; `tripMarker`): a trip's name starts with "🔔 " while
+  belled (also after "Leaving now" / "At the stop", and for the server's auto-bells), and with
+  the ridden leg's mode emoji while its ride is under way (the compact island's `modeEmoji`: 🚌
+  🚇 🚊 🚆; ⛴ for a ferry; 🔔 otherwise): the leg just left during a transfer, the last leg on
+  the final walk, until the ride is done. A start without the bell has none. The closed picker
+  shows it too (the selected option's text); the picker is rebuilt when a marker changes.
 - Alerts above the list: only alerts active now whose `informed_entity` matches a
   configured route **and** (stop, or no stop given), with service-impacting effects
   (e.g. `DELAY`, `DETOUR`, `SUSPENSION`, `SHUTTLE`, `STOP_CLOSURE`, `STATION_CLOSURE`,

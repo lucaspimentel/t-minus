@@ -559,7 +559,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-11 · b756abf5e2</footer>
+    <footer class="version">Version 2026-11-12 · af14b04328</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -583,15 +583,15 @@
 </script>
 <script type="module">
 import {
-  validateConfig, withTripIds, newTripId, setupSavePlan, sameLegsAs, staleServerEntries, reminderKeyOf, reminderRef, tripReminders, tripShape, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
+  validateConfig, withTripIds, newTripId, setupSavePlan, sameLegsAs, staleServerEntries, reminderKeyOf, reminderRef, tripReminders, tripShape, tripMarker, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, targetRow, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, FOLLOW_MIN_PX, nextFollowLevel, viewAt, viewShiftPx, projector, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=87a83bccf1';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=3221ed6d96';
+} from './core.js?v=bb6405d75f';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=cb010fcca1';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1017,13 +1017,18 @@ function badge(leg) {
 // The trip picker (2026-11-12): a select for any number of trips (the 2-trip buttons and the
 // "Plan a trip…" button under them until then), the trips, a separator (<hr>, drawn by
 // Chromium 119+ and Safari 17+, skipped elsewhere), then "Plan a trip…", which opens the
-// planner and leaves the shown trip selected. Rebuilt only when the trips or the selection
-// change, so a periodic render doesn't close an open picker.
+// planner and leaves the shown trip selected. A trip's name starts with its marker (tripMarker,
+// 2026-11-12): 🔔 while belled, the ridden leg's mode emoji while its ride is under way; the
+// closed picker shows it too. Rebuilt only when the trips, the selection or a marker change, so
+// a periodic render doesn't close an open picker.
 let toggleKey = null;
 function renderToggle() {
   const t = $('toggle');
   const trips = config?.trips ?? [];
-  const key = JSON.stringify([trips.map(x => x.name), tripIdx, oneOffIdx()]);
+  const states = store.get(KEY_EN_ROUTE) ?? {};
+  const now = Date.now();
+  const markers = trips.map((trip, i) => tripMarker(states[refOf(i)] ?? null, tripShape(trip).walkAfter, now));
+  const key = JSON.stringify([trips.map(x => x.name), tripIdx, oneOffIdx(), markers]);
   if (key === toggleKey) return;
   toggleKey = key;
   t.hidden = !trips.length;
@@ -1031,7 +1036,7 @@ function renderToggle() {
   select.setAttribute('aria-label', 'Trip');
   select.dataset.focus = 'trip-picker';
   select.append(...trips.map((trip, i) => {
-    const o = el('option', null, i === oneOffIdx() ? `${trip.name} (one-off)` : trip.name);
+    const o = el('option', null, `${markers[i] ? `${markers[i]} ` : ''}${trip.name}${i === oneOffIdx() ? ' (one-off)' : ''}`);
     o.value = String(i);
     o.selected = i === tripIdx;
     return o;
@@ -1592,7 +1597,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=87a83bccf1'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=bb6405d75f'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;

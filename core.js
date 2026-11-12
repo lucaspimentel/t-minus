@@ -2879,6 +2879,22 @@ export function modeEmoji(leg) {
   return /^(Bus|Silver) /.test(l) ? '🚌' : '';
 }
 export const WALK_EMOJI = '🚶';
+// The trip picker's marker for a trip's en-route state (2026-11-12): while a ride is under way,
+// the ridden leg's mode emoji (the leg just left during a transfer, the last one on the final
+// walk; ⛴ for a ferry, 🔔 without an emoji); 🔔 while belled; else ''.
+export function tripMarker(state, walkAfter, nowMs) {
+  if (state?.ride?.legs?.length) {
+    const legs = state.ride.legs;
+    const phase = ridePhase(state.ride, walkAfter, nowMs);
+    if (phase.kind === 'done') return '';
+    const leg = legs[phase.kind === 'riding' ? phase.leg : Math.min(phase.leg, legs.length) - 1];
+    const e = modeEmoji(leg);
+    if (e) return e;
+    return /^Boat-/.test(leg.vehicleRoute ?? leg.route ?? '') ? '⛴' : '🔔';
+  }
+  return state?.bell ? '🔔' : '';
+}
+
 // The card's layout from 2026-10-29 (build 35; older builds read title / sub / next / island):
 // `head` ("Leave in", "Departs in", "Did you get on?") with a live countdown to `countTo` (0: none),
 // then `headTime` ("7:39am"); the line `long` "toward `headsign`" with `right` ("arrive 8:25am",

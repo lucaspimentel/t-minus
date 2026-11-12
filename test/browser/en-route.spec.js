@@ -466,6 +466,40 @@ test('the bell off ends plain tracking; Cancel in the bar has Undo; one bell at 
   await expect(bar(page)).toContainText('Tracking Bus 132 8:04am');
 });
 
+// The trip picker's options, as shown (rows redraw every second, so read them in one go).
+const pickerTexts = page => page.evaluate(() => [...document.querySelectorAll('#toggle select option')].map(o => o.textContent));
+
+test('the trip picker marks the belled trip with 🔔, in the closed picker too, until the bell is off', async ({ page }) => {
+  await openApp(page, { time: '07:00' });
+  const second = page.locator('.row').nth(1);
+  await second.click();
+  await bell(second).click();
+  await expect.poll(() => pickerTexts(page)).toEqual(['🔔 Home to office', 'Office to home', 'Plan a trip…']);
+  await expect(page.locator('#toggle select option:checked')).toHaveText('🔔 Home to office');
+  await page.locator('#toggle select').selectOption('1');
+  await expect(page.locator('#toggle select option:checked')).toHaveText('Office to home');
+  await expect.poll(() => pickerTexts(page)).toEqual(['🔔 Home to office', 'Office to home', 'Plan a trip…']);
+  await page.locator('#toggle select').selectOption('0');
+  await bell(page.locator('.row.tracked'), 'Tracking').click();
+  await expect.poll(() => pickerTexts(page)).toEqual(['Home to office', 'Office to home', 'Plan a trip…']);
+});
+
+test('the trip picker marks a ride under way with the ridden leg\'s mode; none for a start without the bell', async ({ page }) => {
+  await openApp(page, { time: '07:00' });
+  await atTheStop(page);
+  await expect.poll(() => pickerTexts(page)).toEqual(['Home to office', 'Office to home', 'Plan a trip…']);
+  const first = async () => (await pickerTexts(page))[0];
+  await tickTo(page, '07:08:30');
+  await expect(head(page)).toHaveText(riding('Bus 132'));
+  await expect.poll(first).toBe('🚌 Home to office');
+  await tickTo(page, '07:25'); // the transfer: the bus just left
+  await expect.poll(first).toBe('🚌 Home to office');
+  await tickTo(page, '07:35');
+  await expect.poll(first).toBe('🚇 Home to office');
+  await tickTo(page, '07:50'); // the final walk
+  await expect.poll(first).toBe('🚇 Home to office');
+});
+
 test('at the stop with the bell: boards on its own when reached; the bell off keeps the at-stop state', async ({ page }) => {
   await openApp(page, { time: '07:00' });
   await atTheStop(page);
