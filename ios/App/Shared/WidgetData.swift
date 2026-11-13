@@ -56,6 +56,40 @@ struct WidgetView: Codable, Hashable {
             var color: String
         }
         var then: [Leg]? = nil
+        // The large size's trip timeline (2026-11-13; only in answers to `size=large`).
+        var timeline: [TLRow]? = nil
+    }
+    // A row of the large size's timeline (core.js widgetTimeline): "walk" (text, walking), "stop"
+    // (name, time, color, bar "start" / "end": a leg's boarding stop and drop-off), "ride" (text
+    // "Bus 132 · 6 stops · 17 min", toward, color), "end" (name "Arrive", time).
+    struct TLRow: Codable, Hashable {
+        var kind: String
+        var text: String? = nil
+        var name: String? = nil
+        var time: String? = nil
+        var color: String? = nil
+        var toward: String? = nil
+        var bar: String? = nil
+        var walking: Bool? = nil
+    }
+    // An entry's marks on the timeline (widgetTimelineMarks): the first `done` rows dimmed, the next
+    // `current` bold, row `hide` without its time (-1: none); `along`: the stops left on the ridden
+    // leg's bar, after row `after`, and the vehicle ("board", "gap", "" none).
+    struct TLMarks: Codable, Hashable {
+        struct Stop: Codable, Hashable {
+            var name: String? = nil
+            var time: String? = nil
+            var more: String? = nil // "… 3 more"
+        }
+        struct Along: Codable, Hashable {
+            var after: Int
+            var veh: String
+            var stops: [Stop]
+        }
+        var done: Int
+        var current: Int
+        var hide: Int
+        var along: Along? = nil
     }
     struct Entry: Codable, Hashable {
         var at: Double          // shown from (Unix seconds)
@@ -86,20 +120,24 @@ struct WidgetView: Codable, Hashable {
         // line ("No connection after 6:31pm").
         var late: Bool? = nil
         var thenLate: Bool? = nil
+        var tl: TLMarks? = nil // the large size (2026-11-13): set where its timeline shows
     }
     var name: String
     var rows: [Row]
     var entries: [Entry]
     var end: Double?            // past it: "Open T-Minus"
     var refresh: Double         // when to ask again
+    var timeline: [TLRow]? = nil // a followed ride's timeline (large size; its entries' `tl`)
 }
 
-// What one timeline entry shows: an entry of the answer and its rows (from its own, up to 3), or
-// "Open T-Minus" (`entry` nil: no answer yet, or every time in it has passed).
+// What one timeline entry shows: an entry of the answer and its rows (from its own, up to 6: the
+// large size's "Later"), or "Open T-Minus" (`entry` nil: no answer yet, or every time in it has
+// passed). `timeline`: its row's or the followed ride's (the large size).
 struct LeaveContent: Hashable {
     var name: String
     var entry: WidgetView.Entry?
     var rows: [WidgetView.Row]
+    var timeline: [WidgetView.TLRow]? = nil
 
     static func stale(_ name: String) -> LeaveContent { LeaveContent(name: name, entry: nil, rows: []) }
 
@@ -110,8 +148,9 @@ struct LeaveContent: Hashable {
         var out: [(Date, LeaveContent)] = []
         for (i, e) in v.entries.enumerated() {
             if i + 1 < v.entries.count, Date(timeIntervalSince1970: v.entries[i + 1].at) <= now { continue }
-            let rows = e.row >= 0 && e.row < v.rows.count ? Array(v.rows[e.row...].prefix(3)) : []
-            out.append((max(Date(timeIntervalSince1970: e.at), out.isEmpty ? .distantPast : out[out.count - 1].0), LeaveContent(name: v.name, entry: e, rows: rows)))
+            let rows = e.row >= 0 && e.row < v.rows.count ? Array(v.rows[e.row...].prefix(6)) : []
+            let timeline = e.row >= 0 ? rows.first?.timeline : v.timeline
+            out.append((max(Date(timeIntervalSince1970: e.at), out.isEmpty ? .distantPast : out[out.count - 1].0), LeaveContent(name: v.name, entry: e, rows: rows, timeline: timeline)))
         }
         if let end = v.end { out.append((Date(timeIntervalSince1970: end), .stale(v.name))) }
         if out.isEmpty || out[0].0 > now { out.insert((now, .stale(v.name)), at: 0) }
