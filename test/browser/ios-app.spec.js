@@ -306,7 +306,7 @@ test('the legs bar: stop shares from the trip stop lists reach the card, the rid
   expect(tripHits()).toHaveLength(2);
   await tickTo(page, '07:27');
   expect(tripHits()).toHaveLength(2);
-  expect(await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('t-minus:stop-shares')))).length).toBe(1);
+  expect(await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('t-minus:stop-shares'))).length)).toBe(1);
   await page.reload();
   await page.locator('.row.ride, .row').first().waitFor();
   await tick(page, 1500);
