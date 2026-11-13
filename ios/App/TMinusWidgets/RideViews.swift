@@ -82,55 +82,117 @@ func dimmedHead(_ state: RideState) -> String? {
     return lead.isEmpty ? time : "\(lead) \(time)"
 }
 
-// One segment per leg, as wide as its share of the riding time (at least 8% so a short leg shows):
-// full once done, advancing on its own while ridden.
+// The legs bar (2026-11-13): the route map's look on a straight line. One line per leg in its
+// route's color, as wide as its share of the riding time (at least 8%), the legs joined; the part
+// ahead at 50%, the part behind full (the ridden leg advances on its own). Rings like the map's
+// stops: the leg ends and the transfer large, the stops between small (`leg.at`: their shares of
+// the leg's time; none: the ends only), hollow and faded ahead, filled once passed. The ridden
+// leg's rings fill by the stops left (`stops`, as the headline says) or, without it, by time.
+// `card`: the surface under the rings (their hollow centers). `now`: the moment drawn (the
+// widget's entry; the ridden leg's fill moves by its own timer).
 struct LegsBar: View {
     let legs: [RideState.Leg]
-    let track: Color
-    private let gap: CGFloat = 4
+    var stops: Int = -1
+    let card: Color
+    var now: Date = Date()
+    // Computed, so the memberwise init (used from LeaveWidgetViews.swift too) stays internal.
+    private var inset: CGFloat { 7.5 }
+    private var lineHeight: CGFloat { 5 }
+    private var height: CGFloat { 15 }
 
     private func widths(_ total: CGFloat) -> [CGFloat] {
         let durations = legs.map { max($0.arr - $0.dep, 1) }
         let sum = durations.reduce(0, +)
         let shares = durations.map { max($0 / sum, 0.08) }
         let norm = shares.reduce(0, +)
-        let room = max(total - gap * CGFloat(legs.count - 1), 0)
-        return shares.map { room * CGFloat($0 / norm) }
+        return shares.map { total * CGFloat($0 / norm) }
     }
+
+    // The stops to draw (indexes): at least `minGap` from the last one drawn (the leg's start
+    // first) and from the leg's end, as the map's stopsToShow.
+    static func shown(_ xs: [CGFloat], start: CGFloat, end: CGFloat, minGap: CGFloat = 14) -> [Int] {
+        var out: [Int] = []
+        var last = start
+        for (i, x) in xs.enumerated() where x - last >= minGap && end - x >= minGap {
+            out.append(i)
+            last = x
+        }
+        return out
+    }
+
+    private func tint(_ leg: RideState.Leg) -> Color { leg.color.isEmpty ? Color.gray : Color(hex: leg.color) }
+    private func dep(_ leg: RideState.Leg) -> Date { Date(timeIntervalSince1970: leg.dep) }
+    private func arr(_ leg: RideState.Leg) -> Date { Date(timeIntervalSince1970: max(leg.arr, leg.dep + 1)) }
 
     var body: some View {
         GeometryReader { g in
-            let w = widths(g.size.width)
-            HStack(spacing: gap) {
-                ForEach(Array(legs.enumerated()), id: \.offset) { i, leg in
-                    segment(leg).frame(width: w[i])
-                }
+            let w = widths(max(g.size.width - 2 * inset, 0))
+            let xs = w.indices.map { i in inset + w[..<i].reduce(0, +) }
+            ZStack(alignment: .topLeading) {
+                if !legs.isEmpty { bar(w: w, xs: xs) }
             }
         }
-        .frame(height: 5)
+        .frame(height: height)
     }
 
-    private func segment(_ leg: RideState.Leg) -> some View {
-        let dep = Date(timeIntervalSince1970: leg.dep), arr = Date(timeIntervalSince1970: max(leg.arr, leg.dep + 1))
-        let tint = leg.color.isEmpty ? Color.gray : Color(hex: leg.color)
+    @ViewBuilder private func bar(w: [CGFloat], xs: [CGFloat]) -> some View {
+        ForEach(Array(legs.enumerated()), id: \.offset) { i, leg in
+            line(leg).frame(width: w[i], height: lineHeight).position(x: xs[i] + w[i] / 2, y: height / 2)
+        }
+        ForEach(Array(legs.enumerated()), id: \.offset) { i, leg in
+            stopRings(leg, from: xs[i], width: w[i])
+        }
+        // The ends and the transfers: one ring per boundary, in the arriving leg's color.
+        ForEach(0...legs.count, id: \.self) { k in
+            ring(tint(legs[max(k - 1, 0)]), filled: k == 0 ? now >= dep(legs[0]) : now >= arr(legs[k - 1]), radius: 6, stroke: 3)
+                .position(x: k == 0 ? xs[0] : xs[k - 1] + w[k - 1], y: height / 2)
+        }
+    }
+
+    private func line(_ leg: RideState.Leg) -> some View {
+        let t = tint(leg)
         return ZStack(alignment: .leading) {
-            Capsule().fill(track)
-            if Date() >= arr {
-                Capsule().fill(tint)
-            } else if Date() >= dep {
+            Rectangle().fill(t.opacity(0.5))
+            if now >= arr(leg) {
+                Rectangle().fill(t)
+            } else if now >= dep(leg) {
                 #if os(iOS)
-                ProgressView(timerInterval: dep...arr, countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
-                    .progressViewStyle(.linear).tint(tint)
+                ProgressView(timerInterval: dep(leg)...arr(leg), countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
+                    .progressViewStyle(.linear).tint(t)
                 #else
                 // The previews (macOS can't draw the timer progress in a still image).
                 GeometryReader { g in
-                    Capsule().fill(tint).frame(width: g.size.width * Date().timeIntervalSince(dep) / arr.timeIntervalSince(dep))
+                    Rectangle().fill(t).frame(width: g.size.width * now.timeIntervalSince(dep(leg)) / arr(leg).timeIntervalSince(dep(leg)))
                 }
                 #endif
             }
         }
-        .frame(height: 5)
-        .clipShape(Capsule())
+        .clipped()
+    }
+
+    // The leg's stops between its ends.
+    @ViewBuilder private func stopRings(_ leg: RideState.Leg, from x0: CGFloat, width: CGFloat) -> some View {
+        if let at = leg.at, !at.isEmpty {
+            let xs = at.map { x0 + CGFloat($0) * width }
+            let n = at.count
+            let passedCount: Int = {
+                if now >= arr(leg) { return n }
+                if now < dep(leg) { return 0 }
+                if stops > 0 { return max(0, min(n, n - (stops - 1))) }
+                return at.filter { dep(leg).addingTimeInterval($0 * (arr(leg).timeIntervalSince(dep(leg)))) <= now }.count
+            }()
+            ForEach(LegsBar.shown(xs, start: x0, end: x0 + width), id: \.self) { i in
+                ring(tint(leg), filled: i < passedCount, radius: 3.5, stroke: 1.5).position(x: xs[i], y: height / 2)
+            }
+        }
+    }
+
+    private func ring(_ color: Color, filled: Bool, radius: CGFloat, stroke: CGFloat) -> some View {
+        ZStack {
+            Circle().fill(filled ? color : card)
+            Circle().stroke(color.opacity(filled ? 1 : 0.5), lineWidth: stroke)
+        }
+        .frame(width: 2 * radius, height: 2 * radius)
     }
 }
 
@@ -148,7 +210,7 @@ struct LegsBar: View {
 // The Lock Screen card under its header; the expanded island under the island's top row.
 struct LeaveBody: View {
     let state: RideState
-    let text, muted, amber, red, track: Color
+    let text, muted, amber, red, track, card: Color
     @Environment(\.isLuminanceReduced) private var dimmed
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -197,7 +259,7 @@ struct LeaveBody: View {
             if state.phase == "ask", let dep = state.askDep {
                 AnswerButtons(dep: dep, text: text, track: track).padding(.top, 6)
             } else {
-                LegsBar(legs: state.legs, track: track).padding(.top, 6)
+                LegsBar(legs: state.legs, stops: state.phase == "riding" ? state.stops : -1, card: card).padding(.top, 6)
             }
         }
     }
@@ -284,7 +346,7 @@ struct RideCardView: View {
                 Text("T-Minus")
             }
             .font(.caption).foregroundStyle(th.muted)
-            LeaveBody(state: state, text: th.text, muted: th.muted, amber: th.amber, red: th.red, track: th.track)
+            LeaveBody(state: state, text: th.text, muted: th.muted, amber: th.amber, red: th.red, track: th.track, card: th.card)
         }
         .padding(16)
     }
@@ -380,6 +442,6 @@ struct IslandExpanded: View {
     let state: RideState
     var body: some View {
         let amber = Color(hex: "F0A830"), track = Color(hex: "333333")
-        LeaveBody(state: state, text: .white, muted: .gray, amber: amber, red: Color(hex: "FF6B6B"), track: track)
+        LeaveBody(state: state, text: .white, muted: .gray, amber: amber, red: Color(hex: "FF6B6B"), track: track, card: .black)
     }
 }

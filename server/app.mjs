@@ -12,7 +12,7 @@ import {
   leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES, LIVE_SOON_MS,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
-  autoBellNext, autoBellRow, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText,
+  autoBellNext, autoBellRow, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText, stopSharesError, withStopShares,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -347,6 +347,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (b.stopSlackMinutes != null && !(Number.isFinite(b.stopSlackMinutes) && b.stopSlackMinutes >= 0 && b.stopSlackMinutes <= 60)) return 'stopSlackMinutes is invalid';
     if (b.tripName != null && (typeof b.tripName !== 'string' || b.tripName.length > 100)) return 'tripName is invalid';
     if (b.startToken != null && !validToken(b.startToken)) return 'startToken is invalid';
+    if (b.stopsAt != null) return stopSharesError(b.stopsAt, n); // the legs bar's stop shares (2026-11-13)
     return null;
   }
 
@@ -586,7 +587,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
         id: randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
         stopSlackMinutes: body.stopSlackMinutes ?? 1, timingIdx: body.timingIdx, key: body.key,
         leaveBy: body.leaveBy, headsUps: headsUpsDue(body.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
-        ...(body.startToken && { startToken: body.startToken }), ...(body.leaveBy <= t && { late: true }),
+        ...(body.startToken && { startToken: body.startToken }), ...(body.leaveBy <= t && { late: true }), ...(body.stopsAt && { stopsAt: body.stopsAt }),
       };
       store.add(rem);
       log(`reminder ${rem.id} for ${rem.key}, leave by ${new Date(rem.leaveBy).toISOString()}`);
@@ -693,7 +694,11 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       for (const k of ['cardDismissed', 'restartCard']) if (b?.[k] != null && typeof b[k] !== 'boolean') return reply(res, 400, { error: `${k} is invalid` });
       const tErr = tripUpdateError(b, rem);
       if (tErr) return reply(res, 400, { error: tErr });
+      // `stopsAt`: the legs bar's stop shares, sent once the app has the stop lists.
+      const sErr = b?.stopsAt != null && stopSharesError(b.stopsAt, tripShape(rem.trip).transit.length);
+      if (sErr) return reply(res, 400, { error: sErr });
       applyTripUpdate(b, rem);
+      if (b?.stopsAt) { rem.stopsAt = b.stopsAt; rem.nextPollAt = t; }
       // `cardDismissed` (the iOS app: the leave card was swiped away or is gone): the reminder's
       // next steps go out as notifications; the card isn't started again by itself.
       if (b?.cardDismissed) {
@@ -804,10 +809,11 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (follow?.kind !== 'ride') return { follow, docs };
     const maps = transit.map((l, i) => mergeTrips(docs.predictions[i], docs.scheduleDocs[i]));
     let ride = withTripAlerts({ ...follow.ride, legs: trackLegs(follow.ride.legs, transit, maps) }, tripAlerts(docs.predictions, t));
+    const shares = ride.legs.map(l => l.at ?? null); // a re-planned leg keeps its position's
     const phase = ridePhase(ride, walkAfter, t);
     const outlook = transferOutlook(ride, phase, tripVehicles(transit, maps, null, t), transfers, t);
-    if (outlook?.missedDep != null) ride = { ...ride, legs: outlook.legs, missed: { leg: outlook.leg, dep: outlook.missedDep } };
-    else if (outlook?.earlier) ride = { ...ride, legs: outlook.legs };
+    if (outlook?.missedDep != null) ride = { ...ride, legs: withStopShares(outlook.legs, shares), missed: { leg: outlook.leg, dep: outlook.missedDep } };
+    else if (outlook?.earlier) ride = { ...ride, legs: withStopShares(outlook.legs, shares) };
     let stops = null;
     if (phase.kind === 'riding') {
       try { stops = rideStops(await mbta('/predictions', rideStopsQuery(ride.legs[phase.leg].tripId)), transit[phase.leg].alight, t, transit[phase.leg].stop); } catch (e) {
@@ -1056,7 +1062,8 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       return false;
     }
     rem.lastCheckAt = t;
-    const row = withTripAlerts(rowsFromDocs(rem.trip, docs.predictions, docs.schedules, rem.timingIdx, t, rem.stopSlackMinutes).find(r => r.key === rem.key) ?? null, tripAlerts(docs.predictions, t));
+    const found = withTripAlerts(rowsFromDocs(rem.trip, docs.predictions, docs.schedules, rem.timingIdx, t, rem.stopSlackMinutes).find(r => r.key === rem.key) ?? null, tripAlerts(docs.predictions, t));
+    const row = found && { ...found, legs: withStopShares(found.legs, rem.stopsAt) }; // the legs bar's dots (2026-11-13)
     // The ride as last seen (its departure, and its legs for the question once it's gone).
     if (row) rem.seen = { firstDep: row.firstDep, legs: row.legs, eta: row.eta };
     if (row && !rem.asked && !(await trackPush(rem, row, t))) return drop(rem);
@@ -1382,7 +1389,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
     rec.alert = step.alert;
     rec.lastCheckAt = t;
-    rec.ride = { ...ride, legs: outlook && (outlook.missedDep != null || outlook.earlier) ? outlook.legs : ride.legs };
+    rec.ride = { ...ride, legs: outlook && (outlook.missedDep != null || outlook.earlier) ? withStopShares(outlook.legs, ride0.legs.map(l => l.at ?? null)) : ride.legs };
     rec.nextPollAt = t + RIDE_POLL_MS;
     return false;
   }

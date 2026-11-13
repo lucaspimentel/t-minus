@@ -121,6 +121,11 @@ struct WidgetView: Codable, Hashable {
         var late: Bool? = nil
         var thenLate: Bool? = nil
         var tl: TLMarks? = nil // the large size (2026-11-13): set where its timeline shows
+        // The legs bar (2026-11-13, medium): drawn under a followed ride's lines (`bar`, never on
+        // "Did you get on?" or the leave times) from the answer's `legs`; `stops`: the stops left
+        // on the ridden leg (the dots fill by it, as the cards').
+        var bar: Bool? = nil
+        var stops: Int? = nil
     }
     var name: String
     var rows: [Row]
@@ -128,6 +133,7 @@ struct WidgetView: Codable, Hashable {
     var end: Double?            // past it: "Open T-Minus"
     var refresh: Double         // when to ask again
     var timeline: [TLRow]? = nil // a followed ride's timeline (large size; its entries' `tl`)
+    var legs: [RideState.Leg]? = nil // the followed ride's legs for the bar (2026-11-13)
 }
 
 // What one timeline entry shows: an entry of the answer and its rows (from its own, up to 6: the
@@ -138,8 +144,11 @@ struct LeaveContent: Hashable {
     var entry: WidgetView.Entry?
     var rows: [WidgetView.Row]
     var timeline: [WidgetView.TLRow]? = nil
+    var legs: [RideState.Leg] = []
 
     static func stale(_ name: String) -> LeaveContent { LeaveContent(name: name, entry: nil, rows: []) }
+    // The legs bar's legs: the answer's, on entries that say `bar`.
+    var barLegs: [RideState.Leg] { entry?.bar == true ? legs : [] }
 
     // The answer as (date, content) pairs from `now` on: entries already replaced are left out,
     // and "Open T-Minus" follows at `end`.
@@ -150,7 +159,7 @@ struct LeaveContent: Hashable {
             if i + 1 < v.entries.count, Date(timeIntervalSince1970: v.entries[i + 1].at) <= now { continue }
             let rows = e.row >= 0 && e.row < v.rows.count ? Array(v.rows[e.row...].prefix(6)) : []
             let timeline = e.row >= 0 ? rows.first?.timeline : v.timeline
-            out.append((max(Date(timeIntervalSince1970: e.at), out.isEmpty ? .distantPast : out[out.count - 1].0), LeaveContent(name: v.name, entry: e, rows: rows, timeline: timeline)))
+            out.append((max(Date(timeIntervalSince1970: e.at), out.isEmpty ? .distantPast : out[out.count - 1].0), LeaveContent(name: v.name, entry: e, rows: rows, timeline: timeline, legs: v.legs ?? [])))
         }
         if let end = v.end { out.append((Date(timeIntervalSince1970: end), .stale(v.name))) }
         if out.isEmpty || out[0].0 > now { out.insert((now, .stale(v.name)), at: 0) }

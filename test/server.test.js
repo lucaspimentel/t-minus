@@ -1849,3 +1849,51 @@ test('Show again (restartCard): a new start push before the leave-by, a late bel
     assert.equal((await s.call('PUT', `/api/reminders/${id}`, { restartCard: true })).status, 409);
   } finally { await s.close(); }
 });
+
+test('legs bar: stop shares ride on the ride legs into pushes, reminders\' leave cards, and the widget', async () => {
+  const s = await setup();
+  try {
+    const token = 'ab'.repeat(40);
+    s.world.clock = at('07:12');
+    const withAt = (b, shares) => ({ ...b, ride: { ...b.ride, legs: b.ride.legs.map((l, i) => ({ ...l, at: shares[i] })) } });
+    assert.equal((await s.call('POST', '/api/rides', withAt(followed({ activity: { token } }), [[0.5, 0.2], [0.5]]))).status, 400); // decreasing
+    assert.equal((await s.call('POST', '/api/rides', withAt(followed({ activity: { token } }), ['x', [0.5]]))).status, 400);
+    await s.call('POST', '/api/rides', withAt(followed({ activity: { token } }), [[0.2, 0.6], [0.5]]));
+    s.world.rideStops.b1 = busStops(5, '07:15');
+    await s.app.tick();
+    assert.deepEqual(s.activity.at(-1).state.legs.map(l => l.at), [[0.2, 0.6], [0.5]]);
+    // Still there after another poll that changes the card.
+    s.world.clock = at('07:18');
+    s.world.rideStops.b1 = busStops(3, '07:20');
+    await s.app.tick();
+    assert.deepEqual(s.activity.at(-1).state.legs.map(l => l.at), [[0.2, 0.6], [0.5]]);
+  } finally { await s.close(); }
+});
+
+test('legs bar: a reminder\'s stopsAt reaches its leave card; PUT validates it; /api/widget entries carry the bar', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('06:44') + 30_000;
+    assert.equal((await s.call('POST', '/api/reminders', leaveReminder({ stopsAt: [[0.5]] }))).status, 400); // one leg's worth, the trip has two
+    const { id } = await (await s.call('POST', '/api/reminders', leaveReminder({ stopsAt: [[0.25, 0.75], [0.5]] }))).json();
+    await s.app.tick();
+    assert.deepEqual(s.activity[0].state.legs.map(l => l.at), [[0.25, 0.75], [0.5]]);
+    assert.equal((await s.call('PUT', `/api/reminders/${id}`, { stopsAt: [[2], null] })).status, 400);
+    assert.equal((await s.call('PUT', `/api/reminders/${id}`, { stopsAt: [[0.1], [0.9]] })).status, 204);
+    assert.deepEqual(s.store.get(id).stopsAt, [[0.1], [0.9]]);
+
+    // The widget: a belled ride's answer has the legs once and `bar` on its entries.
+    const legs = [{ tripId: 'b1', label: 'Bus 132', route: '132', color: 'FFC72C', dep: at('07:10'), arr: at('07:25'), at: [0.4] }, { tripId: 'o1', label: 'Orange', route: 'Orange', color: 'ED8B00', dep: at('07:33'), arr: at('07:50'), at: [0.3, 0.6] }];
+    const body = state => ({ trips: [trip], stopSlackMinutes: 1, oneOffAt: null, override: null, lastUsed: null, state: { trip: 'home', at: at('07:00'), atStop: null, pinned: false, ...state } });
+    s.world.clock = at('07:00');
+    const bell = await (await s.call('POST', '/api/widget', body({ kind: 'track', pinned: true, target: { key: 'b1', legs } }))).json();
+    assert.deepEqual(bell.legs.map(l => l.at), [[0.4], [0.3, 0.6]]);
+    assert.equal(bell.entries[0].bar, true);
+    s.world.clock = at('07:15');
+    s.world.rideStops.b1 = busStops(3, '07:18');
+    const ride = await (await s.call('POST', '/api/widget', body({ kind: 'stop', ride: { legs, boardedAt: at('07:10') } }))).json();
+    assert.deepEqual([ride.entries[0].bar, ride.entries[0].stops, ride.legs.map(l => l.at)], [true, 3, [[0.4], [0.3, 0.6]]]);
+    const bad = await s.call('POST', '/api/widget', body({ kind: 'stop', ride: { legs: legs.map(l => ({ ...l, at: [3] })), boardedAt: at('07:10') } }));
+    assert.equal(bad.status, 400);
+  } finally { await s.close(); }
+});

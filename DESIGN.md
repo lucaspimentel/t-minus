@@ -63,6 +63,10 @@ connection after" line red), and show the leave card's `gone` phase muted; older
 before) ignore them and keep amber (`warn`, `nextWarn`, `thenWarn` and `thenState` are
 unchanged).
 
+The legs bar (2026-11-13, mockups accepted): the same bar on the leave, walk and ride cards, the
+expanded Dynamic Island and the medium widget (a followed ride only: the belled ride, walking, the
+transfer, riding, the final walk; not the leave times, not "Did you get on?"). See "Legs bar".
+
 Vehicle names and headsigns (`lineLabel` + `toward` on full text lines, `vehicleArrow` on tight
 ones):
 
@@ -1194,12 +1198,21 @@ still holds, to stay well inside it either way:
   (the main screen's, at load since 2026-11-12; revalidated, 304 when unchanged); no MBTA
   requests.
 - Expanding a row: one `/schedules?filter[trip]=…` per transit leg for its stop counts, once per
-  trip and service date (memory); collapsed rows cost nothing.
+  trip and service date (memory); collapsed rows cost nothing. The request asks for the stop
+  times too (2026-11-13: `stop_sequence,arrival_time,departure_time`).
 - The iOS widget (`POST /api/widget`, the server's key): 2 requests per transit leg per reload
   (shared cache). The large size (2026-11-13) adds, for "Trip timeline" and followed rides, one
   `/schedules?filter[trip]=…` per leg of the shown ride, once per trip and service date (kept on
   the server, up to 500 trips): about 2 per new first ride on a 2-leg commute, a dozen a commute
   at most. Small, medium and "More rides" add none.
+- Legs bar stop shares (2026-11-13): for the shown trip's belled or ridden ride, the same
+  `/schedules?filter[trip]=…` per transit leg, once per service date: the in-memory copy is shared
+  with an expanded row's stop counts, and the shares (`stopsAt`, one `at` array per leg) are kept on
+  the phone for the service day (`t-minus:stop-shares`, the latest 4 trips, by the trip's legs),
+  so a reload costs none. A failure is retried after a minute while the ride is followed. The
+  shares go to the server with the ride (`ride.legs[].at`, ≤ 80 per leg), the reminder
+  (`stopsAt`, POST, or one PUT once they arrive) and the widget's request (`legs[].at`); none
+  from the server or the widget itself. The server keeps them on re-planned legs by position.
 - Schedule window: from 30 min ago (for missed rows, with the 15-min refresh) to
   max(6 h, 90 min × `departureCount`) ahead; once it reaches
   22:00 it is extended to the end of the service day (28:00).
@@ -1768,6 +1781,28 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   the bar does when the question for that departure is open (`askAnswerMatches`: within
   `ASK_MATCH_MIN`, 5 min, of it); otherwise (closed, answered, another departure) "Question
   closed". The compact island and the small widget keep a plain tap (opens the app).
+- **Legs bar (2026-11-13, mockups accepted):** the route map's look on a straight line (`LegsBar`, `RideViews.swift`).
+  Transit legs only, joined with no gap, each as wide as its share of the riding time (at least
+  8%), 5 pt in its route's color; the part ahead at 50% opacity, the part behind full (light and
+  dark alike), the ridden leg advancing on its own (iOS's timer progress; the previews fill it
+  statically). Rings like the map's stops (`.map-stop`): the ends and a transfer large (radius 6,
+  stroke 3, one shared ring at a transfer, in the arriving leg's color), the stops between small
+  (radius 3.5, stroke 1.5), hollow and faded ahead, filled once passed; the card's own color
+  fills the hollow centers (the island's black). A stop closer than 14 pt to the last one drawn
+  or to its leg's end is skipped, as the map's `stopsToShow`. The start ring fills at the first
+  departure, a transfer ring at the arriving leg's arrival, the end ring at the last arrival;
+  the ridden leg's stops fill by the stops left (`stops`, so the dots agree with "Get off in 5
+  stops": the stops between minus those still ahead), else by time; a done leg's are all filled,
+  a leg ahead's none. Stops sit where their scheduled times fall in the leg (`legs[].at`, 0..1
+  shares of dep → arr, one per stop between boarding and drop-off, 3 decimals; `tripStopShares`).
+  One stop pattern per leg applies to every departure of it, so a short turn or an express
+  variant can place a dot slightly off (the fill is clamped). No `at` (an older server, no stop
+  list on the phone, an auto-bell the app hasn't opened since): only the end and transfer rings.
+  The same bar on the expanded island and the medium widget. Payload: `legs[].at` is optional
+  (older builds ignore it); a card state over 3,500 bytes (APNs takes 4 KB) loses every `at`
+  (`fitCard`). Where the shares come from: "Legs bar stop shares" under Rate limits and request
+  budget.
+- **Bar before 2026-11-13:** segments with a 4 pt gap, a gray track, no rings.
 - **Card before 2026-10-31** (`ios/App/TMinusWidgets/RideViews.swift`, in the app's light / dark colors with the
   route's color as the dot): the trip name; a headline like the ride card's ("Orange · 4 stops",
   "Next stop: get off", "Bus 132" in the transfer (sub line "Toward Malden · 8:02am · 3 min to
@@ -2035,6 +2070,12 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
   circular) were removed 2026-10-31 (the build after 41): the leave, walk and ride cards are the
   Lock Screen's, kept current by pushes, where the widget lagged them within iOS's reload budget
   (seen 2026-10-27 and 2026-10-29).
+- **Legs bar (2026-11-13):** the medium size draws the cards' bar under a followed ride's lines
+  (not the leave times, not "Did you get on?"). The answer carries the ride's `legs` once
+  (`[{ color, dep, arr, at? }]`, Unix seconds) and its entries say `bar` (and `stops`, the stops
+  left, while riding); the bar is drawn at the entry's own moment (entries change at each stop
+  and leg), the ridden leg advancing by its timer. `WIDGET_LEG_KEYS` carries `at`: the app's
+  stop shares reach the server's rows by position (`widgetFollow`).
 - **Following the ride (2026-10-31; CLAUDE.md "UI rules": one answer):** the widget shows what
   the app follows (`widgetState`, the one en-route state: a ride first, then the boarding
   question, "Leaving now" / "At the stop", the bell), on that state's trip whatever the trip

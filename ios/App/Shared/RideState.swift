@@ -9,6 +9,9 @@ struct RideState: Codable, Hashable {
         var color: String
         var dep: Double
         var arr: Double
+        // The stops between boarding and drop-off as shares of dep → arr, 0...1 (2026-11-13, the
+        // legs bar's dots; absent from older servers and while the app has no stop list).
+        var at: [Double]? = nil
     }
 
     var phase: String   // riding, transfer, walking, arrived; leave, now, departs, gone (shown muted), cancelled, walk
