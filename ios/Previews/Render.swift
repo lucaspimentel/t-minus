@@ -341,13 +341,19 @@ private let laterRows = [hrow("7:57am", "8:52am", long: "Bus 132", short: "Bus 1
                          hrow("8:24am", "9:12am", long: "Bus 137", short: "Bus 137", headsign: "Malden", color: bus, label: "137"),
                          hrow("8:42am", "~9:31am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
                          hrow("8:57am", "~9:46am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132")]
+// Two-digit hours (the "Later" time column cut "10:16am" and wrapped "12:16pm", 2026-11-13).
+private let lateRows = [hrow("8:37am", "9:28am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
+                        hrow("9:17am", "10:02am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
+                        hrow("10:16am", "11:02am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
+                        hrow("11:16am", "12:04pm", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
+                        hrow("12:16pm", "1:04pm", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132")]
 // "More rides" (`timeline` false): the server sends no timeline.
-private func leaveLarge(_ e: WidgetView.Entry, hide: Int, timeline: Bool) -> LeaveContent {
+private func leaveLarge(_ e: WidgetView.Entry, hide: Int, timeline: Bool, later: [WidgetView.Row]? = nil) -> LeaveContent {
     var e = e
     e.tl = timeline ? marks(0, 0, hide) : nil
     var first = busRow
     first.timeline = timeline ? leaveTL : nil
-    return LeaveContent(name: "To work", entry: e, rows: [first] + laterRows, timeline: first.timeline)
+    return LeaveContent(name: "To work", entry: e, rows: [first] + (later ?? laterRows), timeline: first.timeline)
 }
 private func followLarge(_ head: String, _ headTime: String, note: String = "", warn: Bool = false, late: Bool = false, dep: Double? = nil,
                          tl: WidgetView.TLMarks?, rows: [TL] = tripTL) -> LeaveContent {
@@ -366,6 +372,7 @@ private let longTL = tleg("Washington St opp Ruggles St Station Busway", "7:12am
     + [tw("Walk 9 min"), TL(kind: "end", name: "Arrive", time: "8:34am")]
 private let largeSamples: [(String, LeaveContent)] = [
     ("Leave · More rides (default)", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1, timeline: false)),
+    ("Leave · More rides, two-digit hours", leaveLarge(hent("Leave in 15 min", "8:02am"), hide: -1, timeline: false, later: lateRows)),
     ("Leave · Trip timeline", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1, timeline: true)),
     ("Departs · Trip timeline (boarding time hidden)", leaveLarge(hent("Departs in 7 min", "7:48am", warn: true), hide: 1, timeline: true)),
     ("Departs, too late · More rides", leaveLarge(hent("Departs in 2 min", "7:48am", warn: true, late: true), hide: 1, timeline: false)),
