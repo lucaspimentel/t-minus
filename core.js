@@ -2191,24 +2191,93 @@ export function rideStops(doc, alightId, nowMs, boardId = null) {
 // From the trip's own stop list (`tripStopsQuery`), never stop_sequence arithmetic: the MBTA's
 // sequences skip (Orange 1, 10, 20…; Red 110 → 130 at the branch).
 export const tripStopsQuery = (tripId, date) => ({
-  'filter[trip]': tripId, 'filter[date]': date, include: 'stop', 'fields[schedule]': 'stop_sequence', 'fields[stop]': 'parent_station',
+  'filter[trip]': tripId, 'filter[date]': date, include: 'stop', 'fields[schedule]': 'stop_sequence,arrival_time,departure_time', 'fields[stop]': 'parent_station',
 });
+
+// The trip's stops in order, once each: [{ id, arr, dep }] (times in ms or null).
+function tripStopList(doc) {
+  return (doc?.data ?? [])
+    .map(r => ({ id: r.relationships?.stop?.data?.id, seq: r.attributes?.stop_sequence, arr: r.attributes?.arrival_time, dep: r.attributes?.departure_time }))
+    .filter(r => r.id && Number.isFinite(r.seq))
+    .filter(onceEach)
+    .sort((a, b) => a.seq - b.seq)
+    .map(r => ({ id: r.id, arr: r.arr ? Date.parse(r.arr) : null, dep: r.dep ? Date.parse(r.dep) : null }));
+}
+// The indexes of `board` and the later `alight` in a stop list (ids or parent stations); null when
+// either isn't there in that order.
+function boardAlight(list, parents, board, alight) {
+  const is = (id, want) => id === want || parents.get(id) === want;
+  const i = list.findIndex(r => is(r.id, board));
+  if (i < 0) return null;
+  const j = list.findIndex((r, k) => k > i && is(r.id, alight));
+  return j < 0 ? null : [i, j];
+}
 
 // Stops from `board` to `alight` (ids or parent stations of the trip's platforms) in the trip's
 // /schedules doc; null when either isn't on it in that order.
 export function tripStopCount(doc, board, alight) {
-  const parents = parentMapOf(doc);
-  const ids = (doc?.data ?? [])
-    .map(r => ({ id: r.relationships?.stop?.data?.id, seq: r.attributes?.stop_sequence }))
-    .filter(r => r.id && Number.isFinite(r.seq))
-    .filter(onceEach)
-    .sort((a, b) => a.seq - b.seq)
-    .map(r => r.id);
-  const is = (id, want) => id === want || parents.get(id) === want;
-  const i = ids.findIndex(id => is(id, board));
-  if (i < 0) return null;
-  const j = ids.findIndex((id, k) => k > i && is(id, alight));
-  return j < 0 ? null : j - i;
+  const list = tripStopList(doc);
+  const ij = boardAlight(list, parentMapOf(doc), board, alight);
+  return ij ? ij[1] - ij[0] : null;
+}
+
+// Where each stop strictly between `board` and `alight` falls in the leg's time (2026-11-13, the
+// legs bar's dots): its scheduled time's share of the board's departure → the alight's arrival,
+// 0..1, 3 decimals, one per intermediate stop (`tripStopCount - 1`). [] for adjacent stops; null
+// when a stop is missing or out of order, a time is missing, or the span isn't positive.
+export function tripStopShares(doc, board, alight) {
+  const list = tripStopList(doc);
+  const ij = boardAlight(list, parentMapOf(doc), board, alight);
+  if (!ij) return null;
+  const [i, j] = ij;
+  const start = list[i].dep ?? list[i].arr;
+  const end = list[j].arr ?? list[j].dep;
+  if (start == null || end == null || !(end > start)) return null;
+  const out = [];
+  let last = 0;
+  for (let k = i + 1; k < j; k++) {
+    const at = list[k].arr ?? list[k].dep;
+    if (at == null) return null;
+    last = Math.max(last, Math.min(1, Math.max(0, (at - start) / (end - start))));
+    out.push(Math.round(last * 1000) / 1000);
+  }
+  return out;
+}
+
+export const MAX_LEG_STOPS = 80;
+// A leg's `at` (stop shares) error text, or null.
+export function legAtError(at) {
+  if (!Array.isArray(at) || at.length > MAX_LEG_STOPS) return 'at is invalid';
+  let last = 0;
+  for (const x of at) {
+    if (!Number.isFinite(x) || x < last || x > 1) return 'at is invalid';
+    last = x;
+  }
+  return null;
+}
+// A trip's `stopsAt` (one `at` array or null per transit leg) error text, or null.
+export function stopSharesError(stopsAt, n) {
+  if (!Array.isArray(stopsAt) || stopsAt.length !== n) return 'stopsAt must match the trip';
+  return stopsAt.some(a => a != null && legAtError(a)) ? 'stopsAt is invalid' : null;
+}
+// `legs` with each leg's stop shares from `stopsAt` (a leg that has its own keeps them).
+export function withStopShares(legs, stopsAt) {
+  if (!Array.isArray(stopsAt)) return legs;
+  return legs.map((l, i) => (!Array.isArray(l.at) && Array.isArray(stopsAt[i]) ? { ...l, at: stopsAt[i] } : l));
+}
+// The legs as cards and the widget carry them: color, times in Unix seconds, and the stop shares
+// when known (`fallback`: a replanned leg takes its position's from the ride's own legs).
+function cardLegs(legs, fallback = null) {
+  return legs.map((l, i) => {
+    const at = Array.isArray(l.at) ? l.at : fallback?.[i]?.at;
+    return { color: l.color ?? '', dep: Math.round(l.dep / 1000), arr: Math.round(l.arr / 1000), ...(Array.isArray(at) && { at }) };
+  });
+}
+// A card state past what APNs takes (4 KB) loses its stop shares: the bar draws the ends only.
+const CARD_STATE_MAX_BYTES = 3500;
+function fitCard(state) {
+  if (JSON.stringify(state).length <= CARD_STATE_MAX_BYTES) return state;
+  return { ...state, legs: state.legs.map(({ at: _, ...l }) => l) };
 }
 
 // The trip to count a row leg's stops on: its own when scheduled (`scheduleTrips`: mergeTrips of
@@ -2373,6 +2442,7 @@ export function checkRide(trip, ride, nowMs) {
     for (const k of ['track', 'train']) if (l[k] != null && (typeof l[k] !== 'string' || l[k].length > 10)) return `ride leg ${k} is invalid`;
     if (l.flag != null && !FLAGS.includes(l.flag)) return 'ride leg flag is invalid';
     if (l.off != null && !Number.isFinite(l.off)) return 'ride leg off is invalid';
+    if (l.at != null && legAtError(l.at)) return 'ride leg at is invalid';
   }
   if (!Number.isFinite(ride.boardedAt)) return 'ride.boardedAt is invalid';
   const end = legs[n - 1].arr;
@@ -2713,14 +2783,15 @@ export function vehicleRouteLabel(leg, route) {
 // whole minutes by itself but can't say "<1 minute"; the times aren't accurate to the second
 // anyway). Set early enough for the server's next poll to deliver it before "0 minutes".
 export const LIVE_SOON_MS = 80_000;
-export function liveActivityState(ride, phase, stops, outlook, walkAfter, nowMs) {
+export const liveActivityState = (...args) => fitCard(rideActivityState(...args));
+function rideActivityState(ride, phase, stops, outlook, walkAfter, nowMs) {
   const legs = outlook?.legs ?? ride.legs;
   const sec = ms => Math.round(ms / 1000);
   const t = ms => formatTime(ms, nowMs);
   const eta = legs[legs.length - 1].arr + walkAfter * MIN;
   const out = {
     phase: phase.kind, warn: false, late: false, nextLate: false, color: '', label: '', title: '', until: 0, stops: -1, sub: '', next: '',
-    legs: legs.map(l => ({ color: l.color ?? '', dep: sec(l.dep), arr: sec(l.arr) })),
+    legs: cardLegs(legs, ride.legs),
   };
   const withLeg = leg => Object.assign(out, { color: leg.color ?? '', label: islandLabel(leg) });
   const nextLine = () => {
@@ -2904,7 +2975,7 @@ function leaveCardBase(row, nowMs) {
   const first = row.legs[0];
   return {
     phase: '', warn: false, late: false, color: first.color ?? '', label: islandLabel(first), title: '', until: 0, stops: -1,
-    sub: lineToward(first), next: '', legs: row.legs.map(l => ({ color: l.color ?? '', dep: Math.round(l.dep / 1000), arr: Math.round(l.arr / 1000) })),
+    sub: lineToward(first), next: '', legs: cardLegs(row.legs),
     island: '', join: ' ',
     head: '', countTo: 0, headTime: '', long: withTrack(first), headsign: first.headsign ?? '', right: '', note: '', emoji: '',
     // The later legs (2026-10-31): "then ● Bus 132", as the medium widget.
@@ -2927,7 +2998,8 @@ const departsHead = (row, nowMs) => ({
 // `was`: the leave-by last notified before it moved (amber until the next change). `warn`: amber
 // (moved, past the leave-by); `late` (the build after 54): red, past the last chance ('departs').
 // 'gone' keeps `warn` for older builds; the build after 54 shows it muted by phase.
-export function leaveActivityState(row, nowMs, { was = null } = {}) {
+export const leaveActivityState = (...args) => fitCard(leaveCardState(...args));
+function leaveCardState(row, nowMs, { was = null } = {}) {
   const t = ms => formatTime(ms, nowMs);
   const sec = ms => Math.round(ms / 1000);
   const out = leaveCardBase(row, nowMs);
@@ -2976,7 +3048,8 @@ export function leaveCancelledState(last) {
 }
 // The walk card: the leave card after "Leaving now" / "At the stop" (`enRoute`), updated by the
 // app until boarding. `row`: the en-route row headed for.
-export function walkActivityState(row, enRoute, nowMs) {
+export const walkActivityState = (...args) => fitCard(walkCardState(...args));
+function walkCardState(row, enRoute, nowMs) {
   const t = ms => formatTime(ms, nowMs);
   const first = row.legs[0];
   const out = leaveCardBase(row, nowMs);
@@ -2991,7 +3064,8 @@ export function walkActivityState(row, enRoute, nowMs) {
 }
 // The leave (or walk) card at the departure of a belled ride: the boarding question, until it's
 // answered or ASK_MINUTES pass. `row`: { legs, firstDep } is enough.
-export function askActivityState(row, nowMs) {
+export const askActivityState = (...args) => fitCard(askCardState(...args));
+function askCardState(row, nowMs) {
   const first = row.legs[0];
   return Object.assign(leaveCardBase(row, nowMs), {
     phase: 'ask', title: 'Did you get on?', sub: `${lineToward(first)} left at ${legTime(first, first.dep, nowMs)}`,
@@ -3042,7 +3116,7 @@ export function widgetRequest(cfg, oneOffAt, override, lastUsed, state = null) {
 // The leg fields the widget's server needs to name and time a ride's legs. Times to the minute:
 // the server refreshes them by trip id, and the request (rewritten when it changes, reloading the
 // widget) shouldn't change with every poll.
-const WIDGET_LEG_KEYS = ['route', 'label', 'routeLabels', 'vehicleRoute', 'color', 'headsign', 'tripId', 'dep', 'arr', 'source', 'arrSource', 'every', 'picked', 'off'];
+const WIDGET_LEG_KEYS = ['route', 'label', 'routeLabels', 'vehicleRoute', 'color', 'headsign', 'tripId', 'dep', 'arr', 'source', 'arrSource', 'every', 'picked', 'off', 'at'];
 const toMinute = ms => Math.floor(ms / MIN) * MIN;
 const widgetLegs = legs => legs.map(l => Object.fromEntries(WIDGET_LEG_KEYS.filter(k => l[k] != null).map(k => [k, k === 'dep' || k === 'arr' || k === 'off' ? toMinute(l[k]) : l[k]])));
 
@@ -3066,7 +3140,7 @@ function widgetStateError(st, trips) {
   if (!trip) return 'state.trip is invalid';
   if (!['track', 'leaving', 'stop'].includes(st.kind) || !Number.isFinite(st.at)) return 'state is invalid';
   const n = tripShape(trip).transit.length;
-  const legsOk = legs => Array.isArray(legs) && legs.length === n && legs.every(l => typeof l?.tripId === 'string' && Number.isFinite(l.dep) && Number.isFinite(l.arr));
+  const legsOk = legs => Array.isArray(legs) && legs.length === n && legs.every(l => typeof l?.tripId === 'string' && Number.isFinite(l.dep) && Number.isFinite(l.arr) && (l.at == null || !legAtError(l.at)));
   if (st.target != null && !(typeof st.target.key === 'string' && legsOk(st.target.legs))) return 'state.target is invalid';
   if (st.asking != null && !(st.target && Number.isFinite(st.asking.dep))) return 'state.asking is invalid';
   if (st.ride != null && !(legsOk(st.ride.legs) && Number.isFinite(st.ride.boardedAt))) return 'state.ride is invalid';
@@ -3096,7 +3170,9 @@ export function widgetFollow(st, rows, walkAfter, nowMs) {
   const done = ride => ridePhase(ride, walkAfter, nowMs).kind === 'done';
   if (st.ride) return done(st.ride) ? null : { kind: 'ride', ride: st.ride };
   const t = st.target;
-  const row = rows.find(r => r.key === t.key);
+  const own = t.legs.map(l => l.at ?? null); // the app's stop shares (the server's rows have none)
+  const found = rows.find(r => r.key === t.key);
+  const row = found && { ...found, legs: withStopShares(found.legs, own) };
   const legs = row?.legs ?? t.legs;
   const dep = st.asking?.dep ?? row?.firstDep ?? legs[0].dep;
   const eta = legs[legs.length - 1].arr + walkAfter * MIN;
@@ -3230,6 +3306,8 @@ export function widgetView(tripName, rows, nowMs, follow = null, large = null) {
     };
   });
   const view = { name: tripName ?? '', rows: lines, entries: [], end: null, refresh: sec(nowMs + WIDGET_REFRESH_MIN * MIN) };
+  // The belled ride's legs bar (2026-11-13), once for the answer; its entries say `bar`.
+  if (follow) view.legs = cardLegs(follow.row.legs);
   const empty = (title, next = '') => ({ row: -1, title, count: '', headTime: '', warn: false, late: false, next });
   if (tripName == null) { view.entries.push({ at: sec(nowMs), ...empty('Plan a trip in T-Minus') }); return view; }
   const add = (at, i, e) => view.entries.push({ at: Math.floor(Math.max(at, nowMs) / 1000), row: i, warn: false, late: false, ...e });
@@ -3275,6 +3353,7 @@ export function widgetView(tripName, rows, nowMs, follow = null, large = null) {
     if (asked.timeline) view.timeline = asked.timeline;
   }
   tls.forEach((tl, i) => { if (tl) lines[i].timeline = tl.rows; }); // only the rows shown
+  if (follow) for (const e of view.entries) if (e.row >= 0) e.bar = true;
   return view;
 }
 
@@ -3348,9 +3427,12 @@ function widgetFollowView(tripName, follow, nowMs, large = null) {
       long: st.long ?? '', headsign: st.headsign ?? '', color: st.color ?? '', arrive: st.right ?? '', note: st.note ?? '',
       then: st.then ?? [], thenText: st.thenText ?? '', thenWarn: !!st.nextWarn, ...(st.askDep && { dep: st.askDep }),
       ...(st.dropOff && { dropOff: st.dropOff }), ...(st.thenState && { thenState: st.thenState }), ...(st.nextLate && { thenLate: true }),
+      // The legs bar (2026-11-13): everywhere but the question; the stops left while riding.
+      ...(!st.askDep && { bar: true }), ...(st.phase === 'riding' && st.stops > 0 && { stops: st.stops }),
     };
   };
   let prevKey = null;
+  view.legs = stateAt(nowMs).st.legs;
   for (let t = nowMs; t < until && t < horizon;) {
     const { st, marks } = stateAt(t);
     const e = entry(st, t);

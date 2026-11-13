@@ -289,6 +289,30 @@ test('a tracked ride starts a Live Activity, updates it when its content changes
   await expect.poll(async () => (await activityCalls(page)).at(-1)).toEqual({ call: 'end', id: 'act1' });
 });
 
+test('the legs bar: stop shares from the trip stop lists reach the card, the ride post and the widget; fetched once per leg, kept for the day', async ({ page }) => {
+  const calls = await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, widget: true });
+  const mbta = await openApp(page, { time: '07:00' });
+  const tripHits = () => mbta.hits.filter(h => h.path === '/schedules' && h.query.has('filter[trip]'));
+  await boardTheBus(page);
+  // Bus 132: Pond St (0), the stop 4 min on, the drop-off at 14 min: one stop between, at 4/14.
+  const latest = async () => (await activityCalls(page)).filter(c => c.call === 'start' || c.call === 'update').at(-1)?.state;
+  await expect.poll(async () => (await latest())?.legs[0].at).toEqual([0.286]);
+  expect((await latest()).legs[1].at).toEqual([]); // Orange: adjacent stops
+  // The ride post and the widget's request carry them.
+  await expect.poll(() => ridePosts(calls).filter(c => c.method !== 'DELETE').some(c => c.body?.ride?.legs?.[0]?.at?.[0] === 0.286)).toBe(true);
+  await expect.poll(async () => (await page.evaluate(() => window.widgetBodies ?? [])).at(-1)?.state?.ride?.legs?.[0]?.at).toEqual([0.286]);
+  // One request per transit leg, kept for the service day on the phone.
+  expect(tripHits()).toHaveLength(2);
+  await tickTo(page, '07:27');
+  expect(tripHits()).toHaveLength(2);
+  expect(await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('t-minus:stop-shares')))).length).toBe(1);
+  await page.reload();
+  await page.locator('.row.ride, .row').first().waitFor();
+  await tick(page, 1500);
+  expect(tripHits()).toHaveLength(2);
+});
+
 test('without notification permission, the ride is followed for its Live Activity only: no prompt, alerts off', async ({ page }) => {
   const calls = await fakeServer(page);
   await page.addInitScript(capacitorStub, { server: PUSH, permission: 'prompt', token: TOKEN });

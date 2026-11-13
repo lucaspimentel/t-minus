@@ -29,6 +29,8 @@ private extension LeaveContent {
     var askDep: Double? { entry?.dep }
     // The headline's color: red with `late`, amber with `warn`.
     func tint(_ th: Theme) -> Color { late ? th.red : warn ? th.amber : th.text }
+    // The legs bar's moment: the entry's own (entries change at each stop and leg).
+    var barNow: Date { Date(timeIntervalSince1970: entry?.at ?? Date().timeIntervalSince1970) }
     // A countdown to show (else "No more today", "Plan a trip", "Open T-Minus").
     var isHome: Bool { entry?.head != nil }
 }
@@ -156,6 +158,10 @@ private struct MediumHome: View {
                 AnswerButtons(dep: dep, text: th.text, track: th.track)
             } else {
                 bottom(th, tint: tint)
+                // The legs bar (2026-11-13) under a followed ride's lines; not for leave times.
+                if !content.barLegs.isEmpty {
+                    LegsBar(legs: content.barLegs, stops: content.entry?.stops ?? -1, card: th.card, now: content.barNow).padding(.top, 4)
+                }
             }
         }
         .font(.subheadline)

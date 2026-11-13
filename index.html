@@ -582,7 +582,7 @@
 import {
   validateConfig, withTripIds, newTripId, setupSavePlan, sameLegsAs, staleServerEntries, reminderKeyOf, reminderRef, tripReminders, tripShape, tripMarker, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
-  rowState, targetRow, timelineSteps, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
+  rowState, targetRow, timelineSteps, stopNames, tripStopsQuery, tripStopCount, tripStopShares, withStopShares, legsKey, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions,
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
@@ -746,6 +746,20 @@ const scheduleTrips = doc => {
   if (!mergedSchedules.has(doc)) mergedSchedules.set(doc, mergeTrips(null, doc));
   return mergedSchedules.get(doc);
 };
+// One trip's stop list (with times) for a service date: the doc, or null while it loads or after a
+// failure (retried after a minute); shared by the rows' stop counts and the legs bar's stop shares.
+function tripStopDoc(id, date) {
+  const key = `${id}@${date}`;
+  const hit = tripStopDocs.get(key);
+  if (hit?.doc) return hit.doc;
+  if (hit?.pending || (hit?.failedAt && Date.now() - hit.failedAt < 60_000)) return null;
+  tripStopDocs.set(key, { pending: true });
+  while (tripStopDocs.size > 200) tripStopDocs.delete(tripStopDocs.keys().next().value);
+  api('/schedules', tripStopsQuery(id, date))
+    .then(doc => { tripStopDocs.set(key, { doc }); render(); })
+    .catch(() => { tripStopDocs.set(key, { failedAt: Date.now() }); });
+  return null;
+}
 function legStopCounts(r, trip) {
   const c = cache[refOf(tripIdx)];
   const s = r.nextDay ? c?.nextDay : c?.schedules;
@@ -754,20 +768,68 @@ function legStopCounts(r, trip) {
   return r.legs.map((leg, i) => {
     const t = transit[i];
     const id = t && stopCountTrip(leg, t, scheduleTrips(s?.docs?.[i]));
-    if (!id) return null;
-    const key = `${id}@${date}`;
-    const hit = tripStopDocs.get(key);
-    if (hit?.doc) return tripStopCount(hit.doc, t.stop, t.alight);
-    if (hit?.pending || (hit?.failedAt && Date.now() - hit.failedAt < 60_000)) return null;
-    tripStopDocs.set(key, { pending: true });
-    while (tripStopDocs.size > 200) tripStopDocs.delete(tripStopDocs.keys().next().value);
-    api('/schedules', tripStopsQuery(id, date))
-      .then(doc => { tripStopDocs.set(key, { doc }); render(); })
-      .catch(() => { tripStopDocs.set(key, { failedAt: Date.now() }); });
-    return null;
+    const doc = id && tripStopDoc(id, date);
+    return doc ? tripStopCount(doc, t.stop, t.alight) : null;
   });
 }
 
+// The legs bar's stop positions (2026-11-13): for the shown trip's belled or ridden ride, each
+// leg's stops as shares of its time (`tripStopShares`), from the same trip stop lists, kept on the
+// phone for the service day (`stopsAt`: one array or null per leg; all null: none known).
+const stopSharesSent = new Set(); // reminder ids sent their stopsAt
+const KEY_STOP_SHARES = 't-minus:stop-shares'; // { [tripRef]: { date, legs (legsKey), stopsAt } }
+const stopSharesHeld = ref => (store.get(KEY_STOP_SHARES) ?? {})[ref] ?? null;
+function stopsAtOf(ref) {
+  const held = stopSharesHeld(ref);
+  return held?.stopsAt.some(Array.isArray) ? held.stopsAt : null;
+}
+// The en-route states with the stop shares on their legs, for the widget's request.
+const withSharesAll = all => Object.fromEntries(Object.entries(all ?? {}).map(([ref, s]) => {
+  const at = s && stopsAtOf(ref);
+  if (!at) return [ref, s];
+  return [ref, { ...s, ...(s.target && { target: { ...s.target, legs: withStopShares(s.target.legs, at) } }), ...(s.ride && { ride: { ...s.ride, legs: withStopShares(s.ride.legs, at) } }) }];
+}));
+function syncStopShares() {
+  const ref = refOf(tripIdx);
+  const s = ref && enRouteState();
+  const legs = s?.ride?.legs ?? s?.target?.legs;
+  if (!legs?.length) return;
+  const trip = config.trips[tripIdx];
+  const date = serviceDate(legs[0].dep).date;
+  const key = legsKey(trip);
+  const held = stopSharesHeld(ref);
+  const have = held?.date === date && held.legs === key;
+  if (!have) {
+    const c = cache[ref];
+    const docs = [c?.schedules, c?.nextDay].find(d => d?.date === date);
+    const { transit } = tripShape(trip);
+    let complete = true;
+    const stopsAt = transit.map((t, i) => {
+      const id = stopCountTrip(legs[i], t, scheduleTrips(docs?.docs?.[i]));
+      if (!id) return null;
+      const doc = tripStopDoc(id, date);
+      if (!doc) { complete = false; return null; }
+      return tripStopShares(doc, t.stop, t.alight);
+    });
+    if (!complete) return;
+    const all = { ...(store.get(KEY_STOP_SHARES) ?? {}) };
+    delete all[ref];
+    all[ref] = { date, legs: key, stopsAt };
+    for (const k of Object.keys(all).slice(0, -4)) delete all[k]; // the latest few trips
+    store.set(KEY_STOP_SHARES, all);
+  }
+  // The bell's reminder on the server learns them once (the leave card's dots).
+  const at = stopsAtOf(ref);
+  if (at && SERVER_API) {
+    for (const [remKey, rem] of Object.entries(tripReminders(reminders, ref))) {
+      if (rem.stopsAt || !rem.id || stopSharesSent.has(rem.id)) continue;
+      stopSharesSent.add(rem.id);
+      pushApi('PUT', `/reminders/${rem.id}`, { stopsAt: at })
+        .then(() => { if (reminders[remKey]?.id === rem.id) { reminders[remKey] = { ...reminders[remKey], stopsAt: true }; saveReminders(); } })
+        .catch(() => stopSharesSent.delete(rem.id));
+    }
+  }
+}
 // The leg being ridden on the shown trip, if any: { leg, idx }.
 function ridingLeg(now) {
   const s = enRouteState();
@@ -1317,13 +1379,14 @@ async function syncRideAlert(s, now) {
   const alerts = notifyPermission() === 'granted' && !s.alert?.off;
   const token = native && activity?.key === activityKey(s) ? activity.token ?? null : null;
   if (!alerts && !token) return;
-  const sync = `${s.ride.legs.map(l => l.tripId).join(',')}|${alerts}|${token}`;
+  const stopsAt = stopsAtOf(refOf(tripIdx));
+  const sync = `${s.ride.legs.map(l => l.tripId).join(',')}|${alerts}|${token}|${stopsAt ? 1 : 0}`;
   if (s.alert?.sync === sync) return;
   const idx = tripIdx;
   const ref = refOf(idx);
   rideAlertBusy = true;
   try {
-    const ride = { legs: s.ride.legs, boardedAt: s.ride.boardedAt };
+    const ride = { legs: withStopShares(s.ride.legs, stopsAt), boardedAt: s.ride.boardedAt };
     const extra = { alerts, ...(token && { activity: { token } }) };
     let id = s.alert?.id;
     if (id && await pushApi('PUT', `/rides/${id}`, { ride, ...extra }).then(() => true, e => { if (/Not found/.test(e.message)) return false; throw e; }) === false) id = null;
@@ -1407,7 +1470,8 @@ async function syncLiveActivity(s, now) {
   }
   if (!key || activityFailed === key) return;
   const { phase, stops, outlook, walkAfter } = rideCardData(s, now);
-  const state = liveActivityState(withTripAlerts(s.ride, trainAlerts(cache[refOf(tripIdx)], now)), phase, stops, outlook, walkAfter, now);
+  const ref = refOf(tripIdx);
+  const state = liveActivityState(withTripAlerts({ ...s.ride, legs: withStopShares(s.ride.legs, stopsAtOf(ref)) }, trainAlerts(cache[ref], now)), phase, stops, outlook, walkAfter, now);
   const json = JSON.stringify(state);
   if (!activity) {
     const ok = await run('start', async () => {
@@ -1536,7 +1600,7 @@ async function startWalkCard(ref, rem) {
   const now = Date.now();
   const row = currentRows(now, s).find(r => r.key === rem.key);
   if (!row || now >= row.firstDep) return;
-  const state = walkActivityState(row, s, now);
+  const state = walkActivityState({ ...row, legs: withStopShares(row.legs, stopsAtOf(ref)) }, s, now);
   try {
     const { id } = await plugins.TMinus.liveActivityStart({ tripName: config.trips[tripIdx].name, state });
     saveLeaveCard({ id, tripRef: ref, reminderId: null, key: rem.key, last: JSON.stringify(state) });
@@ -1561,7 +1625,8 @@ function syncLeaveCard(now) {
     return;
   }
   // Missed at the at-stop time: the boarding question until it's answered.
-  const state = s.asking ? askActivityState({ legs: s.target.legs, firstDep: s.asking.dep, eta: s.target.legs.at(-1).arr + (cardTrip ? tripShape(cardTrip).walkAfter : 0) * 60_000 }, now) : row && walkActivityState(row, s, now);
+  const at = stopsAtOf(leaveCard.tripRef);
+  const state = s.asking ? askActivityState({ legs: withStopShares(s.target.legs, at), firstDep: s.asking.dep, eta: s.target.legs.at(-1).arr + (cardTrip ? tripShape(cardTrip).walkAfter : 0) * 60_000 }, now) : row && walkActivityState({ ...row, legs: withStopShares(row.legs, at) }, s, now);
   if (!state) return;
   const json = JSON.stringify(state);
   if (json === leaveCard.last) return;
@@ -1767,13 +1832,14 @@ async function notify(r) {
   render();
   try {
     const startToken = await liveStartToken();
+    const stopsAt = stopsAtOf(refOf(tripIdx));
     const { id, headsUps } = await pushApi('POST', '/reminders', {
       subscription: await subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
-      timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy, dep: r.firstDep, ...(startToken && { startToken }),
+      timingIdx: r.timingIdx, key: r.key, leaveBy: r.leaveBy, dep: r.firstDep, ...(startToken && { startToken }), ...(stopsAt && { stopsAt }),
     });
     const s = enRouteState();
     if (s?.bell && !s.ride && s.target?.key === r.key) {
-      reminders[remKey] = { id, leaveBy: r.leaveBy, dep: r.firstDep, headsUps, timingIdx: r.timingIdx, key: r.key, bell: true };
+      reminders[remKey] = { id, leaveBy: r.leaveBy, dep: r.firstDep, headsUps, timingIdx: r.timingIdx, key: r.key, bell: true, ...(stopsAt && { stopsAt: true }) };
       saveReminders();
     } else pushApi('DELETE', `/reminders/${id}`).catch(() => {}); // the bell went off meanwhile
   } catch (e) {
@@ -1861,12 +1927,13 @@ async function restoreReminders(ref, removed) {
   try {
     const subscription = await pushSubscription();
     const startToken = await liveStartToken();
+    const stopsAt = stopsAtOf(ref);
     for (const [remKey, rem] of due) {
       const { id, headsUps } = await pushApi('POST', '/reminders', {
         subscription, trip, tripName: trip.name, stopSlackMinutes: stopSlackMinutes(config),
-        timingIdx: rem.timingIdx, key: rem.key, leaveBy: rem.leaveBy, ...(rem.dep != null && { dep: rem.dep }), ...(startToken && { startToken }),
+        timingIdx: rem.timingIdx, key: rem.key, leaveBy: rem.leaveBy, ...(rem.dep != null && { dep: rem.dep }), ...(startToken && { startToken }), ...(stopsAt && { stopsAt }),
       });
-      reminders[remKey] = { ...rem, id, headsUps };
+      reminders[remKey] = { ...rem, id, headsUps, stopsAt: !!stopsAt };
       saveReminders();
     }
   } catch (e) {
@@ -2143,6 +2210,7 @@ function render() {
     rideFetchFor = riding.leg.tripId;
     setTimeout(() => refresh());
   }
+  syncStopShares();
   syncLeaveCard(now);
   syncLiveActivity(en, now);
   syncBoarding(now);
@@ -2572,7 +2640,7 @@ let widgetSent = null; // { body, next }; `next` null: not known yet (the baseli
 let widgetNext = null;
 function syncWidget() {
   if (typeof plugins.TMinus?.widgetSave !== 'function') return;
-  const body = JSON.stringify(widgetRequest(config, oneOff?.at ?? null, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP), widgetState(store.get(KEY_EN_ROUTE), config?.trips)));
+  const body = JSON.stringify(widgetRequest(config, oneOff?.at ?? null, store.get(KEY_OVERRIDE), store.get(KEY_LAST_TRIP), widgetState(withSharesAll(store.get(KEY_EN_ROUTE)), config?.trips)));
   const moved = widgetSent?.next != null && widgetNext != null && widgetNext !== widgetSent.next;
   if (body === widgetSent?.body && !moved) {
     widgetSent.next ??= widgetNext;

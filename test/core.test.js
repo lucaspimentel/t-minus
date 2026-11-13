@@ -10,7 +10,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   validAutoBell, bostonMs, autoBellNext, autoBellRow, autoBellLabel, autoBellTrips,
-  MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, stopCountTrip, stopCountText, rideLine,
+  MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, tripStopShares, withStopShares, legAtError, stopSharesError, stopCountTrip, stopCountText, rideLine,
   legQuery, predictionQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, vehicleArrow, withoutArrived, stopConnections, groupConnections, rowConnections,
   shownTrip, widgetRequest, widgetRequestError, scheduleTimingLeg, widgetView, widgetTimeline, widgetTimelineMarks, WIDGET_HORIZON_MIN, widgetState, widgetFollow,
@@ -2587,7 +2587,7 @@ test('stop counts: from the trip\'s stop list (not stop_sequence), borrowed trip
   assert.equal(tripStopCount({ data: [] }, 'p1', 'p2'), null);
   assert.equal(tripStopCount(null, 'p1', 'p2'), null);
   assert.deepEqual(tripStopsQuery('t1', '2026-10-05'), {
-    'filter[trip]': 't1', 'filter[date]': '2026-10-05', include: 'stop', 'fields[schedule]': 'stop_sequence', 'fields[stop]': 'parent_station' });
+    'filter[trip]': 't1', 'filter[date]': '2026-10-05', include: 'stop', 'fields[schedule]': 'stop_sequence,arrival_time,departure_time', 'fields[stop]': 'parent_station' });
   assert.equal(proxyRequestError('/schedules', Object.entries(tripStopsQuery('t1', '2026-10-05'))), null);
 
   // The trip to count: its own when scheduled, else the scheduled one closest in time.
@@ -2963,4 +2963,100 @@ test('auto-bell: the ride is the last one arriving by the target, else the earli
   assert.equal(autoBellRow([row('a', 900), row('b', 980, { missed: true })], 1000).key, 'a');
   assert.equal(autoBellRow([row('c', 1030), row('d', 1010)], 1000).key, 'd');
   assert.equal(autoBellRow([], 1000), null);
+});
+
+test('tripStopShares: each intermediate stop\'s share of the leg\'s time; [] adjacent; null when unknown', () => {
+  const t0 = Date.parse('2026-10-05T12:00:00Z');
+  const rec = (id, seq, arrMin, depMin) => ({ type: 'schedule', attributes: { stop_sequence: seq,
+    arrival_time: arrMin == null ? null : new Date(t0 + arrMin * MIN).toISOString(), departure_time: depMin == null ? null : new Date(t0 + depMin * MIN).toISOString() },
+  relationships: { stop: { data: { id } } } });
+  const plat = (id, parent) => ({ type: 'stop', id, relationships: { parent_station: { data: { id: parent } } } });
+  // Boards at 0 (departs 1), stops at 3, 6, 9, drops at 11.
+  const doc = { data: [rec('p4', 40, 11, 11), rec('p1', 1, 0, 1), rec('p3', 30, 9, 9), rec('p2', 10, 3, 3), rec('p25', 20, 6, 6)],
+    included: [plat('p1', 'place-a'), plat('p4', 'place-d')] };
+  const shares = tripStopShares(doc, 'place-a', 'place-d');
+  assert.deepEqual(shares, [0.2, 0.5, 0.8]);
+  assert.equal(shares.length, tripStopCount(doc, 'place-a', 'place-d') - 1);
+  assert.deepEqual(tripStopShares(doc, 'p3', 'p4'), []);
+  assert.equal(tripStopShares(doc, 'place-d', 'place-a'), null); // wrong order
+  assert.equal(tripStopShares(doc, 'nowhere', 'p4'), null);
+  assert.equal(tripStopShares(null, 'p1', 'p2'), null);
+  // A missing time or a span that isn't positive.
+  const noTime = { data: [rec('a', 1, 0, 0), rec('b', 2, null, null), rec('c', 3, 10, 10)] };
+  assert.equal(tripStopShares(noTime, 'a', 'c'), null);
+  assert.equal(tripStopShares({ data: [rec('a', 1, 5, 5), rec('b', 2, 5, 5), rec('c', 3, 5, 5)] }, 'a', 'c'), null);
+  // A trip listed under two routes counts once; shares never decrease.
+  const twice = { data: [rec('a', 1, 0, 0), rec('a', 1, 0, 0), rec('b', 2, 4, 4), rec('b', 2, 4, 4), rec('c', 3, 8, 8)] };
+  assert.deepEqual(tripStopShares(twice, 'a', 'c'), [0.5]);
+});
+
+test('stop shares: validation, withStopShares', () => {
+  assert.equal(legAtError([0, 0.5, 1]), null);
+  assert.equal(legAtError([]), null);
+  for (const bad of ['x', [0.5, 0.4], [-0.1], [1.1], [NaN], Array(81).fill(0.5), null]) assert.equal(legAtError(bad), 'at is invalid');
+  assert.equal(stopSharesError([[0.5], null], 2), null);
+  assert.equal(stopSharesError([[0.5]], 2), 'stopsAt must match the trip');
+  assert.equal(stopSharesError([[2], null], 2), 'stopsAt is invalid');
+  const legs = [{ a: 1 }, { a: 2, at: [0.1] }];
+  assert.equal(withStopShares(legs, null), legs);
+  assert.deepEqual(withStopShares(legs, [[0.3], [0.9]]), [{ a: 1, at: [0.3] }, { a: 2, at: [0.1] }]); // its own kept
+  assert.deepEqual(withStopShares(legs, [null, null]), legs);
+});
+
+test('legs bar: stop shares ride on card states, replanned legs, leave cards, the widget; size guard', () => {
+  const mk = (tripId, dep, arr, label, color, shares) => ({ route: label, label, color, tripId, dep: at(dep), arr: at(arr), source: 'live', ...(shares && { at: shares }) });
+  const ride = { boardedAt: at('17:41'), legs: [mk('o1', '17:41', '17:56', 'Orange', 'ED8B00', [0.2, 0.6]), mk('b1', '18:06', '18:18', 'Bus 132', 'FFC72C', [0.5])] };
+  const stops = n => ({ vehicle: null, stops: Array.from({ length: n }, (_, i) => ({ id: `s${i}`, name: `S${i}`, time: 0, dropOff: i === n - 1 })) });
+  const riding = liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(3), null, 5, at('17:50'));
+  assert.deepEqual(riding.legs.map(l => l.at), [[0.2, 0.6], [0.5]]);
+  // A replanned leg (no `at` of its own) takes its position's from the ride.
+  const replanned = { leg: 1, needed: at('18:01'), margin: 5 * MIN, missedDep: null, none: false, legs: [ride.legs[0], { ...mk('b2', '18:12', '18:24', 'Bus 132', 'FFC72C') }] };
+  assert.deepEqual(liveActivityState(ride, { kind: 'riding', leg: 0 }, stops(3), replanned, 5, at('17:50')).legs.map(l => l.at), [[0.2, 0.6], [0.5]]);
+  // Without shares: unchanged (no `at` key).
+  const plain = { boardedAt: ride.boardedAt, legs: ride.legs.map(({ at: _, ...l }) => l) };
+  assert.deepEqual(liveActivityState(plain, { kind: 'riding', leg: 0 }, stops(3), null, 5, at('17:50')).legs.map(l => Object.keys(l)), [['color', 'dep', 'arr'], ['color', 'dep', 'arr']]);
+  // Leave and walk cards and the question carry the row legs' shares.
+  const row = { key: 'k', leaveBy: at('17:30'), firstDep: at('17:41'), eta: at('18:23'), legs: ride.legs };
+  assert.deepEqual(leaveActivityState(row, at('17:20')).legs.map(l => l.at), [[0.2, 0.6], [0.5]]);
+  assert.deepEqual(askActivityState(row, at('17:42')).legs.map(l => l.at), [[0.2, 0.6], [0.5]]);
+  // Too big for APNs: the shares go, the legs stay.
+  const big = n => Array.from({ length: n }, (_, i) => Math.round(i / n * 1000) / 1000);
+  const huge = { boardedAt: ride.boardedAt, legs: Array.from({ length: 8 }, (_, i) => mk(`t${i}`, '17:41', '17:56', 'Orange', 'ED8B00', big(80))) };
+  const trimmed = liveActivityState(huge, { kind: 'riding', leg: 0 }, stops(3), null, 5, at('17:50'));
+  assert.equal(trimmed.legs.some(l => 'at' in l), false);
+  assert.ok(JSON.stringify(trimmed).length < 3500);
+  assert.equal(JSON.stringify(riding).length < 3500, true);
+  // checkRide rejects a bad `at`.
+  const trip = { id: 'abc123', name: 'T', legs: [{ kind: 'transit', route: 'Orange', direction_id: 0, stop: 'a', alight: 'b' }, { kind: 'transfer', minutes: 3 }, { kind: 'transit', route: '132', direction_id: 1, stop: 'c', alight: 'd' }] };
+  const posted = (l0at) => ({ boardedAt: ride.boardedAt, legs: ride.legs.map((l, i) => ({ ...l, ...(i === 0 && { at: l0at }) })) });
+  assert.equal(checkRide(trip, posted([0.1, 0.2]), at('17:45')), null);
+  assert.equal(checkRide(trip, posted([0.3, 0.2]), at('17:45')), 'ride leg at is invalid');
+});
+
+test('widget: stop shares survive widgetState, reach server rows, and followed entries carry the bar', () => {
+  const mk = (tripId, dep, arr, label, color, shares) => ({ route: label, label, color, tripId, dep: at(dep), arr: at(arr), source: 'live', ...(shares && { at: shares }) });
+  const trips = [{ id: 'abc123', name: 'Office to home', legs: [{ kind: 'transit', route: 'Orange', direction_id: 0, stop: 'a', alight: 'b' }, { kind: 'transfer', minutes: 3 }, { kind: 'transit', route: '132', direction_id: 1, stop: 'c', alight: 'd' }] }];
+  const legs = [mk('o1', '17:41', '17:56', 'Orange', 'ED8B00', [0.2, 0.6]), mk('b1', '18:06', '18:18', 'Bus 132', 'FFC72C', [0.5])];
+  const st = widgetState({ abc123: { kind: 'track', at: at('17:00'), bell: true, target: { key: 'k', legs } } }, trips);
+  assert.deepEqual(st.target.legs.map(l => l.at), [[0.2, 0.6], [0.5]]);
+  // The server's rows have none: the request's are copied by position.
+  const row = { key: 'k', leaveBy: at('17:30'), firstDep: at('17:41'), eta: at('18:23'), legs: legs.map(({ at: _, ...l }) => l) };
+  const follow = widgetFollow(st, [row], 5, at('17:20'));
+  assert.deepEqual(follow.row.legs.map(l => l.at), [[0.2, 0.6], [0.5]]);
+  // The belled view: legs once, `bar` on its entries; plain leave times have neither.
+  const bell = widgetView('Office to home', null, at('17:20'), follow);
+  assert.deepEqual(bell.legs.map(l => l.at), [[0.2, 0.6], [0.5]]);
+  assert.ok(bell.entries.filter(e => e.row >= 0).every(e => e.bar === true));
+  const plainView = widgetView('Office to home', [row], at('17:20'));
+  assert.equal('legs' in plainView, false);
+  assert.equal(plainView.entries.some(e => 'bar' in e), false);
+  // Riding: `stops` while stops are left; the question has no bar.
+  const ride = { boardedAt: at('17:41'), legs };
+  const stops = { vehicle: null, stops: [3, 4, 5].map((m, i) => ({ id: `s${i}`, name: `S${i}`, time: at('17:4') + m * MIN, dropOff: i === 2 })) };
+  const riding = widgetView('Office to home', null, at('17:45'), { kind: 'ride', ride, walkAfter: 5, stops, stopsLeg: 0, outlook: null });
+  assert.deepEqual(riding.legs.map(l => l.at), [[0.2, 0.6], [0.5]]);
+  assert.ok(riding.entries.every(e => e.bar === true));
+  assert.ok(riding.entries.some(e => e.stops > 0));
+  const asking = widgetView('Office to home', null, at('17:45'), { kind: 'ask', row: { legs, firstDep: at('17:41'), eta: at('18:23') } });
+  assert.ok(asking.entries.every(e => !('bar' in e)));
 });
