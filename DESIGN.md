@@ -2148,10 +2148,10 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
   - Data: the widget posts to `/api/widget?size=large&show=timeline|rides` (the same body) and
     keeps its own saved copy. The answer adds optional fields only then (other requests' answers
     are unchanged): `timeline` (core.js `widgetTimeline`: rows `walk` / `stop` / `ride` / `end`,
-    text and times already formatted) per leave row (with `show=timeline`) and on the view for a
-    followed state, and per entry `tl` (`widgetTimelineMarks`: `done`, `current`, `hide`, and
+    text and times already formatted) on each leave row the entries show (with `show=timeline`)
+    and on the view for a followed state, and per entry `tl` (`widgetTimelineMarks`: `done`, `current`, `hide`, and
     `along`, the stops left and the vehicle). Stop counts come from each leg's trip stop list
-    (`tripStopsQuery`), kept on the server per trip and service date (`legStopCounts`, up to 500;
+    (`tripStopsQuery`), the count kept on the server per trip, service date and stops (`legStopCounts`, up to 500;
     a failed fetch: minutes only, tried again at the next reload); "More rides" needs none.
 - **Previews:** the `ios` workflow also renders `widget-<theme>.png` (the leave-time samples and
   every followed state, small and medium) and `widget-large-<theme>.png` (every large state, the

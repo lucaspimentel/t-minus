@@ -12,14 +12,12 @@ import WidgetKit
 struct LeaveEntry: TimelineEntry {
     let date: Date
     let content: LeaveContent
-    var show: LeaveShow = .rides
 }
 
 enum LeaveShowOption: String, AppEnum {
     case rides, timeline
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Show"
     static var caseDisplayRepresentations: [LeaveShowOption: DisplayRepresentation] = [.rides: "More rides", .timeline: "Trip timeline"]
-    var show: LeaveShow { self == .timeline ? .timeline : .rides }
 }
 
 struct LeaveConfiguration: WidgetConfigurationIntent {
@@ -38,31 +36,29 @@ struct LeaveProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> LeaveEntry { Self.sample }
 
     func snapshot(for configuration: LeaveConfiguration, in context: Context) async -> LeaveEntry {
-        let show = configuration.show.show
-        if context.isPreview { return LeaveEntry(date: Date(), content: Self.sample.content, show: show) }
-        let (view, _) = await Self.load(large: context.family == .systemLarge, show: show)
+        if context.isPreview { return Self.sample }
+        let (view, _) = await Self.load(large: context.family == .systemLarge ? configuration.show : nil)
         let now = Date()
-        return LeaveContent.timeline(view, now: now).last { $0.0 <= now }.map { LeaveEntry(date: now, content: $0.1, show: show) } ?? Self.sample
+        return LeaveContent.timeline(view, now: now).last { $0.0 <= now }.map { LeaveEntry(date: now, content: $0.1) } ?? Self.sample
     }
 
     func timeline(for configuration: LeaveConfiguration, in context: Context) async -> Timeline<LeaveEntry> {
-        let show = configuration.show.show
-        let (view, fresh) = await Self.load(large: context.family == .systemLarge, show: show)
+        let (view, fresh) = await Self.load(large: context.family == .systemLarge ? configuration.show : nil)
         let now = Date()
-        let entries = LeaveContent.timeline(view, now: now).map { LeaveEntry(date: $0.0, content: $0.1, show: show) }
+        let entries = LeaveContent.timeline(view, now: now).map { LeaveEntry(date: $0.0, content: $0.1) }
         let retry = now.addingTimeInterval(600)
         let next = fresh && view != nil ? max(Date(timeIntervalSince1970: view!.refresh), now.addingTimeInterval(60)) : retry
         return Timeline(entries: entries, policy: .after(next))
     }
 
     // The server's answer (saved for later), else the last one saved: (answer, fresh). The large
-    // size asks for its timeline and keeps its own copy (a small size's answer has none).
-    static func load(large: Bool = false, show: LeaveShow = .rides) async -> (WidgetView?, Bool) {
+    // size (`large`: its "Show") asks for its timeline and keeps its own copy per option.
+    static func load(large show: LeaveShowOption? = nil) async -> (WidgetView?, Bool) {
         let defaults = UserDefaults.standard
-        let key = large ? "\(WidgetStore.last).large.\(show == .timeline ? "timeline" : "rides")" : WidgetStore.last
+        let key = show.map { "\(WidgetStore.last).large.\($0.rawValue)" } ?? WidgetStore.last
         let saved = defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(WidgetView.self, from: $0) }
         guard let body = WidgetStore.loadRequest() else { return (saved, false) }
-        let target = large ? URL(string: "\(url.absoluteString)?size=large&show=\(show == .timeline ? "timeline" : "rides")")! : url
+        let target = show.map { URL(string: "\(url.absoluteString)?size=large&show=\($0.rawValue)")! } ?? url
         var req = URLRequest(url: target, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "content-type")
@@ -99,7 +95,7 @@ private struct LeaveWidgetEntryView: View {
         case .systemMedium:
             LeaveWidgetView(content: entry.content, size: .medium).containerBackground(Theme.of(scheme).card, for: .widget)
         case .systemLarge:
-            LeaveWidgetView(content: entry.content, size: .large, show: entry.show).containerBackground(Theme.of(scheme).card, for: .widget)
+            LeaveWidgetView(content: entry.content, size: .large).containerBackground(Theme.of(scheme).card, for: .widget)
         default:
             LeaveWidgetView(content: entry.content, size: .small).containerBackground(Theme.of(scheme).card, for: .widget)
         }

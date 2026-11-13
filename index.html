@@ -555,7 +555,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · 2eeb497961</footer>
+    <footer class="version">Version 2026-11-12 · 1fcf3c7789</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -586,8 +586,8 @@ import {
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, TAP_ZOOM, doubleTap, twoFingerTap, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=4b3e0ded23';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=cdcc9ceb08';
+} from './core.js?v=b60ed43271';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=b7b5c03a58';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1600,7 +1600,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=4b3e0ded23'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=b60ed43271'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;

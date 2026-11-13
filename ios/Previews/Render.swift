@@ -341,12 +341,13 @@ private let laterRows = [hrow("7:57am", "8:52am", long: "Bus 132", short: "Bus 1
                          hrow("8:24am", "9:12am", long: "Bus 137", short: "Bus 137", headsign: "Malden", color: bus, label: "137"),
                          hrow("8:42am", "~9:31am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
                          hrow("8:57am", "~9:46am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132")]
-private func leaveLarge(_ e: WidgetView.Entry, hide: Int) -> LeaveContent {
+// "More rides" (`timeline` false): the server sends no timeline.
+private func leaveLarge(_ e: WidgetView.Entry, hide: Int, timeline: Bool) -> LeaveContent {
     var e = e
-    e.tl = marks(0, 0, hide)
+    e.tl = timeline ? marks(0, 0, hide) : nil
     var first = busRow
-    first.timeline = leaveTL
-    return LeaveContent(name: "To work", entry: e, rows: [first] + laterRows, timeline: leaveTL)
+    first.timeline = timeline ? leaveTL : nil
+    return LeaveContent(name: "To work", entry: e, rows: [first] + laterRows, timeline: first.timeline)
 }
 private func followLarge(_ head: String, _ headTime: String, note: String = "", warn: Bool = false, late: Bool = false, dep: Double? = nil,
                          tl: WidgetView.TLMarks?, rows: [TL] = tripTL) -> LeaveContent {
@@ -363,28 +364,28 @@ private let longTL = tleg("Washington St opp Ruggles St Station Busway", "7:12am
     + [tw("5 min to transfer")] + tleg("Nubian Station", "7:39am", "Silver Line SL5 · 9 stops · 18 min", "toward Downtown Crossing", "Tremont St @ Boylston Station", "7:57am", "7C878E")
     + [tw("4 min to transfer")] + tleg("Boylston", "8:01am", "Green Line D · 11 stops · 24 min", "toward Riverside", "Brookline Hills", "8:25am", "00843D")
     + [tw("Walk 9 min"), TL(kind: "end", name: "Arrive", time: "8:34am")]
-private let largeSamples: [(String, LeaveContent, LeaveShow)] = [
-    ("Leave · More rides (default)", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1), .rides),
-    ("Leave · Trip timeline", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1), .timeline),
-    ("Departs · Trip timeline (boarding time hidden)", leaveLarge(hent("Departs in 7 min", "7:48am", warn: true), hide: 1), .timeline),
-    ("Departs, too late · More rides", leaveLarge(hent("Departs in 2 min", "7:48am", warn: true, late: true), hide: 1), .rides),
-    ("Walking", followLarge("Departs in 6 min", "7:48am", note: "At the stop ~7:46am · 2 min to spare", tl: marks(0, 0, 0)), .rides),
-    ("Walking, late", followLarge("Departs in 3 min", "7:48am", note: "At the stop ~7:50am · 2 min late", warn: true, late: true, tl: marks(0, 0, 0)), .rides),
-    ("Did you get on?", followLarge("Did you get on?", "left 7:48am", dep: now - 60, tl: marks(0, 0, 0)), .rides),
-    ("Riding, 5 stops left", followLarge("Get off in 5 stops", "9 min", tl: marks(1, 2, 2, along: ride5)), .rides),
-    ("Riding, 9 stops left", followLarge("Get off in 9 stops", "14 min", tl: marks(1, 2, 2, along: ride9)), .rides),
-    ("Riding, at the boarding stop", followLarge("Get off in 6 stops", "17 min", tl: marks(1, 2, 2, along: boarding)), .rides),
-    ("Riding, last leg", followLarge("Get off in 3 stops", "7 min", tl: marks(5, 2, 6, along: olAlong)), .rides),
-    ("Transfer", followLarge("Orange in 5 min", "8:11am", note: "4 min to spare", tl: marks(3, 2, 4)), .rides),
-    ("Transfer, tight", followLarge("Orange in 2 min", "8:11am", note: "tight", warn: true, tl: marks(3, 2, 4)), .rides),
-    ("Missed connection", followLarge("Orange in 7 min", "8:17am", note: "Missed the 8:11am", warn: true, late: true, tl: marks(3, 2, 4)), .rides),
-    ("Final walk", followLarge("Arrive in 6 min", "8:37am", tl: marks(7, 2, 8)), .rides),
-    ("Three legs, long names (overflow)", followLarge("Get off in 9 stops", "14 min", tl: marks(1, 2, 2, along: ride9), rows: longTL), .rides),
-    ("Arrived (the medium's layout)", followLarge("Arrived", "8:37am", tl: nil), .rides),
-    ("Old answer, no timeline (fallback)", fent("Get off in 5 stops", "9 min", thenText: "at 6:38pm", dropOff: "Oak Grove"), .rides),
-    ("No more today", plainSamples[0].1, .rides),
-    ("Set up", plainSamples[1].1, .rides),
-    ("Stale", plainSamples[2].1, .rides),
+private let largeSamples: [(String, LeaveContent)] = [
+    ("Leave · More rides (default)", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1, timeline: false)),
+    ("Leave · Trip timeline", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1, timeline: true)),
+    ("Departs · Trip timeline (boarding time hidden)", leaveLarge(hent("Departs in 7 min", "7:48am", warn: true), hide: 1, timeline: true)),
+    ("Departs, too late · More rides", leaveLarge(hent("Departs in 2 min", "7:48am", warn: true, late: true), hide: 1, timeline: false)),
+    ("Walking", followLarge("Departs in 6 min", "7:48am", note: "At the stop ~7:46am · 2 min to spare", tl: marks(0, 0, 0))),
+    ("Walking, late", followLarge("Departs in 3 min", "7:48am", note: "At the stop ~7:50am · 2 min late", warn: true, late: true, tl: marks(0, 0, 0))),
+    ("Did you get on?", followLarge("Did you get on?", "left 7:48am", dep: now - 60, tl: marks(0, 0, 0))),
+    ("Riding, 5 stops left", followLarge("Get off in 5 stops", "9 min", tl: marks(1, 2, 2, along: ride5))),
+    ("Riding, 9 stops left", followLarge("Get off in 9 stops", "14 min", tl: marks(1, 2, 2, along: ride9))),
+    ("Riding, at the boarding stop", followLarge("Get off in 6 stops", "17 min", tl: marks(1, 2, 2, along: boarding))),
+    ("Riding, last leg", followLarge("Get off in 3 stops", "7 min", tl: marks(5, 2, 6, along: olAlong))),
+    ("Transfer", followLarge("Orange in 5 min", "8:11am", note: "4 min to spare", tl: marks(3, 2, 4))),
+    ("Transfer, tight", followLarge("Orange in 2 min", "8:11am", note: "tight", warn: true, tl: marks(3, 2, 4))),
+    ("Missed connection", followLarge("Orange in 7 min", "8:17am", note: "Missed the 8:11am", warn: true, late: true, tl: marks(3, 2, 4))),
+    ("Final walk", followLarge("Arrive in 6 min", "8:37am", tl: marks(7, 2, 8))),
+    ("Three legs, long names (overflow)", followLarge("Get off in 9 stops", "14 min", tl: marks(1, 2, 2, along: ride9), rows: longTL)),
+    ("Arrived (the medium's layout)", followLarge("Arrived", "8:37am", tl: nil)),
+    ("Old answer, no timeline (fallback)", fent("Get off in 5 stops", "9 min", thenText: "at 6:38pm", dropOff: "Oak Grove")),
+    ("No more today", plainSamples[0].1),
+    ("Set up", plainSamples[1].1),
+    ("Stale", plainSamples[2].1),
 ]
 
 private struct LargeWidgetSheet: View {
@@ -392,7 +393,7 @@ private struct LargeWidgetSheet: View {
     private func cell(_ i: Int) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(largeSamples[i].0).font(.caption).foregroundStyle(.white)
-            LeaveWidgetView(content: largeSamples[i].1, size: .large, show: largeSamples[i].2).padding(16).frame(width: 338, height: 354)
+            LeaveWidgetView(content: largeSamples[i].1, size: .large).padding(16).frame(width: 338, height: 354)
                 .background(Theme.of(scheme).card).clipShape(RoundedRectangle(cornerRadius: 22))
         }
     }
