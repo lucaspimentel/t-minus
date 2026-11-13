@@ -34,14 +34,14 @@ const DENIED = () => {
   for (const k of ['watchPosition', 'getCurrentPosition']) { const f = navigator.geolocation[k]; navigator.geolocation[k] = (...a) => { window.geoAsks++; return f(...a); }; }
 };
 
-// A tap on the main screen's map, away from its corner buttons.
+// "Open the full map" on the main screen's map (2026-11-13; until then a tap on the map).
 async function openMap(page) {
-  await mainMap(page).locator('svg.route-svg').click({ position: { x: 12, y: 12 } });
+  await mainMap(page).getByRole('button', { name: 'Open the full map' }).click();
   await tick(page, 300);
   await expect(sheet(page)).toBeVisible();
 }
 
-test('a tap on the main screen\'s map opens the trip: both legs at their shapes, labeled ends, stop names on tap; shapes kept on the phone', async ({ page }) => {
+test('"Open the full map" opens the trip: both legs at their shapes, labeled ends, stop names on tap; shapes kept on the phone', async ({ page }) => {
   const mbta = await openApp(page, { map: true, time: '07:00', init: DENIED });
   await expect(page.locator('header').getByRole('button', { name: 'Route map' })).toHaveCount(0); // until 2026-11-12
   await openMap(page);
@@ -64,6 +64,7 @@ test('a tap on the main screen\'s map opens the trip: both legs at their shapes,
   expect(await xy(pins(svg(page)).last())).toEqual(await xy(svg(page).getByRole('button', { name: 'State', exact: true })));
   expect(await svg(page).evaluate(s => { const kids = [...s.children]; return kids.indexOf(s.querySelector('.map-pin.start')) > kids.indexOf([...s.querySelectorAll('.map-stop')].at(-1)); })).toBe(true);
   await svg(page).getByRole('button', { name: 'Pond St @ Stone Zoo' }).click();
+  await tick(page, 300); // a single tap waits for a second one (2026-11-13)
   await expect(page.locator('#map-caption')).toHaveText('Pond St @ Stone Zoo');
   await expect(svg(page).getByRole('button', { name: 'Pond St @ Stone Zoo' })).toHaveAttribute('aria-pressed', 'true');
   // One request per leg, route and direction only.
@@ -76,10 +77,9 @@ test('a tap on the main screen\'s map opens the trip: both legs at their shapes,
   // A tap focuses nothing, and nothing gets the focus back (focusing the trip picker opened it on iOS).
   await expect(page.locator('#toggle select')).not.toBeFocused();
   expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
-  // From the keyboard: "Open the full map", shown while focused, opens it and gets the focus back.
+  // From the keyboard, "Open the full map" gets the focus back.
   const open = mainMap(page).getByRole('button', { name: 'Open the full map' });
   await open.focus();
-  await expect(open).toBeVisible();
   await page.keyboard.press('Enter');
   await expect(sheet(page)).toBeVisible();
   await page.keyboard.press('Escape');
@@ -576,7 +576,7 @@ test('locate tapped while outside the map: no move, "Outside the map", the butto
 // The main screen's map (2026-11-12; on the empty screen only from 2026-11-09): first in the
 // list, 26% of the screen's height, no caption or credit, vehicles every 10 s; hidden on demand.
 const mapSvg = page => mainMap(page).locator('svg.route-svg');
-test('the main screen\'s map: above the rows, 26% of the screen, vehicles every 10 s (paused for the sheet); a tap opens the sheet', async ({ page }) => {
+test('the main screen\'s map: above the rows, 26% of the screen, vehicles every 10 s (paused for the sheet); its corner buttons; a tap doesn\'t open the sheet', async ({ page }) => {
   await serveBase(page);
   const scenario = { ...commute(), vehicles: [vehicleAt('inside', '132in-0612', 15)] };
   const mbta = await openApp(page, { map: true, time: '07:00', scenario, init: DENIED });
@@ -595,6 +595,18 @@ test('the main screen\'s map: above the rows, 26% of the screen, vehicles every 
   await expect(map.getByRole('button', { name: 'Center on my location' })).toBeVisible();
   await expect(map.getByRole('button', { name: 'Hide map' })).toBeVisible();
   await expect(map.locator('.map-vehicle')).toHaveCount(1);
+  // Hide map alone in the top-left; locate, fit and "Open the full map" on the right (2026-11-13).
+  const box = await mapSvg(page).boundingBox();
+  const hb = await map.getByRole('button', { name: 'Hide map' }).boundingBox();
+  expect(Math.abs(hb.x - box.x - 10)).toBeLessThanOrEqual(2);
+  expect(Math.abs(hb.y - box.y - 10)).toBeLessThanOrEqual(2);
+  expect(await map.locator('.map-tools > button').evaluateAll(bs => bs.map(b => b.className))).toEqual(['map-tool map-locate', 'map-tool map-fit', 'map-tool map-expand']);
+  const ob = await map.getByRole('button', { name: 'Open the full map' }).boundingBox();
+  expect(ob.x + ob.width).toBeGreaterThan(box.x + box.width - 14);
+  // A tap on the map doesn't open the sheet.
+  await mapSvg(page).click({ position: { x: box.width / 2, y: box.height - 20 } });
+  await tick(page, 300);
+  await expect(sheet(page)).toBeHidden();
   // No prompt on its own; the once-a-second redraw keeps the same map.
   await tick(page, 3000);
   expect(await page.evaluate(() => window.geoAsks)).toBe(0);
@@ -1027,9 +1039,7 @@ test('no rows, locate follows you on the empty map too, and on into the sheet an
   await tick(page, 50);
   expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 2000 });
   // The sheet goes on following at the same level (until 2026-11-12 opening it ended follow).
-  await pic.click();
-  await tick(page, 300);
-  await expect(sheet(page)).toBeVisible();
+  await openMap(page);
   const sbtn = locateTool(sheet(page));
   await expect(sbtn).toHaveAttribute('aria-pressed', 'true');
   await expect(sbtn).toHaveAttribute('aria-label', 'Zoom in to the street');
@@ -1043,8 +1053,7 @@ test('no rows, locate follows you on the empty map too, and on into the sheet an
   await expect(btn).toHaveAttribute('aria-pressed', 'true');
   expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 2000 });
   // A drag in the sheet ends it; the main map gets the moved view.
-  await pic.click();
-  await tick(page, 300);
+  await openMap(page);
   const box = await svg(page).boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
@@ -1351,4 +1360,153 @@ test('before boarding (belled or waiting), a fix by your bus leaves it at its MB
   await tick(page, 50);
   await expect(mainMap(page).locator('.map-vehicle.gps')).toHaveCount(0);
   await expect(mainMap(page).locator('.map-here')).toHaveCount(1);
+});
+
+// The main screen's map pans and zooms (2026-11-13): a drag, a pinch, ctrl+wheel (a plain wheel
+// scrolls the page); a double-tap zooms in and a two-finger tap out, on both maps; a tap on a
+// stop labels it on the main map.
+const viewOf = async s => (await s.getAttribute('viewBox')).split(' ').map(Number);
+const touchOn = async page => {
+  const cdp = await page.context().newCDPSession(page);
+  return (type, touchPoints) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
+};
+const tap = async (touch, x, y) => { await touch('touchStart', [{ x, y, id: 1 }]); await touch('touchEnd', []); };
+
+test('the main screen\'s map: a drag pans, a pinch and ctrl+wheel zoom, a plain wheel scrolls the page; none opens the sheet', async ({ page }) => {
+  await page.addInitScript(() => addEventListener('wheel', e => { window.wheelPrevented = e.defaultPrevented; }, { passive: true }));
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
+  const pic = mapSvg(page);
+  const box = await pic.boundingBox();
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  const touch = await touchOn(page);
+  const before = await viewOf(pic);
+  await expect(mainMap(page).locator('.map-fit')).toBeHidden();
+  // A one-finger drag pans.
+  await touch('touchStart', [{ x: cx, y: cy, id: 1 }]);
+  for (let i = 1; i <= 8; i++) await touch('touchMove', [{ x: cx + i * 10, y: cy, id: 1 }]);
+  await touch('touchEnd', []);
+  const panned = await viewOf(pic);
+  expect(panned[0]).toBeLessThan(before[0]);
+  expect(panned[2]).toBeCloseTo(before[2]);
+  await expect(mainMap(page).locator('.map-fit')).toBeVisible();
+  // A pinch zooms.
+  await touch('touchStart', [{ x: cx - 20, y: cy, id: 1 }, { x: cx + 20, y: cy, id: 2 }]);
+  for (let i = 1; i <= 8; i++) await touch('touchMove', [{ x: cx - 20 - i * 10, y: cy, id: 1 }, { x: cx + 20 + i * 10, y: cy, id: 2 }]);
+  await touch('touchEnd', []);
+  const pinched = await viewOf(pic);
+  expect(pinched[2]).toBeLessThan(panned[2] * 0.6);
+  // A plain wheel is the page's; ctrl+wheel zooms.
+  await page.mouse.move(cx, cy);
+  await page.mouse.wheel(0, -300);
+  await tick(page, 100);
+  expect(await viewOf(pic)).toEqual(pinched);
+  expect(await page.evaluate(() => window.wheelPrevented)).toBe(false);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  await tick(page, 100);
+  expect((await viewOf(pic))[2]).toBeLessThan(pinched[2] * 0.9);
+  expect(await page.evaluate(() => window.wheelPrevented)).toBe(true);
+  await tick(page, 300);
+  await expect(sheet(page)).toBeHidden();
+  // The moved view goes on into the sheet, where a plain wheel zooms.
+  const moved = await viewOf(pic);
+  await openMap(page);
+  const sv = await viewOf(svg(page));
+  expect(sv[2] / (await svg(page).boundingBox()).width).toBeCloseTo(moved[2] / box.width, 1);
+  const sb = await svg(page).boundingBox();
+  await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+  await page.mouse.wheel(0, -100);
+  await tick(page, 100);
+  expect((await viewOf(svg(page)))[2]).toBeLessThan(sv[2]);
+});
+
+for (const where of ['main', 'sheet']) {
+  test(`a double-tap zooms in twice about the point, a two-finger tap out (${where} map; 2026-11-13)`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openApp(page, { map: true, time: '07:00', init: DENIED });
+    if (where === 'sheet') await openMap(page);
+    const s = where === 'sheet' ? svg(page) : mapSvg(page);
+    const box = await s.boundingBox();
+    const touch = await touchOn(page);
+    // Off the route: the left edge, halfway down.
+    const x = box.x + 40, y = box.y + box.height / 2;
+    const v0 = await viewOf(s);
+    const labels = await s.locator('.map-label').count();
+    await tap(touch, x, y);
+    await tap(touch, x, y);
+    const v1 = await viewOf(s);
+    expect(v1[2]).toBeCloseTo(v0[2] / 2, 0);
+    // The tapped point keeps its place.
+    const at = v => (v[0] + (x - box.x) / box.width * v[2]);
+    expect(Math.abs(at(v1) - at(v0)) / v0[2]).toBeLessThan(0.01);
+    await expect(s.locator('xpath=ancestor::*[contains(@class,"route-map")]').locator('.map-fit')).toBeVisible();
+    await tick(page, 300);
+    await expect(s.locator('.map-label')).toHaveCount(labels); // no stop selected
+    if (where === 'sheet') await expect(page.locator('#map-caption')).toHaveText('');
+    else await expect(sheet(page)).toBeHidden();
+    // Two fingers down and up: twice out.
+    const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+    const twoFinger = async () => { await touch('touchStart', [{ x: cx - 30, y: cy, id: 1 }, { x: cx + 30, y: cy, id: 2 }]); await touch('touchEnd', []); };
+    await twoFinger();
+    const v2 = await viewOf(s);
+    expect(v2[2]).toBeCloseTo(v1[2] * 2, 0);
+    // Clamped at the whole bound.
+    for (let i = 0; i < 12; i++) { await twoFinger(); await tick(page, 600); }
+    const max = (await viewOf(s))[2];
+    await twoFinger();
+    expect((await viewOf(s))[2]).toBeCloseTo(max, 0);
+  });
+}
+
+test('the main screen\'s map: a tap on a stop shows its name, a tap elsewhere clears it; its stops aren\'t buttons', async ({ page }) => {
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
+  const pic = mapSvg(page);
+  await expect(pic.locator('.map-label')).toHaveText(['Main St @ South St', 'Oak Grove', 'State']);
+  await expect(pic.locator('[role="button"], [tabindex]')).toHaveCount(0);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
+  // A drawn stop between the ends.
+  const pt = await pic.evaluate(s => {
+    const g = [...s.querySelectorAll('.map-stop[data-stop]')].find(x => !x.hasAttribute('display') && !x.querySelector('.map-label'));
+    const r = g.querySelector('circle').getBoundingClientRect();
+    return { id: g.dataset.stop, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await page.mouse.click(pt.x, pt.y);
+  await tick(page, 100);
+  await expect(pic.locator('.map-label')).toHaveCount(3); // waiting for a second tap
+  await tick(page, 200);
+  await expect(pic.locator('.map-label')).toHaveCount(4);
+  const name = await pic.locator(`.map-stop[data-stop="${pt.id}"] .map-label`).textContent();
+  expect(name.length).toBeGreaterThan(0);
+  await expect(sheet(page)).toBeHidden();
+  await tick(page, 2000); // kept across the redraw
+  await expect(pic.locator(`.map-stop[data-stop="${pt.id}"] .map-label`)).toHaveText(name);
+  const box = await pic.boundingBox();
+  await page.mouse.click(box.x + 30, box.y + box.height - 20);
+  await tick(page, 300);
+  await expect(pic.locator('.map-label')).toHaveCount(3);
+});
+
+test('the main screen\'s map while following: a drag ends it; a double-tap keeps it, zoomed about you', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await openApp(page, { map: true, time: '07:00', init: GEO });
+  const pic = mapSvg(page);
+  const btn = locateTool(mainMap(page));
+  await btn.click();
+  await tick(page, 50);
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 400 });
+  const box = await pic.boundingBox();
+  const touch = await touchOn(page);
+  await tap(touch, box.x + 40, box.y + box.height - 30); // away from Hide map
+  await tap(touch, box.x + 40, box.y + box.height - 30);
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 200 });
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  await touch('touchStart', [{ x: cx, y: cy, id: 1 }]);
+  for (let i = 1; i <= 5; i++) await touch('touchMove', [{ x: cx + i * 10, y: cy, id: 1 }]);
+  await touch('touchEnd', []);
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  await expect(btn).toHaveAttribute('aria-label', 'Center on my location');
 });

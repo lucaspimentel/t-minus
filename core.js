@@ -4254,6 +4254,27 @@ export function zoomView(view, factor, cx, cy, limits) {
 // Moves the view by (dx, dy) meters (a drag to the right moves the map right: dx < 0 here).
 export const panView = (view, dx, dy, limits) => clampView({ ...view, x: view.x + dx, y: view.y + dy }, limits);
 
+// Taps on the route maps (2026-11-13): a drag starts past TAP_SLOP_PX; two taps within
+// DOUBLE_TAP_MS and DOUBLE_TAP_PX zoom in TAP_ZOOM times about the point; two fingers down and up
+// without moving (and no third) zoom out as much. Taps and points: { t (ms), x, y (client px) }.
+export const TAP_SLOP_PX = 6;
+export const DOUBLE_TAP_MS = 250;
+export const DOUBLE_TAP_PX = 30;
+export const TAP_ZOOM = 2;
+export const TWO_FINGER_TAP_MS = 500;
+export const doubleTap = (prev, cur) =>
+  !!prev && cur.t - prev.t <= DOUBLE_TAP_MS && Math.hypot(cur.x - prev.x, cur.y - prev.y) <= DOUBLE_TAP_PX;
+// `pointers`: the most fingers down during the gesture; `moved`: px; `ms`: first down to last up.
+export const twoFingerTap = ({ pointers, moved, ms }) => pointers === 2 && moved < TAP_SLOP_PX && ms <= TWO_FINGER_TAP_MS;
+// The wheel's zoom factor, or null to leave the wheel to the page. `plain`: a plain wheel zooms
+// (the sheet); else only with ctrl (the main map; a trackpad pinch arrives as ctrl+wheel), in
+// steps that follow the delta (a pinch sends many small ones).
+export function wheelZoom({ deltaY, ctrlKey, plain }) {
+  if (ctrlKey) return Math.min(1.25, Math.max(0.8, Math.exp(-deltaY / 100)));
+  if (!plain) return null;
+  return deltaY < 0 ? 1.25 : deltaY > 0 ? 0.8 : 1;
+}
+
 // The route map's two fits (2026-11-12): `trip` (the trip alone; the rest of the ride with
 // fitFrom) and `me` (the trip and your location), me null when missing or less than ME_MIN times
 // as wide as trip (the two would look the same).
