@@ -156,3 +156,25 @@ test('no pull in setup, and no rubber-band bounce', async ({ page }) => {
   await tick(page, 1000);
   expect(dataHits(mbta)).toHaveLength(0);
 });
+
+test('a pull doesn\'t start on the main screen\'s map: it pans the map (2026-11-13)', async ({ page }) => {
+  const mbta = await openApp(page, { time: '07:00', map: true });
+  const pic = page.locator('#rows .main-map svg.route-svg');
+  await expect(pic.locator('.map-leg').first()).toBeAttached();
+  const view = () => pic.getAttribute('viewBox');
+  const v0 = await view();
+  const box = await pic.boundingBox();
+  mbta.hits.length = 0;
+  const release = await drag(page, [box.x + box.width / 2, box.y + 40], 200);
+  await expect(ptrText(page)).toHaveText('');
+  expect(await offset(page)).toBe('');
+  expect(await view()).not.toBe(v0);
+  await release();
+  await tick(page, 1000);
+  expect(dataHits(mbta)).toHaveLength(0);
+  // Below the map, it pulls.
+  const row = await page.locator('.row').first().boundingBox();
+  const lift = await drag(page, [200, row.y + 10], 100);
+  await expect(ptrText(page)).toHaveText('Pull down to refresh');
+  await lift();
+});

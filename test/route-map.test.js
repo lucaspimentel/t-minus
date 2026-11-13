@@ -5,6 +5,7 @@ import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
   fitView, viewLimits, areaRect, insideReach, wholeView, easeView, nextFollowLevel, viewAt, viewShiftPx, FOLLOW_SPANS, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
   placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel, ME_MIN, mapFits, firstFit, fitChoice, fitTap, sameView,
+  TAP_SLOP_PX, DOUBLE_TAP_MS, DOUBLE_TAP_PX, TAP_ZOOM, TWO_FINGER_TAP_MS, doubleTap, twoFingerTap, tapZoomView, wheelZoom,
   rideMarker, GPS_MAX_ACCURACY_METERS, RIDE_GPS_MAX_AGE_MS, RIDE_GPS_LINE_METERS, RIDE_GPS_VEHICLE_METERS, RIDE_GPS_HOLD_MS,
 } from '../core.js';
 
@@ -168,6 +169,43 @@ test('fitView, zoomView and panView', () => {
   assert.deepEqual(panView(v, 100, -50, lim), { x: 100, y: -300, w: 1000, h: 1000 });
   const far = panView(v, 1e6, 0, lim);
   assert.equal(far.x + far.w / 2, lim.bounds.x + lim.bounds.w);
+});
+
+test('taps and the wheel on the route maps (2026-11-13)', () => {
+  assert.deepEqual([TAP_SLOP_PX, DOUBLE_TAP_MS, DOUBLE_TAP_PX, TAP_ZOOM, TWO_FINGER_TAP_MS], [6, 250, 30, 2, 500]);
+  const a = { t: 1000, x: 100, y: 100 };
+  assert.equal(doubleTap(null, a), false);
+  assert.equal(doubleTap(a, { t: 1200, x: 110, y: 120 }), true);
+  assert.equal(doubleTap(a, { t: 1251, x: 100, y: 100 }), false); // too late
+  assert.equal(doubleTap(a, { t: 1100, x: 131, y: 100 }), false); // too far
+  assert.equal(twoFingerTap({ pointers: 2, moved: 0, ms: 200 }), true);
+  assert.equal(twoFingerTap({ pointers: 1, moved: 0, ms: 200 }), false);
+  assert.equal(twoFingerTap({ pointers: 3, moved: 0, ms: 200 }), false);
+  assert.equal(twoFingerTap({ pointers: 2, moved: 6, ms: 200 }), false);
+  assert.equal(twoFingerTap({ pointers: 2, moved: 0, ms: 501 }), false);
+  // Twice in about the point, which keeps its place; clamped at 150 m and twice the fit.
+  const v = { x: 0, y: 0, w: 1000, h: 500 };
+  const lim = viewLimits(v);
+  const z = tapZoomView(v, 1, { x: 250, y: 100 }, lim);
+  assert.equal(z.w, 500); assert.equal(z.h, 250);
+  near((250 - z.x) / z.w, 0.25); near((100 - z.y) / z.h, 0.2);
+  assert.equal(tapZoomView(v, -1, { x: 500, y: 250 }, lim).w, 2000);
+  assert.equal(tapZoomView({ x: 0, y: 0, w: 2000, h: 1000 }, -1, { x: 500, y: 250 }, lim).w, 2000);
+  assert.equal(tapZoomView({ x: 0, y: 0, w: 200, h: 100 }, 1, { x: 100, y: 50 }, lim).w, 150);
+  // With the base map's bound: inside it.
+  const area = viewLimits(v, { area: { x: -5000, y: -5000, w: 10000, h: 10000 }, aspect: 2 });
+  const o = tapZoomView({ x: 3000, y: 0, w: 2000, h: 1000 }, -1, { x: 4900, y: 500 }, area);
+  assert.ok(o.x >= area.bounds.x && o.x + o.w <= area.bounds.x + area.bounds.w);
+  // The wheel: plain zooms the sheet in steps and leaves the main map's page alone; ctrl zooms
+  // both, following the delta.
+  assert.equal(wheelZoom({ deltaY: -100, ctrlKey: false, plain: false }), null);
+  assert.equal(wheelZoom({ deltaY: -3, ctrlKey: false, plain: true }), 1.25);
+  assert.equal(wheelZoom({ deltaY: 3, ctrlKey: false, plain: true }), 0.8);
+  assert.equal(wheelZoom({ deltaY: 0, ctrlKey: false, plain: true }), 1);
+  assert.equal(wheelZoom({ deltaY: -100, ctrlKey: true, plain: false }), 1.25);
+  assert.equal(wheelZoom({ deltaY: 100, ctrlKey: true, plain: true }), 0.8);
+  const f = wheelZoom({ deltaY: 5, ctrlKey: true, plain: false });
+  assert.ok(f > 0.9 && f < 1);
 });
 
 test('viewLimits with the base map\'s area; areaRect; easeView', () => {

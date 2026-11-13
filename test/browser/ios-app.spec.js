@@ -655,7 +655,7 @@ test('the route map in the app: locate refused shows a toast that opens iOS Sett
     navigator.geolocation.clearWatch = () => {};
   });
   await openApp(page, { time: '06:50', map: true });
-  await page.locator('#rows .main-map svg.route-svg').click({ position: { x: 12, y: 12 } });
+  await page.locator('#rows .main-map').getByRole('button', { name: 'Open the full map' }).click();
   await tick(page, 300);
   await page.getByRole('dialog').getByRole('button', { name: 'Center on my location' }).click();
   await tick(page, 100);

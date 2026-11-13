@@ -459,7 +459,8 @@
   /* The map's corner buttons: locate (2026-11-09; off outside the map; 2026-11-10: filled while
      following, street and area zoom), back to the trip
      (2026-11-08; ⤢ until 2026-11-09), shown once the view moves off the fit, and on the sheet the
-     whole map (2026-11-09), shown once the base map is in and the view isn't all the way out. */
+     whole map (2026-11-09), shown once the base map is in and the view isn't all the way out; on
+     the main screen's map "Open the full map" last, and Hide map alone in the top-left (2026-11-13). */
   .map-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 8px; }
   .map-tool {
     position: relative; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;
@@ -469,20 +470,11 @@
   .map-tool::before { content: ''; position: absolute; inset: -3px; } /* a 46 px touch area */
   .map-tool[hidden] { display: none; }
   .map-tool:disabled { opacity: .4; cursor: default; }
-  /* The main screen's map (2026-11-12): 26% of the screen's height, 160-300 px. */
-  .main-map { cursor: pointer; margin: 0; }
+  /* The main screen's map (2026-11-12): 26% of the screen's height, 160-300 px; it pans and zooms (2026-11-13). */
+  .main-map { margin: 0; }
+  .main-map .map-hide { position: absolute; top: 10px; left: 10px; }
   .main-map .route-svg { height: clamp(160px, 26vh, 300px); height: clamp(160px, 26svh, 300px); }
   .main-map-item { position: relative; margin-bottom: 12px; }
-  /* The keyboard's way to the sheet (the map itself is a picture): shown only while focused. */
-  .map-open {
-    position: absolute; top: 10px; left: 10px; z-index: 1; min-height: 40px; padding: 0 12px;
-    border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text);
-    font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
-  }
-  .map-open:not(:focus) {
-    width: 1px; height: 1px; min-height: 0; padding: 0; margin: -1px; overflow: hidden;
-    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
-  }
   .main-map-item .map-caption { margin: 6px 0 0; font-size: 13px; }
   .main-map-item .map-caption[hidden] { display: none; }
   .map-tool svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
@@ -492,6 +484,7 @@
     border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none;
   }
   .route-svg[role="img"] { touch-action: auto; }
+  .main-map .route-svg[role="img"] { touch-action: none; } /* drags pan it (2026-11-13) */
   .map-caption { margin: 6px 0 0; min-height: 20px; font-size: 14px; color: var(--muted); }
   .map-leg { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
   .map-leg.faded { stroke-opacity: .35; }
@@ -563,7 +556,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · 56310f0efd</footer>
+    <footer class="version">Version 2026-11-12 · 59b8b6d47a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -593,9 +586,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=26643b3209';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=e3b2d9c1a8';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, doubleTap, twoFingerTap, tapZoomView, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
+} from './core.js?v=421007fbf1';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=636d5246bc';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1608,7 +1601,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=26643b3209'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=421007fbf1'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2916,9 +2909,12 @@ function basemapGroup(layers) {
 // A map widget: `el` (a div with the SVG and, when interactive, a caption) and draw(input, here)
 // (input: routeMapModel's, without `aspect`; here: the phone's { lat, lon } or null). Interactive:
 // pinch / drag / wheel to zoom and pan, stops as buttons whose names show in the caption.
+// `pan` (the main screen's map, 2026-11-13; on with `interactive`): the same drag and pinch, the
+// wheel only with ctrl, and a tap on a stop labels it on the map (pointer only: no stop buttons,
+// caption or whole map). Both: a double-tap zooms in, a two-finger tap out (2026-11-13).
 // The view the rider zoomed to is kept across redraws; marks keep their size in pixels.
 // `live` (the main screen's map and the sheet, 2026-11-12): refits at a fit are eased.
-function mapWidget({ label, interactive = false, focusKey = 'map', caption = null, locate = false, live = false }) {
+function mapWidget({ label, interactive = false, pan = interactive, focusKey = 'map', caption = null, locate = false, live = false }) {
   const svg = svgEl('svg', { class: 'route-svg', role: interactive ? 'group' : 'img', 'aria-label': label });
   const el = document.createElement('div');
   el.className = 'route-map';
@@ -3075,9 +3071,12 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
       w.stopMarks.push(g);
       g.append(svgEl('circle', { r: st.major ? 6 : 3.5, stroke: mapColor(st.color) }));
       if (st.label || w.selected === st.id) g.append(svgEl('text', { x: 10, y: 4, class: 'map-label' }, st.name));
-      if (interactive) {
+      if (pan) {
         g.append(svgEl('circle', { r: 14, class: 'map-hit' }));
-        Object.assign(g.dataset, { focus: `${focusKey}:stop:${st.id}`, stop: st.id });
+        g.dataset.stop = st.id;
+      }
+      if (interactive) {
+        g.dataset.focus = `${focusKey}:stop:${st.id}`;
         g.setAttribute('role', 'button');
         g.setAttribute('tabindex', '0');
         g.setAttribute('aria-label', st.name);
@@ -3124,7 +3123,7 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
   // Inside an option card: a tap on the map doesn't toggle the card (a picture too).
   el.addEventListener('click', e => e.stopPropagation());
   const pointers = new Map(); // the sheet's fingers on the map (a gesture holds off follow's recenter)
-  if (!interactive && !locate) return w;
+  if (!pan && !locate) return w;
 
   // Pan and zoom limits once the base map is in: the view's edges within commuter rail's farthest
   // stations (the base map's `reach`, 2 km more) and the trip, out until all of it shows
@@ -3236,11 +3235,13 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     tools.append(wholeBtn);
   }
   el.append(tools);
-  if (!interactive) return w;
+  if (!pan) return w;
 
   // Taps and keys on stops; drags and pinches move the view. While following (2026-11-10), a drag
-  // ends it; a pinch or the wheel keeps it, zooming about you, at the new span.
+  // ends it; a pinch, the wheel, a double-tap or a two-finger tap keeps it, zooming about you, at
+  // the new span. A single tap waits DOUBLE_TAP_MS for a second one (2026-11-13).
   let moved = 0, dragged = false, pinched = false;
+  let lastTap = null, tapTimer = 0, multi = false, downAt = 0, maxPointers = 0, downPts = [];
   const stopFit = () => { fitAnim++; animGoal = null; };
   const zoomFollow = (factor, at) => {
     const c = w.following && w.followAt ? w.followAt : at;
@@ -3248,25 +3249,51 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     if (w.following) { w.level = null; w.followSpan = w.view.w; }
   };
   const toView = (cx, cy) => { const r = svg.getBoundingClientRect(); return { x: w.view.x + (cx - r.left) * mpp(), y: w.view.y + (cy - r.top) * mpp() }; };
+  // A stop: selected (the sheet: toggled, its name in the caption; the main map: labeled). Elsewhere:
+  // the main map's label cleared.
+  const tapSelect = id => {
+    if (!svg.isConnected) return;
+    if (id) select(id);
+    else if (!interactive && w.selected) { w.selected = null; w.redraw?.(); }
+  };
+  // Twice in or out about the point (you while following), eased; a moved view.
+  const tapZoom = (dir, client) => {
+    if (!w.view) return;
+    const c = w.following && w.followAt ? w.followAt : toView(client.x, client.y);
+    const to = tapZoomView(animGoal ?? w.view, dir, c, limits());
+    if (w.following) { w.level = null; w.followSpan = to.w; }
+    markMoved();
+    animateTo(to);
+    apply();
+  };
   svg.addEventListener('click', e => {
-    const g = e.target.closest?.('[data-stop]');
-    if (g && !dragged) select(g.dataset.stop);
+    if (dragged || multi) return;
+    const t = { t: performance.now(), x: e.clientX, y: e.clientY };
+    clearTimeout(tapTimer);
+    if (doubleTap(lastTap, t)) { lastTap = null; tapZoom(1, t); return; }
+    lastTap = t;
+    const id = e.target.closest?.('[data-stop]')?.dataset.stop ?? null;
+    tapTimer = setTimeout(() => tapSelect(id), DOUBLE_TAP_MS);
   });
-  svg.addEventListener('keydown', e => {
+  if (interactive) svg.addEventListener('keydown', e => {
     const g = e.target.closest?.('[data-stop]');
     if (g && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(g.dataset.stop); }
   });
   svg.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     stopFit();
+    if (!pointers.size) { moved = 0; dragged = false; pinched = false; multi = false; maxPointers = 0; downPts = []; downAt = performance.now(); }
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.size === 1) { moved = 0; dragged = false; pinched = false; }
+    maxPointers = Math.max(maxPointers, pointers.size);
+    if (pointers.size > 1) multi = true;
+    if (downPts.length < 2) downPts.push({ x: e.clientX, y: e.clientY });
   });
   svg.addEventListener('pointermove', e => {
     const prev = pointers.get(e.pointerId);
     if (!prev || !w.view) return;
     const cur = { x: e.clientX, y: e.clientY };
     moved += Math.hypot(cur.x - prev.x, cur.y - prev.y);
-    if (!dragged && moved < 6) return;
+    if (!dragged && moved < TAP_SLOP_PX) return;
     if (!dragged) { dragged = true; try { svg.setPointerCapture(e.pointerId); } catch {} }
     const others = [...pointers].filter(([id]) => id !== e.pointerId).map(([, q]) => q);
     if (others.length) {
@@ -3282,19 +3309,30 @@ function mapWidget({ label, interactive = false, focusKey = 'map', caption = nul
     markMoved();
     apply();
   });
-  const up = e => { pointers.delete(e.pointerId); if (!pointers.size) setTimeout(() => { dragged = false; }); };
+  const up = e => {
+    if (!pointers.delete(e.pointerId) || pointers.size) return;
+    if (!dragged && downPts.length === 2 && twoFingerTap({ pointers: maxPointers, moved, ms: performance.now() - downAt })) {
+      lastTap = null;
+      clearTimeout(tapTimer);
+      tapZoom(-1, { x: (downPts[0].x + downPts[1].x) / 2, y: (downPts[0].y + downPts[1].y) / 2 });
+    }
+    setTimeout(() => { dragged = false; });
+  };
   svg.addEventListener('pointerup', up);
   svg.addEventListener('pointercancel', up);
+  // The wheel (2026-11-13): the main map's plain wheel scrolls the page; ctrl (a trackpad pinch) zooms.
   svg.addEventListener('wheel', e => {
     if (!w.view) return;
+    const f = wheelZoom({ deltaY: e.deltaY, ctrlKey: e.ctrlKey, plain: interactive });
+    if (f == null) return;
     stopFit();
     e.preventDefault();
-    zoomFollow(e.deltaY < 0 ? 1.25 : 0.8, toView(e.clientX, e.clientY));
+    zoomFollow(f, toView(e.clientX, e.clientY));
     markMoved();
     apply();
   }, { passive: false });
-  // Drags don't reach the card either.
-  for (const ev of ['pointerdown', 'touchstart']) el.addEventListener(ev, e => e.stopPropagation(), { passive: true });
+  // Drags don't reach the card either (setup's; the main map lets taps reach the wake lock).
+  if (interactive) for (const ev of ['pointerdown', 'touchstart']) el.addEventListener(ev, e => e.stopPropagation(), { passive: true });
   return w;
 }
 
@@ -3380,8 +3418,8 @@ function mapLocation(onChange, seed = null) {
 // message or the ride card. 26% of the screen's height (160-300 px), no caption or credit (the
 // sheet has the credit; "Location off" / "Outside the map" show under it when they apply).
 // Your location (mapLocation), the legs' vehicles every 10 s (paused while the sheet is open,
-// in the background and while hidden), locate, back to the trip, and hide; a tap opens the
-// sheet. While riding: the ridden legs faded, your vehicle marked (at your GPS position when it
+// in the background and while hidden), locate, back to the trip, hide, and "Open the full map"
+// (the sheet). A drag pans it, a pinch or ctrl+wheel zooms, a tap on a stop labels it (2026-11-13). While riding: the ridden legs faded, your vehicle marked (at your GPS position when it
 // counts, 2026-11-12), fitted to the rest of the ride. Hidden ("Hide map"; one setting on the
 // phone, KEY_MAP_HIDDEN): a "Show map ▾" button instead, with no requests and no location.
 // Kept across the once-a-second redraw.
@@ -3470,9 +3508,9 @@ function mainMapItem() {
     return mainMap.li;
   }
   const legs = mapLegs(trip);
-  const widget = mapWidget({ label: `Map of ${trip.name}`, locate: true, live: true, focusKey: 'main-map' });
+  const widget = mapWidget({ label: `Map of ${trip.name}`, locate: true, live: true, pan: true, focusKey: 'main-map' });
   widget.el.classList.add('main-map');
-  widget.el.addEventListener('click', openMapSheet);
+  const tools = widget.el.querySelector('.map-tools');
   const hide = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-hide' });
   hide.setAttribute('aria-label', 'Hide map');
   hide.dataset.focus = 'main-map:hide';
@@ -3480,13 +3518,18 @@ function mainMapItem() {
   icon.append(svgEl('path', { d: 'M6 15l6-6 6 6' }));
   hide.append(icon);
   hide.addEventListener('click', e => { e.stopPropagation(); setMapHidden(true); });
-  widget.el.querySelector('.map-tools').append(hide);
-  const li = el('li', 'main-map-item');
-  const open = el('button', 'map-open', 'Open the full map');
-  open.type = 'button';
+  tools.before(hide); // the top-left corner (2026-11-13), first in the Tab order
+  // The sheet (2026-11-13; until then a tap on the map, and from the keyboard a text button shown
+  // only while focused): last in the right stack. Focus comes back to it after the keyboard only.
+  const open = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-expand' });
+  open.setAttribute('aria-label', 'Open the full map');
   open.dataset.focus = 'main-map:open';
-  open.onclick = openMapSheet;
-  li.append(open);
+  const openIcon = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+  openIcon.append(svgEl('path', { d: 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7' }));
+  open.append(openIcon);
+  open.addEventListener('click', e => { e.stopPropagation(); openMapSheet(e.detail === 0 ? open : null); });
+  tools.append(open);
+  const li = el('li', 'main-map-item');
   const cap = el('p', 'map-caption');
   cap.setAttribute('aria-live', 'polite');
   cap.hidden = true;
@@ -3528,7 +3571,7 @@ function setMapHidden(hidden) {
   $('rows').querySelector(`[data-focus="${hidden ? 'list:show-map' : 'main-map:hide'}"]`)?.focus({ preventScroll: true });
 }
 
-// The main screen's sheet (a tap on its map; the header's 🗺 until 2026-11-12): the shown trip, with the phone's location (once
+// The main screen's sheet ("Open the full map" on its map, 2026-11-13; a tap on the map from 2026-11-12, the header's 🗺 before): the shown trip, with the phone's location (once
 // granted; mapLocation) and the legs' vehicles (one /vehicles request per leg every 10 s) while
 // open.
 let mapSheet = null;
@@ -3560,7 +3603,7 @@ async function pollMapVehicles() {
   m.vehicles = res.map((r, i) => (r.status === 'fulfilled' ? vehiclePositions(r.value) : m.vehicles[i] ?? []));
   drawMapSheet();
 }
-function openMapSheet() {
+function openMapSheet(opener = null) {
   if (!config || mapSheet) return;
   const trip = config.trips[tripIdx];
   const legs = mapLegs(trip);
@@ -3568,7 +3611,7 @@ function openMapSheet() {
   // The main map's view (2026-11-12; until then the sheet started at the fit and ended follow there).
   const kept = sameTrip(mainMap, at) ? mapSnap(mainMap) : takeMapView(at);
   const widget = mapWidget({ label: `Map of ${trip.name}`, interactive: true, focusKey: 'sheet', caption: $('map-caption'), locate: true, live: true });
-  const m = mapSheet = { ...at, trip, legs, widget, vehicles: kept?.vehicles ?? [], rideHold: kept?.rideHold ?? null, loc: null, timer: null, opener: document.activeElement };
+  const m = mapSheet = { ...at, trip, legs, widget, vehicles: kept?.vehicles ?? [], rideHold: kept?.rideHold ?? null, loc: null, timer: null, opener };
   m.loc = mapLocation(center => {
     if (mapSheet !== m) return;
     drawMapSheet();
@@ -3646,7 +3689,8 @@ function endPullTouch() {
 document.addEventListener('touchstart', e => {
   endPullTouch();
   pull = null;
-  if (!config || setupView || mapSheet || pullHeld || e.touches.length !== 1 || scrollY > 0 || $('toast').contains(e.target)) return;
+  // A touch on the main map pans it; pulls start outside it (2026-11-13).
+  if (!config || setupView || mapSheet || pullHeld || e.touches.length !== 1 || scrollY > 0 || $('toast').contains(e.target) || e.target.closest?.('.main-map')) return;
   pull = { x: e.touches[0].clientX, y: e.touches[0].clientY, dy: 0, active: false, target: e.target };
   for (const [type, fn, opts] of PULL_EVENTS) e.target.addEventListener(type, fn, opts);
 }, { passive: true });

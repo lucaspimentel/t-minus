@@ -77,7 +77,7 @@ ones):
 | Riding: ride card, expanded island, both widgets (2026-11-06) | "Orange Line" | the drop-off instead: "to Malden Center" ("to 🚩 Malden Center" at a flag stop) |
 | Riding: the app's timeline, the ridden leg (2026-11-06) | "Orange Line" | none (the leg's last row names the drop-off) |
 | Route map: vehicle badges (2026-11-07) | "OL", "132" (the island's compact label); a Green branch's letter "B", a bus `also` route's "117" (2026-11-12) | none |
-| Route map: stop labels and the caption | the stop's name ("Oak Grove", "Main St @ South St") | none |
+| Route map: stop labels and the caption (a tapped stop's label on the main map, 2026-11-13) | the stop's name ("Oak Grove", "Main St @ South St") | none |
 | Route map: pin labels (2026-11-09) | the place's name to its first comma ("243 Condor St", "Current location") | none |
 
 Commuter rail (2026-11-01) follows the same two forms: "Haverhill Line" on text lines,
@@ -594,8 +594,16 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   the list, above the rows, the empty message ("No upcoming departures found") or the ride card;
   26% of the screen's height, 160-300 px (`clamp`, `svh`); no caption or credit line ("Location
   off" / "Outside the map" show under it when they apply; the base map's credit is in the sheet).
-  A picture (no pan or zoom) with the dot, the legs' vehicles, and the corner buttons: locate,
-  back to the trip, and **Hide map** (an up chevron, at the bottom). Hidden, it's a "Show map ▾"
+  The dot, the legs' vehicles, and the corner buttons (2026-11-12, mockups accepted): **Hide map**
+  (an up chevron) alone in the top-left; on the right, locate, the fit button, and **Open the full
+  map** (diagonal outward arrows). **It pans and zooms (2026-11-13):** a one-finger drag pans, a
+  pinch zooms, with the sheet's range and limits (below); ctrl+wheel (a trackpad pinch) zooms, a
+  plain wheel scrolls the page; a double-tap zooms in, a two-finger tap out (both maps, below).
+  Page scrolls and pull-to-refresh start only outside it. A tap on a stop shows its name as a
+  label on the map (no caption), until a tap elsewhere; a single tap waits 250 ms for a second.
+  Its stops aren't buttons (dozens of Tab stops before the rows): the sheet has them. Until
+  2026-11-13 it was a picture (no pan or zoom), a tap opened the sheet, and Hide map was the
+  right stack's last button. Hidden, it's a "Show map ▾"
   button in its place (one setting on the phone, `t-minus:mapHidden`, for every trip and state),
   with no vehicle polls and no location watch; shown again, it draws at once and polls at once.
   While riding it stays above the ride card: the ridden legs faded, your vehicle marked, the view
@@ -609,17 +617,18 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   the sheet shows more north-south). Kept across Hide map / Show map; the first view again on a
   trip change, a reload, or a ride phase change (an open sheet too, and follow ends). The sheet's
   selected stop isn't carried. Until 2026-11-12 the sheet opened at its fit and ended the main
-  map's follow. A tap opens a full-screen sheet ("Done" or
-  Escape closes) with the shown trip; the trip doesn't switch while it's open. From the keyboard:
-  "Open the full map", a button over the map's corner shown only while focused; focus returns to
-  it; after a tap, nothing is focused (focusing the trip picker opened its menu on iOS, 2026-11-12). Kept across the once-a-second redraw; replaced when the
+  map's follow. "Open the full map" opens a full-screen sheet ("Done" or
+  Escape closes) with the shown trip; the trip doesn't switch while it's open. Focus returns to
+  the button after the keyboard (Enter, Space); after a tap, nothing is focused (focusing the trip
+  picker opened its menu on iOS, 2026-11-12). Until 2026-11-13 a tap on the map opened it, and
+  "Open the full map" was a text button shown only while focused. Kept across the once-a-second redraw; replaced when the
   shown trip changes, closed without trips. Before: the map button in the header (a folded-map
   outline; the 🗺 emoji until 2026-11-09) opened the sheet, and from 2026-11-09 the main screen
   drew the map only with no rows, under the message, filling the space down to the footer (at
   least 250 px), with "Tap for the full map" and the credit under it.
   Setup draws the same map inline, as a static picture fitted to the trip: above an expanded
   planner option's timeline, and under the legs in the trip editor (redrawn when a leg changes).
-  Only the sheet pans and zooms (2026-11-08: the planner's map did too, the editor's didn't; both
+  Setup's maps don't pan or zoom (2026-11-08: the planner's map did, the editor's didn't; both
   are pictures now, so the page scrolls over them).
 - **Drawing:** an SVG outline with no street map (equirectangular, north up, in meters from the
   first boarding stop). Each leg is its route's shape (`route_patterns` with
@@ -634,7 +643,10 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   themes, a fixed size in pixels, above the legs and stops and below the vehicles and the dot;
   decorative (not tappable, hidden from screen readers). The fit makes room for them and their
   labels (`fitView`'s pixel `boxes` with the map's width, refit until it settles). In the sheet, a tap (or Enter) on
-  a stop shows its name in the caption; pinch, drag or the wheel zoom and pan, from 150 m across
+  a stop shows its name in the caption (a tap waits 250 ms for a second, 2026-11-13); pinch, drag
+  or the wheel zoom and pan; a double-tap zooms in 2× about the point and a two-finger tap (two
+  fingers down and up without moving) out 2×, eased like the fit button, a moved view
+  (2026-11-13, both maps; `doubleTap`, `twoFingerTap`, `tapZoomView`), from 150 m across
   out to the whole bound in one view: the farthest commuter rail stations (the base map's `reach`,
   the commuter rail stops' box) 2 km more on each side, united with the trip's fit (`areaRect`,
   `viewLimits`). The view's edges stay inside the bound (`edges`, `clampView`); zoomed all the way
@@ -683,10 +695,10 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
     `nextFollowLevel`). After follow ended, a tap starts again at the street.
   - **Following:** each new position recenters at the follow width, eased like back to the trip
     (250 ms, at once with Reduce Motion); a move under 2 px is skipped (`viewAt`, `viewShiftPx`).
-    The view's limits hold near the bound's edge (you can be off center there). A pinch or the
-    wheel keeps following at its zoom, about you. A lost position (a watch error) keeps it: the
+    The view's limits hold near the bound's edge (you can be off center there). A pinch, the
+    wheel, a double-tap or a two-finger tap keeps following at its zoom, about you. A lost position (a watch error) keeps it: the
     map stays until the next one.
-  - **Ends on:** a drag; the fit button; the whole map; a ride phase change; the main screen's
+  - **Ends on:** a drag (on either map); the fit button; the whole map; a ride phase change; the main screen's
     map replaced; your position leaving the bound. It goes on into the sheet at the same level
     and back to the main map when the sheet closes (2026-11-12; until then the sheet opening and
     closing ended it).
