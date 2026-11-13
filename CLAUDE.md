@@ -52,7 +52,7 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 ## UI rules
 
 Surfaces: the app's cards and rows, the leave, walk and ride cards (Live Activity, Dynamic
-Island), the widget's two Home Screen sizes (it follows the belled ride, walking and the ride,
+Island), the widget's three Home Screen sizes (it follows the belled ride, walking and the ride,
 like the cards), notifications. Check a UI change against every surface that shows the same
 ride, and against these rules:
 

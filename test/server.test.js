@@ -69,8 +69,17 @@ async function setup({ staticRoot = null } = {}) {
       if (net.sampleFails) return { ok: false, status: 500 };
       return { ok: true, status: 200, json: async () => ({ data: net.sample }) };
     }
-    // A ridden vehicle's remaining stops (stop alerts): world.rideStops[tripId] = [[stop id, name, hh:mm], ...].
     const tripId = u.searchParams.get('filter[trip]');
+    // A trip's stop list (the large widget's stop counts): world.tripStops[tripId] = [[stop id, parent], ...].
+    if (tripId && u.pathname === '/schedules') {
+      if (world.tripStopsFail) return { ok: false, status: 500 };
+      const stops = world.tripStops?.[tripId] ?? [];
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({
+        data: stops.map(([id], k) => ({ type: 'schedule', attributes: { stop_sequence: (k + 1) * 10 }, relationships: { stop: { data: { id } } } })),
+        included: stops.map(([id, parent]) => ({ type: 'stop', id, relationships: { parent_station: { data: parent ? { id: parent } : null } } })),
+      }) };
+    }
+    // A ridden vehicle's remaining stops (stop alerts): world.rideStops[tripId] = [[stop id, name, hh:mm], ...].
     if (tripId) {
       const stops = world.rideStops[tripId] ?? [];
       return { ok: true, json: async () => ({
@@ -337,6 +346,39 @@ test('/api/widget: the shown trip\'s timeline; no trips; bad requests; the MBTA 
     s.world.clock = at('07:20'); // past the cached copies
     s.world.failing = true;
     assert.equal((await s.call('POST', '/api/widget', body())).status, 502);
+  } finally { await s.close(); }
+});
+
+test('/api/widget size=large: the trip timeline with cached stop counts; More rides and plain answers unchanged', async () => {
+  const s = await setup();
+  try {
+    s.world.orangeSchedules = [['o1', '07:33', '07:50']];
+    s.world.tripStops = { b1: [['25996'], ['x1'], ['5991']], o1: [['70036', 'place-ogmnl'], ['70034'], ['70032'], ['70022', 'place-state']] };
+    const body = (extra = {}) => ({ trips: [trip], stopSlackMinutes: 1, oneOffAt: null, override: null, lastUsed: null, ...extra });
+    const post = async (q, b = body()) => (await s.call('POST', `/api/widget${q}`, b)).json();
+    const tripCalls = () => (s.world.requests ?? []).filter(r => r.url.includes('/schedules') && r.url.includes('filter%5Btrip%5D')).length;
+    const plain = await post('');
+    assert.equal('timeline' in plain.rows[0], false);
+    assert.deepEqual(await post('?size=large&show=rides'), plain); // More rides: no timeline, no requests
+    assert.deepEqual(await post('?size=bogus&show=x'), plain);
+    assert.equal(tripCalls(), 0);
+    const v = await post('?size=large&show=timeline');
+    const rides = v.rows[0].timeline.filter(r => r.kind === 'ride').map(r => r.text);
+    assert.match(rides[0], /^132 · 2 stops · /);
+    assert.match(rides[1], /^Orange Line · 3 stops · /);
+    assert.equal(tripCalls(), 2);
+    s.world.clock = at('07:20'); // past the 15-min schedules cache: the stop lists stay
+    s.world.bus = '07:30';
+    await post('?size=large&show=timeline');
+    assert.equal(tripCalls(), 2);
+    // A failed stop list: minutes only, still 200.
+    const fresh = await setup();
+    try {
+      fresh.world.tripStopsFail = true;
+      const r = await fresh.call('POST', '/api/widget?size=large&show=timeline', body());
+      assert.equal(r.status, 200);
+      assert.doesNotMatch((await r.json()).rows[0].timeline.find(x => x.kind === 'ride').text, /stops/);
+    } finally { await fresh.close(); }
   } finally { await s.close(); }
 });
 
@@ -621,6 +663,13 @@ test('/api/widget following: a ride (stops, connection), the bell, walking; ende
     assert.deepEqual([e.head, e.headTime, e.long, e.arrive, e.then.map(l => l.label), e.thenText, e.thenWarn], ['Get off in 3 stops', '10 min', 'Bus 132', 'arrive 8:00am', ['Orange'], 'at 7:33am', false]);
     assert.equal(ride.end, at('08:05') / 1000);
     assert.ok(s.world.calls.some(c => c === '/predictions'));
+    // The large size: the ride's timeline (en route), the stops left on the bus's bar.
+    s.world.tripStops = { b1: [['25996'], ['s3'], ['s4'], ['5991']] };
+    const big = await (await s.call('POST', '/api/widget?size=large', body({ kind: 'stop', ride: { legs, boardedAt: at('07:10') } }))).json();
+    assert.equal(big.timeline[0].kind, 'stop');
+    assert.match(big.timeline[1].text, /^Bus 132 · 3 stops · /);
+    assert.deepEqual([big.entries[0].tl.done, big.entries[0].tl.current, big.entries[0].tl.along.stops.map(x => x.name)], [1, 2, ['Main St', 'Lynn St']]);
+    assert.equal('timeline' in ride, false);
     // No stop list (the request failed or listed nothing): minutes.
     s.world.rideStops.b1 = [];
     s.world.clock = at('07:16'); // past the cached copy
