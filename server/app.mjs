@@ -12,7 +12,7 @@ import {
   leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES, LIVE_SOON_MS,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
-  autoBellNext, autoBellRow, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, WIDGET_ROWS, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText,
+  autoBellNext, autoBellRow, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -34,6 +34,7 @@ const NEARBY_CELL = 0.0005; // degrees (~50 m): nearby stop lists are cached per
 const MAX_NEARBY_STOPS = 500; // cached cells
 const MAX_NEARBY_SETS = 200; // cached stop sets (routes and the hour's schedules)
 const PROXY_RATE_LIMIT = 120; // proxy requests per IP per minute
+const MAX_TRIP_STOP_LISTS = 500; // the large widget's stop counts: trips' stop lists, per service date
 const MBTA_BUDGET = 800; // MBTA calls per minute past which proxy misses are refused (the key allows 1,000)
 const MAX_MEMORY_COPIES = 2000; // the proxy's realtime copies, in memory
 const MAX_DISK_COPIES = 2000; // its static copies, in SQLite
@@ -180,6 +181,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   let building = null;
   const plans = new Map(); // `${from}>${to}` -> planTrips options
   const places = new Map(); // lowercased query -> { at, places }
+  const tripStopLists = new Map(); // `${tripId}@${date}` -> the trip's /schedules stop list (legStopCounts)
   const timedPlans = new Map(); // plan key + walks + slack -> { at, body }
   let nominatimAt = -Infinity; // its last request (1 a second)
   const nearbySetCache = new Map(); // stop ids + hour -> { routeIds, schedules }
@@ -477,13 +479,31 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       const cfg = { trips: body.trips };
       try {
         // The ride the app follows (widgetFollow), on its own trip; ended or gone: leave times.
+        // The large size (2026-11-13: `size=large`, `show=timeline|rides`): the trip's timeline,
+        // with stop counts for the shown ride (cached per trip and service date).
+        const size = url.searchParams.get('size') === 'large' ? { show: url.searchParams.get('show') === 'timeline' ? 'timeline' : 'rides' } : null;
+        const slack = body.stopSlackMinutes;
+        // `counted`: [{ legs, nextDay }] per row (only the shown ride's are counted).
+        const large = async (trip, docs, counted) => ({
+          trip, slack, show: size.show, names: stopNames(...docs.scheduleDocs, ...docs.predictions, ...(docs.nextDay ?? [])),
+          counts: await Promise.all(counted.map(c => (c ? legStopCounts(trip, c.legs, c.nextDay ? docs.nextDay : docs.scheduleDocs,
+            (c.nextDay ? nextServiceWindow(t) : scheduleWindow(t)).date) : []))),
+        });
         if (body.state) {
           const trip = cfg.trips.find(x => x.id === body.state.trip);
-          const follow = await widgetFollowing(trip, body.state, body.stopSlackMinutes, t);
-          if (follow) return reply(res, 200, widgetView(trip.name, null, t, follow));
+          const out = {};
+          const follow = await widgetFollowing(trip, body.state, slack, t, out);
+          if (follow) {
+            const legs = follow.kind === 'ride' ? follow.ride.legs : follow.row.legs;
+            const big = size && await large(trip, out.docs, [{ legs }]);
+            return reply(res, 200, widgetView(trip.name, null, t, follow, big));
+          }
         }
         const trip = cfg.trips[shownTrip(t, cfg, body.oneOffAt, body.override, body.lastUsed)];
-        return reply(res, 200, widgetView(trip.name, await widgetRows(trip, body.stopSlackMinutes, t), t));
+        const out = {};
+        const rows = await widgetRows(trip, slack, t, out);
+        const big = size && await large(trip, out.docs, size.show === 'timeline' ? rows.slice(0, 1) : []);
+        return reply(res, 200, widgetView(trip.name, rows, t, null, big));
       } catch (e) {
         log(`widget: ${e.message}`);
         return reply(res, 502, { error: 'MBTA unavailable' });
@@ -780,9 +800,10 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
   // The followed state now (widgetFollow), a ride with its legs refreshed by trip id, a missed
   // connection re-planned, and the ridden vehicle's stops (as checkFollowed); null: leave times.
-  async function widgetFollowing(trip, state, slack, t) {
+  async function widgetFollowing(trip, state, slack, t, out = {}) {
     const { transit, walkAfter, transfers } = tripShape(trip);
     const docs = await widgetDocs(trip, slack, t);
+    out.docs = docs;
     const follow = widgetFollow(state, docs.rows, walkAfter, t);
     if (follow?.kind !== 'ride') return follow;
     const maps = transit.map((l, i) => mergeTrips(docs.predictions[i], docs.scheduleDocs[i]));
@@ -802,14 +823,40 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
   // The trip's next WIDGET_ROWS upcoming rows (missed ones left out); once today's service runs
   // out, the next service day's first ones.
-  async function widgetRows(trip, slack, t) {
+  // `out.docs`: the docs read (widgetDocs, plus `nextDay`), for the large size's stop names.
+  async function widgetRows(trip, slack, t, out = {}) {
     const { transit } = tripShape(trip);
     const w = scheduleWindow(t);
-    const { timing, rows: all } = await widgetDocs(trip, slack, t);
-    const rows = all.filter(r => !r.missed).slice(0, WIDGET_ROWS);
+    const docs = await widgetDocs(trip, slack, t);
+    out.docs = docs;
+    const rows = docs.rows.filter(r => !r.missed).slice(0, WIDGET_ROWS);
     if (rows.length >= WIDGET_ROWS || !w.coversEndOfService) return rows;
     const nextDay = await Promise.all(transit.map(l => mbta('/schedules', { ...legQuery(l), ...winOf(nextServiceWindow(t)) })));
-    return fillRows(rows, rowsFromDocs(trip, null, nextDay, timing, t, slack, WIDGET_ROWS), WIDGET_ROWS);
+    out.docs = { ...docs, nextDay };
+    return fillRows(rows, rowsFromDocs(trip, null, nextDay, docs.timing, t, slack, WIDGET_ROWS), WIDGET_ROWS);
+  }
+
+  // The large widget's stop counts (2026-11-13): stops ridden per leg, from each leg's trip stop
+  // list (tripStopsQuery), kept per trip and service date (a trip's stops don't change in a day).
+  // A failed fetch: no count (the ride line shows minutes only), tried again at the next reload.
+  async function legStopCounts(trip, legs, scheduleDocs, date) {
+    const { transit } = tripShape(trip);
+    return Promise.all(legs.map(async (leg, i) => {
+      try {
+        const id = stopCountTrip(leg, transit[i], scheduleDocs?.[i] ? mergeTrips(null, scheduleDocs[i]) : null);
+        if (!id) return null;
+        const key = `${id}@${date}`;
+        let doc = tripStopLists.get(key);
+        if (!doc) {
+          const d = await mbta('/schedules', tripStopsQuery(id, date));
+          doc = remember(tripStopLists, key, { data: d?.data ?? [], included: d?.included ?? [] }, MAX_TRIP_STOP_LISTS);
+        }
+        return tripStopCount(doc, transit[i].stop, transit[i].alight);
+      } catch (e) {
+        log(`widget stop count: ${e.message}`);
+        return null;
+      }
+    }));
   }
 
   // ---------- auto-route place search ----------

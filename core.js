@@ -3128,6 +3128,67 @@ export const WIDGET_HORIZON_MIN = 120; // entries this far ahead; past them: "Op
 export const WIDGET_REFRESH_MIN = 10; // the reload asked of iOS (sooner at the next leave-by)
 export const WIDGET_RIDE_REFRESH_MIN = 5; // while following a ride (at each stop for the last 3)
 
+// The large widget's trip timeline (2026-11-13): the app's timeline (timelineSteps) flattened to
+// text rows, without the Leave node (the headline has the leave-by). Rows: { kind: 'walk', text,
+// walking }, { kind: 'stop', name, time, color, bar: 'start' | 'end' } (a leg's boarding stop and
+// drop-off; "—" unknown), { kind: 'ride', text, toward, color }, { kind: 'end', name: 'Arrive',
+// time }. Times carry no weekday. `legs`: each leg's row indices ({ from, ride, to }).
+export function widgetTimeline(row, trip, slackMinutes, names = new Map(), stopCounts = [], { enRoute = false } = {}) {
+  const rows = [];
+  const legs = [];
+  for (const s of timelineSteps({ ...row, enRoute }, trip, slackMinutes, 0, names, stopCounts)) {
+    if (s.kind === 'end') {
+      if (s.label === 'Arrive') rows.push({ kind: 'end', name: 'Arrive', time: s.time == null ? '' : `${s.approx ? '~' : ''}${formatTime(s.time)}` });
+      continue;
+    }
+    if (s.kind === 'walk') { rows.push({ kind: 'walk', text: s.text, walking: !!s.walking }); continue; }
+    const color = s.leg.color ?? '';
+    const stop = (name, ms, at, bar) => {
+      const flag = name ? flagStop(s.leg, at) : '';
+      return { kind: 'stop', name: `${name ?? '—'}${flag ? ` · ${flag}` : ''}`, time: ms == null ? '' : legTime(s.leg, ms), color, bar };
+    };
+    const from = rows.push(stop(s.from, s.leg.dep, 'board', 'start')) - 1;
+    const ride = rows.push({ kind: 'ride', text: rideLine(s), toward: toward(s.leg), color }) - 1;
+    const to = rows.push(stop(s.to, s.leg.arr, 'alight', 'end')) - 1;
+    legs.push({ from, ride, to });
+  }
+  return { rows, legs };
+}
+
+// Which of the timeline's rows are done (dimmed: the first `done`), current (bold: the next
+// `current`) and which one shows no time (`hide`: the moment the headline names), as the app's
+// ride card (renderTimeline): `kind` 'leave' (the departs entries) / 'walk' / 'ask': none done,
+// the boarding stop's time hidden; else a ridePhase. `stops` (riding, rideStops for that leg, the
+// ones still ahead): `along`, the stops left on the ridden leg's bar ({ name, time } or { more:
+// "… 3 more" }; shownStops, the drop-off left out: its own row) and the vehicle ('board': on the
+// boarding node, 'gap': just above the next stop, '': at the drop-off). Null: no timeline.
+export function widgetTimelineMarks(tl, kind, phase = null, stops = null, boarding = false) {
+  if (!tl?.legs.length) return null;
+  const n = tl.rows.length;
+  if (kind === 'leave' || kind === 'walk' || kind === 'ask') return { done: 0, current: 0, hide: tl.legs[0].from };
+  const p = phase.leg;
+  if (phase.kind === 'riding') {
+    const L = tl.legs[p];
+    const marks = { done: L.ride, current: 2, hide: L.to };
+    if (stops) {
+      const shown = shownStops(stops.stops).filter(s => !s.dropOff)
+        .map(s => (s.more ? { more: `… ${s.more} more` } : { name: s.name ?? '—', time: s.time == null ? '' : formatTime(s.time) }));
+      const veh = boarding ? 'board' : stops.vehicle?.atDropOff ? '' : 'gap';
+      marks.along = { after: L.ride, veh, stops: shown };
+    }
+    return marks;
+  }
+  if (phase.kind === 'transfer') {
+    const from = tl.legs[p].from;
+    return { done: from - 1, current: 2, hide: from };
+  }
+  if (phase.kind === 'walking') {
+    const last = tl.rows[n - 2]?.kind === 'walk' ? n - 2 : n - 1;
+    return { done: last, current: n - last, hide: n - 1 };
+  }
+  return null;
+}
+
 // The widget's timeline from the shown trip's rows (upcoming; next-day ones marked `nextDay`).
 // `rows`: one line per row, its leave-by time. `entries`: what each size shows from `at` (Unix
 // seconds) on, `row` its row (-1: none); the countdowns ("in 9 min", rounded down like the page's)
@@ -3146,20 +3207,28 @@ export const WIDGET_RIDE_REFRESH_MIN = 5; // while following a ride (at each sto
 // (widgetFollowView). `end`: past it the widget shows "Open T-Minus" (null: never); `refresh`:
 // when to ask again (also at each leave-by and last chance, so the late phases get fresh times).
 // `tripName` null: no trips.
-export function widgetView(tripName, rows, nowMs, follow = null) {
-  if (follow && follow.kind !== 'bell') return widgetFollowView(tripName, follow, nowMs);
+// `large` (the large size, 2026-11-13; null: the answer above, unchanged): { trip, slack, names,
+// counts, show }. Followed states and, with `show` 'timeline', the leave rows carry the trip's
+// timeline (widgetTimeline: `view.timeline`, per row `timeline`), and entries `tl`
+// (widgetTimelineMarks). `counts`: per row (leave) or for the followed ride, stops per leg.
+export function widgetView(tripName, rows, nowMs, follow = null, large = null) {
+  if (follow && follow.kind !== 'bell') return widgetFollowView(tripName, follow, nowMs, large);
   if (follow) rows = [follow.row];
+  const tls = large && (follow || large.show === 'timeline')
+    ? rows.map((r, i) => widgetTimeline(r, large.trip, large.slack, large.names, large.counts?.[i] ?? []))
+    : null;
   const sec = ms => Math.round(ms / 1000);
   const t = ms => formatTime(ms); // no weekday: the widget's rides are its next ones
   const horizon = nowMs + WIDGET_HORIZON_MIN * MIN;
   const deps = rows.map(r => legTime(r.legs[0], r.firstDep));
-  const lines = rows.map(r => {
+  const lines = rows.map((r, i) => {
     const first = r.legs[0];
     const approx = r.legs.some(l => l.every) ? '~' : '';
     return {
       time: t(r.leaveBy), vehicle: vehicleLabel(first) ?? '', short: vehicleLabel(first), color: first.color ?? '', label: islandLabel(first),
       line: vehicleArrow(first), long: withTrack(first), headsign: first.headsign ?? '', arrive: `arrive ${approx}${t(r.eta)}`, arriveTitle: `Arrive ${approx}${t(r.eta)}`,
       then: r.legs.slice(1).map(l => ({ label: vehicleLabel(l) ?? '', color: l.color ?? '' })),
+      ...(tls && { timeline: tls[i].rows }),
     };
   });
   const view = { name: tripName ?? '', rows: lines, entries: [], end: null, refresh: sec(nowMs + WIDGET_REFRESH_MIN * MIN) };
@@ -3182,11 +3251,14 @@ export function widgetView(tripName, rows, nowMs, follow = null) {
     const leave = `Leave ${t(r.leaveBy)}`;
     const past = { warn: true, next: L.arriveTitle, line: `${L.line} at ${deps[i]}`, rowTime: deps[i] };
     const countFrom = r.leaveBy - LEAVE_CARD_EARLY_MIN * MIN + 1000; // from "in 59 min"
+    // The large size: every time shown until the leave-by, then the boarding stop's hidden.
+    const tl = tls && widgetTimelineMarks(tls[i], 'leave');
+    const all = tl && { tl: { ...tl, hide: -1 } };
     if (r.nextDay && start < countFrom) add(start, i, { ...empty('No more today', `First ${formatTime(r.leaveBy)}`), row: -1 });
-    else countdown(start, countFrom, r.leaveBy, i, count => ({ title: leave, count: '', head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle }));
-    countdown(Math.max(start, countFrom), r.leaveBy, r.leaveBy, i, count => ({ title: leave, count, head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle }));
+    else countdown(start, countFrom, r.leaveBy, i, count => ({ title: leave, count: '', head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle, ...all }));
+    countdown(Math.max(start, countFrom), r.leaveBy, r.leaveBy, i, count => ({ title: leave, count, head: `Leave ${count}`, headTime: t(r.leaveBy), next: L.arriveTitle, ...all }));
     // Amber until the last chance, then red (`late`, the build after 54; `warn` stays for older ones).
-    const departs = extra => count => ({ ...past, ...extra, title: 'Departs', count, head: `Departs ${count}`, headTime: deps[i] });
+    const departs = extra => count => ({ ...past, ...extra, title: 'Departs', count, head: `Departs ${count}`, headTime: deps[i], ...(tl && { tl }) });
     const lastChance = Math.min(Math.max(r.lastChance, r.leaveBy), r.firstDep);
     countdown(Math.max(start, r.leaveBy), lastChance, r.firstDep, i, departs({}));
     countdown(Math.max(start, lastChance), r.firstDep, r.firstDep, i, departs({ late: true }));
@@ -3200,9 +3272,10 @@ export function widgetView(tripName, rows, nowMs, follow = null) {
   if (follow && view.entries.length) {
     // The belled ride: then the boarding question at its departure.
     const r = rows[0];
-    const asked = widgetFollowView(tripName, { kind: 'ask', row: r }, Math.max(nowMs, r.firstDep));
+    const asked = widgetFollowView(tripName, { kind: 'ask', row: r }, Math.max(nowMs, r.firstDep), large);
     view.entries.push(...asked.entries);
     view.end = asked.end;
+    if (asked.timeline) view.timeline = asked.timeline;
   }
   return view;
 }
@@ -3219,10 +3292,17 @@ export function widgetView(tripName, rows, nowMs, follow = null) {
 // walk, a missed or no connection; not while riding: the connection line says it). `end`: the ride's
 // end (5 min after the arrival), the question's or the departure; `refresh`: every
 // WIDGET_RIDE_REFRESH_MIN, at each stop once 3 are left, and at each phase.
-function widgetFollowView(tripName, follow, nowMs) {
+function widgetFollowView(tripName, follow, nowMs, large = null) {
   const sec = ms => Math.round(ms / 1000);
   const horizon = nowMs + WIDGET_HORIZON_MIN * MIN;
   const view = { name: tripName ?? '', rows: [], entries: [], end: null, refresh: sec(nowMs + WIDGET_RIDE_REFRESH_MIN * MIN) };
+  // The large size's timeline (en route: no first walk) and each entry's marks (`marksAt`).
+  const tlRow = follow.kind === 'ride'
+    ? { legs: follow.ride.legs, eta: follow.ride.legs[follow.ride.legs.length - 1].arr + follow.walkAfter * MIN }
+    : follow.row;
+  const tl = large ? widgetTimeline(tlRow, large.trip, large.slack, large.names, large.counts?.[0] ?? [], { enRoute: true }) : null;
+  if (tl) view.timeline = tl.rows;
+  let marksAt = () => (tl ? widgetTimelineMarks(tl, follow.kind) : null);
   let stateAt;
   let until;
   const events = [];
@@ -3250,6 +3330,14 @@ function widgetFollowView(tripName, follow, nowMs) {
       const o = outlook && ((phase.kind === 'riding' && outlook.leg === phase.leg + 1) || (phase.kind === 'transfer' && outlook.leg === phase.leg)) ? outlook : null;
       return { ...liveActivityState(ride, phase, st, o, walkAfter, t), ...(phase.kind === 'riding' && { warn: false, late: false }) };
     };
+    // The vehicle on the boarding node only while the reload saw it there and no stop has passed.
+    if (tl) marksAt = t => {
+      const phase = ridePhase(ride, walkAfter, t);
+      const mine = stops && phase.kind === 'riding' && phase.leg === stopsLeg;
+      const l = mine ? left(t) : null;
+      const st = mine ? (l.length ? { vehicle: stops.vehicle, stops: l } : { vehicle: stops.vehicle, stops: stops.stops.slice(-1) }) : null;
+      return widgetTimelineMarks(tl, 'ride', phase, st, !!(mine && stops.vehicle?.boarding && l.length === stops.stops.length));
+    };
     // Every stop once 3 are left (the count matters most at the end).
     const n = stops ? left(nowMs).length : 0;
     const times = stops ? left(nowMs).map(s => s.time).filter(x => x != null) : [];
@@ -3270,6 +3358,8 @@ function widgetFollowView(tripName, follow, nowMs) {
   for (let t = nowMs; t < until && t < horizon;) {
     const st = stateAt(t);
     const e = entry(st, t);
+    const tlm = marksAt(t);
+    if (tlm) e.tl = tlm;
     const prev = view.entries[view.entries.length - 1];
     const same = prev && JSON.stringify({ ...prev, at: 0 }) === JSON.stringify({ ...e, at: 0 });
     if (!same) view.entries.push(e);

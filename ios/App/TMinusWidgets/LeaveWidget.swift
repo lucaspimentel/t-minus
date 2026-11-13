@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 import WidgetKit
 
@@ -6,12 +7,28 @@ import WidgetKit
 // the trip (core.js); the answer's entries carry their own countdowns, a minute apart. Reloads:
 // at the answer's `refresh` (10 min, or the next leave-by), and when the app changes the request.
 // Without an answer the last one is kept (and retried in 10 min); past its times, "Open T-Minus".
+// The large size (2026-11-13) asks for `size=large` (the trip's timeline) and has one option,
+// "Show" (Edit Widget): "More rides" or "Trip timeline" for its leave times; the other sizes ignore it.
 struct LeaveEntry: TimelineEntry {
     let date: Date
     let content: LeaveContent
+    var show: LeaveShow = .rides
 }
 
-struct LeaveProvider: TimelineProvider {
+enum LeaveShowOption: String, AppEnum {
+    case rides, timeline
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Show"
+    static var caseDisplayRepresentations: [LeaveShowOption: DisplayRepresentation] = [.rides: "More rides", .timeline: "Trip timeline"]
+    var show: LeaveShow { self == .timeline ? .timeline : .rides }
+}
+
+struct LeaveConfiguration: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Leave times"
+    static var description = IntentDescription("When to leave for the trip T-Minus shows.")
+    @Parameter(title: "Show", default: .rides) var show: LeaveShowOption
+}
+
+struct LeaveProvider: AppIntentTimelineProvider {
     static let url = URL(string: "https://t-minus.lucasp.net/api/widget")!
     static let sample = LeaveEntry(date: Date(), content: LeaveContent(
         name: "Home → Work",
@@ -20,32 +37,33 @@ struct LeaveProvider: TimelineProvider {
 
     func placeholder(in context: Context) -> LeaveEntry { Self.sample }
 
-    func getSnapshot(in context: Context, completion: @escaping (LeaveEntry) -> Void) {
-        if context.isPreview { return completion(Self.sample) }
-        Task {
-            let (view, _) = await Self.load()
-            let now = Date()
-            completion(LeaveContent.timeline(view, now: now).last { $0.0 <= now }.map { LeaveEntry(date: now, content: $0.1) } ?? Self.sample)
-        }
+    func snapshot(for configuration: LeaveConfiguration, in context: Context) async -> LeaveEntry {
+        let show = configuration.show.show
+        if context.isPreview { return LeaveEntry(date: Date(), content: Self.sample.content, show: show) }
+        let (view, _) = await Self.load(large: context.family == .systemLarge, show: show)
+        let now = Date()
+        return LeaveContent.timeline(view, now: now).last { $0.0 <= now }.map { LeaveEntry(date: now, content: $0.1, show: show) } ?? Self.sample
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<LeaveEntry>) -> Void) {
-        Task {
-            let (view, fresh) = await Self.load()
-            let now = Date()
-            let entries = LeaveContent.timeline(view, now: now).map { LeaveEntry(date: $0.0, content: $0.1) }
-            let retry = now.addingTimeInterval(600)
-            let next = fresh && view != nil ? max(Date(timeIntervalSince1970: view!.refresh), now.addingTimeInterval(60)) : retry
-            completion(Timeline(entries: entries, policy: .after(next)))
-        }
+    func timeline(for configuration: LeaveConfiguration, in context: Context) async -> Timeline<LeaveEntry> {
+        let show = configuration.show.show
+        let (view, fresh) = await Self.load(large: context.family == .systemLarge, show: show)
+        let now = Date()
+        let entries = LeaveContent.timeline(view, now: now).map { LeaveEntry(date: $0.0, content: $0.1, show: show) }
+        let retry = now.addingTimeInterval(600)
+        let next = fresh && view != nil ? max(Date(timeIntervalSince1970: view!.refresh), now.addingTimeInterval(60)) : retry
+        return Timeline(entries: entries, policy: .after(next))
     }
 
-    // The server's answer (saved for later), else the last one saved: (answer, fresh).
-    static func load() async -> (WidgetView?, Bool) {
+    // The server's answer (saved for later), else the last one saved: (answer, fresh). The large
+    // size asks for its timeline and keeps its own copy (a small size's answer has none).
+    static func load(large: Bool = false, show: LeaveShow = .rides) async -> (WidgetView?, Bool) {
         let defaults = UserDefaults.standard
-        let saved = defaults.data(forKey: WidgetStore.last).flatMap { try? JSONDecoder().decode(WidgetView.self, from: $0) }
+        let key = large ? "\(WidgetStore.last).large.\(show == .timeline ? "timeline" : "rides")" : WidgetStore.last
+        let saved = defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(WidgetView.self, from: $0) }
         guard let body = WidgetStore.loadRequest() else { return (saved, false) }
-        var req = URLRequest(url: url, timeoutInterval: 15)
+        let target = large ? URL(string: "\(url.absoluteString)?size=large&show=\(show == .timeline ? "timeline" : "rides")")! : url
+        var req = URLRequest(url: target, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         req.httpBody = Data(body.utf8)
@@ -53,7 +71,7 @@ struct LeaveProvider: TimelineProvider {
             let (data, res) = try await URLSession.shared.data(for: req)
             guard (res as? HTTPURLResponse)?.statusCode == 200 else { return (saved, false) }
             let view = try JSONDecoder().decode(WidgetView.self, from: data)
-            defaults.set(data, forKey: WidgetStore.last)
+            defaults.set(data, forKey: key)
             return (view, true)
         } catch {
             return (saved, false)
@@ -63,12 +81,12 @@ struct LeaveProvider: TimelineProvider {
 
 struct LeaveWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: WidgetStore.kind, provider: LeaveProvider()) { entry in
+        AppIntentConfiguration(kind: WidgetStore.kind, intent: LeaveConfiguration.self, provider: LeaveProvider()) { entry in
             LeaveWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Leave times")
         .description("When to leave for the trip T-Minus shows.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
 
@@ -80,6 +98,8 @@ private struct LeaveWidgetEntryView: View {
         switch family {
         case .systemMedium:
             LeaveWidgetView(content: entry.content, size: .medium).containerBackground(Theme.of(scheme).card, for: .widget)
+        case .systemLarge:
+            LeaveWidgetView(content: entry.content, size: .large, show: entry.show).containerBackground(Theme.of(scheme).card, for: .widget)
         default:
             LeaveWidgetView(content: entry.content, size: .small).containerBackground(Theme.of(scheme).card, for: .widget)
         }

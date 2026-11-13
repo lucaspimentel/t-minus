@@ -312,6 +312,109 @@ private struct WidgetSheet: View {
     }
 }
 
+// The large size (2026-11-13): leave times (More rides, Trip timeline), and the followed states on
+// the app's timeline, at 338 × 354 (6.1"). The trip: Bus 132 Main St @ South St 7:48am → Malden
+// Center 8:05am, Orange Line → Downtown Crossing 8:31am, walk 6 min, arrive 8:37am.
+private typealias TL = WidgetView.TLRow
+private func tw(_ text: String, walking: Bool = true) -> TL { TL(kind: "walk", text: text, walking: walking) }
+private func ts(_ name: String, _ time: String, _ color: String, start: Bool) -> TL { TL(kind: "stop", name: name, time: time, color: color, bar: start ? "start" : "end") }
+private func tr(_ text: String, _ toward: String, _ color: String) -> TL { TL(kind: "ride", text: text, toward: toward, color: color) }
+private func tleg(_ from: String, _ dep: String, _ ride: String, _ toward: String, _ to: String, _ arr: String, _ color: String) -> [TL] {
+    [ts(from, dep, color, start: true), tr(ride, toward, color), ts(to, arr, color, start: false)]
+}
+private let busLeg = tleg("Main St @ South St", "7:48am", "Bus 132 · 6 stops · 17 min", "toward Malden", "Malden Center", "8:05am", bus)
+private let olLeg = tleg("Malden Center", "8:11am", "Orange Line · 8 stops · 20 min", "toward Forest Hills", "Downtown Crossing", "8:31am", orange)
+private let tripTL = busLeg + [tw("6 min to transfer")] + olLeg + [tw("Walk 6 min"), TL(kind: "end", name: "Arrive", time: "8:37am")]
+private let leaveTL = [tw("Walk 4 min · 2 min early at the stop")] + tripTL
+private func marks(_ done: Int, _ current: Int, _ hide: Int, along: WidgetView.TLMarks.Along? = nil) -> WidgetView.TLMarks {
+    WidgetView.TLMarks(done: done, current: current, hide: hide, along: along)
+}
+private func alongStops(_ names: [String], from minute: Int) -> [WidgetView.TLMarks.Stop] {
+    names.enumerated().map { i, n -> WidgetView.TLMarks.Stop in
+        let m = 7 * 60 + minute + 2 * i
+        return n.hasPrefix("…") ? .init(more: n) : .init(name: n, time: "\(m / 60):\(String(format: "%02d", m % 60))am")
+    }
+}
+private let busRow = hrow("7:42am", "8:37am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132", then: [("Orange", orange)])
+private let laterRows = [hrow("7:57am", "8:52am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
+                         hrow("8:12am", "9:04am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
+                         hrow("8:24am", "9:12am", long: "Bus 137", short: "Bus 137", headsign: "Malden", color: bus, label: "137"),
+                         hrow("8:42am", "~9:31am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132"),
+                         hrow("8:57am", "~9:46am", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132")]
+private func leaveLarge(_ e: WidgetView.Entry, hide: Int) -> LeaveContent {
+    var e = e
+    e.tl = marks(0, 0, hide)
+    var first = busRow
+    first.timeline = leaveTL
+    return LeaveContent(name: "To work", entry: e, rows: [first] + laterRows, timeline: leaveTL)
+}
+private func followLarge(_ head: String, _ headTime: String, note: String = "", warn: Bool = false, late: Bool = false, dep: Double? = nil,
+                         tl: WidgetView.TLMarks?, rows: [TL] = tripTL) -> LeaveContent {
+    var e = WidgetView.Entry(at: 0, row: -1, title: head, count: "", warn: warn, next: "", head: head, headTime: headTime)
+    e.note = note; e.late = late; e.dep = dep; e.tl = tl
+    e.long = ""; e.arrive = ""
+    return LeaveContent(name: "To work", entry: e, rows: [], timeline: tl == nil ? nil : rows)
+}
+private let ride5 = WidgetView.TLMarks.Along(after: 1, veh: "gap", stops: alongStops(["Main St @ Salem St", "Main St @ Eastern Ave", "Pleasant St @ Commercial St", "Centre St @ Main St"], from: 57))
+private let ride9 = WidgetView.TLMarks.Along(after: 1, veh: "gap", stops: alongStops(["Main St @ Wyoming Ave", "Main St @ Highland Ave", "… 5 more", "Centre St @ Main St"], from: 51))
+private let boarding = WidgetView.TLMarks.Along(after: 1, veh: "board", stops: alongStops(["Main St @ Wyoming Ave", "Main St @ Highland Ave", "… 2 more", "Centre St @ Main St"], from: 50))
+private let olAlong = WidgetView.TLMarks.Along(after: 5, veh: "gap", stops: [.init(name: "Haymarket", time: "8:26am"), .init(name: "State", time: "8:28am")])
+private let longTL = tleg("Washington St opp Ruggles St Station Busway", "7:12am", "Bus 28 · 14 stops · 22 min", "toward Mattapan Station", "Nubian Station Lower Busway", "7:34am", bus)
+    + [tw("5 min to transfer")] + tleg("Nubian Station", "7:39am", "Silver Line SL5 · 9 stops · 18 min", "toward Downtown Crossing", "Tremont St @ Boylston Station", "7:57am", "7C878E")
+    + [tw("4 min to transfer")] + tleg("Boylston", "8:01am", "Green Line D · 11 stops · 24 min", "toward Riverside", "Brookline Hills", "8:25am", "00843D")
+    + [tw("Walk 9 min"), TL(kind: "end", name: "Arrive", time: "8:34am")]
+private let largeSamples: [(String, LeaveContent, LeaveShow)] = [
+    ("Leave · More rides (default)", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1), .rides),
+    ("Leave · Trip timeline", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1), .timeline),
+    ("Departs · Trip timeline (boarding time hidden)", leaveLarge(hent("Departs in 7 min", "7:48am", warn: true), hide: 1), .timeline),
+    ("Departs, too late · More rides", leaveLarge(hent("Departs in 2 min", "7:48am", warn: true, late: true), hide: 1), .rides),
+    ("Walking", followLarge("Departs in 6 min", "7:48am", note: "At the stop ~7:46am · 2 min to spare", tl: marks(0, 0, 0)), .rides),
+    ("Walking, late", followLarge("Departs in 3 min", "7:48am", note: "At the stop ~7:50am · 2 min late", warn: true, late: true, tl: marks(0, 0, 0)), .rides),
+    ("Did you get on?", followLarge("Did you get on?", "left 7:48am", dep: now - 60, tl: marks(0, 0, 0)), .rides),
+    ("Riding, 5 stops left", followLarge("Get off in 5 stops", "9 min", tl: marks(1, 2, 2, along: ride5)), .rides),
+    ("Riding, 9 stops left", followLarge("Get off in 9 stops", "14 min", tl: marks(1, 2, 2, along: ride9)), .rides),
+    ("Riding, at the boarding stop", followLarge("Get off in 6 stops", "17 min", tl: marks(1, 2, 2, along: boarding)), .rides),
+    ("Riding, last leg", followLarge("Get off in 3 stops", "7 min", tl: marks(5, 2, 6, along: olAlong)), .rides),
+    ("Transfer", followLarge("Orange in 5 min", "8:11am", note: "4 min to spare", tl: marks(3, 2, 4)), .rides),
+    ("Transfer, tight", followLarge("Orange in 2 min", "8:11am", note: "tight", warn: true, tl: marks(3, 2, 4)), .rides),
+    ("Missed connection", followLarge("Orange in 7 min", "8:17am", note: "Missed the 8:11am", warn: true, late: true, tl: marks(3, 2, 4)), .rides),
+    ("Final walk", followLarge("Arrive in 6 min", "8:37am", tl: marks(7, 2, 8)), .rides),
+    ("Three legs, long names (overflow)", followLarge("Get off in 9 stops", "14 min", tl: marks(1, 2, 2, along: ride9), rows: longTL), .rides),
+    ("Arrived (the medium's layout)", followLarge("Arrived", "8:37am", tl: nil), .rides),
+    ("Old answer, no timeline (fallback)", fent("Get off in 5 stops", "9 min", thenText: "at 6:38pm", dropOff: "Oak Grove"), .rides),
+    ("No more today", plainSamples[0].1, .rides),
+    ("Set up", plainSamples[1].1, .rides),
+    ("Stale", plainSamples[2].1, .rides),
+]
+
+private struct LargeWidgetSheet: View {
+    @Environment(\.colorScheme) private var scheme
+    private func cell(_ i: Int) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(largeSamples[i].0).font(.caption).foregroundStyle(.white)
+            LeaveWidgetView(content: largeSamples[i].1, size: .large, show: largeSamples[i].2).padding(16).frame(width: 338, height: 354)
+                .background(Theme.of(scheme).card).clipShape(RoundedRectangle(cornerRadius: 22))
+        }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Home Screen large (2026-11-13), 6.1\": leave times, then following a ride").font(.caption).foregroundStyle(.white)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+                ForEach(Array(stride(from: 0, to: largeSamples.count, by: 3)), id: \.self) { i in
+                    GridRow {
+                        cell(i)
+                        if i + 1 < largeSamples.count { cell(i + 1) }
+                        if i + 2 < largeSamples.count { cell(i + 2) }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(LinearGradient(colors: scheme == .dark ? [Color(hex: "232A3A"), Color(hex: "0B0D12")] : [Color(hex: "5B6B8C"), Color(hex: "2C3447")],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+}
+
 @main
 struct Render {
     @MainActor static func main() throws {
@@ -328,6 +431,7 @@ struct Render {
             try write(Sheet().environment(\.colorScheme, scheme), "live-activity-\(name).png")
             try write(LeaveSheet().environment(\.colorScheme, scheme), "leave-card-\(name).png")
             try write(WidgetSheet().environment(\.colorScheme, scheme), "widget-\(name).png")
+            try write(LargeWidgetSheet().environment(\.colorScheme, scheme), "widget-large-\(name).png")
         }
     }
 }

@@ -72,9 +72,10 @@ ones):
 | Leave, walk and ride cards (Lock Screen, expanded island; 2026-10-29 the widget's layout, the ride card 2026-10-31) | "Orange Line" | "toward Malden" ("→" where it doesn't fit) |
 | Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
 | App card leg strip | "Orange" | none (the expanded row has it) |
-| Widget Home Screen (small, medium; 2026-10-29) | "Orange Line" | "toward Forest Hills" ("→" where it doesn't fit) |
+| Widget Home Screen (small, medium; 2026-10-29; large 2026-11-13) | "Orange Line" | "toward Forest Hills" ("→" where it doesn't fit) |
+| Large widget's timeline (2026-11-13) | the app's timeline: "Bus 132 · 6 stops · 17 min" | "toward Malden" under each upcoming ride (none on done or ridden legs; dropped first when it doesn't fit) |
 | Connection lines ("then ● Bus 132 at 6:38pm"), Dynamic Island | "Orange" | none |
-| Riding: ride card, expanded island, both widgets (2026-11-06) | "Orange Line" | the drop-off instead: "to Malden Center" ("to 🚩 Malden Center" at a flag stop) |
+| Riding: ride card, expanded island, the widget's sizes (2026-11-06) | "Orange Line" | the drop-off instead: "to Malden Center" ("to 🚩 Malden Center" at a flag stop) |
 | Riding: the app's timeline, the ridden leg (2026-11-06) | "Orange Line" | none (the leg's last row names the drop-off) |
 | Route map: vehicle badges (2026-11-07) | "OL", "132" (the island's compact label); a Green branch's letter "B", a bus `also` route's "117" (2026-11-12) | none |
 | Route map: stop labels and the caption (a tapped stop's label on the main map, 2026-11-13) | the stop's name ("Oak Grove", "Main St @ South St") | none |
@@ -1193,6 +1194,11 @@ still holds, to stay well inside it either way:
   requests.
 - Expanding a row: one `/schedules?filter[trip]=…` per transit leg for its stop counts, once per
   trip and service date (memory); collapsed rows cost nothing.
+- The iOS widget (`POST /api/widget`, the server's key): 2 requests per transit leg per reload
+  (shared cache). The large size (2026-11-13) adds, for "Trip timeline" and followed rides, one
+  `/schedules?filter[trip]=…` per leg of the shown ride, once per trip and service date (kept on
+  the server, up to 500 trips): about 2 per new first ride on a 2-leg commute, a dozen a commute
+  at most. Small, medium and "More rides" add none.
 - Schedule window: from 30 min ago (for missed rows, with the 15-min refresh) to
   max(6 h, 90 min × `departureCount`) ahead; once it reaches
   22:00 it is extended to the end of the service day (28:00).
@@ -2023,8 +2029,8 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
 
 ### Widget (Phase 3b, 2026-10-26)
 
-- **What:** "Leave times", the shown trip's next leave-bys on the Home Screen (small, medium);
-  mockups accepted 2026-10-26. Tap opens the app. The Lock Screen sizes (rectangular, inline,
+- **What:** "Leave times", the shown trip's next leave-bys on the Home Screen (small, medium;
+  large from 2026-11-13, below); mockups accepted 2026-10-26. Tap opens the app. The Lock Screen sizes (rectangular, inline,
   circular) were removed 2026-10-31 (the build after 41): the leave, walk and ride cards are the
   Lock Screen's, kept current by pushes, where the widget lagged them within iOS's reload budget
   (seen 2026-10-27 and 2026-10-29).
@@ -2111,8 +2117,45 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
   trip) with "arrive 7:21pm" (never cut). The answer adds per row `then` ([{ label, color }]). 2026-10-31: the small size adds the
   arrival under the direction (one line each); the medium size puts a note or the connection on
   its own line above the bottom row.
+- **Large size (2026-11-13; mockups accepted):** a third size with one option, "Show" (long-press
+  → Edit Widget; `AppIntentConfiguration`, the same `kind`, so placed widgets stay): "More rides"
+  (the default) or "Trip timeline", for its leave times only; small and medium ignore it. Each
+  state has the medium's caption and headline (same colors), then:
+  - Leave times, More rides: the medium's lines, then "Later", the next 5 rides (leave-by, the
+    vehicle in short form only where it differs from the first ride's, arrival).
+  - Leave times, Trip timeline (and the bell's ride when it's the only row): the app's expanded
+    row timeline without the Leave node (the headline has the leave-by): the first walk, each
+    leg's boarding stop and drop-off with their times in a right-aligned column, the ride lines
+    ("Bus 132 · 6 stops · 17 min", "toward Malden" under each), the transfer, the final walk,
+    Arrive; "Next: leave 7:57am" under it when it fits.
+  - Walking, "Did you get on?" ([Yes] [Missed it] below), riding, the transfer and the final
+    walk: the app's ride card timeline (en route: no first walk), with no vehicle line above it
+    (the timeline names the vehicle): done steps dimmed, the current one bold (riding: the ride
+    and its drop-off; the transfer: the walk and the next boarding stop; the final walk and
+    Arrive), and while riding the vehicle just above the next stop (on the boarding stop's node
+    until it leaves; never "At …": not known between reloads) and the stops left with their times
+    (`shownStops`: all up to 5, else the next 2, "… N more", the stop before the drop-off). The
+    stops left and the vehicle move on the entries the widget already has at each stop.
+  - Arrived and the messages: the medium's layout. An answer without a timeline (an older
+    server, a saved copy) also falls back to the medium's layout.
+  - Each fact once: the timeline leaves out the time the headline names (the boarding stop's from
+    "Departs in", walking and the question; the next boarding stop in the transfer; the drop-off
+    while riding; Arrive on the final walk).
+  - Too tall (3 legs, long names; `timelineVariants`): first "Next: leave" goes, then the
+    "toward" lines, then the text is 10% smaller, then whole steps are cut, done ones first, then
+    the upcoming ones nearest before Arrive, each run as one "⋯" row; never the current step or
+    Arrive.
+  - Data: the widget posts to `/api/widget?size=large&show=timeline|rides` (the same body) and
+    keeps its own saved copy. The answer adds optional fields only then (other requests' answers
+    are unchanged): `timeline` (core.js `widgetTimeline`: rows `walk` / `stop` / `ride` / `end`,
+    text and times already formatted) per leave row (with `show=timeline`) and on the view for a
+    followed state, and per entry `tl` (`widgetTimelineMarks`: `done`, `current`, `hide`, and
+    `along`, the stops left and the vehicle). Stop counts come from each leg's trip stop list
+    (`tripStopsQuery`), kept on the server per trip and service date (`legStopCounts`, up to 500;
+    a failed fetch: minutes only, tried again at the next reload); "More rides" needs none.
 - **Previews:** the `ios` workflow also renders `widget-<theme>.png` (the leave-time samples and
-  every followed state, small and medium).
+  every followed state, small and medium) and `widget-large-<theme>.png` (every large state, the
+  overflow and the fallback).
 
 ## Commuter rail (2026-11-01)
 
