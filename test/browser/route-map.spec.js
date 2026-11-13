@@ -595,14 +595,15 @@ test('the main screen\'s map: above the rows, 26% of the screen, vehicles every 
   await expect(map.getByRole('button', { name: 'Center on my location' })).toBeVisible();
   await expect(map.getByRole('button', { name: 'Hide map' })).toBeVisible();
   await expect(map.locator('.map-vehicle')).toHaveCount(1);
-  // Hide map alone in the top-left; locate, fit and "Open the full map" on the right (2026-11-13).
+  // On the left, Hide map then "Open the full map"; locate and fit on the right (2026-11-13).
   const box = await mapSvg(page).boundingBox();
   const hb = await map.getByRole('button', { name: 'Hide map' }).boundingBox();
   expect(Math.abs(hb.x - box.x - 10)).toBeLessThanOrEqual(2);
   expect(Math.abs(hb.y - box.y - 10)).toBeLessThanOrEqual(2);
-  expect(await map.locator('.map-tools > button').evaluateAll(bs => bs.map(b => b.className))).toEqual(['map-tool map-locate', 'map-tool map-fit', 'map-tool map-expand']);
+  expect(await map.locator('.map-tools > button').evaluateAll(bs => bs.map(b => b.className))).toEqual(['map-tool map-hide', 'map-tool map-expand', 'map-tool map-locate', 'map-tool map-fit']);
   const ob = await map.getByRole('button', { name: 'Open the full map' }).boundingBox();
-  expect(ob.x + ob.width).toBeGreaterThan(box.x + box.width - 14);
+  expect(Math.abs(ob.x - hb.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(ob.y - (hb.y + hb.height + 8))).toBeLessThanOrEqual(2);
   // A tap on the map doesn't open the sheet.
   await mapSvg(page).click({ position: { x: box.width / 2, y: box.height - 20 } });
   await tick(page, 300);

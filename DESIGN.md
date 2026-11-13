@@ -595,9 +595,10 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   the list, above the rows, the empty message ("No upcoming departures found") or the ride card;
   26% of the screen's height, 160-300 px (`clamp`, `svh`); no caption or credit line ("Location
   off" / "Outside the map" show under it when they apply; the base map's credit is in the sheet).
-  The dot, the legs' vehicles, and the corner buttons (2026-11-12, mockups accepted): **Hide map**
-  (an up chevron) alone in the top-left; on the right, locate, the fit button, and **Open the full
-  map** (diagonal outward arrows). **It pans and zooms (2026-11-13):** a one-finger drag pans, a
+  The dot, the legs' vehicles, and the corner buttons (2026-11-12, mockups accepted): on the left,
+  **Hide map** (an up chevron) and under it **Open the full map** (diagonal outward arrows); on the
+  right, locate and the fit button. (On 2026-11-13 Open the full map was the right stack's last;
+  moved left that day, mockup accepted.) **It pans and zooms (2026-11-13):** a one-finger drag pans, a
   pinch zooms, with the sheet's range and limits (below); ctrl+wheel (a trackpad pinch) zooms, a
   plain wheel scrolls the page; a double-tap zooms in, a two-finger tap out (both maps, below).
   Page scrolls and pull-to-refresh start only outside it. A tap on a stop shows its name as a

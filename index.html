@@ -460,7 +460,8 @@
      following, street and area zoom), back to the trip
      (2026-11-08; ⤢ until 2026-11-09), shown once the view moves off the fit, and on the sheet the
      whole map (2026-11-09), shown once the base map is in and the view isn't all the way out; on
-     the main screen's map "Open the full map" last, and Hide map alone in the top-left (2026-11-13). */
+     the main screen's map a left stack (2026-11-13): Hide map, then "Open the full map" (on the
+     right until 2026-11-13). */
   .map-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 8px; }
   .map-tool {
     position: relative; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;
@@ -472,7 +473,7 @@
   .map-tool:disabled { opacity: .4; cursor: default; }
   /* The main screen's map (2026-11-12): 26% of the screen's height, 160-300 px; it pans and zooms (2026-11-13). */
   .main-map { margin: 0; }
-  .main-map .map-hide { position: absolute; top: 10px; left: 10px; }
+  .map-tools.start { right: auto; left: 10px; }
   .main-map .route-svg { height: clamp(160px, 26vh, 300px); height: clamp(160px, 26svh, 300px); }
   .main-map-item { position: relative; margin-bottom: 12px; }
   .main-map-item .map-caption { margin: 6px 0 0; font-size: 13px; }
@@ -555,7 +556,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · 1fcf3c7789</footer>
+    <footer class="version">Version 2026-11-12 · 513e8c6329</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -3519,11 +3520,14 @@ function mainMapItem() {
   const widget = mapWidget({ label: `Map of ${trip.name}`, locate: true, live: true, pan: true, focusKey: 'main-map' });
   widget.el.classList.add('main-map');
   const tools = widget.el.querySelector('.map-tools');
-  // Hide map in the top-left corner (2026-11-13), first in the Tab order.
-  tools.before(mapToolButton('map-hide', 'Hide map', 'main-map:hide', toolIcon(svgEl('path', { d: 'M6 15l6-6 6 6' })), () => setMapHidden(true)));
-  // The sheet (2026-11-13; until then a tap on the map, and from the keyboard a text button shown
-  // only while focused): last in the right stack. Focus comes back to it after the keyboard only.
-  tools.append(mapToolButton('map-expand', 'Open the full map', 'main-map:open', toolIcon(svgEl('path', { d: 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7' })), openMapSheet));
+  // The left stack (2026-11-13), first in the Tab order: Hide map, then the sheet (until then a tap
+  // on the map, and from the keyboard a text button shown only while focused; in the right stack
+  // that day). Focus comes back to "Open the full map" after the keyboard only.
+  const start = Object.assign(document.createElement('div'), { className: 'map-tools start' });
+  start.append(
+    mapToolButton('map-hide', 'Hide map', 'main-map:hide', toolIcon(svgEl('path', { d: 'M6 15l6-6 6 6' })), () => setMapHidden(true)),
+    mapToolButton('map-expand', 'Open the full map', 'main-map:open', toolIcon(svgEl('path', { d: 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7' })), openMapSheet));
+  tools.before(start);
   const li = el('li', 'main-map-item');
   const cap = el('p', 'map-caption');
   cap.setAttribute('aria-live', 'polite');
