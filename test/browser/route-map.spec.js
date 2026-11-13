@@ -1499,8 +1499,8 @@ test('the main screen\'s map while following: a drag ends it; a double-tap keeps
   expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 400 });
   const box = await pic.boundingBox();
   const touch = await touchOn(page);
-  await tap(touch, box.x + 40, box.y + 40);
-  await tap(touch, box.x + 40, box.y + 40);
+  await tap(touch, box.x + 40, box.y + box.height - 30); // away from Hide map
+  await tap(touch, box.x + 40, box.y + box.height - 30);
   await expect(btn).toHaveAttribute('aria-pressed', 'true');
   expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 200 });
   const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
