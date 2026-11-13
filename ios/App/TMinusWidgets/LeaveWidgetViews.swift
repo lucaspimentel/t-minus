@@ -272,7 +272,9 @@ private struct LargeHome: View {
         if !content.note.isEmpty { Text(content.note).font(.subheadline).foregroundStyle(content.tint(th)).lineLimit(1) }
     }
 
-    // "Later": rows 2-6, the vehicle in short form only where it differs from the first ride's.
+    // "Later": rows 2-6, the vehicle in short form only where it differs from the first ride's. The
+    // time keeps its full width ("12:16pm"; a fixed 64 pt cut "10:16…", 2026-11-13), at least 72 pt
+    // so the vehicles line up.
     @ViewBuilder private func later(_ th: Theme) -> some View {
         let first = content.rows.first
         let more = Array(content.rows.dropFirst().prefix(5))
@@ -281,7 +283,7 @@ private struct LargeHome: View {
             ForEach(Array(more.enumerated()), id: \.offset) { i, r in
                 if i > 0 { Rectangle().fill(th.track.opacity(0.6)).frame(height: 0.5) }
                 HStack(spacing: 6) {
-                    Text(r.time).foregroundStyle(th.text).frame(width: 64, alignment: .leading)
+                    Text(r.time).foregroundStyle(th.text).lineLimit(1).fixedSize().frame(minWidth: 72, alignment: .leading)
                     if (r.short ?? r.vehicle) != (first?.short ?? first?.vehicle) || r.color != first?.color {
                         RouteDot(hex: r.color, size: 8)
                         Text(r.short ?? r.vehicle).foregroundStyle(th.text).lineLimit(1)
