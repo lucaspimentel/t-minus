@@ -5,7 +5,7 @@ import {
   shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
   fitView, viewLimits, areaRect, insideReach, wholeView, easeView, nextFollowLevel, viewAt, viewShiftPx, FOLLOW_SPANS, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
   placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel, ME_MIN, mapFits, firstFit, fitChoice, fitTap, sameView,
-  TAP_SLOP_PX, DOUBLE_TAP_MS, DOUBLE_TAP_PX, TAP_ZOOM, TWO_FINGER_TAP_MS, doubleTap, twoFingerTap, tapZoomView, wheelZoom,
+  TAP_SLOP_PX, DOUBLE_TAP_MS, DOUBLE_TAP_PX, TAP_ZOOM, TWO_FINGER_TAP_MS, doubleTap, twoFingerTap, wheelZoom,
   rideMarker, GPS_MAX_ACCURACY_METERS, RIDE_GPS_MAX_AGE_MS, RIDE_GPS_LINE_METERS, RIDE_GPS_VEHICLE_METERS, RIDE_GPS_HOLD_MS,
 } from '../core.js';
 
@@ -186,15 +186,16 @@ test('taps and the wheel on the route maps (2026-11-13)', () => {
   // Twice in about the point, which keeps its place; clamped at 150 m and twice the fit.
   const v = { x: 0, y: 0, w: 1000, h: 500 };
   const lim = viewLimits(v);
-  const z = tapZoomView(v, 1, { x: 250, y: 100 }, lim);
+  const tz = (view, f, at, l) => zoomView(view, f, at.x, at.y, l); // a tap's zoom
+  const z = tz(v, TAP_ZOOM, { x: 250, y: 100 }, lim);
   assert.equal(z.w, 500); assert.equal(z.h, 250);
   near((250 - z.x) / z.w, 0.25); near((100 - z.y) / z.h, 0.2);
-  assert.equal(tapZoomView(v, -1, { x: 500, y: 250 }, lim).w, 2000);
-  assert.equal(tapZoomView({ x: 0, y: 0, w: 2000, h: 1000 }, -1, { x: 500, y: 250 }, lim).w, 2000);
-  assert.equal(tapZoomView({ x: 0, y: 0, w: 200, h: 100 }, 1, { x: 100, y: 50 }, lim).w, 150);
+  assert.equal(tz(v, 1 / TAP_ZOOM, { x: 500, y: 250 }, lim).w, 2000);
+  assert.equal(tz({ x: 0, y: 0, w: 2000, h: 1000 }, 1 / TAP_ZOOM, { x: 500, y: 250 }, lim).w, 2000);
+  assert.equal(tz({ x: 0, y: 0, w: 200, h: 100 }, TAP_ZOOM, { x: 100, y: 50 }, lim).w, 150);
   // With the base map's bound: inside it.
   const area = viewLimits(v, { area: { x: -5000, y: -5000, w: 10000, h: 10000 }, aspect: 2 });
-  const o = tapZoomView({ x: 3000, y: 0, w: 2000, h: 1000 }, -1, { x: 4900, y: 500 }, area);
+  const o = tz({ x: 3000, y: 0, w: 2000, h: 1000 }, 1 / TAP_ZOOM, { x: 4900, y: 500 }, area);
   assert.ok(o.x >= area.bounds.x && o.x + o.w <= area.bounds.x + area.bounds.w);
   // The wheel: plain zooms the sheet in steps and leaves the main map's page alone; ctrl zooms
   // both, following the delta.

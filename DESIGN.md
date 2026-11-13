@@ -646,7 +646,7 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   a stop shows its name in the caption (a tap waits 250 ms for a second, 2026-11-13); pinch, drag
   or the wheel zoom and pan; a double-tap zooms in 2× about the point and a two-finger tap (two
   fingers down and up without moving) out 2×, eased like the fit button, a moved view
-  (2026-11-13, both maps; `doubleTap`, `twoFingerTap`, `tapZoomView`), from 150 m across
+  (2026-11-13, both maps; `doubleTap`, `twoFingerTap`, `TAP_ZOOM`), from 150 m across
   out to the whole bound in one view: the farthest commuter rail stations (the base map's `reach`,
   the commuter rail stops' box) 2 km more on each side, united with the trip's fit (`areaRect`,
   `viewLimits`). The view's edges stay inside the bound (`edges`, `clampView`); zoomed all the way

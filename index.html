@@ -483,8 +483,7 @@
     display: block; width: 100%; height: 200px; background: var(--card); border: 1px solid var(--border);
     border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none;
   }
-  .route-svg[role="img"] { touch-action: auto; }
-  .main-map .route-svg[role="img"] { touch-action: none; } /* drags pan it (2026-11-13) */
+  .route-svg.still { touch-action: auto; } /* a picture: the page scrolls over it */
   .map-caption { margin: 6px 0 0; min-height: 20px; font-size: 14px; color: var(--muted); }
   .map-leg { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
   .map-leg.faded { stroke-opacity: .35; }
@@ -556,7 +555,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-12 · 59b8b6d47a</footer>
+    <footer class="version">Version 2026-11-12 · 8e41d64b32</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -586,9 +585,9 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
-  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, doubleTap, twoFingerTap, tapZoomView, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=421007fbf1';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=636d5246bc';
+  stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, TAP_ZOOM, doubleTap, twoFingerTap, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
+} from './core.js?v=8146ea6eac';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=add6679d88';
 
 const API = 'https://api-v3.mbta.com';
 const KEY_CONFIG = 't-minus:config';
@@ -1601,7 +1600,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=421007fbf1'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=8146ea6eac'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2906,6 +2905,17 @@ function basemapGroup(layers) {
   return { g, names: layers.names, marks };
 }
 
+// A corner button's 24 px line icon, and a corner button (its clicks don't reach the map).
+const toolIcon = (...parts) => { const i = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }); i.append(...parts); return i; };
+function mapToolButton(cls, label, focus, icon, onClick) {
+  const b = Object.assign(document.createElement('button'), { type: 'button', className: `map-tool ${cls}` });
+  b.setAttribute('aria-label', label);
+  b.dataset.focus = focus;
+  b.append(icon);
+  b.addEventListener('click', e => { e.stopPropagation(); onClick(e); });
+  return b;
+}
+
 // A map widget: `el` (a div with the SVG and, when interactive, a caption) and draw(input, here)
 // (input: routeMapModel's, without `aspect`; here: the phone's { lat, lon } or null). Interactive:
 // pinch / drag / wheel to zoom and pan, stops as buttons whose names show in the caption.
@@ -2915,7 +2925,7 @@ function basemapGroup(layers) {
 // The view the rider zoomed to is kept across redraws; marks keep their size in pixels.
 // `live` (the main screen's map and the sheet, 2026-11-12): refits at a fit are eased.
 function mapWidget({ label, interactive = false, pan = interactive, focusKey = 'map', caption = null, locate = false, live = false }) {
-  const svg = svgEl('svg', { class: 'route-svg', role: interactive ? 'group' : 'img', 'aria-label': label });
+  const svg = svgEl('svg', { class: `route-svg${pan ? '' : ' still'}`, role: interactive ? 'group' : 'img', 'aria-label': label });
   const el = document.createElement('div');
   el.className = 'route-map';
   el.append(svg);
@@ -3074,13 +3084,13 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
       if (pan) {
         g.append(svgEl('circle', { r: 14, class: 'map-hit' }));
         g.dataset.stop = st.id;
-      }
-      if (interactive) {
-        g.dataset.focus = `${focusKey}:stop:${st.id}`;
-        g.setAttribute('role', 'button');
-        g.setAttribute('tabindex', '0');
-        g.setAttribute('aria-label', st.name);
-        g.setAttribute('aria-pressed', String(w.selected === st.id));
+        if (interactive) { // the sheet's stops are buttons
+          g.dataset.focus = `${focusKey}:stop:${st.id}`;
+          g.setAttribute('role', 'button');
+          g.setAttribute('tabindex', '0');
+          g.setAttribute('aria-label', st.name);
+          g.setAttribute('aria-pressed', String(w.selected === st.id));
+        }
       }
       parts.push(g);
     }
@@ -3199,7 +3209,6 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
     };
   }
   // Back to the trip (⤢ until 2026-11-09): a route inside frame corners.
-  const toolIcon = (...parts) => { const i = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }); i.append(...parts); return i; };
   // Trip + me (2026-11-12): the same with a filled dot, you, in the top-left corner.
   const fitIcon = kind => toolIcon(svgEl('path', { d: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4' }), svgEl('circle', { cx: 9, cy: 15, r: 1.6 }), svgEl('circle', { cx: 15, cy: 9, r: 1.6 }), svgEl('path', { d: 'M10.2 13.8 13.8 10.2' }),
     ...(kind === 'me' ? [svgEl('circle', { cx: 8.6, cy: 8.6, r: 2.2, fill: 'currentColor', stroke: 'none' })] : []));
@@ -3219,12 +3228,7 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
   // The whole map (the sheet, 2026-11-09): fully zoomed out over the bound; hidden until the base
   // map is in and while already all the way out (apply).
   if (interactive) {
-    wholeBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-whole', hidden: true });
-    wholeBtn.setAttribute('aria-label', 'Show the whole map');
-    wholeBtn.dataset.focus = `${focusKey}:whole`;
-    wholeBtn.append(toolIcon(svgEl('path', { d: 'M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14' })));
-    wholeBtn.addEventListener('click', e => {
-      e.stopPropagation();
+    wholeBtn = mapToolButton('map-whole', 'Show the whole map', `${focusKey}:whole`, toolIcon(svgEl('path', { d: 'M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14' })), () => {
       const lim = w.fit && limits();
       if (!lim?.edges || !w.view) return;
       w.stopFollow?.();
@@ -3232,6 +3236,7 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
       markMoved();
       animateTo(wholeView(lim, width / height));
     });
+    wholeBtn.hidden = true;
     tools.append(wholeBtn);
   }
   el.append(tools);
@@ -3240,13 +3245,17 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
   // Taps and keys on stops; drags and pinches move the view. While following (2026-11-10), a drag
   // ends it; a pinch, the wheel, a double-tap or a two-finger tap keeps it, zooming about you, at
   // the new span. A single tap waits DOUBLE_TAP_MS for a second one (2026-11-13).
-  let moved = 0, dragged = false, pinched = false;
-  let lastTap = null, tapTimer = 0, multi = false, downAt = 0, maxPointers = 0, downPts = [];
+  // A gesture: px moved, a drag, a pinch, the most fingers down, when the first went down, the
+  // first two's midpoint (a two-finger tap).
+  let moved = 0, dragged = false, pinched = false, maxPointers = 0, downAt = 0, downMid = null;
+  let lastTap = null, tapTimer = 0;
   const stopFit = () => { fitAnim++; animGoal = null; };
-  const zoomFollow = (factor, at) => {
+  // `from` zoomed by `factor` about `at`, or you while following (which goes on at the new span).
+  const zoomFollow = (from, factor, at) => {
     const c = w.following && w.followAt ? w.followAt : at;
-    w.view = zoomView(w.view, factor, c.x, c.y, limits());
-    if (w.following) { w.level = null; w.followSpan = w.view.w; }
+    const to = zoomView(from, factor, c.x, c.y, limits());
+    if (w.following) { w.level = null; w.followSpan = to.w; }
+    return to;
   };
   const toView = (cx, cy) => { const r = svg.getBoundingClientRect(); return { x: w.view.x + (cx - r.left) * mpp(), y: w.view.y + (cy - r.top) * mpp() }; };
   // A stop: selected (the sheet: toggled, its name in the caption; the main map: labeled). Elsewhere:
@@ -3257,20 +3266,18 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
     else if (!interactive && w.selected) { w.selected = null; w.redraw?.(); }
   };
   // Twice in or out about the point (you while following), eased; a moved view.
-  const tapZoom = (dir, client) => {
+  const tapZoom = (factor, client) => {
     if (!w.view) return;
-    const c = w.following && w.followAt ? w.followAt : toView(client.x, client.y);
-    const to = tapZoomView(animGoal ?? w.view, dir, c, limits());
-    if (w.following) { w.level = null; w.followSpan = to.w; }
+    const to = zoomFollow(animGoal ?? w.view, factor, toView(client.x, client.y));
     markMoved();
     animateTo(to);
-    apply();
+    apply(); // the fit button now, not after the ease
   };
   svg.addEventListener('click', e => {
-    if (dragged || multi) return;
+    if (dragged || maxPointers > 1) return;
     const t = { t: performance.now(), x: e.clientX, y: e.clientY };
     clearTimeout(tapTimer);
-    if (doubleTap(lastTap, t)) { lastTap = null; tapZoom(1, t); return; }
+    if (doubleTap(lastTap, t)) { lastTap = null; tapZoom(TAP_ZOOM, t); return; }
     lastTap = t;
     const id = e.target.closest?.('[data-stop]')?.dataset.stop ?? null;
     tapTimer = setTimeout(() => tapSelect(id), DOUBLE_TAP_MS);
@@ -3282,11 +3289,10 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
   svg.addEventListener('pointerdown', e => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     stopFit();
-    if (!pointers.size) { moved = 0; dragged = false; pinched = false; multi = false; maxPointers = 0; downPts = []; downAt = performance.now(); }
+    if (!pointers.size) { moved = 0; dragged = false; pinched = false; maxPointers = 0; downMid = null; downAt = performance.now(); }
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     maxPointers = Math.max(maxPointers, pointers.size);
-    if (pointers.size > 1) multi = true;
-    if (downPts.length < 2) downPts.push({ x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) { const [a, b] = pointers.values(); downMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
   });
   svg.addEventListener('pointermove', e => {
     const prev = pointers.get(e.pointerId);
@@ -3300,7 +3306,7 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
       const o = others[0], d0 = Math.hypot(prev.x - o.x, prev.y - o.y), d1 = Math.hypot(cur.x - o.x, cur.y - o.y);
       const mid = toView((cur.x + o.x) / 2, (cur.y + o.y) / 2);
       pinched = true;
-      if (d0 > 0) zoomFollow(d1 / d0, mid);
+      if (d0 > 0) w.view = zoomFollow(w.view, d1 / d0, mid);
     } else {
       if (!pinched) w.stopFollow?.(); // a finger left from a pinch keeps following
       w.view = panView(w.view, -(cur.x - prev.x) * mpp(), -(cur.y - prev.y) * mpp(), limits());
@@ -3311,10 +3317,10 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
   });
   const up = e => {
     if (!pointers.delete(e.pointerId) || pointers.size) return;
-    if (!dragged && downPts.length === 2 && twoFingerTap({ pointers: maxPointers, moved, ms: performance.now() - downAt })) {
+    if (!dragged && twoFingerTap({ pointers: maxPointers, moved, ms: performance.now() - downAt })) {
       lastTap = null;
       clearTimeout(tapTimer);
-      tapZoom(-1, { x: (downPts[0].x + downPts[1].x) / 2, y: (downPts[0].y + downPts[1].y) / 2 });
+      tapZoom(1 / TAP_ZOOM, downMid);
     }
     setTimeout(() => { dragged = false; });
   };
@@ -3327,12 +3333,14 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
     if (f == null) return;
     stopFit();
     e.preventDefault();
-    zoomFollow(f, toView(e.clientX, e.clientY));
+    w.view = zoomFollow(w.view, f, toView(e.clientX, e.clientY));
     markMoved();
     apply();
   }, { passive: false });
-  // Drags don't reach the card either (setup's; the main map lets taps reach the wake lock).
-  if (interactive) for (const ev of ['pointerdown', 'touchstart']) el.addEventListener(ev, e => e.stopPropagation(), { passive: true });
+  // Drags don't reach setup's card, nor pull-to-refresh (2026-11-13); the main map's taps still
+  // reach the wake lock (pointerdown).
+  el.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+  if (interactive) el.addEventListener('pointerdown', e => e.stopPropagation(), { passive: true });
   return w;
 }
 
@@ -3511,24 +3519,11 @@ function mainMapItem() {
   const widget = mapWidget({ label: `Map of ${trip.name}`, locate: true, live: true, pan: true, focusKey: 'main-map' });
   widget.el.classList.add('main-map');
   const tools = widget.el.querySelector('.map-tools');
-  const hide = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-hide' });
-  hide.setAttribute('aria-label', 'Hide map');
-  hide.dataset.focus = 'main-map:hide';
-  const icon = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' });
-  icon.append(svgEl('path', { d: 'M6 15l6-6 6 6' }));
-  hide.append(icon);
-  hide.addEventListener('click', e => { e.stopPropagation(); setMapHidden(true); });
-  tools.before(hide); // the top-left corner (2026-11-13), first in the Tab order
+  // Hide map in the top-left corner (2026-11-13), first in the Tab order.
+  tools.before(mapToolButton('map-hide', 'Hide map', 'main-map:hide', toolIcon(svgEl('path', { d: 'M6 15l6-6 6 6' })), () => setMapHidden(true)));
   // The sheet (2026-11-13; until then a tap on the map, and from the keyboard a text button shown
   // only while focused): last in the right stack. Focus comes back to it after the keyboard only.
-  const open = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-expand' });
-  open.setAttribute('aria-label', 'Open the full map');
-  open.dataset.focus = 'main-map:open';
-  const openIcon = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' });
-  openIcon.append(svgEl('path', { d: 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7' }));
-  open.append(openIcon);
-  open.addEventListener('click', e => { e.stopPropagation(); openMapSheet(e.detail === 0 ? open : null); });
-  tools.append(open);
+  tools.append(mapToolButton('map-expand', 'Open the full map', 'main-map:open', toolIcon(svgEl('path', { d: 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7' })), openMapSheet));
   const li = el('li', 'main-map-item');
   const cap = el('p', 'map-caption');
   cap.setAttribute('aria-live', 'polite');
@@ -3603,7 +3598,7 @@ async function pollMapVehicles() {
   m.vehicles = res.map((r, i) => (r.status === 'fulfilled' ? vehiclePositions(r.value) : m.vehicles[i] ?? []));
   drawMapSheet();
 }
-function openMapSheet(opener = null) {
+function openMapSheet() {
   if (!config || mapSheet) return;
   const trip = config.trips[tripIdx];
   const legs = mapLegs(trip);
@@ -3611,7 +3606,8 @@ function openMapSheet(opener = null) {
   // The main map's view (2026-11-12; until then the sheet started at the fit and ended follow there).
   const kept = sameTrip(mainMap, at) ? mapSnap(mainMap) : takeMapView(at);
   const widget = mapWidget({ label: `Map of ${trip.name}`, interactive: true, focusKey: 'sheet', caption: $('map-caption'), locate: true, live: true });
-  const m = mapSheet = { ...at, trip, legs, widget, vehicles: kept?.vehicles ?? [], rideHold: kept?.rideHold ?? null, loc: null, timer: null, opener };
+  const m = mapSheet = { ...at, trip, legs, widget, vehicles: kept?.vehicles ?? [], rideHold: kept?.rideHold ?? null, loc: null, timer: null,
+    opener: document.activeElement?.matches(':focus-visible') ? document.activeElement : null }; // the keyboard's
   m.loc = mapLocation(center => {
     if (mapSheet !== m) return;
     drawMapSheet();
@@ -3689,8 +3685,7 @@ function endPullTouch() {
 document.addEventListener('touchstart', e => {
   endPullTouch();
   pull = null;
-  // A touch on the main map pans it; pulls start outside it (2026-11-13).
-  if (!config || setupView || mapSheet || pullHeld || e.touches.length !== 1 || scrollY > 0 || $('toast').contains(e.target) || e.target.closest?.('.main-map')) return;
+  if (!config || setupView || mapSheet || pullHeld || e.touches.length !== 1 || scrollY > 0 || $('toast').contains(e.target)) return;
   pull = { x: e.touches[0].clientX, y: e.touches[0].clientY, dy: 0, active: false, target: e.target };
   for (const [type, fn, opts] of PULL_EVENTS) e.target.addEventListener(type, fn, opts);
 }, { passive: true });

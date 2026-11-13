@@ -4266,8 +4266,6 @@ export const doubleTap = (prev, cur) =>
   !!prev && cur.t - prev.t <= DOUBLE_TAP_MS && Math.hypot(cur.x - prev.x, cur.y - prev.y) <= DOUBLE_TAP_PX;
 // `pointers`: the most fingers down during the gesture; `moved`: px; `ms`: first down to last up.
 export const twoFingerTap = ({ pointers, moved, ms }) => pointers === 2 && moved < TAP_SLOP_PX && ms <= TWO_FINGER_TAP_MS;
-// `dir` +1 zooms in, -1 out, about `at` (view coordinates), within the limits.
-export const tapZoomView = (view, dir, at, limits) => zoomView(view, dir > 0 ? TAP_ZOOM : 1 / TAP_ZOOM, at.x, at.y, limits);
 // The wheel's zoom factor, or null to leave the wheel to the page. `plain`: a plain wheel zooms
 // (the sheet); else only with ctrl (the main map; a trackpad pinch arrives as ctrl+wheel), in
 // steps that follow the delta (a pinch sends many small ones).
