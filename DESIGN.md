@@ -1959,6 +1959,11 @@ the app had ended at launch: no notification at all that morning). So:
   card: `PUT /api/reminders/<id> { restartCard: true }` → a new start push at the next check
   (past the leave-by, as a late bell's card); 409 while asking, after "Leaving now" / "At the
   stop", or without a start token.
+- **Ended cards count as dismissed** (the native code can't tell a swipe from an end by push or
+  by iOS), so the ride card's toast needs its ride to be on: the ride's trip still has that ride
+  and it isn't done (`activityRideOn`). Otherwise the card is ended and forgotten, with no toast.
+  Only the shown trip's ride is pruned, so last evening's ride on the other trip stayed stored,
+  and its server-ended card came back each morning as "Lock Screen card closed" (2026-11-13).
 - A swipe is for that ride only: the next bell or ride gets its card.
 
 ### Boarding from location (2026-11-06)

@@ -556,7 +556,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-13 · d196133e4b</footer>
+    <footer class="version">Version 2026-11-13 · 4169195f7d</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -1424,6 +1424,17 @@ function saveActivity(a) {
   activity = a;
   store.set(KEY_ACTIVITY, a);
 }
+// The ride card's ride is still on: its trip's en-route state has that ride, not done. Only the
+// shown trip's state is pruned (syncEnRoute), so another trip's finished ride stays stored until
+// that trip is shown (2026-11-13: last evening's card, ended by the server, came back each
+// morning as "Lock Screen card closed").
+function activityRideOn(now) {
+  if (!activity) return false;
+  const [ref, boardedAt] = activity.key.split('/');
+  const s = (store.get(KEY_EN_ROUTE) ?? {})[ref];
+  const idx = idxOf(ref);
+  return idx >= 0 && s?.ride?.boardedAt === Number(boardedAt) && enRouteActive(s, tripShape(config.trips[idx]).walkAfter, now);
+}
 if (native) {
   Promise.resolve().then(() => plugins.TMinus.addListener('activityToken', ({ id, token }) => {
     if (activity?.id !== id || activity.token === token) return;
@@ -1459,9 +1470,7 @@ async function syncLiveActivity(s, now) {
     return true;
   };
   if (activity && activity.key !== key) {
-    const [ref, boardedAt] = activity.key.split('/');
-    const other = (store.get(KEY_EN_ROUTE) ?? {})[ref];
-    if (ref === refOf(tripIdx) || other?.ride?.boardedAt !== Number(boardedAt)) {
+    if (activity.key.split('/')[0] === refOf(tripIdx) || !activityRideOn(now)) {
       const { id } = activity;
       saveActivity(null);
       await run('end', () => T.liveActivityEnd({ id }));
@@ -1491,11 +1500,17 @@ async function syncLiveActivity(s, now) {
 }
 
 // Cards swiped away (the iOS app's liveActivityDismissed; DESIGN.md "Swiped-away cards"): on open,
-// "Lock Screen card closed · Show again" for the ride's card while the ride is on, or the belled
+// "Lock Screen card closed · Show again" for the ride's card while its ride is on, or the belled
 // ride's leave card before its departure. Show again: a new ride card from here; a leave card
 // from the server (`restartCard`).
 async function checkDismissedCards() {
-  if (!native) return;
+  if (!native || !config) return;
+  // A card whose ride is over: ended here, no toast.
+  if (activity && !activityRideOn(Date.now())) {
+    const { id } = activity;
+    saveActivity(null);
+    plugins.TMinus.liveActivityEnd({ id }).catch(e => nativeLog('liveActivity', `end: ${e.message}`));
+  }
   const rideCardBack = () => {
     const { id } = activity;
     showToast('Lock Screen card closed', 'Show again', () => {

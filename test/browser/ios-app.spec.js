@@ -564,6 +564,25 @@ test('a swiped-away ride card: on return, Show again starts a new one', async ({
   await expect.poll(starts).toBe(before + 1);
 });
 
+// Another trip's ride is stored until that trip is shown: its card, ended once the ride was over
+// (counted as dismissed by the native code), was offered again on each open (2026-11-13).
+test('a ride card whose ride is over (another trip shown): ended, no Show again', async ({ page }) => {
+  await fakeServer(page);
+  await page.addInitScript(capacitorStub, { server: PUSH, permission: 'granted', token: TOKEN, leave: true });
+  await openApp(page, { time: '06:50' });
+  await notifyMe(page);
+  await tickTo(page, '07:00');
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await tickTo(page, '07:12'); // boarded
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:activity'))?.key ?? null)).not.toBeNull();
+  await page.locator('#toggle select').selectOption({ label: 'Office to home' });
+  await tickTo(page, '10:00'); // the ride is over
+  await page.evaluate(() => { window.fakeDismissed = [{ id: 'act1', reminderId: null }]; });
+  await backToApp(page);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('t-minus:activity'))).toBe('null');
+  await expect(page.locator('#toast')).not.toContainText('Lock Screen card closed');
+});
+
 // ---------- boarding from location ----------
 
 const boardingCalls = (page, call) => page.evaluate(c => window.boardingCalls.filter(x => x.call === c), call);
