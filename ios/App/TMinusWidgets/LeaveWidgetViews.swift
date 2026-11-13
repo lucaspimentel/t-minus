@@ -219,8 +219,20 @@ private struct LargeHome: View {
         if let rows = content.timeline, let tl, row < 0 || show == .timeline || content.rows.count < 2 {
             timelineLayout(th, rows: rows, marks: tl, next: row >= 0 && content.rows.count > 1 ? content.rows[1].time : nil)
         } else if row >= 0 {
-            VStack(alignment: .leading, spacing: 0) {
-                MediumHome(content: content).frame(height: 138)
+            VStack(alignment: .leading, spacing: 2) {
+                header(th)
+                if !content.long.isEmpty {
+                    HStack(spacing: 5) {
+                        RouteDot(hex: content.color, size: 8)
+                        LineToward(line: content.long, headsign: content.headsign, muted: th.muted)
+                    }
+                    .font(.subheadline).foregroundStyle(th.text)
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    ThenLine(legs: content.thenLegs, text: "", muted: th.muted).foregroundStyle(th.text).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(content.arrive).foregroundStyle(th.muted).lineLimit(1).fixedSize()
+                }
+                .font(.subheadline)
                 later(th)
                 Spacer(minLength: 0)
             }
@@ -235,13 +247,8 @@ private struct LargeHome: View {
     }
 
     private func timelineLayout(_ th: Theme, rows: [WidgetView.TLRow], marks: WidgetView.TLMarks, next: String?) -> some View {
-        let tint = content.late ? th.red : content.warn ? th.amber : th.text
-        let time = content.entry?.headTime ?? ""
         return VStack(alignment: .leading, spacing: 2) {
-            Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
-            (Text(content.entry?.head ?? "").font(.title2.weight(.bold)) + Text(time.isEmpty ? "" : " · \(time)").font(.subheadline.weight(.semibold)))
-                .foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
-            if !content.note.isEmpty { Text(content.note).font(.subheadline).foregroundStyle(tint).lineLimit(1) }
+            header(th)
             Rectangle().fill(th.track).frame(height: 1).padding(.top, 6).padding(.bottom, 2)
             TripTimeline(rows: rows, marks: marks, next: next.map { "Next: leave \($0)" }, th: th)
             if let dep = content.askDep {
@@ -249,6 +256,16 @@ private struct LargeHome: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    // The trip name, the medium's headline ("Leave in 9 min · 7:42am"), and the note.
+    @ViewBuilder private func header(_ th: Theme) -> some View {
+        let tint = content.late ? th.red : content.warn ? th.amber : th.text
+        let time = content.entry?.headTime ?? ""
+        Text(content.shownName).font(.caption.weight(.semibold)).foregroundStyle(th.muted).lineLimit(1)
+        (Text(content.entry?.head ?? "").font(.title2.weight(.bold)) + Text(time.isEmpty ? "" : " · \(time)").font(.subheadline.weight(.semibold)))
+            .foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
+        if !content.note.isEmpty { Text(content.note).font(.subheadline).foregroundStyle(tint).lineLimit(1) }
     }
 
     // "Later": rows 2-6, the vehicle in short form only where it differs from the first ride's.
