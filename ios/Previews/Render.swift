@@ -318,7 +318,7 @@ private struct WidgetSheet: View {
 private typealias TL = WidgetView.TLRow
 private func tw(_ text: String, walking: Bool = true) -> TL { TL(kind: "walk", text: text, walking: walking) }
 private func ts(_ name: String, _ time: String, _ color: String, start: Bool) -> TL { TL(kind: "stop", name: name, time: time, color: color, bar: start ? "start" : "end") }
-private func tr(_ text: String, _ toward: String, _ color: String) -> TL { TL(kind: "ride", text: text, toward: toward, color: color) }
+private func tr(_ text: String, _ toward: String, _ color: String) -> TL { TL(kind: "ride", text: text, color: color, toward: toward) }
 private func tleg(_ from: String, _ dep: String, _ ride: String, _ toward: String, _ to: String, _ arr: String, _ color: String) -> [TL] {
     [ts(from, dep, color, start: true), tr(ride, toward, color), ts(to, arr, color, start: false)]
 }
