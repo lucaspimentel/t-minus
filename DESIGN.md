@@ -1781,7 +1781,7 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   the bar does when the question for that departure is open (`askAnswerMatches`: within
   `ASK_MATCH_MIN`, 5 min, of it); otherwise (closed, answered, another departure) "Question
   closed". The compact island and the small widget keep a plain tap (opens the app).
-- **Legs bar (2026-11-13, mockups accepted):** the route map's look on a straight line (`LegsBar`, `RideViews.swift`).
+- **Legs bar (2026-11-13, mockups accepted; build 66):** the route map's look on a straight line (`LegsBar`, `RideViews.swift`).
   Transit legs only, joined with no gap, each as wide as its share of the riding time (at least
   8%), 5 pt in its route's color; the part ahead at 50% opacity, the part behind full (light and
   dark alike), the ridden leg advancing on its own (iOS's timer progress; the previews fill it
@@ -2075,7 +2075,7 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
   circular) were removed 2026-10-31 (the build after 41): the leave, walk and ride cards are the
   Lock Screen's, kept current by pushes, where the widget lagged them within iOS's reload budget
   (seen 2026-10-27 and 2026-10-29).
-- **Legs bar (2026-11-13):** the medium size draws the cards' bar under a followed ride's lines
+- **Legs bar (2026-11-13, build 66):** the medium size draws the cards' bar under a followed ride's lines
   (not the leave times, not "Did you get on?"). The answer carries the ride's `legs` once
   (`[{ color, dep, arr, at? }]`, Unix seconds) and its entries say `bar` (and `stops`, the stops
   left, while riding); the bar is drawn at the entry's own moment (entries change at each stop
