@@ -446,22 +446,25 @@
     position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--bg);
     padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px max(16px, env(safe-area-inset-bottom));
   }
-  .map-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-  .map-head h2 { margin: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .map-head button {
-    min-height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: 10px;
-    background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
-  }
   .map-body { flex: 1; min-height: 0; display: flex; }
   .map-body .route-map { flex: 1; display: flex; }
   .map-body .route-svg { flex: 1; height: auto; }
+  /* The sheet's title (2026-11-13; a header row with "Done" until then): the trip's name on the map,
+     level with the corner buttons, clear of both stacks (10 + 40 + 8 px), with a halo. */
+  .map-title {
+    position: absolute; top: 10px; left: 58px; right: 58px; margin: 0; z-index: 1;
+    height: 40px; line-height: 40px; text-align: center; font-size: 18px; font-weight: 600; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none;
+    text-shadow: 0 0 2px var(--bg), 0 0 4px var(--bg), 0 0 6px var(--bg), 0 0 8px var(--bg);
+  }
   .route-map { margin: 8px 0; position: relative; }
   /* The map's corner buttons: locate (2026-11-09; off outside the map; 2026-11-10: filled while
      following, street and area zoom), back to the trip
      (2026-11-08; ⤢ until 2026-11-09), shown once the view moves off the fit, and on the sheet the
      whole map (2026-11-09), shown once the base map is in and the view isn't all the way out; on
      the main screen's map a left stack (2026-11-13): Hide map, then "Open the full map" (on the
-     right until 2026-11-13). */
+     right until 2026-11-13); the sheet has a left stack too (2026-11-13): "Close the full map"
+     (a "Done" text button in a header row until then). */
   .map-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 8px; }
   .map-tool {
     position: relative; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;
@@ -556,11 +559,10 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-13 · 4169195f7d</footer>
+    <footer class="version">Version 2026-11-13 · b741b7a990</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
-    <div class="map-head"><h2 id="map-title"></h2><button type="button" class="link-btn" id="map-done">Done</button></div>
     <div id="map-body" class="map-body"></div>
     <p id="map-caption" class="map-caption" aria-live="polite"></p>
     <p id="map-credit" class="map-credit" hidden></p>
@@ -3704,11 +3706,19 @@ function openMapSheet() {
   widget.onLocate = () => m.loc.locate();
   widget.onZoomIn = () => { if (mapSheet === m && !(Date.now() - m.polled < BOARDING_POLL_MS)) pollMapVehicles(); };
   widget.onBasemap = () => { if (mapSheet === m) drawMapSheet(); }; // the bound: your location in or out
-  $('map-title').textContent = trip.name;
+  // The close button, top left (2026-11-13; a "Done" text button in a header row until then), and the
+  // trip's name on the map. Prepended: Close comes before the stops in the Tab order.
+  const start = Object.assign(document.createElement('div'), { className: 'map-tools start' });
+  const close = mapToolButton('map-close', 'Close the full map', 'sheet:close',
+    toolIcon(svgEl('path', { d: 'M20 4l-6 6M14 4v6h6M4 20l6-6M10 20v-6H4' })), closeMapSheet);
+  start.append(close);
+  const title = el('h2', 'map-title', trip.name);
+  title.id = 'map-title';
+  widget.el.prepend(title, start);
   $('map-body').replaceChildren(widget.el);
   $('map-sheet').hidden = false;
   $('app').hidden = true;
-  $('map-done').focus();
+  close.focus();
   drawMapSheet();
   widget.onBasemap = () => { if (mapSheet === m) drawMapSheet(); }; // also shows the credit
   allShapes(legs).then(() => { if (mapSheet === m) drawMapSheet(); });
@@ -3741,7 +3751,6 @@ function closeMapSheet() {
   if (m.opener?.isConnected && m.opener !== document.body) m.opener.focus();
   else document.activeElement?.blur();
 }
-$('map-done').onclick = closeMapSheet;
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && mapSheet) closeMapSheet(); });
 
 // ---------- timers ----------

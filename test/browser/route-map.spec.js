@@ -12,6 +12,9 @@ test.beforeEach(({ page }) => {
 });
 
 const sheet = page => page.getByRole('dialog');
+// The sheet's close button, top left on its map (2026-11-13; "Done" in a header until then).
+const closeBtn = page => sheet(page).getByRole('button', { name: 'Close the full map' });
+const closeMap = page => closeBtn(page).click();
 const mainMap = page => page.locator('#rows .main-map-item');
 const svg = page => sheet(page).locator('svg.route-svg');
 const locateBtn = loc => loc.getByRole('button', { name: 'Center on my location' });
@@ -46,6 +49,19 @@ test('"Open the full map" opens the trip: both legs at their shapes, labeled end
   await expect(page.locator('header').getByRole('button', { name: 'Route map' })).toHaveCount(0); // until 2026-11-12
   await openMap(page);
   await expect(sheet(page).getByRole('heading')).toHaveText('Home to office');
+  await expect(sheet(page)).toHaveAccessibleName('Home to office');
+  // The close button and the title are on the map (2026-11-13), not in a header row.
+  await expect(closeBtn(page)).toBeFocused();
+  await expect(page.locator('#map-sheet .map-head, #map-done')).toHaveCount(0);
+  await expect(sheet(page).locator('.route-map > .map-tools.start .map-close')).toHaveCount(1);
+  await expect(sheet(page).locator('.route-map > h2#map-title')).toHaveText('Home to office');
+  const box = async loc => loc.evaluate(e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+  const [cb, tb, sb] = [await box(closeBtn(page)), await box(sheet(page).locator('h2#map-title')), await box(svg(page))];
+  expect(Math.abs(cb.x - (sb.x + 10))).toBeLessThan(3);
+  expect(Math.abs(cb.y - (sb.y + 10))).toBeLessThan(3);
+  expect(Math.abs(tb.y - cb.y)).toBeLessThan(3);
+  expect(Math.abs(tb.x + tb.w / 2 - (sb.x + sb.w / 2))).toBeLessThan(3);
+  expect(tb.x).toBeGreaterThanOrEqual(cb.x + cb.w);
   await expect(svg(page)).toHaveAttribute('aria-label', 'Map of Home to office');
   await expect(legs(svg(page))).toHaveCount(2);
   expect(await legs(svg(page)).evaluateAll(ls => ls.map(l => l.dataset.color))).toEqual(['FFC72C', 'ED8B00']);
@@ -70,8 +86,8 @@ test('"Open the full map" opens the trip: both legs at their shapes, labeled end
   // One request per leg, route and direction only.
   expect(shapeHits(mbta).map(h => [...h.query.keys()].filter(k => k.startsWith('filter')).map(k => `${k}=${h.query.get(k)}`).join('&')))
     .toEqual(['filter[route]=132&filter[direction_id]=1', 'filter[route]=Orange&filter[direction_id]=0']);
-  // Done closes it and returns to the list; the shapes are kept for the next opening.
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  // Close closes it and returns to the list; the shapes are kept for the next opening.
+  await closeMap(page);
   await expect(sheet(page)).toBeHidden();
   await expect(page.locator('#rows')).toBeVisible();
   // A tap focuses nothing, and nothing gets the focus back (focusing the trip picker opened it on iOS).
@@ -82,6 +98,7 @@ test('"Open the full map" opens the trip: both legs at their shapes, labeled end
   await open.focus();
   await page.keyboard.press('Enter');
   await expect(sheet(page)).toBeVisible();
+  await expect(closeBtn(page)).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(sheet(page)).toBeHidden();
   await expect(open).toBeFocused();
@@ -151,7 +168,7 @@ test('location not granted: no prompt on opening, no dot; locate asks, and "Loca
   await expect(page.locator('#toast')).toBeHidden(); // the iOS app's Settings toast only
 });
 
-test('vehicles on the legs every 10 s while open, yours outlined; nothing after Done', async ({ page }) => {
+test('vehicles on the legs every 10 s while open, yours outlined; nothing after closing', async ({ page }) => {
   const scenario = { ...commute(), vehicles: [vehicleAt('before', '132in-0640', 3), vehicleAt('inside', '132in-0612', 15), vehicleAt('mine', '132in-0736', 18)] };
   const mbta = await openApp(page, { map: true, time: '07:00', scenario, init: DENIED });
   // Bell the 7:36 bus (the second row).
@@ -176,7 +193,7 @@ test('vehicles on the legs every 10 s while open, yours outlined; nothing after 
   scenario.vehicles[1] = vehicleAt('inside', '132in-0612', 20);
   await tick(page, 10_000);
   await expect(svg(page).locator('[data-vehicle="inside"]')).not.toHaveAttribute('transform', was);
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await closeMap(page);
   const after = vehicleHits(mbta).length;
   await tick(page, 30_000);
   expect(vehicleHits(mbta).length).toBeLessThanOrEqual(after + 6); // the main screen's map's again, no more
@@ -356,11 +373,11 @@ test('the base map beneath the trip, fetched once; names: towns, then neighborho
   expect(await shownNames(page)).toEqual(['Charlestown', 'Downtown', 'Malden']); // not North End (overlaps), Boston (zoomed in), Arlington (cut off)
   await expect(page.locator('#map-credit')).toHaveText('Base map: test credit');
   // Fetched once: reopening and setup's maps reuse it.
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await closeMap(page);
   await expect(page.locator('#map-credit')).toBeHidden();
   await openMap(page);
   await expect(svg(page).locator('.map-base')).toHaveCount(1);
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await closeMap(page);
   await page.locator('#open-setup').click();
   await page.locator('#setup').getByRole('button', { name: /Home to office/ }).first().click();
   await expect(page.locator('#setup .route-map .map-base')).toHaveCount(1);
@@ -411,7 +428,7 @@ test('without the base map the map draws as today; the next opening tries again'
   await expect(legs(svg(page))).toHaveCount(2);
   await expect(svg(page).locator('.map-base')).toHaveCount(0);
   await expect(page.locator('#map-credit')).toBeHidden();
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await closeMap(page);
   served.fail = false;
   await openMap(page);
   await expect(svg(page).locator('.map-base')).toHaveCount(1);
@@ -460,7 +477,7 @@ test('the sheet zooms out to all of commuter rail\'s reach and pans over it; wit
   for (let i = 0; i < 4; i++) await drag(-600, 0);
   const east = await view(page);
   expect(east[0] + east[2]).toBeCloseTo(b.x + b.w, -1);
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await closeMap(page);
   // The old file (no `reach`): today's limits.
   await page.unroute('**/basemap.json');
   await serveBase(page);
@@ -515,7 +532,7 @@ test('the whole map button: shown once the base map is in, eases all the way out
   release();
   await expect(svg(page).locator('.map-base')).toHaveCount(1);
   await expect(whole).toBeVisible();
-  const order = await sheet(page).locator('.map-tools .map-tool').evaluateAll(bs => bs.map(b => b.getAttribute('aria-label')));
+  const order = await sheet(page).locator('.map-tools:not(.start) .map-tool').evaluateAll(bs => bs.map(b => b.getAttribute('aria-label')));
   expect(order).toEqual(['Center on my location', 'Show the whole trip', 'Show the whole map']);
   await expect(whole.locator('svg path')).toHaveCount(1);
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
@@ -626,7 +643,7 @@ test('the main screen\'s map: above the rows, 26% of the screen, vehicles every 
   await tick(page, 10_000);
   expect(vehicleHits(mbta).length).toBe(sheetOpen + 2); // the sheet's only
   await expect(page.locator('#map-credit')).toHaveText('Base map: test credit');
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await closeMap(page);
   await expect(mapSvg(page)).toBeVisible();
 });
 
@@ -1049,7 +1066,7 @@ test('no rows, locate follows you on the empty map too, and on into the sheet an
   await tick(page, 50);
   expect(await dotIn(svg(page))).toEqual({ x: 0.5, y: 0.5, w: 2000 });
   // Back on the main map, still following.
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await closeMap(page);
   await tick(page, 100);
   await expect(btn).toHaveAttribute('aria-pressed', 'true');
   expect(await dotIn(pic)).toEqual({ x: 0.5, y: 0.5, w: 2000 });
@@ -1063,7 +1080,7 @@ test('no rows, locate follows you on the empty map too, and on into the sheet an
   await expect(sbtn).toHaveAttribute('aria-pressed', 'false');
   const moved = await dotIn(svg(page));
   expect(moved.x).toBeGreaterThan(0.55);
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await closeMap(page);
   await tick(page, 100);
   await expect(btn).toHaveAttribute('aria-pressed', 'false');
   await expect(btn).toHaveAttribute('aria-label', 'Center on my location');
@@ -1099,7 +1116,7 @@ test('a rail leg: trains still coming toward your station, its other stations fa
   await expect(svg(page).locator('.map-stop.off[aria-label="Forest Hills"]')).toHaveCount(1);
   await bb.dispatchEvent('click');
   await expect(page.locator('#map-caption')).toHaveText('Back Bay');
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await closeMap(page);
   // Bell the ride whose train is still coming: outlined as yours.
   const first = page.locator('.row').first();
   await first.click();
@@ -1225,7 +1242,7 @@ test('one view for both maps: the sheet opens at the main map\'s fit, and a pan 
     return { cx: x + w / 2, cy: y + h / 2, mpp: w / el.getBoundingClientRect().width };
   });
   const there = await scaleOf(svg(page));
-  await sheet(page).getByRole('button', { name: 'Done' }).click();
+  await closeMap(page);
   await tick(page, 100);
   // The same center and scale (both maps' origin is the first boarding stop).
   const here = await scaleOf(pic);
