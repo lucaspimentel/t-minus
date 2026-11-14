@@ -623,8 +623,12 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   the sheet shows more north-south). Kept across Hide map / Show map; the first view again on a
   trip change, a reload, or a ride phase change (an open sheet too, and follow ends). The sheet's
   selected stop isn't carried. Until 2026-11-12 the sheet opened at its fit and ended the main
-  map's follow. "Open the full map" opens a full-screen sheet ("Done" or
-  Escape closes) with the shown trip; the trip doesn't switch while it's open. Focus returns to
+  map's follow. "Open the full map" opens a full-screen sheet with the shown
+  trip: the map from the top, **Close the full map** (inward arrows, the mirror of Open the full
+  map) in its top-left corner, focused on opening (Escape closes too), and the trip's name
+  centered at the top, level with the buttons, as bare text with a halo in the background color,
+  truncated between the two stacks (until 2026-11-13 a header row above the map held the name and
+  a "Done" text button); the trip doesn't switch while it's open. Focus returns to
   the button after the keyboard (Enter, Space); after a tap, nothing is focused (focusing the trip
   picker opened its menu on iOS, 2026-11-12). Until 2026-11-13 a tap on the map opened it, and
   "Open the full map" was a text button shown only while focused. Kept across the once-a-second redraw; replaced when the
