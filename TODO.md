@@ -22,6 +22,14 @@ The widget’s large size is done: “More rides” or the trip timeline before 
    shown trip's legs' vehicles and offer "On the 9:51am Orange? · Track" (an offer, not
    automatic). Today detection starts only after "Leaving now" / "At the stop". To grill.
 
+## Simulator (debug, 2026-11-14)
+
+Pretend to be on a ride that isn't happening: a virtual clock (rewind, fast-forward, jump to the
+leave-by, a departure, a transfer, the arrival) and fake MBTA data built from a trip's real
+schedules (the fake API from the browser tests, in the page), so walking, riding, transfers and
+missed connections can be checked on the phone. Kept apart from the real state, the server's
+pushes and RUM. To grill.
+
 ## Trip planner (point to point)
 
 The planner builds a trip (walk, legs, transfers, walk); the existing engine times it with live
