@@ -1789,7 +1789,8 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   Transit legs only, joined with no gap, each as wide as its share of the riding time (at least
   8%), 5 pt in its route's color; the part ahead at 50% opacity, the part behind full (light and
   dark alike), the ridden leg advancing on its own (iOS's timer progress; the previews fill it
-  statically). Rings like the map's stops (`.map-stop`): the ends and a transfer large (radius 6,
+  statically). The timer bar masks the route color at the line's full 5 pt, its own track masked out
+  (2026-11-14: the ridden leg had drawn taller than the others); its moving front edge keeps a slight rounding. Rings like the map's stops (`.map-stop`): the ends and a transfer large (radius 6,
   stroke 3, one shared ring at a transfer, in the arriving leg's color), the stops between small
   (radius 3.5, stroke 1.5), hollow and faded ahead, filled once passed; the card's own color
   fills the hollow centers (the island's black). A stop closer than 14 pt to the last one drawn

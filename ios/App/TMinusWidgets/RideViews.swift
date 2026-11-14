@@ -87,7 +87,8 @@ func dimmedHead(_ state: RideState) -> String? {
 // ahead at 50%, the part behind full (the ridden leg advances on its own). Rings like the map's
 // stops: the leg ends and the transfer large, the stops between small (`leg.at`: their shares of
 // the leg's time; none: the ends only), hollow and faded ahead, filled once passed. The ridden
-// leg's rings fill by the stops left (`stops`, as the headline says) or, without it, by time.
+// leg's fill is iOS's timer bar used as a mask over the route color, stretched to the line's
+// height, back edge square, front edge slightly round. Its rings fill by the stops left (`stops`, as the headline says) or, without it, by time.
 // `card`: the surface under the rings (their hollow centers). `now`: the moment drawn (the
 // widget's entry; the ridden leg's fill moves by its own timer).
 struct LegsBar: View {
@@ -157,8 +158,21 @@ struct LegsBar: View {
                 Rectangle().fill(t)
             } else if now >= dep(leg) {
                 #if os(iOS)
-                ProgressView(timerInterval: dep(leg)...arr(leg), countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
-                    .progressViewStyle(.linear).tint(t)
+                // iOS's timer bar as a mask over the route color (2026-11-14): its own track drops
+                // out (luminance to alpha), it is stretched to the line's full height, and pushed
+                // half a line left so the back edge is square (the front edge keeps its slight
+                // rounding; the progress reads at most half a line short on the narrowest leg).
+                GeometryReader { g in
+                    Rectangle().fill(t)
+                        .mask {
+                            ProgressView(timerInterval: dep(leg)...arr(leg), countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
+                                .progressViewStyle(.linear).tint(.white)
+                                .scaleEffect(x: 1, y: lineHeight / 4, anchor: .center)
+                                .frame(width: g.size.width + lineHeight / 2, height: lineHeight)
+                                .offset(x: -lineHeight / 2)
+                                .luminanceToAlpha()
+                        }
+                }
                 #else
                 // The previews (macOS can't draw the timer progress in a still image).
                 GeometryReader { g in
@@ -167,6 +181,7 @@ struct LegsBar: View {
                 #endif
             }
         }
+        .frame(height: lineHeight)
         .clipped()
     }
 
