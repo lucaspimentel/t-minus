@@ -87,8 +87,8 @@ func dimmedHead(_ state: RideState) -> String? {
 // ahead at 50%, the part behind full (the ridden leg advances on its own). Rings like the map's
 // stops: the leg ends and the transfer large, the stops between small (`leg.at`: their shares of
 // the leg's time; none: the ends only), hollow and faded ahead, filled once passed. The ridden
-// leg's fill is iOS's timer bar used as a mask over the route color, stretched to the line's
-// height, back edge square, front edge slightly round. Its rings fill by the stops left (`stops`, as the headline says) or, without it, by time.
+// leg's fill is iOS's timer bar masking the route color (see `line`). Its rings fill by the stops
+// left (`stops`, as the headline says) or, without it, by time.
 // `card`: the surface under the rings (their hollow centers). `now`: the moment drawn (the
 // widget's entry; the ridden leg's fill moves by its own timer).
 struct LegsBar: View {
@@ -99,6 +99,7 @@ struct LegsBar: View {
     // Computed, so the memberwise init (used from LeaveWidgetViews.swift too) stays internal.
     private var inset: CGFloat { 7.5 }
     private var lineHeight: CGFloat { 5 }
+    private var timerBarHeight: CGFloat { 4 }  // iOS's linear ProgressView bar
     private var height: CGFloat { 15 }
 
     private func widths(_ total: CGFloat) -> [CGFloat] {
@@ -138,7 +139,7 @@ struct LegsBar: View {
 
     @ViewBuilder private func bar(w: [CGFloat], xs: [CGFloat]) -> some View {
         ForEach(Array(legs.enumerated()), id: \.offset) { i, leg in
-            line(leg).frame(width: w[i], height: lineHeight).position(x: xs[i] + w[i] / 2, y: height / 2)
+            line(leg).frame(width: w[i]).position(x: xs[i] + w[i] / 2, y: height / 2)
         }
         ForEach(Array(legs.enumerated()), id: \.offset) { i, leg in
             stopRings(leg, from: xs[i], width: w[i])
@@ -167,7 +168,7 @@ struct LegsBar: View {
                         .mask {
                             ProgressView(timerInterval: dep(leg)...arr(leg), countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
                                 .progressViewStyle(.linear).tint(.white)
-                                .scaleEffect(x: 1, y: lineHeight / 4, anchor: .center)
+                                .scaleEffect(x: 1, y: lineHeight / timerBarHeight, anchor: .center)
                                 .frame(width: g.size.width + lineHeight / 2, height: lineHeight)
                                 .offset(x: -lineHeight / 2)
                                 .luminanceToAlpha()
