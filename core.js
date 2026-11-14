@@ -2138,7 +2138,7 @@ export function missLeg(state, i, vehiclesByLeg, transfers, nowMs) {
 }
 
 // Remaining stops of the ridden vehicle from `/predictions?filter[trip]=…&include=stop,vehicle`:
-// `{ vehicle: { status, name, atDropOff, boarding? } | null, stops: [{ id, name, time, dropOff }] }` up to
+// `{ vehicle: { status, name, atDropOff, boarding? } | null, stops: [{ id, name, time, last, dropOff }] }` up to
 // the drop-off (`alightId`, or a child platform of it), or null if the drop-off isn't listed.
 // `boardId` (the leg's boarding stop, or a child platform of it): the stops left start after it,
 // and a vehicle that hasn't left it yet (approaching or stopped there) is `boarding`, named by it
@@ -2175,7 +2175,7 @@ export function rideStops(doc, alightId, nowMs, boardId = null) {
   const stops = preds.slice(start + 1, end + 1)
     .filter(p => p.last >= nowMs - 30_000)
     .filter(p => !(v?.current_status === 'STOPPED_AT' && p.seq === v.current_stop_sequence && !isDropOff(p.id)))
-    .map(p => ({ id: p.id, name: stopOf(p.id)?.attributes?.name ?? p.id, time: p.time, dropOff: isDropOff(p.id) }));
+    .map(p => ({ id: p.id, name: stopOf(p.id)?.attributes?.name ?? p.id, time: p.time, last: p.last, dropOff: isDropOff(p.id) }));
   let vehicle = null;
   if (v && boarding) {
     vehicle = { status: v.current_status, name: stopOf(preds[start].id)?.attributes?.name ?? preds[start].id, atDropOff: false, boarding: true };
@@ -3359,7 +3359,7 @@ export function widgetView(tripName, rows, nowMs, follow = null, large = null) {
 
 // The widget following a ride (widgetFollow; 2026-10-31): the leave, walk and ride cards' content
 // (walkActivityState, askActivityState, liveActivityState), one entry each time it changes: a
-// countdown's minute, a phase, a stop passed (`follow.stops`, rideStops from the reload, for the
+// countdown's minute, a phase, a stop passed (until 30 s after its `last`, as rideStops / the island; `follow.stops`, rideStops from the reload, for the
 // leg ridden then). Each entry: `head` (with the countdown: "Departs in 6 min", "Get off in 5
 // stops"), `headTime` ("6:15pm", or the countdown after a stop count: "9 min"), `long`,
 // `headsign` (riding: `dropOff` instead), `color`, `arrive` (the trip's), `note` (amber with
@@ -3395,8 +3395,10 @@ function widgetFollowView(tripName, follow, nowMs, large = null) {
     const { ride, walkAfter, stops, stopsLeg, outlook } = follow;
     until = eta + 5 * MIN;
     events.push(...ride.legs.flatMap(l => [l.dep, l.arr]), eta);
-    const left = t => stops.stops.filter(s => s.time == null || s.time > t);
-    if (stops) events.push(...stops.stops.map(s => s.time).filter(x => x != null));
+    // A stop counts until 30 s after its predicted departure (`last`), as rideStops keeps it for the cards.
+    const gone = s => (s.last != null ? s.last + 30_000 : s.time);
+    const left = t => stops.stops.filter(s => gone(s) == null || gone(s) > t);
+    if (stops) events.push(...stops.stops.map(gone).filter(x => x != null));
     stateAt = t => {
       const phase = ridePhase(ride, walkAfter, t);
       const mine = stops && phase.kind === 'riding' && phase.leg === stopsLeg;
@@ -3414,7 +3416,7 @@ function widgetFollowView(tripName, follow, nowMs, large = null) {
     };
     // Every stop once 3 are left (the count matters most at the end).
     const n = stops ? left(nowMs).length : 0;
-    const times = stops ? left(nowMs).map(s => s.time).filter(x => x != null) : [];
+    const times = stops ? left(nowMs).map(gone).filter(x => x != null) : [];
     const soon = n > 3 ? times[n - 4] : times[0];
     const next = [soon, ...ride.legs.flatMap(l => [l.dep, l.arr]), eta, until].filter(x => x != null && x > nowMs);
     if (next.length) view.refresh = sec(Math.min(nowMs + WIDGET_RIDE_REFRESH_MIN * MIN, Math.min(...next) + 5000));
@@ -3945,8 +3947,8 @@ function applyVerdict(s, v, ctx, nowMs) {
 }
 
 // The server and Lock Screen card changes for a state the native code changed while the app
-// was closed (the web app does its own while open): [{ type: 'http', method, path, body, then }]
-// and [{ type: 'card', id, state | end }]. Never with coordinates.
+// was closed (the web app does its own while open): [{ type: 'http', method, path, body, then }],
+// [{ type: 'card', id, state | end }] and [{ type: 'widget', state }] (the widget's followed state). Never with coordinates.
 function closedAppActions(s, prev, next, nowMs) {
   const out = [];
   const shape = tripShape(s.trip);
@@ -3978,6 +3980,17 @@ function closedAppActions(s, prev, next, nowMs) {
       out.push({ type: 'card', id: s.card.id, end: true });
     }
   }
+  // The widget's request (2026-11-14): its followed state, as the page's syncWidget would write it
+  // (widgetState); null (leave times) when the ride ended or the state has no ride or target.
+  if (s.trip?.id === s.tripRef) {
+    const w = st => {
+      const x = st ? widgetState({ [s.tripRef]: st }, [s.trip]) : null;
+      return x && (x.ride || x.target) ? x : null;
+    };
+    const was = w(prev);
+    const now = w(next);
+    if (JSON.stringify(was) !== JSON.stringify(now)) out.push({ type: 'widget', state: now });
+  }
   return out;
 }
 
@@ -3998,7 +4011,7 @@ const keepRecent = (list, nowMs, at) => list.filter(x => at(x) >= nowMs - BOARDI
 // doc { key, doc } (a `wants.queries` answer), posted { id } (the ride POSTed), undo { undoId },
 // take (the web app took the pending action), tick.
 // Output (JSON): { session, wants, actions: [{ type: 'state', undoId, toast, state, base, from },
-// { type: 'http', … }, { type: 'card', … }, { type: 'log', line }] }.
+// { type: 'http', … }, { type: 'card', … }, { type: 'widget', state }, { type: 'log', line }] }.
 export function nativeBoardingStep(input) {
   const { session, event, nowMs, active } = JSON.parse(input);
   const actions = [];

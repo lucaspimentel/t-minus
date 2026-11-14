@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import {
   matchVehicle, gpsArrival, nativeBoardingStep, boardingWants, boardingSession, boardingWindow, boardingBase, geofenceEntered, vehiclesQuery,
-  vehiclePositions, stopPoint, legPoints, proxyRequestError, ridePhase, checkRide, missLeg, tripShape, widgetState,
+  vehiclePositions, stopPoint, legPoints, proxyRequestError, ridePhase, checkRide, missLeg, tripShape, widgetState, widgetRequest, widgetRequestError,
   MATCH_SECONDS_TRAIN,
 } from '../core.js';
 
@@ -168,6 +168,9 @@ function armed(enRoute, extra = {}) {
 const belled = () => ({ kind: 'track', at: at('06:40'), pinned: true, bell: true, target: target() });
 const states = e => e.all.filter(a => a.type === 'state');
 const http = e => e.all.filter(a => a.type === 'http');
+// The widget's request actions (closedAppActions), each a request the server accepts.
+const widgets = e => e.all.filter(a => a.type === 'widget');
+const valid = st => widgetRequestError(widgetRequest({ trips: [homeToOffice] }, null, null, null, st)) === null;
 
 test('the geofence: the initial inside is ignored; an entry in the window marks At the stop, outside it nothing', () => {
   const e = armed(belled());
@@ -262,12 +265,19 @@ test('app closed: boarding at the departure posts the ride with the card token; 
   e.step({ type: 'geofence', inside: true }, at('07:04'));
   e.step({ type: 'tick' }, at('07:08:10'));
   assert.equal(e.session.enRoute.ride.boardedAt, at('07:08'));
+  // The widget follows: at the stop, then the ride (the page rewrites its request only when open).
+  assert.deepEqual(widgets(e).map(a => a.state.kind), ['stop', 'stop']);
+  assert.equal(widgets(e)[0].state.trip, 'home');
+  assert.ok(widgets(e)[0].state.target && !widgets(e)[0].state.ride);
+  assert.equal(widgets(e)[1].state.ride.boardedAt, at('07:08'));
+  assert.ok(widgets(e).every(a => valid(a.state)));
   const post = http(e).find(a => a.method === 'POST');
   assert.equal(post.path, '/rides');
   assert.deepEqual(post.body.activity, { token: 'tok' });
   assert.ok(http(e).some(a => a.method === 'DELETE' && a.path === '/reminders/rem1?reason=started'));
   assert.ok(e.all.some(a => a.type === 'card' && a.id === 'card1' && a.state));
   e.step({ type: 'posted', id: 'ride1' }, at('07:08:12'));
+  assert.equal(widgets(e).length, 2, 'the ride posted: nothing the widget reads changed');
   assert.equal(e.session.enRoute.alert.id, 'ride1');
   assert.equal(e.session.pending.state.alert.id, 'ride1');
   assert.equal(e.session.pending.tripRef, 'home');
@@ -291,6 +301,8 @@ test('an earlier Orange train than planned: the ride switches to it with "On the
   const st = states(e).at(-1);
   assert.equal(st.toast, 'On the 7:26am Orange, not the 7:32am');
   assert.equal(e.session.enRoute.ride.legs[1].tripId, 'O726');
+  assert.equal(widgets(e).at(-1).state.ride.legs[1].tripId, 'O726');
+  assert.ok(valid(widgets(e).at(-1).state));
   assert.deepEqual(http(e).map(a => `${a.method} ${a.path}`), ['PUT /rides/ride1']);
   assert.equal(ridePhase(e.session.enRoute.ride, 10, at('07:30')).kind, 'riding');
   // Undo (in the app): restored, and the same verdict isn't applied again.
@@ -310,6 +322,8 @@ test('missed the bus: back to waiting at the stop, with "Missed the 7:08am Bus 1
   assert.equal(e.session.enRoute.kind, 'stop');
   assert.equal(e.session.enRoute.ride, undefined);
   assert.ok(http(e).some(a => a.method === 'DELETE' && a.path === '/rides/ride1'));
+  // A first-leg miss leaves a state with no target: the widget goes back to leave times (a request with it would be refused).
+  assert.equal(widgets(e).at(-1).state, null);
 });
 
 test('got off at State with a walk after: the walking phase, "Got off at State", GPS off; at an unplanned stop the ride ends', () => {
@@ -322,6 +336,8 @@ test('got off at State with a walk after: the walking phase, "Got off at State",
   e.step({ type: 'doc', key: 'v1', doc: vehiclesDoc(reports('O726', at('07:36'), at('07:40:40'), train, 20)) }, at('07:40:40'));
   assert.equal(states(e).at(-1).toast, 'Got off at State');
   assert.ok(e.session.enRoute.ride.legs[1].off <= at('07:40:40'));
+  assert.equal(widgets(e).at(-1).state.ride.legs[1].off, Math.floor(e.session.enRoute.ride.legs[1].off / MIN) * MIN); // to the minute, as the page's request
+  assert.ok(valid(widgets(e).at(-1).state));
   assert.equal(ridePhase(e.session.enRoute.ride, 10, at('07:40:45')).kind, 'walking');
   assert.equal(boardingWants(e.session, at('07:40:45')).gps, false);
   // No server action carries a position.
@@ -336,6 +352,7 @@ test('got off at State with a walk after: the walking phase, "Got off at State",
   early.step({ type: 'doc', key: 'v1', doc: vehiclesDoc(reports('O726', at('07:35'), at('07:39:40'), train2, 20)) }, at('07:39:40'));
   assert.equal(states(early).at(-1).toast, 'Got off · ride ended');
   assert.equal(early.session.enRoute, null);
+  assert.equal(widgets(early).at(-1).state, null); // the ride ended: leave times
   assert.ok(http(early).some(a => a.method === 'DELETE' && a.path === '/rides/ride1'));
   assert.ok(early.all.some(a => a.type === 'card' && a.end));
 });
@@ -349,6 +366,7 @@ test('with the app open, the step only reports: no server or card actions', () =
   assert.equal(st.toast, 'Missed the 7:08am Bus 132');
   assert.equal(st.base, boardingBase({ kind: 'stop', at: at('07:00'), atStop: at('07:04'), ride }));
   assert.deepEqual(http(e), []);
+  assert.deepEqual(widgets(e), []); // the page writes the widget's request itself
   e.step({ type: 'take' }, at('07:09:41'), true);
   assert.equal(e.session.pending, null);
 });

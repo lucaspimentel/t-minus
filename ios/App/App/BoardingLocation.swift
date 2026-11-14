@@ -3,6 +3,7 @@ import CoreLocation
 import Foundation
 import JavaScriptCore
 import UIKit
+import WidgetKit
 
 // Boarding from location (DESIGN.md "Boarding from location"): a belled ride's boarding stop as a
 // geofence, GPS from "At the stop" / "Leaving now" until the ride is over, and the MBTA's vehicle
@@ -282,6 +283,21 @@ final class BoardingLocation: NSObject, CLLocationManagerDelegate {
                 // No AlertConfiguration: a quiet update.
                 Task { await act.update(ActivityContent(state: state, staleDate: state.staleDate)) }
             }
+        case "widget":
+            // The widget's followed state with the page closed (core.js closedAppActions): only the
+            // stored request's `state` replaced, then a reload. No request yet: nothing written.
+            guard let text = WidgetStore.loadRequest(), let data = text.data(using: .utf8),
+                  var req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                BoardingLog.shared.append("widget: no request saved"); return
+            }
+            req["state"] = a["state"] ?? NSNull()
+            guard let out = try? JSONSerialization.data(withJSONObject: req), let body = String(data: out, encoding: .utf8) else {
+                BoardingLog.shared.append("widget: request not encodable"); return
+            }
+            let status = WidgetStore.saveRequest(body)
+            guard status == errSecSuccess else { BoardingLog.shared.append("widget: keychain \(status)"); return }
+            WidgetCenter.shared.reloadTimelines(ofKind: WidgetStore.kind)
+            BoardingLog.shared.append("widget: \(((a["state"] as? [String: Any])?["kind"] as? String) ?? "leave times")")
         default:
             break
         }

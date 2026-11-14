@@ -790,6 +790,7 @@ test('rideStops: remaining stops to the drop-off and the vehicle', () => {
   assert.deepEqual(r.stops.map(x => [x.name, x.dropOff]), [
     ['Sullivan Square', false], ['Malden Center', false], ['Wellington', false], ['Oak Grove', true]]);
   assert.equal(r.stops[3].time, at('07:44'));
+  assert.equal(r.stops[0].last, at('07:35')); // the later of arrival and departure: a stop is listed until 30 s after it
   // Drop-off by child id; stops after it are cut; stale entries skipped; no vehicle.
   const after = pred('70099', 140, '07:47');
   const r2 = rideStops(doc(null, after), '70030', at('07:36'));
@@ -803,6 +804,7 @@ test('rideStops: remaining stops to the drop-off and the vehicle', () => {
   const d = doc(null);
   d.data[1] = dwell;
   assert.equal(rideStops(d, 'place-ogmnl', at('07:37')).stops[0].name, 'Sullivan Square');
+  assert.equal(rideStops(d, 'place-ogmnl', at('07:37')).stops[0].last, at('07:38'));
   assert.equal(rideStops(doc(null), 'place-state', at('07:30')), null);
   assert.equal(rideStops(null, 'place-ogmnl', at('07:30')), null);
   // Stopped at the drop-off (a child platform of it).
@@ -2755,6 +2757,30 @@ test('widgetView following: the bell, walking, the question, riding (stops, conn
   const missedConn = widgetView('Home → Work', [], at('07:53'), { kind: 'ride', ride, walkAfter: 10, stops, stopsLeg: 0, outlook: { ...outlook, missedDep: at('08:01') } });
   assert.deepEqual([missedConn.entries[0].thenState, 'thenLate' in missedConn.entries[0], missedConn.entries[0].late], ['missed', false, false]);
   assert.equal('thenLate' in r.entries[0], false);
+});
+
+test('widgetView following: a stop counts until 30 s after its departure (`last`), as the cards and the island', () => {
+  const row = leaveRow();
+  const when = (hhmm, s = 0) => (at(hhmm) + s * 1000) / 1000;
+  const shownAt = (v, sec) => v.entries.filter(e => e.at <= sec).at(-1);
+  const ride = { legs: row.legs, boardedAt: at('07:48') };
+  const stops = { vehicle: null, stops: [
+    { id: 'a', name: 'A', time: at('07:56'), last: at('07:57'), dropOff: false },
+    { id: 'b', name: 'B', time: at('07:59'), last: at('07:59'), dropOff: false },
+    { id: 'c', name: 'Oak Grove', time: at('08:02'), last: at('08:02'), dropOff: true }] };
+  const follow = { kind: 'ride', ride, walkAfter: 10, stops, stopsLeg: 0, outlook: null };
+  const r = widgetView('Home → Work', [], at('07:53'), follow);
+  assert.equal(shownAt(r, when('07:56', 1)).head, 'Get off in 3 stops'); // arrived at 7:56, dwelling until 7:57
+  assert.equal(shownAt(r, when('07:57', 29)).head, 'Get off in 3 stops');
+  assert.equal(shownAt(r, when('07:57', 31)).head, 'Get off in 2 stops');
+  assert.equal(shownAt(r, when('07:59', 31)).head, 'Get off next stop');
+  assert.equal(r.refresh, when('07:57', 35)); // 3 left: the next drop, with the usual 5 s
+  // The large size's stops left follow the same rule.
+  const large = { trip: { name: 't', legs: [{ kind: 'walk', minutes: 5 }, { kind: 'transit', route: '132', direction_id: 0, stop: '25996', alight: '5991' }, { kind: 'transit', route: 'Orange', direction_id: 0, stop: '70036', alight: 'place-state' }, { kind: 'walk', minutes: 10 }] }, slack: 1, names: new Map(), counts: [] };
+  const lr = widgetView('Home → Work', [], at('07:53'), follow, large);
+  const along = sec => lr.entries.filter(e => e.at <= sec).at(-1).tl.along.stops.map(x => x.name);
+  assert.deepEqual(along(when('07:57', 10)), ['A', 'B']);
+  assert.deepEqual(along(when('07:57', 31)), ['B']);
 });
 
 const TL_NAMES = new Map([['25996', 'Main St @ South St'], ['5991', 'Washington St opp Oak Grove Sta'], ['place-ogmnl', 'Oak Grove'], ['place-state', 'State']]);

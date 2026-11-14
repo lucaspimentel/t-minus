@@ -2033,7 +2033,8 @@ getting off (`core.js` "Boarding from location", `BoardingLocation.swift`). The 
   server and the card in step: `PUT /reminders/<id> { started }` at the geofence, `POST /rides`
   at boarding with the leave card's token (it becomes the ride card: iOS doesn't let an app start
   a Live Activity in the background), `PUT` / `DELETE /rides/<id>` after a switch, a miss or
-  getting off, and quiet card updates (no alert). With the page open, the page does all that
+  getting off, and quiet card updates (no alert), and the widget's followed state (2026-11-14:
+  `Widget` below, "With the app closed"). With the page open, the page does all that
   itself.
 - **The page:** the `boarding` event (or, at an open, `boardingPending`) gives the latest action;
   it applies when computed from the trip's current state (or the one before earlier actions taken
@@ -2102,10 +2103,21 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
   drops it; each state ends as in the app (30 min after the tap, `ASK_MINUTES`, 5 min after the
   arrival). A ride's legs are refreshed by trip id (`trackLegs`), a missed connection re-planned
   (`transferOutlook`), and the ridden vehicle's stops read (`rideStops`, 1 request); the answer
-  has an entry per minute and per predicted stop (the count drops at each stop's time) and asks
-  again every 5 min, at each stop once 3 are left, and at each leg's departure and arrival.
+  has an entry per minute and per predicted stop (a stop counts until 30 s after its predicted
+  departure, `last`, as `rideStops` keeps it for the cards and the island; 2026-11-14: dropping it
+  at its arrival showed one stop fewer than the island, "8 stops" against "9") and asks
+  again every 5 min, at each stop once 3 are left (the same moments), and at each leg's departure and arrival.
   Entries carry their own `long`, `headsign`, `color`, `arrive`, `note`, `then`, `thenText` and
   `thenWarn` (row -1).
+- **With the app closed (2026-11-14, the build after 67):** the page is the one that writes the
+  request, so a ride that native boarding started with the page closed left the widget on the bell
+  (then "Did you get on?", then leave times) until the app was opened. Now each change native
+  boarding makes (at the stop, boarded, another vehicle, missed, got off, the ride's end) replaces
+  only the stored request's `state` (`closedAppActions` → `{ type: 'widget', state }`, as
+  `widgetState` would write it; null: leave times, also for a state with no ride or target, which
+  the server would refuse) and reloads the widget, only when the state the widget reads changed.
+  The page stays the writer while open. Known gap: that state carries no stop shares (`at`), so the
+  legs bar has no stop dots until the app is opened.
 - **Which trip:** the main screen's choice without the location match (`shownTrip`, `core.js`):
   the one-off trip unless another was picked by hand since, the manual pick until the next window
   start, the trip whose window contains now, else the last used.
