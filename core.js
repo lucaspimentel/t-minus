@@ -3397,7 +3397,10 @@ function widgetFollowView(tripName, follow, nowMs, large = null) {
     events.push(...ride.legs.flatMap(l => [l.dep, l.arr]), eta);
     // A stop counts until 30 s after its predicted departure (`last`), as rideStops keeps it for the cards.
     const gone = s => (s.last != null ? s.last + 30_000 : s.time);
-    const left = t => stops.stops.filter(s => gone(s) == null || gone(s) > t);
+    const left = t => stops.stops.filter(s => {
+      const g = gone(s);
+      return g == null || g > t;
+    });
     if (stops) events.push(...stops.stops.map(gone).filter(x => x != null));
     stateAt = t => {
       const phase = ridePhase(ride, walkAfter, t);
@@ -3981,16 +3984,14 @@ function closedAppActions(s, prev, next, nowMs) {
     }
   }
   // The widget's request (2026-11-14): its followed state, as the page's syncWidget would write it
-  // (widgetState); null (leave times) when the ride ended or the state has no ride or target.
-  if (s.trip?.id === s.tripRef) {
-    const w = st => {
-      const x = st ? widgetState({ [s.tripRef]: st }, [s.trip]) : null;
-      return x && (x.ride || x.target) ? x : null;
-    };
-    const was = w(prev);
-    const now = w(next);
-    if (JSON.stringify(was) !== JSON.stringify(now)) out.push({ type: 'widget', state: now });
-  }
+  // (widgetState); null (leave times) when the ride ended or the state has no ride or target (the
+  // server refuses those). Only when it changed: each write reloads the widget, from iOS's budget.
+  const followed = st => {
+    const w = widgetState({ [s.tripRef]: st }, [s.trip]);
+    return w?.ride || w?.target ? w : null;
+  };
+  const widget = followed(next);
+  if (JSON.stringify(widget) !== JSON.stringify(followed(prev))) out.push({ type: 'widget', state: widget });
   return out;
 }
 
