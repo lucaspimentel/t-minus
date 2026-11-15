@@ -9,7 +9,8 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "stamp": "node scripts/stamp.mjs",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "staging": "node scripts/staging.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

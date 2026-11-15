@@ -1,4 +1,4 @@
-// Datadog RUM (DESIGN.md "Observability") and the MBTA key: RUM starts only when /api/config has
+// Datadog RUM (DESIGN.md "Observability"), the staging tag, and the MBTA key: RUM starts only when /api/config has
 // the web app's IDs, and the key goes in a header, never a URL.
 import { test, expect } from '@playwright/test';
 import { openApp, CONFIG } from './helpers.js';
@@ -32,4 +32,21 @@ test('the MBTA fallback sends the key as x-api-key, not in the URL', async ({ pa
   await openApp(page, { config: { ...CONFIG, apiKey: 'k1' } });
   expect(calls.length).toBeGreaterThan(0);
   for (const c of calls) expect(c).toEqual({ url: expect.not.stringContaining('api_key'), key: 'k1' });
+});
+
+// Staging (APP_ENV=staging, DESIGN.md "Staging"): /api/config's env shows a tag and prefixes the title.
+test('staging shows its tag from /api/config; prod has none', async ({ page }) => {
+  await page.route('**/api/config', route => route.fulfill({ json: { rum: { web: null, ios: null }, env: 'staging' } }));
+  await openApp(page);
+  await expect(page.locator('#env-tag')).toBeVisible();
+  await expect(page.locator('#env-tag')).toHaveText('STAGING');
+  await expect(page).toHaveTitle(/^Staging · T-Minus/);
+});
+
+test('no tag without an env', async ({ page }) => {
+  await page.route('**/api/config', route => route.fulfill({ json: { rum: { web: null, ios: null }, env: null } }));
+  await openApp(page);
+  await page.waitForTimeout(300);
+  await expect(page.locator('#env-tag')).toBeHidden();
+  await expect(page).toHaveTitle('T-Minus');
 });

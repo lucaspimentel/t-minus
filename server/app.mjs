@@ -67,6 +67,15 @@ export function declarativePush({ kind, title, body, tag, renotify }, navigate) 
 // server/apns.mjs. The tag replaces a same-tag notification (`apns-collapse-id`, at most 64 bytes:
 // longer tags are hashed). First sends and earlier times are Time Sensitive with a sound; quiet
 // updates (`renotify: false`) are passive.
+// Staging's service worker: it clears the caches and unregisters itself, so the page always
+// comes from the server (the app registers sw.js as usual; DESIGN.md "Staging").
+export const STAGING_SW = `self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil((async () => {
+  for (const k of await caches.keys()) await caches.delete(k);
+  await self.registration.unregister();
+})()));
+`;
+
 export const APNS_PREFIX = 'apns:';
 // The boarding question (`kind: 'board'`) has the app's Yes / Missed it actions (the iOS app
 // registers the `board` category); `data` goes along for the app (the reminder's id).
@@ -168,7 +177,7 @@ function nominatimPlaces(list) {
   }));
 }
 
-export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {}, sendTimeoutMs = SEND_TIMEOUT_MS, rum = {}, hash = null, gzip = null, readStaticFile = null }) {
+export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {}, sendTimeoutMs = SEND_TIMEOUT_MS, rum = {}, env = null, hash = null, gzip = null, readStaticFile = null }) {
   // A push that never finishes fails after sendTimeoutMs instead of stopping the loop (2026-10-19:
   // a hung APNs push held the loop for an hour: no reminders went out until a restart).
   const send = (sub, payload) => {
@@ -363,7 +372,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
   // Cache-Control: the page, the service worker and the manifest are revalidated each time;
   // `?v=<hash>` modules never change; icons for a day.
+  // Staging (`env: 'staging'`, APP_ENV): nothing is cached, so a reload shows the last deploy.
   function cacheControl(url, file) {
+    if (env === 'staging') return 'no-store';
     if (url.searchParams.has('v') && /\.m?js$/.test(file)) return 'public, max-age=31536000, immutable';
     if (file.startsWith('icons/')) return 'public, max-age=86400';
     return 'no-cache';
@@ -374,7 +385,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (!file) return reply(res, 404, { error: 'Not found' });
     let f = files.get(file);
     if (!f) {
-      const body = await readStaticFile(staticRoot, file);
+      const body = env === 'staging' && file === 'sw.js' ? new TextEncoder().encode(STAGING_SW) : await readStaticFile(staticRoot, file);
       f = { body, etag: `"${hash(body).slice(0, 22)}"` };
       files.set(file, f);
     }
@@ -405,7 +416,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
     if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true, reminders: store.count() });
     if (req.method === 'GET' && path === '/vapid') return reply(res, 200, { publicKey });
-    if (req.method === 'GET' && path === '/config') return reply(res, 200, { rum: { web: rum.web ?? null, ios: rum.ios ?? null } });
+    if (req.method === 'GET' && path === '/config') return reply(res, 200, { rum: { web: rum.web ?? null, ios: rum.ios ?? null }, env });
     // Auto-route: plans from the daily network.
     if (req.method === 'GET' && path === '/plan') {
       let net;

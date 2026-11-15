@@ -1524,13 +1524,34 @@ service on Railway (`server/`), which also serves the app (see Hosting).
   `sim-page.js`, `sim-mbta.js`, `sim-presets.js`, and `server/app.mjs` and
   `server/memory-store.mjs`, which it runs in the page); anything else is a 404. Read once
   per process and kept in memory, with a content-hash `ETag` (304 on `If-None-Match`).
-- **`Cache-Control`:** `no-cache` for the page, `sw.js` and `manifest.json` (revalidated each
+- **`Cache-Control`** (staging: `no-store` for all; see "Staging"): `no-cache` for the page, `sw.js` and `manifest.json` (revalidated each
   time); `public, max-age=31536000, immutable` for `?v=<hash>` modules; a day for icons. The
   page also gets `nosniff`, `no-referrer` and `x-frame-options: DENY`.
 - **History:** the app was on GitHub Pages (`lucaspimentel.github.io/mbta-leave-by/`) until
   2026-10-06; it moved here in two steps (a "moved" banner on the Pages copy, then the repo
   rename to `t-minus` and Pages off). Storage is per origin, so trips moved by Export/Import,
   and the key prefix changed from `mbta-leave-by:` to `t-minus:`.
+
+## Staging (2026-11-15)
+
+For quick UI checks in Safari on iOS (it renders differently from Chrome in the sandbox), not for
+pushes or the iOS app: viewed in the browser, never installed.
+
+- **Where:** `https://staging.t-minus.lucasp.net/`, Railway's `staging` environment in the same
+  project: the `t-minus` service only (no Datadog agent), sourced from the `staging` branch.
+  Unlike prod it doesn't wait for CI and has no watch paths (every push deploys), no volume (its
+  store is lost on each deploy) and no dd-trace (start `node server/main.mjs`).
+- **Deploy:** `npm run staging` (`scripts/staging.mjs`) force-pushes `HEAD` to `staging`, after
+  checking for uncommitted changes and a stale stamp; Railway deploys it in 1-2 min.
+- **`APP_ENV=staging`** (`createApp`'s `env`):
+  - every static file is sent `Cache-Control: no-store`, so a reload shows the last deploy;
+  - `/sw.js` is a stand-in (`STAGING_SW`) that clears the caches and unregisters itself: the
+    app registers `sw.js` as usual, and nothing is served from a stale cache;
+  - `/api/config` has `env: "staging"` (`null` elsewhere); the app shows "STAGING" in the
+    header's top padding (`#env-tag`, no layout change) and prefixes the tab title.
+- **Variables:** `APP_ENV=staging`, `DRY_RUN=1` (pushes are logged, not sent),
+  `PUBLIC_URL=https://staging.t-minus.lucasp.net/`, prod's VAPID keys (the server needs them to
+  start), `MBTA_API_KEY` shared with prod; no APNs, RUM or `DD_*` variables.
 
 ## Observability (Datadog, 2026-10-24)
 

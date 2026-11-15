@@ -79,6 +79,19 @@ leave-times widget posts the app's trips to `POST /api/widget` and gets the show
    networking doesn't cross projects): image `ghcr.io/lucaspimentel/datadog-serverless-compat`,
    health check `/info`, variables `DD_API_KEY`, `DD_SITE`, `DD_ENV`, `DD_LOG_LEVEL`, `PORT`.
 
+## Staging
+
+`https://staging.t-minus.lucasp.net/`, for quick UI checks in a phone's browser (`DESIGN.md`
+"Staging"). In the same Railway project, a `staging` environment with only the `t-minus` service:
+
+- Source: branch `staging`. "Wait for CI" off, no watch paths, no volume.
+- Build `npm ci --prefix server`, start `node server/main.mjs`, health check `/health`.
+- Variables: `APP_ENV=staging`, `DRY_RUN=1`, `PUBLIC_URL=https://staging.t-minus.lucasp.net/`,
+  `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (prod's), `MBTA_API_KEY`.
+- Domain: `staging.t-minus.lucasp.net`, with the CNAME Railway shows added at the DNS host.
+
+Deploy the current commit with `npm run staging` (force-pushes `HEAD` to `staging`).
+
 ## Local run
 
 ```

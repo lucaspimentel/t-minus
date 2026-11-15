@@ -64,6 +64,13 @@
     margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 4px;
     padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 8px;
   }
+  /* Staging's tag (APP_ENV=staging, from /api/config): in the header's top padding, so the
+     layout is the same as prod's. */
+  .env-tag {
+    position: absolute; top: calc(env(safe-area-inset-top, 0px) + 4px); left: 50%; transform: translateX(-50%);
+    font-size: 11px; font-weight: 600; letter-spacing: .08em; line-height: 14px;
+    padding: 0 6px; border: 1px solid currentColor; border-radius: 7px; pointer-events: none;
+  }
   /* Sticky headers' edge fade (iOS 26's scroll edge effect): no bar or separator. The header's own
      page-color background covers it down to its bottom edge (its bottom padding keeps content clear
      of the controls); once the page is scrolled (html.scrolled), a 20 px strip below it fades and
@@ -598,6 +605,7 @@
   <div id="app">
     <div class="ptr" id="ptr" aria-hidden="true"><span class="ptr-icon"><svg viewBox="0 0 24 24"><path d="M12 4v16M5 13l7 7 7-7"/></svg></span><span class="ptr-ring"></span><span class="ptr-text"></span></div>
     <header>
+      <span class="env-tag" id="env-tag" hidden></span>
       <div class="toggle" id="toggle" role="group" aria-label="Trip"></div>
       <button class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh"><span>&#x21bb;</span></button>
       <button class="icon-btn" id="open-setup" aria-label="Setup" title="Setup"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.66 9.84L20.99 10.03L20.99 13.97L18.66 14.16L18.24 15.18L19.75 16.96L16.96 19.75L15.18 18.24L14.16 18.66L13.97 20.99L10.03 20.99L9.84 18.66L8.82 18.24L7.04 19.75L4.25 16.96L5.76 15.18L5.34 14.16L3.01 13.97L3.01 10.03L5.34 9.84L5.76 8.82L4.25 7.04L7.04 4.25L8.82 5.76L9.84 5.34L10.03 3.01L13.97 3.01L14.16 5.34L15.18 5.76L16.96 4.25L19.75 7.04L18.24 8.82z"/><circle cx="12" cy="12" r="3"/></svg></button>
@@ -613,7 +621,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-15 · 08f4785b8a</footer>
+    <footer class="version">Version 2026-11-15 · 93dcf1b69b</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -1304,7 +1312,7 @@ function serverFetch(path, init) {
   return fetch(`${SERVER_API}${path}`, init);
 }
 // The simulator, started before anything uses it (sim-page.js; null when off).
-const SIM = SIM_ON ? await import('./sim-page.js?v=d48a0b37ee').then(m => m.startSimPage(window.tminusSim, { mbtaApi })) : null;
+const SIM = SIM_ON ? await import('./sim-page.js?v=3dd6d6674f').then(m => m.startSimPage(window.tminusSim, { mbtaApi })) : null;
 // The iOS app (IOS.md): this page in a WKWebView with Capacitor's bridge (`window.Capacitor`).
 // There, pushes come from APNs (the PushNotifications plugin; the subscription is
 // `{ endpoint: 'apns:<token>' }`), the screen stays on through the app's own plugin
@@ -2791,14 +2799,14 @@ const setupSimulator = () => ({
   presets: () => import('./sim-presets.js?v=7d6854750b').then(m => m.PRESETS.map(p => ({ id: p.id, name: p.name }))),
   async rides(i, date) {
     const trip = savedConfig.trips[i];
-    const { dayDocs } = await import('./sim-page.js?v=d48a0b37ee');
+    const { dayDocs } = await import('./sim-page.js?v=3dd6d6674f');
     const { docs, coverage } = await dayDocs(trip, date, mbtaApi);
     simSeed = { tripRef: trip.id, date, coverage };
     return dayRides(trip, docs, date, stopSlackMinutes(savedConfig)).filter(r => !r.missed && r.leaveBy != null)
       .map(r => ({ label: simRideLabel(r), leaveBy: r.leaveBy }));
   },
   async start({ mode, tripIdx: i, date, leaveBy, early, presetId }) {
-    const m = await import('./sim-page.js?v=d48a0b37ee');
+    const m = await import('./sim-page.js?v=3dd6d6674f');
     if (mode === 'preset') {
       const { PRESETS } = await import('./sim-presets.js?v=7d6854750b');
       const preset = PRESETS.find(p => p.id === presetId);
@@ -4141,13 +4149,22 @@ if (SIM) {
   window.tminusSim.onChange(() => render());
 }
 
+// /api/config: the RUM IDs and the server's environment (APP_ENV). Staging shows a tag in the
+// header and the tab title (DESIGN.md "Staging").
 // Datadog RUM (DESIGN.md "Observability"): on when /api/config has the web app's IDs. The SDK
 // loads from Datadog's CDN after the first render; any failure leaves the app without RUM.
 async function startRum() {
   if (!SERVER_API || SIM) return; // off in the simulator
   try {
     const res = await fetch(`${SERVER_API}/config`);
-    const opts = res.ok ? rumInitOptions((await res.json())?.rum?.web, RUNNING_VERSION, location.origin) : null;
+    const config = res.ok ? await res.json() : null;
+    if (typeof config?.env === 'string' && config.env && config.env !== 'prod') {
+      const tag = $('env-tag');
+      tag.textContent = config.env.toUpperCase();
+      tag.hidden = false;
+      document.title = `${config.env[0].toUpperCase()}${config.env.slice(1)} · ${document.title}`;
+    }
+    const opts = config ? rumInitOptions(config.rum?.web, RUNNING_VERSION, location.origin) : null;
     if (!opts) return;
     const s = document.createElement('script');
     s.async = true;
@@ -4162,7 +4179,7 @@ if (!SIM_ON) {
   let ctl = null;
   try { ctl = JSON.parse(localStorage.getItem('t-minus-simctl')); } catch { /* none */ }
   if (ctl && !ctl.on) {
-    const purge = () => import('./sim-page.js?v=d48a0b37ee').then(m => m.purgeSim()).catch(() => {});
+    const purge = () => import('./sim-page.js?v=3dd6d6674f').then(m => m.purgeSim()).catch(() => {});
     if (ctl.endedAt && Date.now() - ctl.endedAt < 10_000) {
       showToast('Simulator ended', 'Undo', () => {
         localStorage.setItem('t-minus-simctl', JSON.stringify({ ...ctl, on: true, endedAt: null, clock: { ...ctl.clock, keepPlaying: false } }));

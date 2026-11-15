@@ -57,6 +57,7 @@ const app = createApp({
   staticRoot: new URL('..', import.meta.url).pathname,
   proxy: env.MBTA_PROXY !== 'off',
   rum,
+  env: env.APP_ENV || null,
   log,
   ...nodeDeps,
 });

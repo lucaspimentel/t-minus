@@ -7,7 +7,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { createApp, declarativePush, apnsPush, apnsActivityPush } from '../server/app.mjs';
+import { createApp, declarativePush, apnsPush, apnsActivityPush, STAGING_SW } from '../server/app.mjs';
 import { openStore } from '../server/store.mjs';
 import { nodeDeps, hash } from '../server/node-deps.mjs';
 import { legQuery, predictionQuery, tripShape, shapesQuery } from '../core.js';
@@ -632,6 +632,23 @@ test('the app\'s files: an allowlist from the repo root, with cache headers and 
     // Loading the app doesn't count toward the API's 30 requests a minute.
     for (let i = 0; i < 40; i++) await (await s.call('GET', '/manifest.json', undefined, null)).arrayBuffer();
     assert.equal((await s.call('GET', '/api/vapid', undefined, null)).status, 200);
+  } finally { await s.close(); }
+});
+
+test('staging (APP_ENV): nothing cached, and a service worker that unregisters itself', async () => {
+  const s = await setup({ staticRoot: process.cwd() });
+  try {
+    const { call } = await s.serve({ env: 'staging' });
+    for (const p of ['/', '/core.js?v=abc', '/manifest.json', '/icons/icon-192.png', '/basemap.json']) {
+      assert.equal((await call('GET', p, undefined, null)).headers.get('cache-control'), 'no-store', p);
+    }
+    const sw = await call('GET', '/sw.js', undefined, null);
+    assert.equal(sw.status, 200);
+    assert.match(sw.headers.get('content-type'), /text\/javascript/);
+    assert.equal(await sw.text(), STAGING_SW);
+    assert.match(STAGING_SW, /registration\.unregister\(\)/);
+    // Prod serves the real one.
+    assert.match(await (await s.call('GET', '/sw.js', undefined, null)).text(), /CACHE/);
   } finally { await s.close(); }
 });
 
@@ -1686,10 +1703,10 @@ test('the MBTA key goes in the x-api-key header, never the URL', async () => {
 test('GET /api/config serves the RUM IDs that are set, null otherwise', async () => {
   const s = await setup();
   try {
-    assert.deepEqual(await (await s.call('GET', '/api/config')).json(), { rum: { web: null, ios: null } });
+    assert.deepEqual(await (await s.call('GET', '/api/config')).json(), { rum: { web: null, ios: null }, env: null });
     const web = { applicationId: 'app', clientToken: 'pub' };
-    const { call } = await s.serve({ rum: { web, ios: null } });
-    assert.deepEqual(await (await call('GET', '/api/config')).json(), { rum: { web, ios: null } });
+    const { call } = await s.serve({ rum: { web, ios: null }, env: 'staging' });
+    assert.deepEqual(await (await call('GET', '/api/config')).json(), { rum: { web, ios: null }, env: 'staging' });
   } finally { await s.close(); }
 });
 
