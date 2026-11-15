@@ -52,7 +52,24 @@
   button { transition: transform 80ms; }
   button:not(:disabled):active { box-shadow: inset 0 0 0 100vmax var(--press); transform: scale(.97); }
   .row:not(.ride):active:not(:has(button:active)) { box-shadow: inset 0 0 0 100vmax var(--press); }
-  header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  /* Pinned header row (2026-11-15): sticks at the top, its padding reaching under the status bar
+     (the iOS app's inset), so nothing scrolls behind the clock. Its 10 + 2 px below make the old 12. */
+  header {
+    display: flex; align-items: center; gap: 8px;
+    position: sticky; top: 0; z-index: 5; isolation: isolate;
+    margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 2px;
+    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 10px;
+  }
+  /* Sticky headers' edge fade (iOS 26's scroll edge effect): no bar or separator; content passing
+     under the header fades and blurs. Main header, setup's header, the leg picker's top. */
+  header::before, .setup-head::before, .picker-top::before {
+    content: ''; position: absolute; inset: 0 0 -18px; z-index: -1; pointer-events: none;
+    background: linear-gradient(var(--bg) 55%, color-mix(in srgb, var(--bg) 60%, transparent));
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent);
+  }
+  /* Focus scrolls (keyboard, VoiceOver) stop below the pinned header. */
+  html { scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 80px); }
   .toggle { display: flex; flex-wrap: wrap; flex: 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   .toggle button {
     flex: 1 1 auto; padding: 10px 6px; border: 0; background: var(--card); color: var(--muted);
@@ -81,6 +98,7 @@
   @media (prefers-reduced-motion: reduce) { #refresh.busy span { animation: none; opacity: .4; } }
   /* Pull-to-refresh: sits above the header (height = PULL_HOLD) and comes into view as #app moves down. */
   .ptr {
+    position: relative; z-index: 6; pointer-events: none; /* above the header's fade */
     height: 48px; margin-top: -48px; display: flex; align-items: center; justify-content: center; gap: 8px;
     color: var(--muted); font-size: 14px; opacity: 0;
   }
@@ -346,21 +364,16 @@
   .setup button:disabled { opacity: .5; }
   .setup-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    /* When stuck, its own top padding keeps the buttons out of the blurred strip. */
-    position: sticky; top: env(safe-area-inset-top, 0px); background: var(--bg); padding: 22px 0 10px; margin-top: -22px; z-index: 1;
+    position: sticky; top: 0; z-index: 5; isolation: isolate;
+    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 10px; margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 0;
   }
   /* Picker: header, context line and search stick together; the header inside is a plain block. */
   .picker-top {
-    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 1; background: var(--bg);
-    padding: 22px 0 8px; margin-top: -22px;
+    position: sticky; top: 0; z-index: 5; isolation: isolate;
+    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 8px; margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 0;
   }
-  .picker-top .setup-head { position: static; padding: 0 0 10px; margin: 0; }
-  /* In the iOS app the inset is the status bar's height: cover it, or scrolled content shows behind the clock. */
-  .setup-head::before, .picker-top::before {
-    content: ''; position: absolute; left: -16px; right: -16px; bottom: 100%;
-    height: env(safe-area-inset-top, 0px); background: var(--bg);
-  }
-  .picker-top .setup-head::before { content: none; } /* the wrapper covers it */
+  .picker-top .setup-head { position: static; padding: 0 0 10px; margin: 0; isolation: auto; }
+  .picker-top .setup-head::before { content: none; } /* the wrapper's fade covers it */
   .picker-top .muted { margin-top: 0; }
   .setup .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 12px;
@@ -559,7 +572,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-13 · 701d1290a4</footer>
+    <footer class="version">Version 2026-11-15 · 4d4237ed6a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>

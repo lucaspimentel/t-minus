@@ -460,6 +460,14 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 
 ### Display
 
+- Pinned header (2026-11-15): the header row (trip picker, ↻, ⚙) sticks at the top while
+  everything below it (the en-route bar, alerts, the map, the rows) scrolls. Its padding reaches
+  under the status bar (`safe-area-inset-top`, the iOS app's), so nothing scrolls behind the
+  clock. No bar or separator: as in iOS 26's scroll edge effect, a strip in the page color behind
+  the controls fades and blurs what passes under it (`backdrop-filter`, a mask fading out ~18 px
+  below the header). Setup's header and the leg picker's top use the same fade.
+  `scroll-padding-top` keeps focus scrolls below it; the pull-to-refresh indicator sits above the
+  fade. The map and the en-route bar stay unpinned (the rows would get too little room).
 - Per departure: countdown/state with the leave-by time right-aligned ("Leave in 12 min   8:04am";
   a countdown too long for the time to fit beside it steps down 28 → 24 → 20px, `fitHeads`, and
   only then lets the time wrap, as a next-day "Thu 10:26am" at 360 px does),
@@ -994,8 +1002,8 @@ maps (the sheet, the planner's options, the trip editor).
 - The editor works on a form model (`tripToForm` / `formToTrip` in `core.js`) and writes
   canonical legs back, omitting zero-minute walks and transfers.
 - Leg picker: the header, context line, and search box stick together at the top while the
-  list scrolls under them (so iOS's scroll for the keyboard can't slide the search under the
-  header). One search box ("Search stations or routes") finds rail stations
+  list scrolls under them, faded as under the main header (so iOS's scroll for the keyboard
+  can't slide the search under the header). One search box ("Search stations or routes") finds rail stations
   (`searchStations`, each with its lines) and routes (`searchRoutes`). Without typing, a first
   leg lists the rail lines and "Show all routes"; a later leg lists the stations (within 300 m)
   and routes near the previous drop-off (see next-leg suggestions).
