@@ -71,7 +71,8 @@ leave-times widget posts the app's trips to `POST /api/widget` and gets the show
    pushes.
 6. **Domain:** Settings → Networking → Custom Domain: `t-minus.lucasp.net`, with the CNAME
    (and TXT record, if asked) Railway shows added at the DNS host. Check
-   `https://t-minus.lucasp.net/api/health`, which should return `{"ok":true,"reminders":0}`, and
+   `https://t-minus.lucasp.net/api/health`, which should return `{"ok":true,"reminders":0,"commit":"<sha>"}` (`commit`:
+   Railway's `RAILWAY_GIT_COMMIT_SHA`, null elsewhere), and
    `https://t-minus.lucasp.net/` (the app).
 7. **Test:** in the Home Screen app, open Setup → Notifications → "Send test notification in
    10 s", then lock the phone. "Test notification" should arrive.
@@ -91,7 +92,7 @@ leave-times widget posts the app's trips to `POST /api/widget` and gets the show
 - Domain: `staging.t-minus.lucasp.net`, with the CNAME Railway shows added at the DNS host.
 
 Deploy the current commit with `npm run staging` (force-pushes `HEAD` to `staging`, then waits
-until the staging footer shows its version).
+until `/api/health`'s `commit` is that commit and the footer shows its version).
 
 ## Local run
 

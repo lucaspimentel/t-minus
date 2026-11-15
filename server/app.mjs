@@ -177,7 +177,7 @@ function nominatimPlaces(list) {
   }));
 }
 
-export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {}, sendTimeoutMs = SEND_TIMEOUT_MS, rum = {}, env = null, hash = null, gzip = null, readStaticFile = null }) {
+export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {}, sendTimeoutMs = SEND_TIMEOUT_MS, rum = {}, env = null, commit = null, hash = null, gzip = null, readStaticFile = null }) {
   // A push that never finishes fails after sendTimeoutMs instead of stopping the loop (2026-10-19:
   // a hung APNs push held the loop for an hour: no reminders went out until a restart).
   const send = (sub, payload) => {
@@ -414,7 +414,8 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (path.startsWith('/mbta/')) return proxyMbta(req, res, url, path, ip, t);
     if (limited(ip, t)) return reply(res, 429, { error: 'Too many requests' });
 
-    if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true, reminders: store.count() });
+    // `commit`: the deployed commit (RAILWAY_GIT_COMMIT_SHA); `npm run staging` waits for it.
+    if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true, reminders: store.count(), commit });
     if (req.method === 'GET' && path === '/vapid') return reply(res, 200, { publicKey });
     if (req.method === 'GET' && path === '/config') return reply(res, 200, { rum: { web: rum.web ?? null, ios: rum.ios ?? null }, env });
     // Auto-route: plans from the daily network.

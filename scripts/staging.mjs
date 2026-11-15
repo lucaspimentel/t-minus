@@ -1,7 +1,7 @@
 // Deploys the current commit to staging (https://staging.t-minus.lucasp.net/): force-pushes HEAD
 // to the `staging` branch, which Railway's staging environment deploys without waiting for CI
-// (DESIGN.md "Staging"), then waits until the staging page's footer version matches this
-// checkout's. Refuses uncommitted changes or a stale stamp, so what's deployed is a commit.
+// (DESIGN.md "Staging"), then waits until staging's /api/health reports this commit and checks
+// the page's footer version. Refuses uncommitted changes or a stale stamp, so what's deployed is a commit.
 // Run: npm run staging [-- --no-wait]
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -15,20 +15,26 @@ const TIMEOUT_MS = 5 * 60_000;
 // The footer version ("Version 2026-11-15 · bdd9f201af") in a page's HTML, or null.
 export const footerVersion = html => versionRe.exec(html)?.[0] ?? null;
 
-// Polls the staging page until its footer is `want`. Resolves { ok, last }.
-export async function waitForVersion(want, { fetch = globalThis.fetch, url = STAGING_URL, pollMs = POLL_MS, timeoutMs = TIMEOUT_MS, now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+// Polls `url` until read(response) is `want` (a failed request or a non-2xx counts as a miss).
+// Resolves { ok, last }: `last` is the last value read, or what went wrong.
+export async function waitFor(url, read, want, { fetch = globalThis.fetch, pollMs = POLL_MS, timeoutMs = TIMEOUT_MS, now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
   const end = now() + timeoutMs;
   let last = null;
   for (;;) {
     try {
       const res = await fetch(url, { cache: 'no-store' });
-      last = res.ok ? footerVersion(await res.text()) ?? 'no footer' : `HTTP ${res.status}`;
+      last = res.ok ? await read(res) : `HTTP ${res.status}`;
     } catch (e) { last = e.message; }
     if (last === want) return { ok: true, last };
     if (now() + pollMs > end) return { ok: false, last };
     await sleep(pollMs);
   }
 }
+
+// The deployed commit, from /api/health (RAILWAY_GIT_COMMIT_SHA): the footer alone changes only
+// with the shell files, so a commit touching only the server's other files or docs matched at once.
+export const readCommit = async res => (await res.json())?.commit ?? 'no commit';
+export const readFooter = async res => footerVersion(await res.text()) ?? 'no footer';
 
 async function main() {
   // Behind a proxy (the Claude Code cloud sandbox), Node's fetch uses it only with
@@ -49,10 +55,14 @@ async function main() {
   console.log(`Pushed ${head} to staging (${want}).`);
   if (process.argv.includes('--no-wait')) return;
 
-  console.log(`Waiting for ${STAGING_URL} to show it (up to ${TIMEOUT_MS / 60_000} min)…`);
-  const { ok, last } = await waitForVersion(want);
-  if (!ok) fail(`Staging still shows ${last} after ${TIMEOUT_MS / 60_000} min: check the deploy in Railway (staging environment).`);
-  console.log(`Staging is live: ${last}`);
+  const sha = git('rev-parse', 'HEAD');
+  const min = TIMEOUT_MS / 60_000;
+  console.log(`Waiting for staging to run ${head} (up to ${min} min)…`);
+  const deployed = await waitFor(new URL('api/health', STAGING_URL), readCommit, sha);
+  if (!deployed.ok) fail(`Staging still runs ${deployed.last.slice(0, 40)} after ${min} min: check the deploy in Railway (staging environment).`);
+  const page = await waitFor(STAGING_URL, readFooter, want, { timeoutMs: 0 });
+  if (!page.ok) fail(`Staging runs ${head} but its page shows ${page.last}, not ${want}.`);
+  console.log(`Staging is live: ${head}, ${want}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

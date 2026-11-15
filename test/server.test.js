@@ -635,7 +635,7 @@ test('the app\'s files: an allowlist from the repo root, with cache headers and 
   } finally { await s.close(); }
 });
 
-test('staging (APP_ENV): nothing cached, and a service worker that unregisters itself', async () => {
+test('staging (APP_ENV): nothing cached, and a service worker that unregisters itself; /health has the commit', async () => {
   const s = await setup({ staticRoot: process.cwd() });
   try {
     const { call } = await s.serve({ env: 'staging' });
@@ -647,6 +647,10 @@ test('staging (APP_ENV): nothing cached, and a service worker that unregisters i
     assert.match(sw.headers.get('content-type'), /text\/javascript/);
     assert.equal(await sw.text(), STAGING_SW);
     assert.match(STAGING_SW, /registration\.unregister\(\)/);
+    // The deployed commit (RAILWAY_GIT_COMMIT_SHA): npm run staging waits for it.
+    assert.equal((await (await s.call('GET', '/api/health')).json()).commit, null);
+    const { call: deployed } = await s.serve({ commit: 'abc123' });
+    assert.equal((await (await deployed('GET', '/health')).json()).commit, 'abc123');
     // Prod serves the real one.
     assert.match(await (await s.call('GET', '/sw.js', undefined, null)).text(), /CACHE/);
   } finally { await s.close(); }

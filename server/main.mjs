@@ -58,6 +58,7 @@ const app = createApp({
   proxy: env.MBTA_PROXY !== 'off',
   rum,
   env: env.APP_ENV || null,
+  commit: env.RAILWAY_GIT_COMMIT_SHA || null,
   log,
   ...nodeDeps,
 });

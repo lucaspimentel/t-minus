@@ -1,7 +1,7 @@
-// scripts/staging.mjs: after the push, it waits until the staging page's footer matches.
+// scripts/staging.mjs: after the push, it waits until staging runs the commit, then checks the footer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { footerVersion, waitForVersion } from '../scripts/staging.mjs';
+import { footerVersion, waitFor, readCommit, readFooter } from '../scripts/staging.mjs';
 
 const page = v => `<footer class="version">${v}</footer>`;
 const V1 = 'Version 2026-11-15 · aaaaaaaaaa';
@@ -20,7 +20,7 @@ function fake(answers) {
         calls.push(url);
         const a = answers[Math.min(calls.length - 1, answers.length - 1)];
         if (a instanceof Error) throw a;
-        return typeof a === 'number' ? { ok: false, status: a, text: async () => '' } : { ok: true, status: 200, text: async () => a };
+        return typeof a === 'number' ? { ok: false, status: a, text: async () => '' } : { ok: true, status: 200, text: async () => a, json: async () => JSON.parse(a) };
       },
     },
   };
@@ -31,16 +31,24 @@ test('footerVersion reads the footer version, null without one', () => {
   assert.equal(footerVersion('<p>nothing</p>'), null);
 });
 
-test('waitForVersion returns once the footer matches, through errors and old versions', async () => {
+test('waitFor returns once the footer matches, through errors and old versions', async () => {
   const f = fake([new Error('connect failed'), 502, page(V1), page(V2)]);
-  assert.deepEqual(await waitForVersion(V2, { ...f.opts, pollMs: 10, timeoutMs: 1000 }), { ok: true, last: V2 });
+  assert.deepEqual(await waitFor('u', readFooter, V2, { ...f.opts, pollMs: 10, timeoutMs: 1000 }), { ok: true, last: V2 });
   assert.equal(f.calls.length, 4);
 });
 
-test('waitForVersion gives up after the timeout with the last answer', async () => {
+test('waitFor gives up after the timeout with the last answer', async () => {
   const f = fake([page(V1)]);
-  assert.deepEqual(await waitForVersion(V2, { ...f.opts, pollMs: 10, timeoutMs: 35 }), { ok: false, last: V1 });
+  assert.deepEqual(await waitFor('u', readFooter, V2, { ...f.opts, pollMs: 10, timeoutMs: 35 }), { ok: false, last: V1 });
   assert.equal(f.calls.length, 4); // t = 0, 10, 20, 30
   const g = fake([500]);
-  assert.deepEqual(await waitForVersion(V2, { ...g.opts, pollMs: 10, timeoutMs: 5 }), { ok: false, last: 'HTTP 500' });
+  assert.deepEqual(await waitFor('u', readFooter, V2, { ...g.opts, pollMs: 10, timeoutMs: 5 }), { ok: false, last: 'HTTP 500' });
+});
+
+test('readCommit reads /api/health\'s commit; an old server without one never matches', async () => {
+  const f = fake([JSON.stringify({ ok: true, reminders: 0 }), JSON.stringify({ ok: true, reminders: 0, commit: 'old' }), JSON.stringify({ ok: true, reminders: 0, commit: 'abc' })]);
+  assert.deepEqual(await waitFor('u', readCommit, 'abc', { ...f.opts, pollMs: 10, timeoutMs: 1000 }), { ok: true, last: 'abc' });
+  assert.equal(f.calls.length, 3);
+  const g = fake([JSON.stringify({ ok: true })]);
+  assert.deepEqual(await waitFor('u', readCommit, 'abc', { ...g.opts, pollMs: 10, timeoutMs: 0 }), { ok: false, last: 'no commit' });
 });

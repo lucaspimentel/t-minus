@@ -1430,7 +1430,7 @@ service on Railway (`server/`), which also serves the app (see Hosting).
     again); the ride card offers "Turn on stop alerts" to post it again.
 - **Server (`server/app.mjs`):**
   - **Endpoints** (under `/api/`; `GET /health` also at the root, for Railway's health check):
-    `GET /vapid`, `GET /health`, `POST /reminders`, `DELETE /reminders/:id`,
+    `GET /vapid`, `GET /health` (`{ ok, reminders, commit }`; `commit`: the deployed commit), `POST /reminders`, `DELETE /reminders/:id`,
     `POST /test-push`, `POST /rides`, `PUT /rides/:id`, `DELETE /rides/:id` (stop alerts and Live Activities),
     `POST /pending` and `POST /pending/clear` (setup's "Pending notifications": this phone's
     entries without the subscription keys, each with `nextPush`, and its push log; POST so the
@@ -1543,8 +1543,10 @@ pushes or the iOS app: viewed in the browser, never installed.
   store is lost on each deploy) and no dd-trace (start `node server/main.mjs`).
 - **Deploy:** `npm run staging` (`scripts/staging.mjs`) force-pushes `HEAD` to `staging`, after
   checking for uncommitted changes and a stale stamp; Railway deploys it in 1-2 min. The
-  script then polls the staging page every 10 s until its footer version matches the checkout's
-  (exit 1 after 5 min with the last footer seen; `--no-wait` skips it).
+  script then polls `/api/health` every 10 s until its `commit` (`RAILWAY_GIT_COMMIT_SHA`) is
+  `HEAD`, then checks that the page's footer version is the checkout's (exit 1 after 5 min with
+  the last commit seen; `--no-wait` skips it). The footer alone wasn't enough: it changes only with
+  the shell files, so a commit touching only other files matched before its deploy.
 - **`APP_ENV=staging`** (`createApp`'s `env`):
   - every static file is sent `Cache-Control: no-store`, so a reload shows the last deploy;
   - `/sw.js` is a stand-in (`STAGING_SW`) that clears the caches and unregisters itself: the
