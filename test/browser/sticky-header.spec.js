@@ -17,6 +17,12 @@ test('the main header stays at the top while the rows scroll under it', async ({
   // reaches 20 px below.
   const fadeBottom = () => page.evaluate(() => getComputedStyle(document.querySelector('header'), '::before').bottom);
   expect(await fadeBottom()).toBe('0px');
+  // The en-route bar's buttons, pulled up 4 px, aren't under the header's background.
+  expect(await page.evaluate(() => {
+    const b = [...document.querySelectorAll('#enroute button')].find(x => x.textContent === 'Leaving now');
+    const r = b.getBoundingClientRect();
+    return b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + 1));
+  })).toBe(true);
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await expect.poll(async () => (await box(page, 'header')).top).toBe(0);

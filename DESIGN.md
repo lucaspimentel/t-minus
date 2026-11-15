@@ -464,7 +464,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   everything below it (the en-route bar, alerts, the map, the rows) scrolls. Its padding reaches
   under the status bar (`safe-area-inset-top`, the iOS app's), so nothing scrolls behind the
   clock. No bar or separator: as in iOS 26's scroll edge effect, the page color covers the header
-  down to its bottom edge (its 10 px bottom padding keeps content clear of the controls) and, once
+  down to its bottom edge (its bottom padding keeps content clear of the controls; the main
+  header's is 8 px with a 4 px margin, so the en-route bar's -4px top margin stays out from under
+  it) and, once
   the page is scrolled (`html.scrolled`), what passes under it also fades and blurs over 20 px
   below (`backdrop-filter` and a mask; at the top the fade would cover the first card). Setup's
   header and the leg picker's top use the same fade. On the main screen `scroll-padding-top` keeps
