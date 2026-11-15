@@ -13,9 +13,14 @@ const box = (page, sel) => page.evaluate(s => {
 test('the main header stays at the top while the rows scroll under it', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 600 });
   await openApp(page, { time: '07:20', map: true });
+  // At the top the fade stays inside the header (it would cover the first card); scrolled, it
+  // reaches 20 px below.
+  const fadeBottom = () => page.evaluate(() => getComputedStyle(document.querySelector('header'), '::before').bottom);
+  expect(await fadeBottom()).toBe('0px');
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await expect.poll(async () => (await box(page, 'header')).top).toBe(0);
+  await expect.poll(fadeBottom).toBe('-20px');
   const header = await box(page, 'header');
   expect((await box(page, '.row')).top).toBeLessThan(header.bottom);
   const gear = await box(page, '#open-setup');
@@ -27,6 +32,8 @@ test('setup\'s header stays at the top while its list scrolls', async ({ page })
   await openApp(page, { time: '07:20' });
   await page.locator('#open-setup').click();
   await expect(page.locator('#setup-done')).toBeVisible();
+  // No scroll padding in setup: iOS panned the view up for the keyboard to honor it.
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollPaddingTop)).toBe('auto');
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await expect.poll(async () => (await box(page, '#setup .setup-head')).top).toBe(0);

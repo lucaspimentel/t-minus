@@ -463,11 +463,14 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Pinned header (2026-11-15): the header row (trip picker, ↻, ⚙) sticks at the top while
   everything below it (the en-route bar, alerts, the map, the rows) scrolls. Its padding reaches
   under the status bar (`safe-area-inset-top`, the iOS app's), so nothing scrolls behind the
-  clock. No bar or separator: as in iOS 26's scroll edge effect, a strip in the page color behind
-  the controls fades and blurs what passes under it (`backdrop-filter`, a mask fading out ~18 px
-  below the header). Setup's header and the leg picker's top use the same fade.
-  `scroll-padding-top` keeps focus scrolls below it; the pull-to-refresh indicator sits above the
-  fade. The map and the en-route bar stay unpinned (the rows would get too little room).
+  clock. No bar or separator: as in iOS 26's scroll edge effect, the page color covers the header
+  down to its bottom edge (its 10 px bottom padding keeps content clear of the controls) and, once
+  the page is scrolled (`html.scrolled`), what passes under it also fades and blurs over 20 px
+  below (`backdrop-filter` and a mask; at the top the fade would cover the first card). Setup's
+  header and the leg picker's top use the same fade. On the main screen `scroll-padding-top` keeps
+  focus scrolls below the header; not in setup, where iOS, unable to scroll the picker's sticky
+  search below the padding, panned the whole view up for the keyboard (2026-11-15). The
+  pull-to-refresh indicator sits above the fade. The map and the en-route bar stay unpinned (the rows would get too little room).
 - Per departure: countdown/state with the leave-by time right-aligned ("Leave in 12 min   8:04am";
   a countdown too long for the time to fit beside it steps down 28 → 24 → 20px, `fitHeads`, and
   only then lets the time wrap, as a next-day "Thu 10:26am" at 360 px does),
