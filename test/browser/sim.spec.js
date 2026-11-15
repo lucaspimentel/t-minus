@@ -13,6 +13,7 @@ const simClock = page => bar(page).locator('.sim-clock');
 async function startPreset(page, name = 'On time') {
   await page.locator('#open-setup').click();
   const setup = page.locator('#setup');
+  await setup.getByRole('button', { name: 'Simulator', exact: true }).click();
   await setup.getByRole('button', { name: 'Test preset' }).click();
   await setup.getByLabel('Preset').selectOption({ label: name });
   await Promise.all([page.waitForEvent('load'), setup.getByRole('button', { name: 'Start simulator' }).click()]);
@@ -151,6 +152,7 @@ test('a saved trip\'s ride replayed from that day\'s schedules', async ({ page }
   await openApp(page);
   await page.locator('#open-setup').click();
   const setup = page.locator('#setup');
+  await setup.getByRole('button', { name: 'Simulator', exact: true }).click();
   await expect(setup.getByRole('button', { name: 'Saved trip' })).toHaveAttribute('aria-pressed', 'true');
   await expect(setup.getByLabel('Date')).toHaveValue('2026-10-05');
   const ride = setup.getByLabel('Ride (that day’s schedules)');
@@ -195,6 +197,7 @@ test('the planner in the simulator: the in-page server times the options', async
   await startPreset(page);
   await page.locator('#open-setup').click();
   const setup = page.locator('#setup');
+  await expect(setup.locator('.sim-card')).toContainText('Running'); // the card, open while it runs
   await setup.getByRole('button', { name: '+ Plan a trip', exact: true }).click();
   for (const [field, query, name] of [['from', 'Oak Grove', 'Oak Grove'], ['to', 'State', 'State']]) {
     await setup.locator(`#plan-${field}`).click();

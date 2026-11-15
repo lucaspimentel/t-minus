@@ -100,6 +100,7 @@ for (const scheme of ['light', 'dark']) {
     await openApp(page, { time: '07:00' });
     await page.locator('#open-setup').click();
     const setup = page.locator('#setup');
+    await setup.getByRole('button', { name: 'Simulator', exact: true }).click();
     await expect(setup.getByLabel('Ride (that day’s schedules)')).toBeVisible();
     expect(await violations(page)).toEqual([]);
     await setup.getByRole('button', { name: 'Test preset' }).click();

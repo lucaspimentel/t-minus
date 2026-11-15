@@ -137,7 +137,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let perms = null; // permissions.get()'s state once loaded (null: hidden)
   let permBusy = false; // an Allow is asking
   let boardingLog = null; // the "Boarding log" screen: { lines, error }
-  // Developer › Simulator (DESIGN.md "Simulator"): { source ('trip' | 'preset'), trip (index), date,
+  // Developer › Simulator (DESIGN.md "Simulator"), opened by its button (nothing loads before):
+  // { source ('trip' | 'preset'), trip (index), date,
   // start ('before' | 'at'), rides ({ key, loading, error, list: [{ label, leaveBy }] }), ride
   // (index), presets ([{ id, name }] once loaded), preset (index), busy }.
   let sim = null;
@@ -432,8 +433,9 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   function simCard() {
     if (simulator.active) {
       return h('div', { class: 'card sim-card' }, h('b', {}, 'Simulator'),
-        h('div', { class: 'push-hint' }, 'Running: your trips, bells and pushes are untouched. End it with ✕ on the SIM bar.'));
+        h('div', { class: 'sim-hint' }, 'Running: your trips, bells and pushes are untouched. End it with ✕ on the SIM bar.'));
     }
+    if (sim === 'open') sim = null;
     sim ??= { source: savedTrips().length ? 'trip' : 'preset', trip: 0, date: simulator.defaultDate, start: 'before', rides: null, ride: 0, presets: null, preset: 0, busy: false };
     if (!sim.presets) {
       sim.presets = [];
@@ -483,7 +485,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     };
     return h('div', { class: 'card sim-card' },
       h('b', {}, 'Simulator'),
-      h('div', { class: 'push-hint' }, 'Play a ride on a fake clock with fake data. Your trips, bells and pushes are untouched.'),
+      h('div', { class: 'sim-hint' }, 'Play a ride on a fake clock with fake data. Your trips, bells and pushes are untouched.'),
       trips.length ? toggle('Source', [['trip', 'Saved trip'], ['preset', 'Test preset']], s.source, v => { s.source = v; }) : null,
       ...body,
       h('button', { type: 'button', class: 'primary', disabled: !ready || s.busy, onclick: start }, s.busy ? 'Starting…' : 'Start simulator'));
@@ -641,7 +643,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         loadBoardingLog && h('button', { type: 'button', onclick: openBoardingLog }, 'Boarding log')),
       testPush && !testPush.supported && h('div', { class: 'push-hint' }, 'Add to Home Screen to get notifications.'),
       simulator && h('div', { class: 'muted section' }, 'Developer'),
-      simulator && simCard(),
+      simulator && !sim && !simulator.active && h('div', { class: 'btns' }, h('button', { type: 'button', 'aria-expanded': 'false', onclick: () => { sim = 'open'; render(); } }, 'Simulator')),
+      simulator && (sim || simulator.active) && simCard(),
       onReset && h('div', { class: 'muted section' }, 'Reset'),
       onReset && h('div', { class: 'btns' }, h('button', { type: 'button', class: 'danger', onclick: () => {
         if (confirm('Delete all trips and settings?')) onReset(app.apiKey.trim() || saved?.apiKey || '');

@@ -157,7 +157,8 @@ once and ignore it; CI installs its own browser.
   `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:browser`.
 - CI runs the headless shell, not full Chromium, so a spec can fail only in CI (the headless
   shell keeps no notifications, for example). Reproduce it here with
-  `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`.
+  `PW_CHROMIUM_PATH=$(ls /opt/pw-browsers/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell)`
+  (the version in the path changes with the sandbox; it was `-1194/chrome-linux/headless_shell`).
 - Only `gh api` is available and job log downloads are blocked; read a CI failure from its
   check-run annotations: `gh api repos/lucaspimentel/t-minus/check-runs/<id>/annotations`.
 - The rest of this section is for ad-hoc checks against the live API (the browser tests use a

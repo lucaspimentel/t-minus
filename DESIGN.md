@@ -2363,7 +2363,8 @@ Pretend to be on a ride that isn't happening, on the phone: a virtual clock that
 fast-forward, fake MBTA data, the server's pushes and the boarding engine run in the page.
 Grilled and mocked up 2026-11-14 (the bar and setup's card as in the mockups).
 
-- **Start:** Setup › Developer › Simulator. Saved trip: a trip, a date (any; the next weekday by
+- **Start:** Setup › Developer › Simulator (a button: the card loads nothing until opened; opening
+  setup costs no requests). Saved trip: a trip, a date (any; the next weekday by
   default) and one of that day's rides (from the date's real schedules: "7:46am Bus 132 → 8:02am
   Orange · arrive 8:26am"), started 15 min before its leave-by or at it. Test preset: one of the
   browser specs' situations (on time, a late bus with a tight connection, a missed connection,
