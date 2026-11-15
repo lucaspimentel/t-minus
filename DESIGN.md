@@ -463,12 +463,13 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Pinned header (2026-11-15): the header row (trip picker, ↻, ⚙) sticks at the top while
   everything below it (the en-route bar, alerts, the map, the rows) scrolls. Its padding reaches
   under the status bar (`safe-area-inset-top`, the iOS app's), so nothing scrolls behind the
-  clock. No bar or separator: as in iOS 26's scroll edge effect, the page color covers the header
-  down to its bottom edge (its bottom padding keeps content clear of the controls; the main
-  header's is 8 px with a 4 px margin, so the en-route bar's -4px top margin stays out from under
-  it) and, once
-  the page is scrolled (`html.scrolled`), what passes under it also fades and blurs over 20 px
-  below (`backdrop-filter` and a mask; at the top the fade would cover the first card). Setup's
+  clock. No bar or separator: as in iOS 26's scroll edge effect, the header's own page-color
+  background covers it down to its bottom edge (its bottom padding keeps content clear of the
+  controls; the main header's is 8 px with a 4 px margin, so the en-route bar's -4px top margin
+  stays out from under it) and, once the page is scrolled (`html.scrolled`), a 20 px `::after`
+  strip below it fades and blurs what passes under (`backdrop-filter` and a mask; at the top it
+  would cover the first card). No pseudo-element behind the controls: a `z-index: -1` background
+  was painted over them after a reload in the iOS app (2026-11-15). Setup's
   header and the leg picker's top use the same fade. On the main screen `scroll-padding-top` keeps
   focus scrolls below the header; not in setup, where iOS, unable to scroll the picker's sticky
   search below the padding, panned the whole view up for the keyboard (2026-11-15). The

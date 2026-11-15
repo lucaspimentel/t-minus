@@ -60,22 +60,20 @@
      background (which cut the top off its buttons, 2026-11-15). */
   header {
     display: flex; align-items: center; gap: 8px;
-    position: sticky; top: 0; z-index: 5; isolation: isolate;
+    position: sticky; top: 0; z-index: 5; background: var(--bg);
     margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 4px;
     padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 8px;
   }
-  /* Sticky headers' edge fade (iOS 26's scroll edge effect): no bar or separator. The page color
-     covers the header down to its bottom edge (its bottom padding keeps content clear of the
-     controls); once the page is scrolled (html.scrolled), content passing under also fades and
-     blurs over 20 px below it. Main header, setup's header, the leg picker's top. */
-  header::before, .setup-head::before, .picker-top::before {
-    content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--bg);
-  }
-  html.scrolled :is(header, .setup-head, .picker-top)::before {
-    bottom: -20px;
-    background: linear-gradient(var(--bg) calc(100% - 20px), color-mix(in srgb, var(--bg) 50%, transparent));
+  /* Sticky headers' edge fade (iOS 26's scroll edge effect): no bar or separator. The header's own
+     page-color background covers it down to its bottom edge (its bottom padding keeps content clear
+     of the controls); once the page is scrolled (html.scrolled), a 20 px strip below it fades and
+     blurs what passes under. Main header, setup's header, the leg picker's top. No pseudo-element
+     behind the controls (z-index -1): iOS painted one over them after a reload (2026-11-15). */
+  html.scrolled :is(header, .setup-head, .picker-top)::after {
+    content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 20px; pointer-events: none;
+    background: linear-gradient(var(--bg), color-mix(in srgb, var(--bg) 50%, transparent));
     -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-    -webkit-mask-image: linear-gradient(#000 calc(100% - 20px), transparent); mask-image: linear-gradient(#000 calc(100% - 20px), transparent);
+    -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent);
   }
   /* Focus scrolls (keyboard, VoiceOver) stop below the pinned header. Main screen only: in setup a
      focused field inside the sticky picker top can't move below the padding, and iOS panned the
@@ -402,16 +400,16 @@
   .setup button:disabled { opacity: .5; }
   .setup-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    position: sticky; top: 0; z-index: 5; isolation: isolate;
+    position: sticky; top: 0; z-index: 5; background: var(--bg);
     padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 10px; margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 0;
   }
   /* Picker: header, context line and search stick together; the header inside is a plain block. */
   .picker-top {
-    position: sticky; top: 0; z-index: 5; isolation: isolate;
+    position: sticky; top: 0; z-index: 5; background: var(--bg);
     padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 8px; margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 0;
   }
-  .picker-top .setup-head { position: static; padding: 0 0 10px; margin: 0; isolation: auto; }
-  .picker-top .setup-head::before { content: none; } /* the wrapper's fade covers it */
+  .picker-top .setup-head { position: static; padding: 0 0 10px; margin: 0; background: none; }
+  html.scrolled .picker-top .setup-head::after { content: none; } /* the wrapper's fade covers it */
   .picker-top .muted { margin-top: 0; }
   .setup .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 12px;
@@ -615,7 +613,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-15 · 3ef7dbf603</footer>
+    <footer class="version">Version 2026-11-15 · 08f4785b8a</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>

@@ -13,10 +13,9 @@ const box = (page, sel) => page.evaluate(s => {
 test('the main header stays at the top while the rows scroll under it', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 600 });
   await openApp(page, { time: '07:20', map: true });
-  // At the top the fade stays inside the header (it would cover the first card); scrolled, it
-  // reaches 20 px below.
-  const fadeBottom = () => page.evaluate(() => getComputedStyle(document.querySelector('header'), '::before').bottom);
-  expect(await fadeBottom()).toBe('0px');
+  // At the top no fade below the header (it would cover the first card); scrolled, a 20 px strip.
+  const fade = () => page.evaluate(() => getComputedStyle(document.querySelector('header'), '::after').content);
+  expect(await fade()).toBe('none');
   // The en-route bar's buttons, pulled up 4 px, aren't under the header's background.
   expect(await page.evaluate(() => {
     const b = [...document.querySelectorAll('#enroute button')].find(x => x.textContent === 'Leaving now');
@@ -26,7 +25,7 @@ test('the main header stays at the top while the rows scroll under it', async ({
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await expect.poll(async () => (await box(page, 'header')).top).toBe(0);
-  await expect.poll(fadeBottom).toBe('-20px');
+  await expect.poll(fade).not.toBe('none');
   const header = await box(page, 'header');
   expect((await box(page, '.row')).top).toBeLessThan(header.bottom);
   const gear = await box(page, '#open-setup');
