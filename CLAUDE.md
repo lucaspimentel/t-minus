@@ -113,8 +113,9 @@ ride, and against these rules:
     force-pushes `HEAD` to the `staging` branch. A request to deploy to staging covers that
     force-push; no CI wait, no watch paths (every push deploys), live in 1-2 min. Any branch's
     commit can go there; it doesn't need to be on `main`.
-  - Confirm: `curl -sS https://staging.t-minus.lucasp.net/ | grep -o "Version [^<]*"` until it
-    shows the new hash, then tell the user that version.
+  - Confirm: the script then waits (up to 5 min) until the staging page's footer matches the
+    checkout's and prints `Staging is live: Version …`; tell the user that version. A timeout
+    exits 1 with the last footer seen: check the staging deploy in Railway. `-- --no-wait` skips it.
   - Railway: environment `staging` in project "t-minus mbta", the same `web app` service on branch
     `staging`; start `node server/main.mjs` (no dd-trace), no volume (its store resets each
     deploy). Variables `APP_ENV=staging` (no-store, a self-unregistering `sw.js`, the "STAGING"

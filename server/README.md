@@ -90,7 +90,8 @@ leave-times widget posts the app's trips to `POST /api/widget` and gets the show
   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (any pair: `npx web-push generate-vapid-keys`), `MBTA_API_KEY`.
 - Domain: `staging.t-minus.lucasp.net`, with the CNAME Railway shows added at the DNS host.
 
-Deploy the current commit with `npm run staging` (force-pushes `HEAD` to `staging`).
+Deploy the current commit with `npm run staging` (force-pushes `HEAD` to `staging`, then waits
+until the staging footer shows its version).
 
 ## Local run
 

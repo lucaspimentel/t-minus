@@ -1542,7 +1542,9 @@ pushes or the iOS app: viewed in the browser, never installed.
   Unlike prod it doesn't wait for CI and has no watch paths (every push deploys), no volume (its
   store is lost on each deploy) and no dd-trace (start `node server/main.mjs`).
 - **Deploy:** `npm run staging` (`scripts/staging.mjs`) force-pushes `HEAD` to `staging`, after
-  checking for uncommitted changes and a stale stamp; Railway deploys it in 1-2 min.
+  checking for uncommitted changes and a stale stamp; Railway deploys it in 1-2 min. The
+  script then polls the staging page every 10 s until its footer version matches the checkout's
+  (exit 1 after 5 min with the last footer seen; `--no-wait` skips it).
 - **`APP_ENV=staging`** (`createApp`'s `env`):
   - every static file is sent `Cache-Control: no-store`, so a reload shows the last deploy;
   - `/sw.js` is a stand-in (`STAGING_SW`) that clears the caches and unregisters itself: the
