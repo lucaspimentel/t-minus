@@ -2368,7 +2368,7 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
 
 - Unit tests: `npm test` (runs `node --test test/*.test.js`; Node 22+): the pure logic in
   `core.js`.
-- Browser tests: `npm run test:browser` (Playwright, Chromium, phone viewport, New York time):
+- Browser tests: `npm run test:browser` (Playwright, Chromium only, phone viewport, New York time):
   `test/browser/*.spec.js` cover the main list, en route / ride card, setup, the planner,
   commuter rail, the route map, notifications and stop alerts, auto-bell, the MBTA proxy, RUM,
   the iOS app's web side, pull-to-refresh, the update check, accessibility (axe), and the
@@ -2379,6 +2379,21 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
   `scripts/record-fixtures.mjs`). The page clock is faked; specs move it with `tick` /
   `tickTo`. The devDependencies are `@playwright/test`, `@axe-core/playwright` and the Capacitor packages
   for the iOS app (`npx cap sync ios`); the app itself has none.
+- WebKit layout checks (2026-11-15): `npm run test:webkit` (CI job `webkit`, blocking) runs
+  `test/browser/webkit-layout.spec.js` in Playwright's WebKit as iPhone SE (320 px) and iPhone 17
+  Pro Max (440 px), light theme, through the same fake API. In each state (rows, expanded row,
+  ride bar and card, setup, planner, picker) `layout-checks.js` fails on: horizontal overflow; clipped
+  text (`scrollWidth` over `clientWidth`, or content spilling past an `overflow:visible` box);
+  overlapping parts of a row; and tap targets under 44 x 44 px (the border box plus an absolutely
+  positioned `::before`/`::after` hit area; an input inside a label counts as the label; a row's head
+  button counts as the row). Exceptions: ellipsis on purpose (`.step.stop .n`, `.step.mid .n`,
+  `.map-title`); hidden, `aria-hidden`, SVG and `.sr-only` elements; `.step.stop`, a reveal toggle for
+  an ellipsized name, not an action. Touch targets under 44 px that have room get an invisible
+  `::before` hit area no taller than the gaps around them; the rest are 44 px tall (ride bar, fields,
+  checkboxes, links); the seven auto-bell days wrap 4 + 3 at 320 px. `#rows` is a one-column grid
+  with `minmax(0, 1fr)`, so a long stop name in an expanded timeline can't widen the list (it did at
+  320 px). This is WebKit's emulation, not iOS Safari, with other fonts: checking on the phone via
+  staging stays the final check.
 - Push server: `test/server.test.js` (part of `npm test`) runs `server/app.mjs` against a fake
   MBTA, a recording sender, a temp store, and a fake clock. Locally:
   `npm --prefix server ci`, then `node server/main.mjs` with the env vars from

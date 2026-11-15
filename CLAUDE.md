@@ -96,6 +96,12 @@ ride, and against these rules:
   its key line) and confirm the spec fails, then restore it. `a11y.spec.js` runs axe on each
   screen: new UI must pass it (buttons for anything tappable, a `data-focus` key on controls
   inside the once-a-second redraw).
+- WebKit layout: `npm run test:webkit` runs `test/browser/webkit-layout.spec.js` in Playwright WebKit as
+  iPhone SE (320 px) and iPhone 17 Pro Max (440 px). It checks overflow, clipped text, overlapping row
+  parts and 44 px tap targets on each screen (`layout-checks.js`). CI-only in the cloud sandbox (no
+  WebKit there: don't `playwright install`); locally it needs `npx playwright install webkit` once.
+  `npm run test:browser` is Chromium only. A new screen or row state gets a case in the WebKit layout
+  spec (`test/browser/webkit-layout.spec.js`); new controls are 44 px (or get an invisible hit area).
 - The page clock from `page.clock.install` keeps running in real time. Call `page.clock.pauseAt(...)`
   before asserting on short timers (the ↻ spin, the pull-to-refresh hold) and before clicks that
   start an animation (the locate ease), or test latency makes them flaky. The rows redraw every
@@ -172,6 +178,10 @@ once and ignore it; CI installs its own browser.
   (whose Chromium is in `/opt/pw-browsers`), so its own browser build is missing there. Don't run
   `playwright install`; point the config at the preinstalled Chromium instead:
   `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:browser`.
+- A WebKit layout failure is read from the `webkit` job's check-run annotations (the `github`
+  reporter; about 10 per step, so one failure per state listing all its violations); the whole list is
+  in the `playwright-report-webkit` artifact (`gh api repos/.../actions/artifacts/<id>/zip` works; the
+  report data is in `index.html`).
 - CI runs the headless shell, not full Chromium, so a spec can fail only in CI (the headless
   shell keeps no notifications, for example). Reproduce it here with
   `PW_CHROMIUM_PATH=$(ls /opt/pw-browsers/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell)`
