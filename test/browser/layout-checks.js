@@ -151,7 +151,9 @@ export async function layoutViolations(page, { overlap = DEFAULT_OVERLAP, tapTar
 
     // 4. Tap targets
     if (tapTargets) {
-      const TARGETS = 'button, select, textarea, summary, a[href], [role="button"], [tabindex]:not([tabindex="-1"]), input:not([type=hidden]), .step.stop';
+      const TARGETS = 'button, select, textarea, summary, a[href], [role="button"], [tabindex]:not([tabindex="-1"]), input:not([type=hidden])';
+      // Not .step.stop: a tappable timeline row, but only a reveal toggle for an ellipsized stop name
+      // (it toggles .full); 44 px rows would make the timeline airy and need the rail re-tuned.
       const union = (a, b) => ({ left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) });
       for (const el of document.body.querySelectorAll(TARGETS)) {
         if (skip(el)) continue;
