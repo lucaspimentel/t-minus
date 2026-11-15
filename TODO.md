@@ -42,6 +42,12 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
 - Show the target ride's timeline in the app while walking (the large widget shows it; the app
   shows only the list and the bar).
 
+## Testing
+
+- A Playwright WebKit project with iPhone emulation, run in CI (2026-11-15): catches Safari-only
+  layout differences before checking on the phone. Not real iOS Safari; CI installs WebKit (the
+  cloud sandbox has only Chromium).
+
 ## Ideas (2026-11-06, to grill one by one)
 
 - UI refresh, mostly the setup (settings) screen and the top of the main screen. Mockups first.
