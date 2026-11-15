@@ -5,7 +5,7 @@
 // Every state is reached through the fake MBTA API's scenarios (helpers.js), with an
 // assertion that the state is on screen before it is measured.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, at, commute, planOptions, expandOption, pickOption, CR_CONFIG, crCommute } from './helpers.js';
+import { openApp, tick, tickTo, at, commute, planOptions, expandOption, pickOption, CR_CONFIG, crCommute, riding } from './helpers.js';
 import { series } from './fake-mbta.js';
 import { expectLayout } from './layout-checks.js';
 
@@ -82,6 +82,7 @@ test('the bell on a collapsed row, and the Tracking button', async ({ page }) =>
   // Push stubbed as notify.spec.js does (Notification may be missing in WebKit).
   await page.addInitScript(() => {
     localStorage.setItem('t-minus:push-server', JSON.stringify('https://push.test'));
+    if (!('PushManager' in window)) window.PushManager = class {}; // WebKit here has no Push API
     if (!window.Notification) window.Notification = class { static requestPermission() { return Promise.resolve('granted'); } };
     Object.defineProperty(window.Notification, 'permission', { configurable: true, get: () => 'default' });
     window.Notification.requestPermission = async () => 'granted';
@@ -155,7 +156,7 @@ test('ride card phases: riding, transfer, riding, walking, arrived', async ({ pa
   await expect(card(page).locator('.big .at')).toBeVisible();
   await check(page, 'ride card: transfer');
   await tickTo(page, '07:33');
-  await expect(page.locator('.ride-head')).toContainText('Orange');
+  await expect(page.locator('.ride-head')).toHaveText(riding('Orange'));
   await check(page, 'ride card: riding the Orange Line');
   await tickTo(page, '07:48');
   await expect(card(page)).toBeVisible();
@@ -217,9 +218,12 @@ test('setup: trip editor and the stop picker', async ({ page }) => {
   const more = page.locator('#setup details.more');
   if (await more.count()) { await more.first().locator('summary').click(); await check(page, 'trip editor, more options'); }
   await page.locator('#setup').getByRole('button', { name: '+ Add transit leg', exact: true }).click();
-  await page.locator('#picker-search').fill('132');
-  await expect(page.locator('#setup .list .item').first()).toBeVisible();
+  await expect(page.locator('#setup .list .item').first()).toBeVisible(); // where to get off
   await check(page, 'stop picker');
+  await page.locator('#picker-search').fill('oak');
+  await tick(page, 400); // the search's debounce, on the page clock
+  await expect(page.locator('#setup .list .item', { hasText: 'Oak Grove' }).first()).toBeVisible();
+  await check(page, 'stop picker, searched');
 });
 
 async function pickStation(page, field, query, name) {
