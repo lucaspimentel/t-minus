@@ -87,7 +87,7 @@ leave-times widget posts the app's trips to `POST /api/widget` and gets the show
 - Source: branch `staging`. "Wait for CI" off, no watch paths, no volume.
 - Build `npm ci --prefix server`, start `node server/main.mjs`, health check `/health`.
 - Variables: `APP_ENV=staging`, `DRY_RUN=1`, `PUBLIC_URL=https://staging.t-minus.lucasp.net/`,
-  `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (prod's), `MBTA_API_KEY`.
+  `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (any pair: `npx web-push generate-vapid-keys`), `MBTA_API_KEY`.
 - Domain: `staging.t-minus.lucasp.net`, with the CNAME Railway shows added at the DNS host.
 
 Deploy the current commit with `npm run staging` (force-pushes `HEAD` to `staging`).

@@ -106,9 +106,21 @@ ride, and against these rules:
   needs its stop lists.
 - `NODE_USE_ENV_PROXY=1 node scripts/build-basemap.mjs` rebuilds `basemap.json`, the route map's
   base map (DESIGN.md "Route map"); commit the result.
-- Staging (`https://staging.t-minus.lucasp.net/`, DESIGN.md "Staging"): `npm run staging`
-  force-pushes the current commit to the `staging` branch (no CI wait; deploys in 1-2 min). For
-  checking UI in Safari on the phone; it doesn't send pushes.
+- Staging (`https://staging.t-minus.lucasp.net/`, DESIGN.md "Staging", setup in `server/README.md`):
+  for checking UI tweaks in Safari on the phone (it renders differently from Chrome here), viewed
+  in the browser, never installed. Not for pushes, the iOS app or the widget.
+  - Deploy: commit, then `npm run staging`: it refuses uncommitted changes or a stale stamp, then
+    force-pushes `HEAD` to the `staging` branch. A request to deploy to staging covers that
+    force-push; no CI wait, no watch paths (every push deploys), live in 1-2 min. Any branch's
+    commit can go there; it doesn't need to be on `main`.
+  - Confirm: `curl -sS https://staging.t-minus.lucasp.net/ | grep -o "Version [^<]*"` until it
+    shows the new hash, then tell the user that version.
+  - Railway: environment `staging` in project "t-minus mbta", the same `web app` service on branch
+    `staging`; start `node server/main.mjs` (no dd-trace), no volume (its store resets each
+    deploy). Variables `APP_ENV=staging` (no-store, a self-unregistering `sw.js`, the "STAGING"
+    header tag), `DRY_RUN=1`, `PUBLIC_URL`, VAPID keys (any pair), `MBTA_API_KEY`. When changing
+    service settings with the Railway tools, always pass the environment ID: without it they
+    default to production or apply to every environment.
 - Local run: the push server serves the app and `/api` on one port (see `server/README.md`,
   `DRY_RUN=1`), open `http://localhost:8790/`.
 - Push server (`server/`, the only backend; its runtime dependencies are `web-push` and `dd-trace`,

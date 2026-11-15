@@ -1550,7 +1550,7 @@ pushes or the iOS app: viewed in the browser, never installed.
   - `/api/config` has `env: "staging"` (`null` elsewhere); the app shows "STAGING" in the
     header's top padding (`#env-tag`, no layout change) and prefixes the tab title.
 - **Variables:** `APP_ENV=staging`, `DRY_RUN=1` (pushes are logged, not sent),
-  `PUBLIC_URL=https://staging.t-minus.lucasp.net/`, prod's VAPID keys (the server needs them to
+  `PUBLIC_URL=https://staging.t-minus.lucasp.net/`, VAPID keys (any pair; the server needs them to
   start), `MBTA_API_KEY` shared with prod; no APNs, RUM or `DD_*` variables.
 
 ## Observability (Datadog, 2026-10-24)
