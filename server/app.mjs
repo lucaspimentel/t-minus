@@ -1,10 +1,7 @@
 // Leave-time reminders and stop alerts (followed rides): the HTTP API (/api/*) and the polling loop; also setup's "Show nearby"
-// (/api/nearby), auto-route (/api/plan, /api/places: addresses and places), the MBTA proxy (/api/mbta/*, a shared cache under the server's key) and the app's own files. No npm imports, so tests load it directly; main.mjs wires
-// in web-push, the store, and the clock.
-import { randomUUID, createHash } from 'node:crypto';
-import { gzipSync } from 'node:zlib';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+// (/api/nearby), auto-route (/api/plan, /api/places: addresses and places), the MBTA proxy (/api/mbta/*, a shared cache under the server's key) and the app's own files. No npm or Node imports, so tests load it directly and
+// the simulator runs it in the page (DESIGN.md "Simulator"); main.mjs wires in web-push, the store, the clock and the Node
+// helpers (server/node-deps.mjs: hashing, gzip, file reads).
 import {
   validateConfig, TRIP_ID_RE, legsKey, tripShape, legQuery, predictionQuery, scheduleWindow, rowsFromDocs, reminderStep, reminderText, reminderPollMs,
   headsUpsDue, remHeadsUps, testPushText, TEST_PUSH_DELAY_MS, routeDistances, NEARBY_ME_DEGREES,
@@ -73,9 +70,12 @@ export function declarativePush({ kind, title, body, tag, renotify }, navigate) 
 export const APNS_PREFIX = 'apns:';
 // The boarding question (`kind: 'board'`) has the app's Yes / Missed it actions (the iOS app
 // registers the `board` category); `data` goes along for the app (the reminder's id).
-export function apnsPush({ kind, title, body, tag, renotify, data = null }) {
+// `hash`: sha256 as base64url (server/node-deps.mjs), for a tag over 64 bytes.
+export function apnsPush({ kind, title, body, tag, renotify, data = null }, hash = null) {
   const quiet = renotify === false;
-  const collapse = tag == null ? null : Buffer.byteLength(tag) <= 64 ? tag : createHash('sha256').update(tag).digest('base64url');
+  const long = tag != null && new TextEncoder().encode(tag).length > 64;
+  if (long && !hash) throw new Error('apnsPush: a tag over 64 bytes needs hash');
+  const collapse = tag == null ? null : long ? hash(tag) : tag;
   return {
     headers: { 'apns-push-type': 'alert', 'apns-priority': quiet ? '5' : '10', ...(collapse && { 'apns-collapse-id': collapse }) },
     body: { aps: { alert: { title, body }, 'interruption-level': quiet ? 'passive' : 'time-sensitive', ...(!quiet && { sound: 'default' }), ...(kind === 'board' && { category: 'board' }) }, kind, ...data },
@@ -113,8 +113,11 @@ const STATIC = {
   '/': 'index.html', '/index.html': 'index.html', '/core.js': 'core.js', '/setup.js': 'setup.js', '/sw.js': 'sw.js',
   '/manifest.json': 'manifest.json', '/icons/icon.svg': 'icons/icon.svg', '/icons/icon-192.png': 'icons/icon-192.png',
   '/icons/icon-512.png': 'icons/icon-512.png', '/basemap.json': 'basemap.json',
+  // The simulator (DESIGN.md "Simulator"): its page code, and this server and its memory store, run in the page.
+  '/sim.js': 'sim.js', '/sim-mbta.js': 'sim-mbta.js', '/sim-presets.js': 'sim-presets.js', '/sim-page.js': 'sim-page.js',
+  '/server/app.mjs': 'server/app.mjs', '/server/memory-store.mjs': 'server/memory-store.mjs',
 };
-const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
+const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
 
 // "Pending notifications": a stored reminder or followed ride as the phone sees it (no
 // subscription keys), with its next push.
@@ -165,7 +168,7 @@ function nominatimPlaces(list) {
   }));
 }
 
-export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {}, sendTimeoutMs = SEND_TIMEOUT_MS, rum = {} }) {
+export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey, publicKey, publicUrl = PUBLIC_URL, staticRoot = null, proxy = true, mbtaBudget = MBTA_BUDGET, log = () => {}, sendTimeoutMs = SEND_TIMEOUT_MS, rum = {}, hash = null, gzip = null, readStaticFile = null }) {
   // A push that never finishes fails after sendTimeoutMs instead of stopping the loop (2026-10-19:
   // a hung APNs push held the loop for an hour: no reminders went out until a restart).
   const send = (sub, payload) => {
@@ -281,9 +284,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
     const headers = { 'content-type': 'application/json', 'cache-control': 'no-store' };
     if (e.stale) headers['x-data-age'] = String(Math.max(1, Math.round((now() - e.at) / 1000)));
-    let body = Buffer.from(textOf(e));
-    if (body.length > 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '')) {
-      body = gzipSync(body);
+    let body = new TextEncoder().encode(textOf(e));
+    if (gzip && body.length > 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '')) {
+      body = gzip(body);
       headers['content-encoding'] = 'gzip';
     }
     res.writeHead(200, { ...headers, vary: 'accept-encoding', 'content-length': body.length });
@@ -320,7 +323,12 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
         size += c.length;
         if (size > MAX_BODY) { reject(Object.assign(new Error('Too large'), { status: 413 })); req.destroy(); } else chunks.push(c);
       });
-      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      req.on('end', () => {
+        const all = new Uint8Array(size);
+        let at = 0;
+        for (const c of chunks) { all.set(c, at); at += c.length; }
+        resolve(new TextDecoder().decode(all));
+      });
       req.on('error', reject);
     });
   }
@@ -356,7 +364,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   // Cache-Control: the page, the service worker and the manifest are revalidated each time;
   // `?v=<hash>` modules never change; icons for a day.
   function cacheControl(url, file) {
-    if (url.searchParams.has('v') && file.endsWith('.js')) return 'public, max-age=31536000, immutable';
+    if (url.searchParams.has('v') && /\.m?js$/.test(file)) return 'public, max-age=31536000, immutable';
     if (file.startsWith('icons/')) return 'public, max-age=86400';
     return 'no-cache';
   }
@@ -366,8 +374,8 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (!file) return reply(res, 404, { error: 'Not found' });
     let f = files.get(file);
     if (!f) {
-      const body = await readFile(join(staticRoot, file));
-      f = { body, etag: `"${createHash('sha256').update(body).digest('base64url').slice(0, 22)}"` };
+      const body = await readStaticFile(staticRoot, file);
+      f = { body, etag: `"${hash(body).slice(0, 22)}"` };
       files.set(file, f);
     }
     const headers = { 'content-type': TYPES[file.split('.').pop()], 'cache-control': cacheControl(url, file), etag: f.etag };
@@ -383,7 +391,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     // The API lives under /api/; /health also answers at the root (Railway's health check).
     const isApi = url.pathname.startsWith('/api/') || url.pathname === '/health';
     if (!isApi) {
-      if (staticRoot && (req.method === 'GET' || req.method === 'HEAD')) return serveFile(req, res, url);
+      if (staticRoot && readStaticFile && (req.method === 'GET' || req.method === 'HEAD')) return serveFile(req, res, url);
       return reply(res, 404, { error: 'Not found' });
     }
     const path = url.pathname === '/health' ? '/health' : url.pathname.slice(4);
@@ -559,7 +567,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       const list = body.trips.map(a => {
         const lastDate = (old.get(a.tripRef) ?? legacy.get(a.tripName))?.lastDate ?? null;
         return {
-          id: randomUUID(), subscription: body.subscription, ...(body.startToken && { startToken: body.startToken }),
+          id: globalThis.crypto.randomUUID(), subscription: body.subscription, ...(body.startToken && { startToken: body.startToken }),
           stopSlackMinutes: body.stopSlackMinutes ?? 1, tripRef: a.tripRef, tripName: a.tripName, trip: a.trip, autoBell: a.autoBell,
           lastDate, nextAt: autoBellNext(a.autoBell, lastDate, t)?.at ?? null,
         };
@@ -584,7 +592,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
         return reply(res, 429, { error: `At most ${MAX_PER_SUBSCRIPTION} reminders at a time` });
       }
       const rem = {
-        id: randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
+        id: globalThis.crypto.randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
         stopSlackMinutes: body.stopSlackMinutes ?? 1, timingIdx: body.timingIdx, key: body.key,
         leaveBy: body.leaveBy, headsUps: headsUpsDue(body.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
         ...(body.startToken && { startToken: body.startToken }), ...(body.leaveBy <= t && { late: true }), ...(body.stopsAt && { stopsAt: body.stopsAt }),
@@ -628,7 +636,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       }
       // `alerts: false`: followed only for its Live Activity (stop alerts off), no notifications.
       const ride = {
-        kind: 'ride', id: randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
+        kind: 'ride', id: globalThis.crypto.randomUUID(), subscription: body.subscription, trip: body.trip, tripName: body.tripName ?? body.trip.name,
         ride: { legs: body.ride.legs, boardedAt: body.ride.boardedAt }, alert: { sent: {}, missedDep: null, none: false },
         alerts: body.alerts !== false, activity: newActivity(body.activity),
         nextPollAt: t, createdAt: t,
@@ -1004,7 +1012,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     // A failed log write never turns a sent push into a failed one.
     const record = extra => { try { store.logPush(sub.endpoint, { ...entry, ...extra }, t - DAY, LOG_MAX); } catch (e) { log(`push log: ${e.message}`); } };
     try {
-      await send(sub, sub.endpoint.startsWith(APNS_PREFIX) ? apnsPush(payload) : declarativePush(payload, publicUrl));
+      await send(sub, sub.endpoint.startsWith(APNS_PREFIX) ? apnsPush(payload, hash) : declarativePush(payload, publicUrl));
     } catch (e) {
       const why = e.statusCode === 410 ? 'gone' : e.statusCode === 404 ? 'not found' : e.message;
       record({ ok: false, error: `${e.statusCode ?? ''} ${why ?? ''}`.trim().slice(0, 200) });
@@ -1422,7 +1430,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     const row = autoBellRow(docs.rows, next.target);
     if (!row) return done('no ride');
     const rem = {
-      id: randomUUID(), subscription: a.subscription, trip: a.trip, tripName: a.tripName,
+      id: globalThis.crypto.randomUUID(), subscription: a.subscription, trip: a.trip, tripName: a.tripName,
       stopSlackMinutes: a.stopSlackMinutes, timingIdx: docs.timing, key: row.key,
       leaveBy: row.leaveBy, headsUps: headsUpsDue(row.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
       auto: { tripRef: a.tripRef, dep: row.firstDep, legs: row.legs },

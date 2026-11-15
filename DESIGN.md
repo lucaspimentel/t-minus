@@ -1206,6 +1206,9 @@ still holds, to stay well inside it either way:
   hidden, setup is open, the app is in the background, or zoomed out with no ride of yours on it. Keyless and direct (the
   proxy unreachable), a 2-leg trip's polls with the list's come near the 20-a-minute limit; a
   429 only skips a round, and "Hide map" stops them.
+- The simulator (debug, "Simulator"): a replayed day's schedules once per leg and date, a ride's
+  full stop list once per trip, static lists (stops, routes, shapes, the planner's network) once
+  per simulator, all kept in IndexedDB; every poll goes to its fake data, none to the MBTA.
 - Route map's base map: one same-origin `basemap.json` per page load when a map first opens
   (the main screen's, at load since 2026-11-12; revalidated, 304 when unchanged); no MBTA
   requests.
@@ -1511,7 +1514,9 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 - **One origin:** the Railway service serves the app at `https://t-minus.lucasp.net/` (a custom
   domain) and its API under `/api/`, so the app's requests to its server are same-origin.
 - **The app's files:** an allowlist from the repo root (`/` → `index.html`, `core.js`,
-  `setup.js`, `sw.js`, `manifest.json`, the three icons, `basemap.json`); anything else is a 404. Read once
+  `setup.js`, `sw.js`, `manifest.json`, the three icons, `basemap.json`; the simulator's `sim.js`,
+  `sim-page.js`, `sim-mbta.js`, `sim-presets.js`, and `server/app.mjs` and
+  `server/memory-store.mjs`, which it runs in the page); anything else is a 404. Read once
   per process and kept in memory, with a content-hash `ETag` (304 on `If-None-Match`).
 - **`Cache-Control`:** `no-cache` for the page, `sw.js` and `manifest.json` (revalidated each
   time); `public, max-age=31536000, immutable` for `?v=<hash>` modules; a day for icons. The
@@ -2338,7 +2343,7 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
   the iOS app's web side, pull-to-refresh, the update check, accessibility (axe), and the
   service worker fallbacks. The app runs as is, served by `test/browser/server.mjs` (which can also
   fail, stall, or go down on purpose); MBTA requests are answered by a fake API
-  (`fake-mbta.js`) from scenarios (trips with stop times, optional live delays, alerts) plus
+  (`fake-mbta.js`, over `sim-mbta.js`, which the simulator shares) from scenarios (trips with stop times, optional live delays, alerts) plus
   recorded route/stop lists for setup (`test/browser/fixtures/`, refreshed by
   `scripts/record-fixtures.mjs`). The page clock is faked; specs move it with `tick` /
   `tickTo`. The devDependencies are `@playwright/test`, `@axe-core/playwright` and the Capacitor packages
@@ -2351,6 +2356,71 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
   serves the app and `/api`; open `http://localhost:8790/`.
 - Deploy: Railway redeploys on pushes to `main` that touch its watch paths.
 - Icons: `icons/icon.svg` is the source; PNGs are rendered from it.
+
+## Simulator (debug, 2026-11-15)
+
+Pretend to be on a ride that isn't happening, on the phone: a virtual clock that can rewind and
+fast-forward, fake MBTA data, the server's pushes and the boarding engine run in the page.
+Grilled and mocked up 2026-11-14 (the bar and setup's card as in the mockups).
+
+- **Start:** Setup › Developer › Simulator. Saved trip: a trip, a date (any; the next weekday by
+  default) and one of that day's rides (from the date's real schedules: "7:46am Bus 132 → 8:02am
+  Orange · arrive 8:26am"), started 15 min before its leave-by or at it. Test preset: one of the
+  browser specs' situations (on time, a late bus with a tight connection, a missed connection,
+  an earlier train, a cancelled train, a commuter rail track), with its own trip (the user's
+  trips are hidden). Start reloads the page into the simulator, playing at 1×. In the simulator
+  the card says it's running.
+- **Leaving:** ✕ on the SIM bar reloads into the real app with "Simulator ended · Undo" for 5 s
+  (Undo comes back paused at the same time); after that the simulator's data is deleted. It
+  otherwise survives reloads and relaunches, coming back paused.
+- **The clock (`sim.js`, a plain script before the app's module; inert unless
+  `t-minus-simctl` says on):** replaces `Date` with a virtual clock and runs `setTimeout` /
+  `setInterval` on virtual time, so the app's polls, redraws and timers follow it. 1×, 10×, 60×;
+  intervals at most 4 times a real second (the redraw at 60×). Paused, `Date` stands still and
+  timers run in real time (toasts hide, spinners spin); hidden, it pauses. Toasts always last 5
+  real seconds.
+- **The bar** (fixed at the bottom, dashed in the accent, above the map sheet, below toasts):
+  the day and time with seconds, playing or paused, the speed; −5m, −1m, play/pause, +1m, +5m,
+  the speed (1× → 10× → 60×). Open (▴): "Jump to" the current ride's leave-by, each departure
+  ("Bus 132"), each transfer (its stop's short name, "Malden", else "Transfer") and the arrival
+  (`simJumpTargets`; the current ride: the one ridden, else the belled one, else the target row,
+  `simCurrentRide`); per leg of that ride "+2 min late", "Cancel", "Earlier one"; Location (Off,
+  Home, Stop, On vehicle, Got off); "Pushes (N)" with the pushes sent so far.
+- **Forward and rewind:** forward moves the clock (due timers fire at once). Back restores the
+  latest snapshot at or before the target (`pickSnapshot`) and reloads, the clock at the target
+  (playing if it was): snapshots are taken at the start, before every jump, at every change of
+  the trip's step (`simPhaseKey`: tracking, leaving, at the stop, the question, riding leg i,
+  transfer, walking, arrived), after a change or location, and every 60 virtual s while
+  playing; the last 200 are kept. A snapshot holds the simulator's keys, the in-page server's
+  store, the changes, the location and the pushes. The restored keys are written by `sim.js` at
+  the reload, before the app reads them (the old page could still write until it unloaded).
+- **Its own state:** the app's keys under `t-minus-sim:` (the config copied in at the start;
+  setup edits change the copy), the rest in IndexedDB `t-minus-sim`. The iOS app's native side
+  is off (as on the web: no Live Activity, widget, keep-awake or native GPS); RUM is off (the
+  iOS app's native RUM keeps running). The real trips, bells, server entries and caches stay as
+  they were.
+- **Fake data (`sim-mbta.js`, shared with the browser tests' fake API):** schedules,
+  predictions, a ride's stops, vehicles and alerts at the virtual time; stops, routes, shapes
+  and the rail network go to the real MBTA (through the proxy; time-independent). Replay: a
+  leg's whole service day of real schedules (`scenarioFromSchedules`) and a ride's full stop
+  list, each fetched once when first asked for (so other trips, setup edits and after midnight
+  work too). Trips are live from 60 min before their first stop (`liveWithinMin`); vehicles
+  move between stop coordinates by time (`vehicleAt`) and go on past the last stop for 2 min.
+  Changes (`applyTweaks`, a log replayed in order): "+2 min late" adds 2 min to every stop the
+  vehicle hasn't passed (again for +4); "Cancel" skips the stops not yet passed; "Earlier one"
+  adds a vehicle 3 min before (`EARLIER_BY_MIN`, more than `EARLIER_MIN`), predictions only.
+- **The server in the page:** `server/app.mjs` (no Node imports; Node's hashing, gzip and file
+  reads come from `server/node-deps.mjs`) on `server/memory-store.mjs`, the virtual clock and the
+  fake data, polled every 15 virtual s; requests reach it through a small req/res adapter.
+  Reminders, heads-ups, stop alerts, the boarding question and auto-bell run as in production;
+  a push shows as a "SIM push · title · body" toast and in the bar's list (Live Activity
+  payloads only listed). The planner's `/api/plan` goes there too (timed with the fake data);
+  place search and "Show nearby" go to the real server.
+- **Fake location:** Home (300 m north of the boarding stop), Stop (the current leg's boarding
+  stop), On vehicle (the ride's vehicle), Got off (stays where it was: the vehicle's spot, else
+  the drop-off). The page runs the native code's boarding engine (`nativeBoardingStep`) on these
+  fixes, so arrival at the stop, the vehicle boarded, a missed one and getting off work, on the
+  web too.
 
 ## Auto-route with buses (phase 2)
 

@@ -4,6 +4,7 @@ import webpush from 'web-push';
 import { createApp, APNS_PREFIX } from './app.mjs';
 import { apnsClient, APNS_HOSTS } from './apns.mjs';
 import { openStore } from './store.mjs';
+import { nodeDeps } from './node-deps.mjs';
 
 const env = process.env;
 for (const k of ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT']) {
@@ -57,6 +58,7 @@ const app = createApp({
   proxy: env.MBTA_PROXY !== 'off',
   rum,
   log,
+  ...nodeDeps,
 });
 const port = Number(env.PORT ?? 8080);
 createServer(app.handler).listen(port, () => log(`listening on ${port}`));

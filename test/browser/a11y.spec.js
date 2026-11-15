@@ -94,6 +94,26 @@ for (const scheme of ['light', 'dark']) {
   });
 }
 
+for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on the simulator: setup's card (both sources), the SIM bar collapsed and open with its pushes (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openApp(page, { time: '07:00' });
+    await page.locator('#open-setup').click();
+    const setup = page.locator('#setup');
+    await expect(setup.getByLabel('Ride (that day’s schedules)')).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+    await setup.getByRole('button', { name: 'Test preset' }).click();
+    expect(await violations(page)).toEqual([]);
+    await Promise.all([page.waitForEvent('load'), setup.getByRole('button', { name: 'Start simulator' }).click()]);
+    await page.locator('.row').first().waitFor();
+    const bar = page.locator('#sim-bar');
+    expect(await violations(page)).toEqual([]);
+    await bar.getByRole('button', { name: 'Simulator controls' }).click();
+    await bar.getByRole('button', { name: /^Pushes/ }).click();
+    expect(await violations(page)).toEqual([]);
+  });
+}
+
 test('a row is a button: its name says when to leave, and Enter expands it', async ({ page }) => {
   await openApp(page, { time: '06:55' });
   const btn = page.getByRole('button', { name: 'Leave in 6 min, 7:02am, Bus 132, Orange, scheduled, arrive ~7:57am' });

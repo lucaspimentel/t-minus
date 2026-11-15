@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { createApp, declarativePush, apnsPush, apnsActivityPush } from '../server/app.mjs';
 import { openStore } from '../server/store.mjs';
+import { nodeDeps, hash } from '../server/node-deps.mjs';
 import { legQuery, predictionQuery, tripShape, shapesQuery } from '../core.js';
 
 const at = hhmm => Date.parse(`2026-09-30T${hhmm}:00-04:00`);
@@ -131,7 +132,7 @@ async function setup({ staticRoot = null } = {}) {
   const servers = [];
   // Another app on the same store and MBTA (a restart, or other options), and a way to call it.
   const serve = async (opts = {}) => {
-    const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', staticRoot, sendTimeoutMs: 100, ...opts });
+    const app = createApp({ fetch: mbtaFetch, send, store, now: () => world.clock, publicKey: 'PUB', staticRoot, sendTimeoutMs: 100, ...nodeDeps, ...opts });
     const server = createServer(app.handler);
     servers.push(server);
     await new Promise(r => server.listen(0, r));
@@ -401,9 +402,10 @@ test('apnsPush: Time Sensitive with a sound, passive for quiet updates, long tag
   assert.deepEqual(quiet.body.aps, { alert: { title: 'T', body: 'B' }, 'interruption-level': 'passive' });
   assert.equal(quiet.headers['apns-priority'], '5');
   const long = 'x'.repeat(200);
-  const id = apnsPush({ kind: 'leave', title: 'T', body: 'B', tag: long, renotify: true }).headers['apns-collapse-id'];
+  const id = apnsPush({ kind: 'leave', title: 'T', body: 'B', tag: long, renotify: true }, hash).headers['apns-collapse-id'];
   assert.ok(Buffer.byteLength(id) <= 64);
-  assert.equal(id, apnsPush({ kind: 'update', title: 'T', body: 'B', tag: long }).headers['apns-collapse-id']); // stable
+  assert.equal(id, apnsPush({ kind: 'update', title: 'T', body: 'B', tag: long }, hash).headers['apns-collapse-id']); // stable
+  assert.throws(() => apnsPush({ kind: 'leave', title: 'T', body: 'B', tag: long }), /needs hash/);
   assert.equal(apnsPush({ kind: 'test', title: 'T', body: 'B', tag: 'x'.repeat(64) }).headers['apns-collapse-id'], 'x'.repeat(64));
 });
 
@@ -614,9 +616,19 @@ test('the app\'s files: an allowlist from the repo root, with cache headers and 
     assert.equal(base.headers.get('cache-control'), 'no-cache');
     assert.equal((await base.json()).v, 1);
     assert.equal((await s.call('GET', '/basemap.json', undefined, null, { 'if-none-match': base.headers.get('etag') })).status, 304);
-    for (const p of ['/package.json', '/server/app.mjs', '/.git/config', '/%2e%2e/package.json', '/test/server.test.js', '/DESIGN.md']) {
+    for (const p of ['/package.json', '/server/main.mjs', '/server/store.mjs', '/server/node-deps.mjs', '/.git/config', '/%2e%2e/package.json', '/test/server.test.js', '/DESIGN.md']) {
       assert.equal((await s.call('GET', p, undefined, null)).status, 404, p);
     }
+    // The simulator loads this server and its memory store in the page (DESIGN.md "Simulator").
+    for (const p of ['/server/app.mjs', '/server/memory-store.mjs', '/sim-mbta.js']) {
+      const r = await s.call('GET', `${p}?v=abc`, undefined, null);
+      assert.equal(r.status, 200, p);
+      assert.equal(r.headers.get('content-type'), 'text/javascript; charset=utf-8', p);
+      assert.equal(r.headers.get('cache-control'), 'public, max-age=31536000, immutable', p);
+    }
+    // Without a file reader (the simulator's in-page copy) nothing is served.
+    const { call: bare } = await s.serve({ readStaticFile: null });
+    assert.equal((await bare('GET', '/', undefined, null)).status, 404);
     // Loading the app doesn't count toward the API's 30 requests a minute.
     for (let i = 0; i < 40; i++) await (await s.call('GET', '/manifest.json', undefined, null)).arrayBuffer();
     assert.equal((await s.call('GET', '/api/vapid', undefined, null)).status, 200);

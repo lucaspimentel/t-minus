@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, sameLegsAs, newTripId, withTripIds, withoutTripIds, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=f4cb78f1bc';
+} from './core.js?v=5c002c21b3';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -102,7 +102,7 @@ const NEARBY_RADIUS = 0.003;
 // location: 'notDetermined' | 'whenInUse' | 'always' | 'denied', precise } (null: hidden).
 // `boardingLog` (a build with boarding from location; else null): () → Promise<[{ at, line }]>,
 // the "Boarding log" screen.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, routeMap = null, autoBell = false, permissions = null, boardingLog: loadBoardingLog = null }) {
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, routeMap = null, autoBell = false, permissions = null, boardingLog: loadBoardingLog = null, simulator = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -137,6 +137,10 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   let perms = null; // permissions.get()'s state once loaded (null: hidden)
   let permBusy = false; // an Allow is asking
   let boardingLog = null; // the "Boarding log" screen: { lines, error }
+  // Developer › Simulator (DESIGN.md "Simulator"): { source ('trip' | 'preset'), trip (index), date,
+  // start ('before' | 'at'), rides ({ key, loading, error, list: [{ label, leaveBy }] }), ride
+  // (index), presets ([{ id, name }] once loaded), preset (index), busy }.
+  let sim = null;
   let listMessages = [];
   let busy = false;
 
@@ -420,6 +424,71 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     ];
   }
 
+  // ---------- Developer › Simulator ----------
+
+  // A ride on a fake clock with fake data (DESIGN.md "Simulator"): a saved trip's ride replayed
+  // from a date's real schedules, or a test preset. `simulator` (index.html): { active, defaultDate,
+  // presets() → [{ id, name }], rides(tripIdx, date) → [{ label, leaveBy }], start(opts) }.
+  function simCard() {
+    if (simulator.active) {
+      return h('div', { class: 'card sim-card' }, h('b', {}, 'Simulator'),
+        h('div', { class: 'push-hint' }, 'Running: your trips, bells and pushes are untouched. End it with ✕ on the SIM bar.'));
+    }
+    sim ??= { source: savedTrips().length ? 'trip' : 'preset', trip: 0, date: simulator.defaultDate, start: 'before', rides: null, ride: 0, presets: null, preset: 0, busy: false };
+    if (!sim.presets) {
+      sim.presets = [];
+      simulator.presets().then(list => { sim.presets = list; render(); }, () => {});
+    }
+    const trips = savedTrips();
+    const s = sim;
+    const toggle = (label, items, value, set) => h('div', { class: 'toggle sim-toggle', role: 'group', 'aria-label': label },
+      items.map(([v, text]) => h('button', { type: 'button', 'aria-pressed': String(value === v), onclick: () => { set(v); render(); } }, text)));
+    const body = [];
+    if (s.source === 'trip') {
+      const key = `${s.trip}|${s.date}`;
+      if (trips[s.trip] && s.date && s.rides?.key !== key) {
+        const r = { key, loading: true, error: null, list: [] };
+        s.rides = r;
+        s.ride = 0;
+        simulator.rides(s.trip, s.date).then(list => { r.list = list; s.ride = Math.max(0, list.findIndex(x => x.leaveBy >= Date.now())); },
+          e => { r.error = e.message || String(e); }).finally(() => { r.loading = false; if (sim?.rides === r) render(); });
+      }
+      body.push(
+        h('label', { class: 'field' }, 'Trip',
+          h('select', { onchange: e => { s.trip = Number(e.target.value); render(); } },
+            trips.map((t, i) => h('option', { value: String(i), selected: i === s.trip }, t.name)))),
+        h('label', { class: 'field' }, 'Date',
+          h('input', { type: 'date', value: s.date, onchange: e => { s.date = e.target.value; render(); } })),
+        s.rides?.loading ? waitLine('Loading that day’s rides…', 'msg')
+          : s.rides?.error ? h('div', { class: 'msg err' }, `Couldn't load the rides: ${s.rides.error}`, ' ', h('button', { type: 'button', onclick: () => { s.rides = null; render(); } }, 'Retry'))
+            : s.rides && !s.rides.list.length ? h('div', { class: 'msg' }, 'No rides that day.')
+              : s.rides && h('label', { class: 'field' }, 'Ride (that day’s schedules)',
+                h('select', { onchange: e => { s.ride = Number(e.target.value); } },
+                  s.rides.list.map((r, i) => h('option', { value: String(i), selected: i === s.ride }, r.label)))),
+        h('div', { class: 'field' }, 'Start', toggle('Start', [['before', '15 min before leave-by'], ['at', 'At leave-by']], s.start, v => { s.start = v; })),
+      );
+    } else {
+      body.push(h('label', { class: 'field' }, 'Preset',
+        h('select', { onchange: e => { s.preset = Number(e.target.value); } },
+          s.presets.map((p, i) => h('option', { value: String(i), selected: i === s.preset }, p.name)))));
+    }
+    const ready = s.source === 'trip' ? !!s.rides?.list?.[s.ride] : !!s.presets[s.preset];
+    const start = () => {
+      s.busy = true;
+      render();
+      const opts = s.source === 'trip'
+        ? { mode: 'trip', tripIdx: s.trip, date: s.date, leaveBy: s.rides.list[s.ride].leaveBy, early: s.start === 'before' }
+        : { mode: 'preset', presetId: s.presets[s.preset].id };
+      simulator.start(opts).catch(e => { s.busy = false; toast(`Couldn't start: ${e.message || e}`); render(); });
+    };
+    return h('div', { class: 'card sim-card' },
+      h('b', {}, 'Simulator'),
+      h('div', { class: 'push-hint' }, 'Play a ride on a fake clock with fake data. Your trips, bells and pushes are untouched.'),
+      trips.length ? toggle('Source', [['trip', 'Saved trip'], ['preset', 'Test preset']], s.source, v => { s.source = v; }) : null,
+      ...body,
+      h('button', { type: 'button', class: 'primary', disabled: !ready || s.busy, onclick: start }, s.busy ? 'Starting…' : 'Start simulator'));
+  }
+
   // ---------- Pending notifications (debug) ----------
 
   // Loaded on open and on ↻ only. A late answer for a closed screen is dropped.
@@ -571,6 +640,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         pushDebug && h('button', { type: 'button', disabled: !pushDebug.supported, onclick: openPending }, 'Pending notifications'),
         loadBoardingLog && h('button', { type: 'button', onclick: openBoardingLog }, 'Boarding log')),
       testPush && !testPush.supported && h('div', { class: 'push-hint' }, 'Add to Home Screen to get notifications.'),
+      simulator && h('div', { class: 'muted section' }, 'Developer'),
+      simulator && simCard(),
       onReset && h('div', { class: 'muted section' }, 'Reset'),
       onReset && h('div', { class: 'btns' }, h('button', { type: 'button', class: 'danger', onclick: () => {
         if (confirm('Delete all trips and settings?')) onReset(app.apiKey.trim() || saved?.apiKey || '');

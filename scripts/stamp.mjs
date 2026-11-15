@@ -4,17 +4,27 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
-// Stamped in this order: setup.js's own core.js import changes setup.js's hash, so it is
-// stamped before index.html's setup.js import.
+// Stamped in this order: a file's own imports change its hash, so it is stamped before the
+// files that import it (setup.js before index.html's setup.js import; the simulator's modules,
+// DESIGN.md "Simulator", before sim-page.js and index.html).
 export const IMPORTS = [
+  { file: 'sim-presets.js', dep: 'sim-mbta.js' },
+  { file: 'sim-page.js', dep: 'core.js' },
+  { file: 'sim-page.js', dep: 'sim-mbta.js' },
+  { file: 'sim-page.js', dep: 'sim-presets.js' },
+  { file: 'sim-page.js', dep: 'server/app.mjs' },
+  { file: 'sim-page.js', dep: 'server/memory-store.mjs' },
   { file: 'setup.js', dep: 'core.js' },
   { file: 'index.html', dep: 'core.js' },
   { file: 'index.html', dep: 'setup.js' },
+  { file: 'index.html', dep: 'sim.js' },
+  { file: 'index.html', dep: 'sim-page.js' },
+  { file: 'index.html', dep: 'sim-presets.js' },
 ];
 
 // Every `'./core.js?v=…'` in the file: the import, and index.html's CORE_JS (the URL the iOS
 // app's native code loads core.js from: boarding from location).
-export const importRe = dep => new RegExp(`'\\./${dep.replace('.', '\\.')}(\\?v=[0-9a-f]*)?'`, 'g');
+export const importRe = dep => new RegExp(`'\\./${dep.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}(\\?v=[0-9a-f]*)?'`, 'g');
 
 // Line endings are normalized to LF first: a Windows checkout (core.autocrlf) has CRLF on
 // disk while CI has LF, and the hash must be identical on both.
@@ -25,7 +35,8 @@ export function fileHash(name, root = '.') {
 
 // App version shown in the footer: the date it was stamped plus a hash of every shell file
 // (index.html with the version itself blanked), so any change to what's served shows a new one.
-export const VERSION_FILES = ['index.html', 'core.js', 'setup.js', 'sw.js', 'manifest.json'];
+export const VERSION_FILES = ['index.html', 'core.js', 'setup.js', 'sw.js', 'manifest.json',
+  'sim.js', 'sim-page.js', 'sim-mbta.js', 'sim-presets.js', 'server/app.mjs', 'server/memory-store.mjs'];
 export const versionRe = /Version (\d{4}-\d{2}-\d{2}) · ([0-9a-f]{10})/;
 
 export function versionHash(root = '.') {

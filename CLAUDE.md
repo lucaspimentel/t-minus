@@ -8,17 +8,24 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
 
 - No build step, no runtime dependencies. Static files served by the Railway service
   (`server/`) from `main`'s root, with its API under `/api/`: https://t-minus.lucasp.net/
-  (same origin only, no CORS). Storage keys use the `t-minus:` prefix.
+  (same origin only, no CORS). Storage keys use the `t-minus:` prefix (`t-minus-sim:` in the
+  simulator: index.html's `P`).
 - `core.js`: pure logic only (no DOM, no fetch); every change there gets a unit test.
-- After changing any shell file (`index.html`, `core.js`, `setup.js`, `sw.js`, `manifest.json`),
-  run `npm run stamp` (updates the footer version and the `?v=<hash>`
-  imports in `index.html` and `setup.js`; a test fails otherwise). Bump `CACHE` in `sw.js` when
+- After changing any shell file (`index.html`, `core.js`, `setup.js`, `sw.js`, `manifest.json`,
+  the simulator's `sim.js`, `sim-page.js`, `sim-mbta.js`, `sim-presets.js`, and `server/app.mjs`,
+  `server/memory-store.mjs`, which it loads in the page), run `npm run stamp` (updates the footer
+  version and the `?v=<hash>` imports listed in `scripts/stamp.mjs`; a test fails otherwise). Bump `CACHE` in `sw.js` when
   the shell file list changes.
 - Rebasing onto `main`: the footer version and `?v=<hash>` lines conflict almost every time.
   Resolve with `git checkout -m <file>` and edit the hunks, never `git checkout --ours/--theirs`
   (it takes the whole file from one side and drops the other side's non-conflicting changes);
   then run `npm run stamp` instead of picking a hash.
 - `setup.js`: the setup view (DOM + setup-time requests); pure helpers belong in `core.js`.
+- The simulator (Setup › Developer; DESIGN.md "Simulator"): `sim.js` (the virtual clock, before
+  the app's module), `sim-page.js` (loaded only while it runs), `sim-mbta.js` (the fake MBTA,
+  shared with the browser tests' `fake-mbta.js`), `sim-presets.js`. `server/app.mjs` runs in the
+  page there: keep it free of Node imports and `Buffer` (Node helpers come in through
+  `server/node-deps.mjs`; `test/memory-store.test.js` checks).
 - `index.html`: UI, fetch, timers. Keep the request budget in `DESIGN.md` (keyless limit is 20 req/min).
 - Update `DESIGN.md` when behavior changes; move finished items out of `TODO.md`.
 - After pushing to `main`: check that CI passed and that Railway deployed the commit, then tell
@@ -83,8 +90,8 @@ ride, and against these rules:
 
 - Unit tests: `npm test` (Node 22+, `node --test test/*.test.js`). CI runs the same on push.
 - Browser tests: `npm run test:browser` (`@playwright/test`, specs in `test/browser/*.spec.js`;
-  `npm ci` first). MBTA calls go to a fake API built from scenarios (`test/browser/fake-mbta.js`,
-  `helpers.js`), so they need no key, relay, or network; CI runs them on every push. Add or
+  `npm ci` first). MBTA calls go to a fake API built from scenarios (`test/browser/fake-mbta.js`
+  over `sim-mbta.js`, `helpers.js`), so they need no key, relay, or network; CI runs them on every push. Add or
   update a spec when UI behavior changes. For a new spec, briefly break the feature (comment out
   its key line) and confirm the spec fails, then restore it. `a11y.spec.js` runs axe on each
   screen: new UI must pass it (buttons for anything tappable, a `data-focus` key on controls

@@ -4803,3 +4803,85 @@ export function mbtaCacheKey(path, params) {
   const qs = new URLSearchParams(Object.entries(params).filter(([k]) => k !== 'api_key').map(([k, v]) => [k, String(v)]).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
   return `${path}?${qs}`;
 }
+
+// ---------- simulator (debug; DESIGN.md "Simulator") ----------
+
+// The ride the simulator's jumps follow: the one ridden (or followed), else the belled one, else
+// the target row. { legs, leaveBy (null while riding), source: 'ride' | 'bell' | 'target' } or null.
+export function simCurrentRide({ enRoute, rows, nowMs }) {
+  if (enRoute?.ride) return { legs: enRoute.ride.legs, leaveBy: null, source: 'ride' };
+  if (enRoute?.pinned && enRoute.target) {
+    const row = rows.find(r => r.key === enRoute.target.key);
+    return { legs: row?.legs ?? enRoute.target.legs, leaveBy: row?.leaveBy ?? null, source: 'bell' };
+  }
+  const row = targetRow(rows, nowMs);
+  return row ? { legs: row.legs, leaveBy: row.leaveBy ?? null, source: 'target' } : null;
+}
+
+// The bar's "Jump to" chips for a ride: [{ key, label, at }]: the leave-by (when known), each
+// leg's departure (the vehicle's tight name, "Bus 132"), each transfer (at the drop-off, named
+// by its stop: "Malden"), and the arrival.
+export function simJumpTargets(current, { transit, walkAfter }, names = new Map()) {
+  if (!current) return [];
+  const out = [];
+  if (current.leaveBy != null) out.push({ key: 'leave', label: 'Leave-by', at: current.leaveBy });
+  current.legs.forEach((l, i) => {
+    if (i > 0) {
+      const prev = current.legs[i - 1];
+      // The stop's short name ("Malden"), else "Transfer" (a long bus stop name).
+      const name = names.get(transit[i - 1]?.alight)?.replace(/ (Center|Station|Square)$/, '');
+      out.push({ key: `xfer${i - 1}`, label: name && name.length <= 14 ? name : 'Transfer', at: prev.off ?? prev.arr });
+    }
+    out.push({ key: `dep${i}`, label: l.label ?? transit[i]?.label ?? l.route, at: l.dep });
+  });
+  const last = current.legs[current.legs.length - 1];
+  if (last) out.push({ key: 'arrive', label: 'Arrive', at: last.arr + walkAfter * MIN });
+  return out;
+}
+
+// A key that changes with each step of a trip (a snapshot is taken on every change).
+export function simPhaseKey(enRoute, walkAfter, nowMs) {
+  if (!enRoute) return 'none';
+  if (enRoute.ride) {
+    const p = ridePhase(enRoute.ride, walkAfter, nowMs);
+    return p.kind === 'riding' || p.kind === 'transfer' ? `${p.kind}:${p.leg}` : p.kind;
+  }
+  if (enRoute.asking) return 'asking';
+  if (enRoute.kind === 'track') return 'bell';
+  return enRoute.kind; // 'leaving' | 'stop'
+}
+
+// Rewind: the latest snapshot at or before the target, else the earliest (the start).
+export function pickSnapshot(list, targetMs) {
+  if (!list.length) return null;
+  const before = list.filter(s => s.at <= targetMs);
+  const by = (a, b) => a.at - b.at;
+  return before.length ? before.sort(by)[before.length - 1] : [...list].sort(by)[0];
+}
+
+// A leg's whole service day of schedules (the simulator's replay of a date).
+export function simDayQuery(leg, date) {
+  return { ...legQuery(leg), 'filter[date]': date, 'filter[min_time]': '00:00', 'filter[max_time]': '28:00' };
+}
+
+// Every ride of a service day from its schedule docs (one per transit leg): rows as the list
+// builds them, from 3am on.
+export function dayRides(trip, scheduleDocs, date, slackMinutes) {
+  const { transit } = tripShape(trip);
+  const start = bostonMs(date, 3 * 60);
+  const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(null, scheduleDocs[i])), null, start);
+  return tripRows(trip, vehicles, scheduleTimingLeg(trip, scheduleDocs) ?? 0, start, slackMinutes, Infinity);
+}
+
+// A ride in the setup's picker: "7:46am Bus 132 → 8:02am Orange · arrive 8:26am".
+export function simRideLabel(row) {
+  return `${row.legs.map(l => `${formatTime(l.dep)} ${l.label ?? l.route}`).join(' → ')} · arrive ${formatTime(row.eta)}`;
+}
+
+// A point `meters` from { lat, lon } toward `bearingDeg` (0 = north): the simulator's "Home".
+export function offsetPoint({ lat, lon }, meters, bearingDeg) {
+  const b = bearingDeg * Math.PI / 180;
+  const dLat = (meters * Math.cos(b)) / 111_320;
+  const dLon = (meters * Math.sin(b)) / (111_320 * Math.cos(lat * Math.PI / 180));
+  return { lat: lat + dLat, lon: lon + dLon };
+}

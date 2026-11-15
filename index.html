@@ -11,6 +11,8 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<!-- The simulator's clock (DESIGN.md "Simulator"): inert unless the simulator is on. -->
+<script src='./sim.js?v=d5fd243061'></script>
 <style>
   [hidden] { display: none !important; }
   :root {
@@ -266,6 +268,33 @@
     box-shadow: 0 4px 16px rgba(0, 0, 0, .18); font-size: 15px;
   }
   .toast { cursor: pointer; }
+  /* The simulator's bar (DESIGN.md "Simulator"): fixed at the bottom, dashed in the accent; the
+     toast sits above it, the page scrolls clear of it. */
+  .sim-bar {
+    position: fixed; left: 10px; right: 10px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); z-index: 25;
+    max-width: 460px; margin: 0 auto; max-height: 70vh; overflow-y: auto; padding: 8px 10px;
+    background: var(--card); color: var(--text); border: 2px dashed var(--accent); border-radius: 14px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .2); font-size: 14px;
+  }
+  body.sim-on { padding-bottom: calc(var(--sim-bar-h, 100px) + 28px); }
+  body.sim-on .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--sim-bar-h, 100px) + 24px); }
+  .sim-top { display: flex; align-items: center; gap: 8px; }
+  .sim-tag { background: var(--accent); color: #1c1f24; font-weight: 700; font-size: 11px; padding: 2px 6px; border-radius: 6px; }
+  .sim-clock { flex: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .sim-bar button {
+    min-height: 32px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .sim-top button { border: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; padding: 0; }
+  .sim-bar button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .sim-ctl { display: flex; gap: 6px; margin-top: 8px; }
+  .sim-ctl button { flex: 1; display: inline-flex; align-items: center; justify-content: center; }
+  .sim-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .sim-chips button { flex: 1 1 auto; font-size: 13px; }
+  .sim-bar button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
+  .sim-label { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .sim-bar > button[aria-expanded] { margin-top: 8px; border: 0; padding: 4px 0; color: var(--muted); font-size: 13px; }
+  .sim-pushes { list-style: none; margin: 4px 0 0; padding: 0; font-size: 13px; color: var(--muted); display: grid; gap: 4px; }
   .toast span { flex: 1; }
   .toast button {
     padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card);
@@ -380,6 +409,10 @@
     padding: 10px 14px 14px; margin-bottom: 12px;
   }
   .field { display: block; margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+  /* Developer › Simulator (setup). */
+  .sim-card .toggle { margin-top: 10px; flex: none; }
+  .sim-card .field select, .sim-card .field input { display: block; width: 100%; margin-top: 4px; }
+  .sim-card > button.primary { display: block; width: 100%; margin-top: 14px; min-height: 44px; font-size: 17px; }
   .field input { margin-top: 4px; }
   /* Auto-route: the two walk fields side by side; a picked station's "Change" at the right. */
   .field-pair { display: flex; gap: 10px; align-items: flex-end; }
@@ -572,7 +605,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-15 · 4d4237ed6a</footer>
+    <footer class="version">Version 2026-11-15 · 3a04bfe2e3</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -582,6 +615,7 @@
   </div>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
+  <div class="sim-bar" id="sim-bar" role="region" aria-label="Simulator" hidden></div>
 </main>
 
 <script>
@@ -601,23 +635,27 @@ import {
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
+  simCurrentRide, simJumpTargets, simPhaseKey, dayRides, simRideLabel, nextWeekday, bostonMs,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, TAP_ZOOM, doubleTap, twoFingerTap, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=f4cb78f1bc';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=f0fa92b71f';
+} from './core.js?v=5c002c21b3';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=7f83e1419b';
 
 const API = 'https://api-v3.mbta.com';
-const KEY_CONFIG = 't-minus:config';
-const KEY_OVERRIDE = 't-minus:trip-override'; // { id (a trip id), setAt }
-const KEY_LAST_TRIP = 't-minus:last-trip'; // a trip id
+// The simulator (DESIGN.md "Simulator"; sim.js, sim-page.js): on, the app's keys are its own copies.
+const SIM_ON = !!window.tminusSim;
+const P = SIM_ON ? 't-minus-sim:' : 't-minus:';
+const KEY_CONFIG = `${P}config`;
+const KEY_OVERRIDE = `${P}trip-override`; // { id (a trip id), setAt }
+const KEY_LAST_TRIP = `${P}last-trip`; // a trip id
 // "Leaving now" / "At the stop" per trip id: { [tripRef]: { kind, at, atStop, key, dep, ... } }.
-const KEY_EN_ROUTE = 't-minus:en-route';
+const KEY_EN_ROUTE = `${P}en-route`;
 // Declared here: the trip-id clean start (below) clears them at load.
-const KEY_REMINDERS = 't-minus:reminders';
-const KEY_ACTIVITY = 't-minus:activity';
-const KEY_LEAVE_CARD = 't-minus:leave-card';
-const KEY_AUTO_BELLS = 't-minus:auto-bells'; // { sent (the request as JSON), at }
+const KEY_REMINDERS = `${P}reminders`;
+const KEY_ACTIVITY = `${P}activity`;
+const KEY_LEAVE_CARD = `${P}leave-card`;
+const KEY_AUTO_BELLS = `${P}auto-bells`; // { sent (the request as JSON), at }
 // Remembered live times (rememberLive) kept across reloads, per trip legs (storeLive).
-const KEY_LAST_LIVE = 't-minus:last-live';
+const KEY_LAST_LIVE = `${P}last-live`;
 const SCHEDULE_TTL = 15 * 60_000;
 const ALERT_TTL = 5 * 60_000;
 const NEXT_DAY_TTL = 60 * 60_000;
@@ -641,13 +679,13 @@ function loadConfig() {
   return cfg;
 }
 
-store.del('t-minus:direction'); // override key from the old format
+store.del(`${P}direction`); // override key from the old format
 if (store.get(KEY_EN_ROUTE)) store.set(KEY_EN_ROUTE, migrateEnRoute(store.get(KEY_EN_ROUTE))); // pins from before the bell
 // The stored config (it may have no trips, keeping the settings); `config` is set only with trips.
 let savedConfig = loadConfig();
 // A one-off trip from "Plan a trip…" ("See departures"): { trip, at }. Shown after the saved trips,
 // never written into the saved config, until removed (✕), saved, replaced, or its ride ends.
-const KEY_ONE_OFF = 't-minus:one-off';
+const KEY_ONE_OFF = `${P}one-off`;
 function loadOneOff() {
   const o = store.get(KEY_ONE_OFF);
   if (!o?.trip) return null;
@@ -726,7 +764,9 @@ async function viaProxy(path, params) {
   } catch { return null; }
 }
 
-async function api(path, params) {
+// The MBTA: the simulator's fake data in the simulator (sim-page.js), else the real API.
+const api = (path, params) => (SIM_ON ? SIM.api(path, params) : mbtaApi(path, params));
+async function mbtaApi(path, params) {
   const doc = await viaProxy(path, params);
   if (doc) return doc;
   const qs = new URLSearchParams(params);
@@ -792,7 +832,7 @@ function legStopCounts(r, trip) {
 // leg's stops as shares of its time (`tripStopShares`), from the same trip stop lists, kept on the
 // phone for the service day (`stopsAt`: one array or null per leg; all null: none known).
 const stopSharesSent = new Set(); // reminder ids sent their stopsAt
-const KEY_STOP_SHARES = 't-minus:stop-shares'; // { [tripRef]: { date, legs (legsKey), stopsAt } }
+const KEY_STOP_SHARES = `${P}stop-shares`; // { [tripRef]: { date, legs (legsKey), stopsAt } }
 const stopSharesHeld = ref => (store.get(KEY_STOP_SHARES) ?? {})[ref] ?? null;
 function stopsAtOf(ref) {
   const held = stopSharesHeld(ref);
@@ -1248,12 +1288,20 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
 // localhost, tests can override it in storage; '' turns the bell's notifications off.
 const pushOverride = location.hostname === 'localhost' ? store.get('t-minus:push-server') : null;
 const SERVER_API = pushOverride ?? '/api';
+// The server: in the simulator, a copy of it in the page (sim-page.js) for everything but place
+// search and "Show nearby", which go to the real one.
+function serverFetch(path, init) {
+  if (SIM_ON && !/^\/(places|nearby)\b/.test(path)) return SIM.serverFetch(path, init);
+  return fetch(`${SERVER_API}${path}`, init);
+}
+// The simulator, started before anything uses it (sim-page.js; null when off).
+const SIM = SIM_ON ? await import('./sim-page.js?v=d48a0b37ee').then(m => m.startSimPage(window.tminusSim, { mbtaApi })) : null;
 // The iOS app (IOS.md): this page in a WKWebView with Capacitor's bridge (`window.Capacitor`).
 // There, pushes come from APNs (the PushNotifications plugin; the subscription is
 // `{ endpoint: 'apns:<token>' }`), the screen stays on through the app's own plugin
 // (TMinus.keepAwake), and errors go to the server's app log (per device, setup's "Pending
 // notifications"). Elsewhere `native` is false and none of this runs.
-const native = !!window.Capacitor?.isNativePlatform?.();
+const native = !SIM_ON && !!window.Capacitor?.isNativePlatform?.(); // the simulator: as on the web
 const plugins = native ? window.Capacitor.Plugins : {};
 const KEY_DEVICE = 't-minus:device';
 const KEY_APNS = 't-minus:apns-token';
@@ -1272,7 +1320,7 @@ function nativeLog(source, message) {
 // Notification permission as the web API names it: 'granted', 'denied' or 'default'.
 let nativePermission = 'default';
 const permissionOf = state => (state === 'granted' || state === 'denied' ? state : 'default');
-const notifyPermission = () => (native ? nativePermission : Notification.permission);
+const notifyPermission = () => (SIM_ON ? 'granted' : native ? nativePermission : Notification.permission);
 // Notifications refused: the error's text (the toasts show it), marked so the iOS app's toast offers
 // "Settings" (failToast).
 const NOTIFY_OFF = 'notifications are off for this app in Settings';
@@ -1304,7 +1352,7 @@ async function apnsToken({ quiet = false } = {}) {
 }
 
 // iOS has push only in the Home Screen app (or the iOS app).
-const pushSupported = native || ('PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window);
+const pushSupported = SIM_ON || native || ('PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window);
 // The bell's reminders: { ["<trip id>/<row key>"]: { id, leaveBy, dep, headsUps, timingIdx, key, bell } },
 // until the boarding question closes (ASK_MINUTES after the departure).
 let reminders = store.get(KEY_REMINDERS) ?? {};
@@ -1312,11 +1360,11 @@ let reminders = store.get(KEY_REMINDERS) ?? {};
 for (const [k, rem] of Object.entries(reminders)) {
   if (rem.bell) continue;
   delete reminders[k];
-  if (SERVER_API) fetch(`${SERVER_API}/reminders/${rem.id}`, { method: 'DELETE' }).catch(() => {});
+  if (SERVER_API) serverFetch(`/reminders/${rem.id}`, { method: 'DELETE' }).catch(() => {});
 }
 // The trip-id clean start's server entries (reminders, stop alerts).
 for (const e of staleServer) {
-  if (SERVER_API) fetch(`${SERVER_API}/${e.kind === 'ride' ? 'rides' : 'reminders'}/${e.id}`, { method: 'DELETE' }).catch(() => {});
+  if (SERVER_API) serverFetch(`/${e.kind === 'ride' ? 'rides' : 'reminders'}/${e.id}`, { method: 'DELETE' }).catch(() => {});
 }
 let reminderBusy = null; // the row key while a request is in flight
 const BELL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
@@ -1335,7 +1383,7 @@ function saveReminders() {
 }
 
 async function pushApi(method, path, body) {
-  const res = await fetch(`${SERVER_API}${path}`, {
+  const res = await serverFetch(path, {
     method, ...(body && { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
   });
   if (method === 'DELETE' && res.status === 404) return null; // already sent or expired
@@ -1347,7 +1395,7 @@ async function pushApi(method, path, body) {
 // up to ~230 KB of schedules); setup falls back to the MBTA when this fails or takes over 3 s.
 // Auto-route's /stops and /plan (the first call after a deploy waits for the network: ~15 s).
 async function planFromServer(path, params) {
-  const res = await fetch(`${SERVER_API}${path}?${new URLSearchParams(params)}`, { signal: AbortSignal.timeout(30_000) });
+  const res = await serverFetch(`${path}?${new URLSearchParams(params)}`, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -1363,6 +1411,7 @@ const base64UrlBytes = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_
 // This device's push subscription (JSON). Call it straight from a tap: permission is asked
 // before the first await, while the tap still counts as a user gesture (iOS requires one).
 async function pushSubscription() {
+  if (SIM) return SIM.subscription;
   if (native) {
     try {
       return { endpoint: `apns:${await apnsToken()}` };
@@ -1568,7 +1617,7 @@ async function checkDismissedCards() {
 // while the app is open, no alerts) until boarding (the ride card replaces it), Cancel, or the
 // vehicle leaving. Bell off ends it (here and on the server). Cards whose reminder is gone are
 // ended when the app opens.
-const KEY_START_TOKEN = 't-minus:start-token';
+const KEY_START_TOKEN = `${P}start-token`;
 let leaveCard = native ? store.get(KEY_LEAVE_CARD) ?? null : null; // { id, tripRef, reminderId, key, last }
 let leaveCardBusy = false;
 let startTokenFailed = false;
@@ -1696,14 +1745,16 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=f4cb78f1bc'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=5c002c21b3'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
 let locStatus = null; // the native location status ('notDetermined' | 'whenInUse' | 'always' | 'denied')
-const boardingWanted = () => locStatus === 'whenInUse' || locStatus === 'always';
+const boardingWanted = () => SIM_ON || locStatus === 'whenInUse' || locStatus === 'always';
+// The native code, or in the simulator its engine run on fake locations (sim-page.js).
+const bridge = () => (native ? plugins.TMinus : SIM?.boarding ?? null);
 async function boardingCall(name, args) {
-  try { return await plugins.TMinus[name](args); } catch (e) {
+  try { return await bridge()[name](args); } catch (e) {
     if (unimplemented(e)) boardingOk = false; else nativeLog('boarding', `${name}: ${e.message}`);
     return null;
   }
@@ -1731,7 +1782,7 @@ function boardingArmSession() {
   });
 }
 async function syncBoarding() {
-  if (!native || boardingOk !== true || !config) return;
+  if (!bridge() || boardingOk !== true || !config) return;
   const on = boardingWanted();
   // What an auto-bell needs to arm with this page closed.
   const defaults = on ? { trips: config.trips, subscription: apnsSubscription(), slack: stopSlackMinutes(config), alerts: notifyPermission() === 'granted' } : null;
@@ -1744,14 +1795,14 @@ async function syncBoarding() {
   const json = session ? JSON.stringify(session) : 'off';
   if (json === boardingSent) return;
   boardingSent = json;
-  if (session) await boardingCall('boardingArm', { session, coreUrl: new URL(CORE_JS, location.href).href });
+  if (session) await boardingCall('boardingArm', { session, ...(native && { coreUrl: new URL(CORE_JS, location.href).href }) });
   else await boardingCall('boardingDisarm');
 }
 // What the native code decided (detected at the stop, another vehicle, missed, got off): applied
 // if it was computed from this trip's current state (or the one before its earlier actions),
 // with Undo. At an open, only while that ride is still on.
 async function takeBoarding() {
-  if (!native || boardingOk !== true || !config) return;
+  if (!bridge() || boardingOk !== true || !config) return;
   const a = (await boardingCall('boardingPending'))?.action;
   const idx = a ? idxOf(a.tripRef) : -1;
   if (idx < 0) return;
@@ -1782,14 +1833,14 @@ async function takeBoarding() {
     schedulePoll();
   });
 }
-if (native) {
-  Promise.resolve().then(() => plugins.TMinus.locationStatus()).then(({ status }) => {
+if (bridge()) {
+  Promise.resolve().then(() => bridge().locationStatus()).then(({ status }) => {
     boardingOk = true;
     locStatus = status;
     syncBoarding();
     takeBoarding();
   }, e => { boardingOk = !unimplemented(e); });
-  Promise.resolve().then(() => plugins.TMinus.addListener('boarding', () => takeBoarding()))
+  Promise.resolve().then(() => bridge().addListener('boarding', () => takeBoarding()))
     .catch(e => nativeLog('boarding', `listener: ${e.message}`));
 }
 // Setup's Permissions (setup.js `permissions`; DESIGN.md "Permissions in setup"): the states from
@@ -1837,7 +1888,7 @@ const setupPermissions = () => (native && settingsOk !== false ? {
   },
   openSettings,
 } : null);
-const setupBoardingLog = () => (native && boardingOk === true ? async () => (await plugins.TMinus.boardingLog()).lines ?? [] : null);
+const setupBoardingLog = () => (bridge() && boardingOk === true ? async () => (await bridge().boardingLog()).lines ?? [] : null);
 
 // "Turn on stop alerts" (once per device): the permission prompt, then the ride is posted; also
 // after its alerts were deleted in "Pending notifications".
@@ -1906,6 +1957,7 @@ function dropLocalPush(id) {
   store.set(KEY_EN_ROUTE, all);
 }
 async function currentSubscription() {
+  if (SIM) return SIM.subscription;
   if (native) {
     const token = store.get(KEY_APNS);
     return token ? { endpoint: `apns:${token}` } : null;
@@ -2176,6 +2228,11 @@ const rowKey = r => `${r.key}${r.nextDay ? '@next' : ''}`;
 let lastProblem = '';
 function render() {
   const now = Date.now();
+  if (SIM) {
+    const trip = config?.trips[tripIdx];
+    if (trip) SIM.phase(simPhaseKey(enRouteState(), tripShape(trip).walkAfter, now));
+    renderSimBar(now);
+  }
   syncWidget();
   renderToggle();
   $('refresh').hidden = !config; // nothing to refresh without trips
@@ -2470,8 +2527,10 @@ if (native) {
   })).catch(e => nativeLog('liveActivity', `answer listener: ${e.message}`));
 }
 
-// Bottom toast with one action (or none); a new one replaces the current one.
+// Bottom toast with one action (or none); a new one replaces the current one. Shown 5 real
+// seconds, in the simulator too.
 let toastTimer = null;
+const realTimers = SIM_ON ? window.tminusSim.real : window;
 function showToast(text, action, onAction) {
   const t = $('toast');
   t.querySelector('span').textContent = text;
@@ -2480,11 +2539,11 @@ function showToast(text, action, onAction) {
   b.hidden = !action;
   b.onclick = () => { hideToast(); onAction(); };
   t.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(hideToast, 5000);
+  realTimers.clearTimeout(toastTimer);
+  toastTimer = realTimers.setTimeout(hideToast, 5000);
 }
 function hideToast() {
-  clearTimeout(toastTimer);
+  realTimers.clearTimeout(toastTimer);
   $('toast').hidden = true;
 }
 // A tap anywhere else on the toast dismisses it.
@@ -2715,6 +2774,37 @@ function setTrip(i, manual) {
 
 // ---------- setup ----------
 
+// Setup's Developer › Simulator (DESIGN.md "Simulator"): sim-page.js is loaded only from here
+// (and while the simulator runs). A ride's day is fetched once: its docs seed the simulator.
+let simSeed = null; // { tripRef, date, coverage }
+const setupSimulator = () => ({
+  active: SIM_ON,
+  defaultDate: nextWeekday(Date.now()),
+  presets: () => import('./sim-presets.js?v=7d6854750b').then(m => m.PRESETS.map(p => ({ id: p.id, name: p.name }))),
+  async rides(i, date) {
+    const trip = savedConfig.trips[i];
+    const { dayDocs } = await import('./sim-page.js?v=d48a0b37ee');
+    const { docs, coverage } = await dayDocs(trip, date, mbtaApi);
+    simSeed = { tripRef: trip.id, date, coverage };
+    return dayRides(trip, docs, date, stopSlackMinutes(savedConfig)).filter(r => !r.missed && r.leaveBy != null)
+      .map(r => ({ label: simRideLabel(r), leaveBy: r.leaveBy }));
+  },
+  async start({ mode, tripIdx: i, date, leaveBy, early, presetId }) {
+    const m = await import('./sim-page.js?v=d48a0b37ee');
+    if (mode === 'preset') {
+      const { PRESETS } = await import('./sim-presets.js?v=7d6854750b');
+      const preset = PRESETS.find(p => p.id === presetId);
+      const [hh, mm] = preset.time.split(':').map(Number);
+      await m.startSim({ mode, presetId, at: bostonMs(nextWeekday(Date.now()), hh * 60 + mm) });
+    } else {
+      const trip = savedConfig.trips[i];
+      const coverage = simSeed?.tripRef === trip.id && simSeed.date === date ? simSeed.coverage : {};
+      await m.startSim({ mode, config: savedConfig, tripRef: trip.id, date, at: leaveBy - (early ? 15 * 60_000 : 0), coverage });
+    }
+    location.reload();
+  },
+});
+
 // Polling and rendering pause while setup is open; saving there replaces the config.
 function showSetup({ importOpen = false, plan = false } = {}) {
   if (setupView) return;
@@ -2735,6 +2825,7 @@ function showSetup({ importOpen = false, plan = false } = {}) {
     autoBell: !!SERVER_API && pushSupported,
     permissions: setupPermissions(),
     boardingLog: setupBoardingLog(),
+    simulator: setupSimulator(),
     // Auto-route options drawn like an expanded row.
     timeline: (steps, key) => renderTimeline(steps, Date.now(), { key }),
     routeMap: routeMapEl,
@@ -2884,7 +2975,7 @@ $('oneoff-remove').onclick = () => removeOneOff();
 function resetApp(apiKey) {
   for (const rem of Object.values(reminders)) pushApi('DELETE', `/reminders/${rem.id}`).catch(() => {});
   try {
-    for (const k of Object.keys(localStorage)) if (k.startsWith('t-minus:') && k !== 't-minus:push-server') localStorage.removeItem(k);
+    for (const k of Object.keys(localStorage)) if (k.startsWith(P) && k !== 't-minus:push-server') localStorage.removeItem(k);
   } catch {}
   if (apiKey) store.set(KEY_CONFIG, { trips: [], apiKey });
   location.reload();
@@ -3530,7 +3621,7 @@ function mapLocation(onChange, seed = null) {
 // counts, 2026-11-12), fitted to the rest of the ride. Hidden ("Hide map"; one setting on the
 // phone, KEY_MAP_HIDDEN): a "Show map ▾" button instead, with no requests and no location.
 // Kept across the once-a-second redraw.
-const KEY_MAP_HIDDEN = 't-minus:mapHidden';
+const KEY_MAP_HIDDEN = `${P}mapHidden`;
 let mainMap = null;
 let mapHidden = !!store.get(KEY_MAP_HIDDEN);
 // The shown trip's map view (2026-11-12), shared by the main map and the sheet, in memory only:
@@ -3931,10 +4022,115 @@ $('reload-new').onclick = () => location.reload();
 // iOS Safari applies :active on touch only when a touch listener exists.
 document.addEventListener('touchstart', () => {}, { passive: true });
 
+// ---------- the simulator's bar (DESIGN.md "Simulator") ----------
+
+// What the bar shows, from the app's current ride: the jumps and each leg's changes.
+function simContext() {
+  const trip = config?.trips[tripIdx] ?? null;
+  const now = Date.now();
+  const enRoute = trip ? enRouteState() : null;
+  const current = trip ? simCurrentRide({ enRoute, rows: currentRows(now), nowMs: now }) : null;
+  return { trip, enRoute, current };
+}
+const simClockFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+const simClockText = now => {
+  const p = Object.fromEntries(simClockFmt.formatToParts(new Date(now)).map(x => [x.type, x.value]));
+  return `${p.weekday} ${p.hour}:${p.minute}:${p.second}${p.dayPeriod.toLowerCase()}`;
+};
+const SIM_SPEEDS = [1, 10, 60];
+const SIM_ICONS = {
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>',
+  up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>',
+  down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
+  close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+};
+const SIM_LOCATIONS = [['off', 'Off'], ['home', 'Home'], ['stop', 'Stop'], ['vehicle', 'On vehicle'], ['gotOff', 'Got off']];
+let simOpen = false;
+let simPushesOpen = false;
+let simSig = null;
+function simButton(label, focus, onClick, { aria, pressed, expanded, html } = {}) {
+  const b = el('button', null, html ? null : label);
+  b.type = 'button';
+  if (html) b.innerHTML = html;
+  b.dataset.focus = `sim:${focus}`;
+  if (aria) b.setAttribute('aria-label', aria);
+  if (pressed != null) b.setAttribute('aria-pressed', String(pressed));
+  if (expanded != null) b.setAttribute('aria-expanded', String(expanded));
+  b.onclick = e => { e.stopPropagation(); onClick(); };
+  return b;
+}
+// Rebuilt only when what it offers changes (the clock's text is updated in place), keeping focus.
+function renderSimBar(now) {
+  const bar = $('sim-bar');
+  const sim = window.tminusSim;
+  bar.hidden = false;
+  document.body.classList.add('sim-on');
+  const { trip, current } = simContext();
+  const shape = trip ? tripShape(trip) : null;
+  const jumps = shape ? simJumpTargets(current, shape, tripStopNames()) : [];
+  const legs = current?.legs ?? [];
+  const sig = JSON.stringify([simOpen, simPushesOpen, sim.paused, sim.speed, jumps.map(j => [j.key, j.label, j.at]), legs.map(l => [l.tripId, l.label, l.dep]),
+    SIM.location, SIM.pushes.length]);
+  const clock = `${simClockText(now)} · ${sim.paused ? 'paused' : 'playing'} · ${sim.speed}×`;
+  if (sig === simSig) { bar.querySelector('.sim-clock').textContent = clock; return; }
+  simSig = sig;
+  const focused = document.activeElement?.dataset?.focus;
+  const top = el('div', 'sim-top');
+  top.append(el('span', 'sim-tag', 'SIM'), el('span', 'sim-clock', clock),
+    simButton('', 'open', () => { simOpen = !simOpen; render(); }, { aria: 'Simulator controls', expanded: simOpen, html: simOpen ? SIM_ICONS.down : SIM_ICONS.up }),
+    simButton('', 'end', () => SIM.end(), { aria: 'End simulator', html: SIM_ICONS.close }));
+  const ctl = el('div', 'sim-ctl');
+  ctl.append(
+    simButton('−5m', 'back5', () => SIM.back(5 * 60_000), { aria: '−5m, back 5 minutes' }),
+    simButton('−1m', 'back1', () => SIM.back(60_000), { aria: '−1m, back 1 minute' }),
+    simButton('', 'play', () => { if (sim.paused) sim.play(); else sim.pause(); render(); }, { aria: sim.paused ? 'Play' : 'Pause', html: sim.paused ? SIM_ICONS.play : SIM_ICONS.pause }),
+    simButton('+1m', 'fwd1', () => SIM.forward(60_000), { aria: '+1m, forward 1 minute' }),
+    simButton('+5m', 'fwd5', () => SIM.forward(5 * 60_000), { aria: '+5m, forward 5 minutes' }),
+    simButton(`${sim.speed}×`, 'speed', () => { sim.setSpeed(SIM_SPEEDS[(SIM_SPEEDS.indexOf(sim.speed) + 1) % SIM_SPEEDS.length]); render(); }, { aria: `Speed ${sim.speed}×` }),
+  );
+  const parts = [top, ctl];
+  if (simOpen) {
+    const section = (label, buttons) => {
+      const chips = el('div', 'sim-chips');
+      chips.append(...buttons);
+      return [el('div', 'sim-label', label), chips];
+    };
+    if (jumps.length) parts.push(...section('Jump to', jumps.map(j => simButton(j.label, `jump:${j.key}`, () => SIM.jumpTo(j.at), { aria: `Jump to ${j.label}, ${formatTime(j.at, now)}` }))));
+    legs.forEach((l, i) => {
+      if (!l.tripId) return;
+      const name = `${l.label ?? l.route} ${formatTime(l.dep, now)}`;
+      parts.push(...section(name, [
+        simButton('+2 min late', `late:${i}`, () => SIM.tweak('late', l.tripId), { aria: `${name}: +2 min late` }),
+        simButton('Cancel', `cancel:${i}`, () => SIM.tweak('cancel', l.tripId), { aria: `${name}: Cancel` }),
+        simButton('Earlier one', `earlier:${i}`, () => SIM.tweak('earlier', l.tripId), { aria: `${name}: Earlier one` }),
+      ]));
+    });
+    parts.push(...section('Location', SIM_LOCATIONS.map(([k, label]) => simButton(label, `loc:${k}`, () => SIM.setLocation(k), { pressed: SIM.location === k }))));
+    parts.push(simButton(`Pushes (${SIM.pushes.length}) ${simPushesOpen ? '▾' : '›'}`, 'pushes', () => { simPushesOpen = !simPushesOpen; render(); }, { expanded: simPushesOpen }));
+    if (simPushesOpen) {
+      const list = el('ul', 'sim-pushes');
+      for (const p of [...SIM.pushes].reverse()) list.append(el('li', null, `${formatTime(p.at, now)} · ${p.kind} · ${p.title}${p.body ? ` · ${p.body}` : ''}`));
+      if (!SIM.pushes.length) list.append(el('li', null, 'None yet.'));
+      parts.push(list);
+    }
+  }
+  bar.replaceChildren(...parts);
+  bar.classList.toggle('open', simOpen);
+  document.body.style.setProperty('--sim-bar-h', `${bar.offsetHeight}px`);
+  if (focused?.startsWith('sim:')) bar.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+}
+if (SIM) {
+  SIM.bind({ context: simContext, render: () => render(), refresh: () => refresh({ force: true }), showToast: t => showToast(t) });
+  // The clock's text between renders (paused, the 1-second redraw doesn't run on time).
+  window.tminusSim.real.setInterval(() => { const c = $('sim-bar').querySelector('.sim-clock'); if (c) c.textContent = `${simClockText(Date.now())} · ${window.tminusSim.paused ? 'paused' : 'playing'} · ${window.tminusSim.speed}×`; }, 250);
+  window.tminusSim.onChange(() => render());
+}
+
 // Datadog RUM (DESIGN.md "Observability"): on when /api/config has the web app's IDs. The SDK
 // loads from Datadog's CDN after the first render; any failure leaves the app without RUM.
 async function startRum() {
-  if (!SERVER_API) return;
+  if (!SERVER_API || SIM) return; // off in the simulator
   try {
     const res = await fetch(`${SERVER_API}/config`);
     const opts = res.ok ? rumInitOptions((await res.json())?.rum?.web, RUNNING_VERSION, location.origin) : null;
@@ -3945,6 +4141,22 @@ async function startRum() {
     s.onload = () => { try { window.DD_RUM?.init(opts); } catch { /* RUM off */ } };
     document.head.append(s);
   } catch { /* offline or no server: RUM off */ }
+}
+
+// The simulator just ended (✕): Undo for 5 s, then its data goes; an older leftover goes at once.
+if (!SIM_ON) {
+  let ctl = null;
+  try { ctl = JSON.parse(localStorage.getItem('t-minus-simctl')); } catch { /* none */ }
+  if (ctl && !ctl.on) {
+    const purge = () => import('./sim-page.js?v=d48a0b37ee').then(m => m.purgeSim()).catch(() => {});
+    if (ctl.endedAt && Date.now() - ctl.endedAt < 10_000) {
+      showToast('Simulator ended', 'Undo', () => {
+        localStorage.setItem('t-minus-simctl', JSON.stringify({ ...ctl, on: true, endedAt: null, clock: { ...ctl.clock, keepPlaying: false } }));
+        location.reload();
+      });
+      setTimeout(() => { try { if (!JSON.parse(localStorage.getItem('t-minus-simctl'))?.on) purge(); } catch { purge(); } }, 6000);
+    } else purge();
+  }
 }
 
 window.appStarted = true;
