@@ -605,7 +605,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-15 · 3a04bfe2e3</footer>
+    <footer class="version">Version 2026-11-15 · 0352342638</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -644,6 +644,7 @@ const API = 'https://api-v3.mbta.com';
 // The simulator (DESIGN.md "Simulator"; sim.js, sim-page.js): on, the app's keys are its own copies.
 const SIM_ON = !!window.tminusSim;
 const P = SIM_ON ? 't-minus-sim:' : 't-minus:';
+const realTimers = SIM_ON ? window.tminusSim.real : window; // toasts last 5 real seconds
 const KEY_CONFIG = `${P}config`;
 const KEY_OVERRIDE = `${P}trip-override`; // { id (a trip id), setAt }
 const KEY_LAST_TRIP = `${P}last-trip`; // a trip id
@@ -2530,7 +2531,6 @@ if (native) {
 // Bottom toast with one action (or none); a new one replaces the current one. Shown 5 real
 // seconds, in the simulator too.
 let toastTimer = null;
-const realTimers = SIM_ON ? window.tminusSim.real : window;
 function showToast(text, action, onAction) {
   const t = $('toast');
   t.querySelector('span').textContent = text;
