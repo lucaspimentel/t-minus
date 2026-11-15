@@ -9,7 +9,8 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "stamp": "node scripts/stamp.mjs",
-    "test:browser": "playwright test",
+    "test:browser": "playwright test --project chromium",
+    "test:webkit": "playwright test --project webkit-iphone-se --project webkit-iphone-17-pro-max",
     "staging": "node scripts/staging.mjs"
   },
   "devDependencies": {

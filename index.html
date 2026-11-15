@@ -151,7 +151,7 @@
     padding: 8px 12px; font-size: 14px;
   }
   .alerts b { font-size: 12px; letter-spacing: .03em; }
-  .rows { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  .rows { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .row {
     background: var(--card); border: 1px solid var(--border); border-left: 6px solid var(--border);
     border-radius: 12px; padding: 12px 14px;
@@ -240,6 +240,13 @@
   }
   .track-btn.tracking { color: var(--green); border-color: var(--green); }
   .row-foot { gap: 8px; }
+  /* Touch targets: 44 px minimum (test/browser/webkit-layout.spec.js). Buttons a few px short get an
+     invisible hit area, like .map-tool's (inset counts from the padding box, so the 1 px border is
+     extra), no taller than the gaps around them: the list's 10 px, the row foot's 10 px above. Those
+     with a neighbor closer (stacked items, the ride bar's 8 px wrap) are made taller instead. */
+  .list-btn, .track-btn, .setup button:not(.item):not(.link):not(.row-toggle) { position: relative; }
+  .list-btn::before, .setup button:not(.item):not(.link):not(.row-toggle)::before { content: ''; position: absolute; inset: -4.2px 0; }
+  .track-btn::before { content: ''; position: absolute; inset: -6.2px 0; }
   .alerts-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .track-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .track-btn.on { background: var(--green); color: var(--card); border-color: var(--green); font-weight: 600; }
@@ -621,7 +628,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-15 · e76fd40dc6</footer>
+    <footer class="version">Version 2026-11-15 · 13be83868c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
