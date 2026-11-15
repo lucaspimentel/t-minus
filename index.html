@@ -244,9 +244,14 @@
      invisible hit area, like .map-tool's (inset counts from the padding box, so the 1 px border is
      extra), no taller than the gaps around them: the list's 10 px, the row foot's 10 px above. Those
      with a neighbor closer (stacked items, the ride bar's 8 px wrap) are made taller instead. */
-  .list-btn, .track-btn, .setup button:not(.item):not(.link):not(.row-toggle) { position: relative; }
-  .list-btn::before, .setup button:not(.item):not(.link):not(.row-toggle)::before { content: ''; position: absolute; inset: -4.2px 0; }
+  .list-btn, .track-btn, .setup button:where(:not(.item, .link, .row-toggle)) { position: relative; }
+  .list-btn::before, .setup button:where(:not(.item, .link, .row-toggle))::before { content: ''; position: absolute; inset: -4.2px 0; }
   .track-btn::before { content: ''; position: absolute; inset: -6.2px 0; }
+  /* The ▲ ▼ buttons are tall but 38 px wide: the area grows sideways, into the 6 px gaps. */
+  .setup .leg-row > button::before, .setup .trip-row > button::before { inset: 0 -4.2px; }
+  /* The picker's and lists' items stack with a 6 px gap: each reaches 3 px past its border, to the middle. */
+  .setup .list button.item { position: relative; }
+  .setup .list button.item::before { content: ''; position: absolute; inset: -4px 0; }
   .alerts-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .track-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .track-btn.on { background: var(--green); color: var(--card); border-color: var(--green); font-weight: 600; }
@@ -628,7 +633,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-15 · 13be83868c</footer>
+    <footer class="version">Version 2026-11-15 · 11c7d2f7dc</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>

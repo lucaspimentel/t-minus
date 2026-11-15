@@ -104,7 +104,26 @@ export async function layoutViolations(page, { overlap = DEFAULT_OVERLAP, tapTar
       if (el.clientWidth === 0) continue; // inline boxes
       const cs = getComputedStyle(el);
       if (cs.textOverflow === 'ellipsis') continue; // clipped on purpose: .step .n, .map-title
-      if (el.scrollWidth > el.clientWidth + 1) out.push(`clipped: ${label(el)} text clipped: scrollWidth ${el.scrollWidth} > clientWidth ${el.clientWidth} (no ellipsis)`);
+      if (cs.overflowX === 'visible') {
+        // Nothing is clipped, but content spilling past the box (into the padding) is as cramped. Measured
+        // from the content itself: scrollWidth also counts absolutely positioned ::before hit areas.
+        const r = el.getBoundingClientRect();
+        const limit = r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth) + 1;
+        let right = -Infinity;
+        const range = document.createRange();
+        for (const n of el.childNodes) {
+          if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+          range.selectNodeContents(n);
+          right = Math.max(right, range.getBoundingClientRect().right);
+        }
+        for (const d of el.querySelectorAll('*')) {
+          const dcs = getComputedStyle(d);
+          if (dcs.position === 'absolute' || dcs.position === 'fixed' || dcs.display === 'none' || dcs.display === 'contents' || skip(d)) continue;
+          const dr = visibleRect(d);
+          if (dr) right = Math.max(right, dr.right);
+        }
+        if (right > limit) out.push(`clipped: ${label(el)} content spills past its box: right edge ${R(right)} > ${R(limit - 1)} (no overflow:hidden)`);
+      } else if (el.scrollWidth > el.clientWidth + 1) out.push(`clipped: ${label(el)} text clipped: scrollWidth ${el.scrollWidth} > clientWidth ${el.clientWidth} (no ellipsis)`);
       else if (/^(hidden|clip)$/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 1) out.push(`clipped: ${label(el)} text clipped: scrollHeight ${el.scrollHeight} > clientHeight ${el.clientHeight}`);
     }
 
