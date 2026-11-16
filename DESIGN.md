@@ -461,7 +461,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 ### Display
 
 - Pinned header (2026-11-15): the header row (trip picker, ↻, ⚙) sticks at the top while
-  everything below it (the en-route bar, alerts, the map, the rows) scrolls. Its padding reaches
+  everything below it (the en-route bar, alerts, the map, the rows) scrolls. It turns sticky only
+  once the page is scrolled (`html.scrolled`): at scroll 0 it is in place anyway, and the iOS
+  app's web view left a sticky header unpainted after a load until the first scroll (2026-11-16). Its padding reaches
   under the status bar (`safe-area-inset-top`, the iOS app's), so nothing scrolls behind the
   clock. No bar or separator: as in iOS 26's scroll edge effect, the header's own page-color
   background covers it down to its bottom edge (its bottom padding keeps content clear of the
