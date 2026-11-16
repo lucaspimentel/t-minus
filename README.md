@@ -89,6 +89,7 @@ Railway deployment: VAPID keys, the MBTA key, a volume for the SQLite database, 
 ```
 npm test               # unit and server tests (node --test)
 npm ci && npm run test:browser   # Playwright, against a fake MBTA API (no key or network)
+npx playwright install webkit && npm run test:webkit   # layout checks on two iPhones
 ```
 
 CI runs both on every push.

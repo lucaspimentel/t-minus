@@ -95,7 +95,7 @@
   /* The trip picker (2026-11-12): always a select, the trips then "Plan a trip…"; card style with
      a line chevron like the header icons (the browsers' own arrows differ). */
   .toggle select {
-    flex: 1; min-width: 0; padding: 10px 40px 10px 12px; border: 0; color: var(--text);
+    flex: 1; min-width: 0; min-height: 44px; padding: 10px 40px 10px 12px; border: 0; color: var(--text);
     font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
     appearance: none; -webkit-appearance: none;
     background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center / 18px;
@@ -151,7 +151,7 @@
     padding: 8px 12px; font-size: 14px;
   }
   .alerts b { font-size: 12px; letter-spacing: .03em; }
-  .rows { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  .rows { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .row {
     background: var(--card); border: 1px solid var(--border); border-left: 6px solid var(--border);
     border-radius: 12px; padding: 12px 14px;
@@ -240,13 +240,26 @@
   }
   .track-btn.tracking { color: var(--green); border-color: var(--green); }
   .row-foot { gap: 8px; }
+  /* Touch targets: 44 px minimum (test/browser/webkit-layout.spec.js). Buttons a few px short get an
+     invisible hit area, like .map-tool's (inset counts from the padding box, so the 1 px border is
+     extra), no taller than the gaps around them: the list's 10 px, the row foot's 10 px above. Those
+     with a neighbor closer (stacked items, the ride bar's 8 px wrap) are made taller instead. */
+  .list-btn, .track-btn, .setup button:where(:not(.item, .link, .row-toggle)) { position: relative; }
+  .list-btn::before, .setup button:where(:not(.item, .link, .row-toggle))::before { content: ''; position: absolute; inset: -4.2px 0; }
+  .track-btn::before { content: ''; position: absolute; inset: -6.2px 0; }
+  /* The ▲ ▼ buttons are tall but 38 px wide: the area grows sideways, into the 6 px gaps. */
+  .setup .leg-row > button::before, .setup .trip-row > button::before { inset: 0 -4.2px; }
+  /* The picker's and lists' items stack with a 6 px gap: each reaches 3 px past its border, to the middle. */
+  .setup .field > button.item { min-height: 44px; }
+  .setup .list button.item { position: relative; }
+  .setup .list button.item::before { content: ''; position: absolute; inset: -4px 0; }
   .alerts-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .track-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .track-btn.on { background: var(--green); color: var(--card); border-color: var(--green); font-weight: 600; }
   .track-btn:disabled { opacity: .5; cursor: default; }
   .push-hint { margin-top: 6px; font-size: 13px; color: var(--muted); }
   /* The bell is on with notifications: a bell beside the collapsed row's badge. */
-  .summary .bell { display: inline-flex; color: var(--green); margin-left: 6px; }
+  .summary .bell { display: inline-flex; color: var(--green); margin-left: 0; } /* the summary's gap spaces it */
   .summary .bell svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .ride-outlook { margin-top: 6px; font-size: 14px; color: var(--muted); }
   .ride-outlook.warn { color: var(--amber); font-weight: 600; }
@@ -266,11 +279,13 @@
   .step.mid.here .veh { top: calc(2px + .2em); }
   .step.mid.gap .veh { top: -1px; }
   .step.stop > .veh { top: calc(.35em - 1px); } /* on the boarding stop's node, centered like it */
-  .step.mid.more button {
-    padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
+  .step.mid.more button { /* a 44 px touch area, layout-neutral: the padding is taken back by the margin */
+    padding: 13px 0; margin: -13px 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
     text-decoration: underline; cursor: pointer; box-shadow: none !important; transform: none !important;
   }
   .enroute-bar.ride-btns { margin: 12px 0 0; }
+  .enroute-bar #oneoff-remove { min-width: 44px; }
+  .alerts-btn { min-height: 44px; }
   /* Auto-route options: cards like the rows (setup). */
   .setup button.row-toggle { padding: 0; border: 0; border-radius: 6px; background: none; font-size: inherit; }
   .row.option .opt-head { display: block; font-size: 20px; }
@@ -316,6 +331,7 @@
   }
   .summary { display: flex; justify-content: space-between; align-items: center; gap: 0 8px; }
   .summary .badge { margin-left: 0; }
+  .summary .chev { margin-left: 0; }
   .arrive { margin-left: auto; white-space: nowrap; }
   /* Expanded row: steps under a divider, joined by a rail through the route dots. */
   .timeline { position: relative; border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; }
@@ -364,7 +380,7 @@
   .empty { color: var(--muted); padding: 16px 0; }
   .enroute-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 14px; color: var(--muted); }
   .enroute-bar button {
-    padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
+    min-height: 44px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
   }
   .en-status { flex: 1 1 0; min-width: 0; }
@@ -444,11 +460,13 @@
   .check { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 14px; }
   .boarding-log div { font-size: 13px; margin: 4px 0; overflow-wrap: anywhere; }
   .setup .check input { width: auto; margin: 0; }
+  .setup label.check { min-height: 44px; }
   .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
   .setup input, .setup textarea, .setup select {
     width: 100%; font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text);
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px;
   }
+  .setup input:not([type=checkbox]):not([type=radio]), .setup select, .setup textarea { min-height: 44px; }
   /* iOS draws time and date inputs natively at their own width, ignoring width: 100%; without the
      native appearance they fit the column (the picker still opens). */
   .setup input[type=time], .setup input[type=date] {
@@ -478,7 +496,7 @@
     text-align: center; color: var(--muted); font-size: 14px;
   }
   .setup details.more { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
-  .setup details.more summary { font-size: 14px; color: var(--muted); cursor: pointer; }
+  .setup details.more summary { padding: 12.2px 0; font-size: 14px; color: var(--muted); cursor: pointer; }
   .setup .list { display: grid; gap: 6px; margin-top: 10px; }
   .setup button.item { text-align: left; width: 100%; }  .setup .item + .item { margin-top: 0; }
   .setup .list.trips { margin: 0; }
@@ -488,11 +506,12 @@
   .setup .item .conn { color: var(--muted); font-size: 13px; margin-left: 4px; display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
   .setup button.item.has-dist { display: flex; align-items: baseline; gap: 8px; }
   .setup .item.has-dist .main { flex: 1; min-width: 0; }
-  .auto-bell .toggle.days { flex-wrap: nowrap; margin-top: 4px; }
-  .auto-bell .toggle.days button { flex: 1 1 0; min-width: 0; padding: 10px 0; }
+  /* Seven 44 px buttons don't fit a 320 px card in one row: 4 + 3 there, one row from ~360 px. */
+  .auto-bell .toggle.days { flex-wrap: wrap; margin-top: 4px; }
+  .auto-bell .toggle.days button { flex: 1 1 60px; min-width: 0; min-height: 44px; padding: 10px 0; }
   .auto-bell .hint { font-size: 14px; margin-top: 8px; }
   .setup .item .dist { color: var(--muted); font-size: 14px; white-space: nowrap; }
-  .setup button.link { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; }
+  .setup button.link { display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; }
   .leg-routes { display: flex; flex-wrap: wrap; gap: 0 14px; margin: -2px 0 6px; }
   .leg-routes .check { margin: 0; }
   .trip-row { display: flex; gap: 6px; }
@@ -621,7 +640,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-15 · e76fd40dc6</footer>
+    <footer class="version">Version 2026-11-15 · 2fd4e24eeb</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
