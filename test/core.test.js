@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   validateConfig, TRIP_ID_RE, newTripId, withTripIds, withoutTripIds, tripIndex, reminderKeyOf, reminderRef, tripReminders, staleServerEntries, legsKey, sameLegsAs, setupSavePlan, tripShape, scheduleWindow, mergeTrips, legVehicles, averageHeadway, pickTimingLeg,
-  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, targetRow, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage, scrubApiKey, rumInitOptions,
+  tripRows, rememberLive, withRemembered, liveKey, storeLive, loadLive, nextPush, rowState, targetRow, timelineSteps, stopNames, startEnRoute, tripStarted, pinTarget, isSubwayRoute, predictionsFirst, tripVehicles, subwayHeadway, legTime, sourceText, unpinTarget, advanceEnRoute, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, boardingQuestion, enRouteActive, enRouteStatus, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, rideStops, getOffText, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg, rideAlertStep, rideAlertText, liveActivityState, islandLabel, checkRide, pickTrip, inWindow, countdownState, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_MAX, pageVersion, isNewerPage, scrubApiKey, rumInitOptions, isStagingHost, stagingPlugins, STAGING_BLOCKED,
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
@@ -3085,4 +3085,31 @@ test('widget: stop shares survive widgetState, reach server rows, and followed e
   assert.ok(riding.entries.some(e => e.stops > 0));
   const asking = widgetView('Office to home', null, at('17:45'), { kind: 'ask', row: { legs, firstDep: at('17:41'), eta: at('18:23') } });
   assert.ok(asking.entries.every(e => !('bar' in e)));
+});
+
+test('isStagingHost: staging.<anything> only', () => {
+  assert.equal(isStagingHost('staging.t-minus.lucasp.net'), true);
+  assert.equal(isStagingHost('staging.localhost'), true);
+  assert.equal(isStagingHost('t-minus.lucasp.net'), false);
+  assert.equal(isStagingHost('localhost'), false);
+  assert.equal(isStagingHost('mystaging.example'), false);
+  assert.equal(isStagingHost(undefined), false);
+});
+
+test('stagingPlugins: side effects off ("unimplemented"), lists empty, the rest through (proxied plugins too)', async () => {
+  const calls = [];
+  // Like Capacitor's plugins: proxies whose methods exist only on access.
+  const lazy = name => new Proxy({}, { get: (_, k) => async a => { calls.push(`${name}.${String(k)}`); return { a }; } });
+  const p = stagingPlugins(new Proxy({}, { get: (_, k) => lazy(String(k)) }));
+  for (const k of STAGING_BLOCKED) await assert.rejects(p.TMinus[k]({}), e => e.code === 'UNIMPLEMENTED', k);
+  await assert.rejects(p.PushNotifications.register(), e => e.code === 'UNIMPLEMENTED');
+  assert.deepEqual(await p.TMinus.liveActivityList(), { activities: [] });
+  assert.deepEqual(await p.TMinus.liveActivityDismissed(), { activities: [] });
+  assert.deepEqual(await p.TMinus.boardingPending(), { action: null });
+  assert.deepEqual(await p.TMinus.permissionsStatus(1), { a: 1 });
+  await p.TMinus.keepAwake({ on: true });
+  await p.TMinus.serverSet({ staging: false });
+  await p.PushNotifications.checkPermissions();
+  await p.Geolocation.getCurrentPosition();
+  assert.deepEqual(calls, ['TMinus.permissionsStatus', 'TMinus.keepAwake', 'TMinus.serverSet', 'PushNotifications.checkPermissions', 'Geolocation.getCurrentPosition']);
 });

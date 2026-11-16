@@ -2709,6 +2709,35 @@ export function scrubApiKey(url) {
   } catch { return url.replace(/([?&])api_key=[^&#]*&?/g, '$1').replace(/[?&]$/, ''); }
 }
 
+// Staging (DESIGN.md "Staging"): the host starts with `staging.` (staging.t-minus.lucasp.net;
+// staging.localhost in the browser tests). Known at once, before any native setup runs.
+export const isStagingHost = hostname => /^staging\./.test(String(hostname ?? ''));
+
+// The iOS app on staging (DESIGN.md "Staging", "In the iOS app"): the page's native plugins with
+// everything that would change the phone's or production's state turned off, so production's Live
+// Activities, bells, widget and boarding keep running untouched. Live Activity, widget, boarding
+// and push registration calls fail as "unimplemented" (the page's path for app builds without a
+// method: no toast, at most a log line); the Live Activity lists are empty, so the page's cleanup
+// ends nothing. Read-only and harmless calls (permissions, location status, keep-awake, Settings,
+// the server switch, listeners) go through.
+export const STAGING_BLOCKED = ['liveActivityStart', 'liveActivityUpdate', 'liveActivityEnd', 'liveActivityStartToken', 'widgetSave',
+  'boardingSetting', 'boardingArm', 'boardingDisarm', 'boardingUndo', 'locationAuthorize'];
+export function stagingPlugins(plugins) {
+  const off = name => async () => { throw Object.assign(new Error(`${name} is off on staging`), { code: 'UNIMPLEMENTED' }); };
+  // Proxies, not copies: Capacitor's plugin objects are proxies that make their methods on access.
+  const wrap = (target, overrides) => new Proxy(target ?? {}, {
+    get: (t, k) => (Object.hasOwn(overrides, k) ? overrides[k] : typeof t[k] === 'function' ? t[k].bind(t) : t[k]),
+  });
+  const TMinus = wrap(plugins?.TMinus, {
+    ...Object.fromEntries(STAGING_BLOCKED.map(k => [k, off(k)])),
+    liveActivityList: async () => ({ activities: [] }),
+    liveActivityDismissed: async () => ({ activities: [] }),
+    boardingPending: async () => ({ action: null }),
+  });
+  const PushNotifications = wrap(plugins?.PushNotifications, { register: off('push registration') });
+  return wrap(plugins, { TMinus, PushNotifications });
+}
+
 // RUM init options from /api/config's `rum.web` (null: RUM stays off), the footer version
 // ("Version 2026-10-24 · 4430fa3647" → its hash) and the page's origin. Same-origin /api/
 // requests carry trace headers, so a resource links to its server trace (t-minus-api).

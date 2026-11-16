@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, sameLegsAs, newTripId, withTripIds, withoutTripIds, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=5c002c21b3';
+} from './core.js?v=470f99729a';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -102,7 +102,7 @@ const NEARBY_RADIUS = 0.003;
 // location: 'notDetermined' | 'whenInUse' | 'always' | 'denied', precise } (null: hidden).
 // `boardingLog` (a build with boarding from location; else null): () → Promise<[{ at, line }]>,
 // the "Boarding log" screen.
-export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, routeMap = null, autoBell = false, permissions = null, boardingLog: loadBoardingLog = null, simulator = null }) {
+export function openSetup({ root, config, api, onSave, onClose, timingFor = () => null, toast = () => {}, hideToast = () => {}, testPush = null, pushDebug = null, nearby = null, onReset = null, startImport = false, plan = false, onOneOff = () => {}, planApi = null, timeline = null, routeMap = null, autoBell = false, permissions = null, boardingLog: loadBoardingLog = null, simulator = null, serverSwitch = null }) {
   let saved = config ?? null;
   const appFields = cfg => ({
     departureCount: cfg ? departureCount(cfg) : 4,
@@ -142,6 +142,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
   // start ('before' | 'at'), rides ({ key, loading, error, list: [{ label, leaveBy }] }), ride
   // (index), presets ([{ id, name }] once loaded), preset (index), busy }.
   let sim = null;
+  let serverBusy = false; // Developer › Server: a switch in flight (the app reloads on the other host)
   let listMessages = [];
   let busy = false;
 
@@ -601,7 +602,25 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     ];
   }
 
+  // Developer › Server (the iOS app; DESIGN.md "Staging"): production or staging, set through the
+  // app (ServerSwitch.swift), which reloads on the other host. `server`: { staging, until, set }.
+  function serverCard(server) {
+    const pick = staging => {
+      if (staging === server.staging || serverBusy) return;
+      serverBusy = true;
+      render();
+      server.set(staging).catch(e => { serverBusy = false; toast(`Couldn't switch: ${e.message}`); render(); });
+    };
+    return h('div', { class: 'card sim-card server-card' }, h('b', {}, 'Server'),
+      h('div', { class: 'toggle sim-toggle', role: 'group', 'aria-label': 'Server' },
+        [[false, 'Production'], [true, 'Staging']].map(([v, text]) => h('button', { type: 'button', 'aria-pressed': String(server.staging === v), disabled: serverBusy, 'data-focus': `server-${v}`, onclick: () => pick(v) }, text))),
+      h('div', { class: 'sim-hint' }, server.staging
+        ? `${server.until ? `On staging until ${formatTime(server.until, Date.now())}` : 'On staging'}, then back to production. Bells, Live Activities and the widget keep running on production.`
+        : 'Staging loads staging.t-minus.lucasp.net to check UI changes. Bells, Live Activities and the widget stay on production. Goes back to production after 2 h. Also in iOS Settings › T\u2011Minus.'));
+  }
+
   function listScreen() {
+    const server = serverSwitch?.() ?? null;
     const trips = savedTrips();
     return [
       h('div', { class: 'setup-head' },
@@ -642,7 +661,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         pushDebug && h('button', { type: 'button', disabled: !pushDebug.supported, onclick: openPending }, 'Pending notifications'),
         loadBoardingLog && h('button', { type: 'button', onclick: openBoardingLog }, 'Boarding log')),
       testPush && !testPush.supported && h('div', { class: 'push-hint' }, 'Add to Home Screen to get notifications.'),
-      simulator && h('div', { class: 'muted section' }, 'Developer'),
+      (simulator || server) && h('div', { class: 'muted section' }, 'Developer'),
+      server && serverCard(server),
       simulator && !sim && !simulator.active && h('div', { class: 'btns' }, h('button', { type: 'button', 'aria-expanded': 'false', onclick: () => { sim = 'open'; render(); } }, 'Simulator')),
       simulator && (sim || simulator.active) && simCard(),
       onReset && h('div', { class: 'muted section' }, 'Reset'),

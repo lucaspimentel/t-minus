@@ -1536,8 +1536,9 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 
 ## Staging (2026-11-15)
 
-For quick UI checks in Safari on iOS (it renders differently from Chrome in the sandbox), not for
-pushes or the iOS app: viewed in the browser, never installed.
+For quick UI checks in Safari on iOS (it renders differently from Chrome in the sandbox), and in
+the iOS app's WebView (see "In the iOS app"); not for pushes: in Safari it's viewed in the
+browser, never installed.
 
 - **Where:** `https://staging.t-minus.lucasp.net/`, Railway's `staging` environment in the same
   project: the `t-minus` service only (no Datadog agent), sourced from the `staging` branch.
@@ -1558,6 +1559,29 @@ pushes or the iOS app: viewed in the browser, never installed.
 - **Variables:** `APP_ENV=staging`, `DRY_RUN=1` (pushes are logged, not sent),
   `PUBLIC_URL=https://staging.t-minus.lucasp.net/`, VAPID keys (any pair; the server needs them to
   start), `MBTA_API_KEY` shared with prod; no APNs, RUM or `DD_*` variables.
+- **In the iOS app (2026-11-16):** for how the page renders and behaves in the app's WKWebView;
+  native surfaces (Live Activities, the widget, pushes, boarding) stay on production.
+  - **The switch:** iOS Settings › T-Minus › Server (`Settings.bundle`, key `server`:
+    `production` by default, or `staging`) is the source of truth, reachable even when a staging
+    deploy shows a blank page. Setup › Developer › Server (the app only; `serverGet` /
+    `serverSet` on the TMinus plugin; the card is missing on builds without them) sets it too and
+    reloads at once; a change in iOS Settings applies when the app returns to the foreground.
+  - **2 hours:** staging ends 2 h after the app first sees it (`serverStagingSince`); the setting
+    goes back to production and the next foreground loads it. The card says "On staging until
+    3:40pm".
+  - **How:** `MainViewController.instanceDescriptor()` sets Capacitor's `serverURL` to the staging
+    host (`ServerSwitch`), so the bridge and plugins work there as on production; switching
+    replaces the root controller with a new bridge (`SceneDelegate.reloadIfServerChanged`). The
+    native calls (`LiveActivityObserver.baseURL`, boarding, RUM's `/api/config`) and the widget
+    keep the bundled production URL.
+  - **The page on staging** (`isStagingHost`, known at once): its plugins go through
+    `stagingPlugins` (core.js): Live Activity starts, updates, ends and the start token, the
+    widget, boarding (setting, arm, disarm, undo, location authorization) and push registration
+    fail as "unimplemented" (the page's path for builds without a method: no toast, at most a log
+    line on staging's server); the Live Activity lists are empty and `boardingPending` has no
+    action, so the page's startup cleanup can't end production's cards. Permissions, location
+    status, keep-awake, Settings, listeners and the switch go through. Staging's storage is its
+    own: trips are set up there by hand (or the simulator's presets).
 
 ## Observability (Datadog, 2026-10-24)
 
@@ -1755,7 +1779,7 @@ A native shell around the web app, for what a Home Screen PWA can't do (Live Act
 widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live Activity, widget): `IOS.md`.
 
 - **Shape:** Capacitor 8 (WKWebView + plugins), project in `ios/`. The WebView loads the live site
-  (`server.url` `https://t-minus.lucasp.net` in `capacitor.config.json`), so pushes to `main`
+  (`server.url` `https://t-minus.lucasp.net` in `capacitor.config.json`; staging by a switch, see "Staging"), so pushes to `main`
   update the app with no new build; `SERVER_API` stays `/api` (same origin, no CORS). The app has
   its own `localStorage`: trips move with setup's Export / Import. A bundled "Can't reach
   T-Minus" page with Retry (`ios/www/index.html`, `server.errorPath`) shows when the site doesn't

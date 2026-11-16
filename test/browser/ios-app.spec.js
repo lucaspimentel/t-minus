@@ -28,7 +28,9 @@ test.beforeEach(({ page }) => {
 // `locStatus`: the starting location status (boarding detection runs while it is While Using or Always).
 // `perms` (setup's Permissions): the plugin has permissionsStatus (notifications from the push
 // permission, window.liveActivities, window.locStatus, window.precise) and openSettings (in nativeCalls).
-function capacitorStub({ server, permission = 'prompt', fail = null, token, leave = false, widget = false, boarding = false, locStatus = null, perms = false }) {
+// `serverSwitch` (Developer › Server): the plugin has serverGet (this object: { staging, until })
+// and serverSet, recorded in window.serverSets.
+function capacitorStub({ server, permission = 'prompt', fail = null, token, leave = false, widget = false, boarding = false, locStatus = null, perms = false, serverSwitch = null }) {
   localStorage.setItem('t-minus:push-server', JSON.stringify(server));
   window.nativeCalls = [];
   const listeners = {};
@@ -91,6 +93,10 @@ function capacitorStub({ server, permission = 'prompt', fail = null, token, leav
         liveActivities: window.liveActivities ?? true, location: window.locStatus ?? 'notDetermined', precise: window.precise ?? true,
       }),
       openSettings: async () => { window.nativeCalls.push('openSettings'); },
+    }),
+    ...(serverSwitch && {
+      serverGet: async () => serverSwitch,
+      serverSet: async a => { (window.serverSets ??= []).push(a); },
     }),
   };
   window.boardingCalls = [];
@@ -833,4 +839,57 @@ test('the Boarding log: newest first, Copy; axe finds nothing', async ({ page })
   expect(await page.evaluate(() => window.copied)).toMatch(/geofence entered$/);
   await page.getByRole('button', { name: 'Back' }).click();
   await expect(page.getByRole('button', { name: 'Boarding log' })).toBeVisible();
+});
+
+// Staging in the iOS app (DESIGN.md "Staging"): Setup › Developer › Server switches through the
+// app; on the staging host the page leaves production's Live Activities, widget, boarding and
+// push registration alone.
+test('Developer › Server: the switch goes through the app, with the staging end time', async ({ page }) => {
+  await page.addInitScript(capacitorStub, { server: PUSH, token: TOKEN, serverSwitch: { staging: false, until: null } });
+  await fakeServer(page);
+  await openApp(page, { time: '06:50' });
+  await page.click('#open-setup');
+  const card = page.locator('.server-card');
+  await expect(card.getByRole('button', { name: 'Production' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(card).toContainText('Goes back to production after 2 h');
+  await card.getByRole('button', { name: 'Staging' }).click();
+  await expect.poll(() => page.evaluate(() => window.serverSets)).toEqual([{ staging: true }]);
+  await expect(card.getByRole('button', { name: 'Production' })).toBeDisabled();
+  const results = await new AxeBuilder({ page }).include('.server-card').analyze();
+  expect(results.violations).toEqual([]);
+});
+
+test('Developer › Server on staging: the end time; no card outside the app or on builds without it', async ({ page }) => {
+  await page.addInitScript(capacitorStub, { server: PUSH, token: TOKEN, serverSwitch: { staging: true, until: at('08:50') } });
+  await fakeServer(page);
+  await openApp(page, { time: '06:50' });
+  await page.click('#open-setup');
+  await expect(page.locator('.server-card')).toContainText('On staging until 8:50am, then back to production.');
+  await expect(page.locator('.server-card').getByRole('button', { name: 'Staging' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('no Server card on builds without the switch', async ({ page }) => {
+  await page.addInitScript(capacitorStub, { server: PUSH, token: TOKEN });
+  await fakeServer(page);
+  await openApp(page, { time: '06:50' });
+  await page.click('#open-setup');
+  await expect(page.locator('.muted.section', { hasText: 'Reset' })).toBeVisible();
+  await expect(page.locator('.server-card')).toHaveCount(0);
+});
+
+test('on the staging host the app leaves production\'s cards, widget, boarding and push registration alone', async ({ page }) => {
+  await page.addInitScript(capacitorStub, { server: PUSH, token: TOKEN, permission: 'granted', leave: true, widget: true, boarding: true, locStatus: 'always', perms: true });
+  // Production's leave card, from a bell this page's storage doesn't have.
+  await page.addInitScript(() => { window.fakeActivities = [{ id: 'prod-card', reminderId: 'prod-reminder' }]; });
+  await page.context().route(/staging\.localhost:\d+\/api\//, route => route.fulfill({ json: { bells: [] } }));
+  await openApp(page, { time: '06:50', url: 'http://staging.localhost:8765/' });
+  await tick(page, 3000);
+  await firstRow(page).click();
+  await firstRow(page).getByRole('button', { name: 'Track', exact: true }).click();
+  await tick(page, 2000);
+  const got = await page.evaluate(() => ({ activity: window.activityCalls, widget: window.widgetBodies ?? [], boarding: window.boardingCalls, native: window.nativeCalls }));
+  expect(got.activity).toEqual([]);
+  expect(got.widget).toEqual([]);
+  expect(got.boarding.filter(c => ['arm', 'disarm', 'setting', 'undo', 'authorize'].includes(c.call))).toEqual([]);
+  expect(got.native).not.toContain('register');
 });

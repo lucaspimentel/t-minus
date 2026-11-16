@@ -51,7 +51,7 @@ export const WAKE_STUB = () => {
 // (`mbta.serveProxy`).
 // `map`: the main screen's map shown (2026-11-12). Off by default: its vehicle polls every 10 s
 // make long clock jumps slow, so specs about other things start with it hidden ("Show map ▾").
-export async function openApp(page, { time = '07:00', date = MONDAY, config = CONFIG, scenario = commute(), waitForRows = true, init, proxy = null, map = false } = {}) {
+export async function openApp(page, { time = '07:00', date = MONDAY, config = CONFIG, scenario = commute(), waitForRows = true, init, proxy = null, map = false, url = '/' } = {}) {
   const now = at(time, date);
   const mbta = await fakeMbta(page.context(), scenario, { now });
   if (proxy) await mbta.serveProxy(page, proxy);
@@ -64,7 +64,7 @@ export async function openApp(page, { time = '07:00', date = MONDAY, config = CO
   if (!map) await page.addInitScript(() => { if (localStorage.getItem('t-minus:mapHidden') == null) localStorage.setItem('t-minus:mapHidden', 'true'); });
   if (init) await page.addInitScript(init);
   await page.clock.install({ time: now });
-  await page.goto('/');
+  await page.goto(url);
   if (waitForRows) {
     await page.locator('.row').first().waitFor();
     await tick(page, 1000);

@@ -114,7 +114,9 @@ ride, and against these rules:
   base map (DESIGN.md "Route map"); commit the result.
 - Staging (`https://staging.t-minus.lucasp.net/`, DESIGN.md "Staging", setup in `server/README.md`):
   for checking UI tweaks in Safari on the phone (it renders differently from Chrome here), viewed
-  in the browser, never installed. Not for pushes, the iOS app or the widget.
+  in the browser, never installed. Not for pushes or the widget. The iOS app can load it too
+  (iOS Settings › T-Minus › Server, or Setup › Developer › Server; back to production after 2 h;
+  DESIGN.md "Staging", "In the iOS app"); there the page leaves native state alone (`stagingPlugins`).
   - Deploy: commit, then `npm run staging`: it refuses uncommitted changes or a stale stamp, then
     force-pushes `HEAD` to the `staging` branch. A request to deploy to staging covers that
     force-push; no CI wait, no watch paths (every push deploys), live in 1-2 min. Any branch's

@@ -28,6 +28,8 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "boardingLog", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "permissionsStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "serverGet", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "serverSet", returnType: CAPPluginReturnPromise),
     ]
 
     private var startTokenObserver: NSObjectProtocol?
@@ -99,6 +101,23 @@ public class TMinusPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let url = URL(string: UIApplication.openSettingsURLString) else { return call.reject("no Settings URL") }
             UIApplication.shared.open(url) { ok in ok ? call.resolve() : call.reject("couldn't open Settings") }
         }
+    }
+
+    // ---------- Setup › Developer › Server (ServerSwitch, DESIGN.md "Staging") ----------
+
+    // serverGet() → { staging: Bool, until: epoch ms (staging only) }
+    @objc func serverGet(_ call: CAPPluginCall) {
+        var r: [String: Any] = ["staging": ServerSwitch.staging]
+        if let until = ServerSwitch.until { r["until"] = until }
+        call.resolve(r)
+    }
+
+    // serverSet({ staging }): saves the setting, then reloads the app on that server.
+    @objc func serverSet(_ call: CAPPluginCall) {
+        ServerSwitch.set(staging: call.getBool("staging") ?? false)
+        call.resolve()
+        // After the answer reaches the page: replacing the controller ends this bridge.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { SceneDelegate.current?.reloadIfServerChanged() }
     }
 
     // ---------- boarding from location (BoardingLocation, DESIGN.md) ----------

@@ -23,4 +23,20 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
         SceneDelegateProxy.shared.scene(scene, continue: userActivity)
     }
+
+    // Back in the foreground: the server switch (ServerSwitch) may have changed in iOS Settings, or
+    // staging's 2 h ended.
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        reloadIfServerChanged()
+    }
+
+    // A new bridge on the wanted server (production or staging) when it isn't the loaded one.
+    func reloadIfServerChanged() {
+        guard let vc = window?.rootViewController as? MainViewController, vc.loadedStaging != ServerSwitch.staging else { return }
+        window?.rootViewController = MainViewController()
+    }
+
+    static var current: SceneDelegate? {
+        UIApplication.shared.connectedScenes.lazy.compactMap { $0.delegate as? SceneDelegate }.first
+    }
 }
