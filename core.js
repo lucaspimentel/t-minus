@@ -976,7 +976,7 @@ export function optionSteps(o, { walkBefore, walkAfter, slack = 0, legs }) {
     if (i > 0) {
       const prev = timed ? o.deps?.[i - 1] : null;
       const t = o.transfers?.[i - 1];
-      const min = (typeof t === 'object' ? t?.min : 0) ?? 0;
+      const min = t?.min ?? 0; // a station name (rail only): no walk
       steps.push(d && prev ? { kind: 'walk', text: transferText(d.dep - prev.arr, min, !!d.every), walking: true }
         : min > 0 ? { kind: 'walk', text: `Walk ${min} min to transfer`, walking: true } : { kind: 'walk', text: 'Transfer', walking: false });
     }
@@ -2303,7 +2303,7 @@ const stopsOf = n => (Number.isInteger(n) && n > 0 ? { stops: n } : {});
 export function transferText(gapMs, walkMin, approx = false) {
   const s = Math.floor((gapMs - walkMin * MIN) / MIN);
   const head = walkMin > 0 ? `Walk ${walkMin} min` : 'Transfer';
-  return `${head} · ${approx ? '~' : ''}${s >= 0 ? s : -s} min ${s >= 0 ? 'early' : 'short'}`;
+  return `${head} · ${approx ? '~' : ''}${Math.abs(s)} min ${s >= 0 ? 'early' : 'short'}`;
 }
 
 // A timeline ride line: "Orange Line · 13 stops · 12 min" (stops and minutes when known).
@@ -3328,7 +3328,13 @@ export function widgetTimelineMarks(tl, kind, phase = null, stops = null, boardi
 // (widgetNextRide; followed states) the bell's leave and departs entries and the walk's carry
 // it as `nextRide` ("Next: leave 11:16am", "Last ride today").
 export function widgetView(tripName, rows, nowMs, follow = null, large = null) {
-  if (follow && follow.kind !== 'bell') return widgetFollowView(tripName, follow, nowMs, large);
+  const view = follow && follow.kind !== 'bell' ? widgetFollowView(tripName, follow, nowMs, large) : widgetLeaveView(tripName, rows, nowMs, follow, large);
+  if (large) view.updated = formatTime(nowMs);
+  return view;
+}
+
+// widgetView's leave times (the bell's ride: `follow`).
+function widgetLeaveView(tripName, rows, nowMs, follow, large) {
   if (follow) rows = [follow.row];
   const tls = [];
   const tlOf = i => (tls[i] ??= widgetTimeline(rows[i], large.trip, large.slack, large.names, i === 0 ? large.counts ?? [] : []));
@@ -3393,9 +3399,13 @@ export function widgetView(tripName, rows, nowMs, follow = null, large = null) {
     if (asked.timeline) view.timeline = asked.timeline;
   }
   tls.forEach((tl, i) => { if (tl) lines[i].timeline = tl.rows; }); // only the rows shown
-  if (follow) for (const e of view.entries) if (e.row >= 0) e.bar = true;
-  if (large) view.updated = formatTime(nowMs);
-  if (follow && large?.next) for (const e of view.entries) if (e.row >= 0) e.nextRide = large.next;
+  if (follow) {
+    for (const e of view.entries) {
+      if (e.row < 0) continue;
+      e.bar = true;
+      if (large?.next) e.nextRide = large.next;
+    }
+  }
   return view;
 }
 
@@ -3431,7 +3441,6 @@ function widgetFollowView(tripName, follow, nowMs, large = null) {
   const tl = large ? widgetTimeline(follow.kind === 'ride' ? { legs: follow.ride.legs, eta } : follow.row,
     large.trip, large.slack, large.names, large.counts ?? [], { enRoute: true }) : null;
   if (tl) view.timeline = tl.rows;
-  if (large) view.updated = formatTime(nowMs);
   const nextRide = follow.kind === 'walk' && large?.next ? { nextRide: large.next } : {};
   let stateAt; // t → { st, marks }
   let until;

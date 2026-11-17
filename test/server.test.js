@@ -723,10 +723,10 @@ test('/api/widget following: a ride (stops, connection), the bell, walking; ende
 });
 
 test('/api/widget size=large following: the next ride (bell, walking; not the question or riding), the answer\'s time, badges', async () => {
+  const legs = [{ tripId: 'b1', label: 'Bus 132', route: '132', color: 'FFC72C', dep: at('07:10'), arr: at('07:25') }, { tripId: 'o1', label: 'Orange', route: 'Orange', color: 'ED8B00', dep: at('07:33'), arr: at('07:50') }];
+  const body = state => ({ trips: [trip], stopSlackMinutes: 1, oneOffAt: null, override: null, lastUsed: null, state: { trip: 'home', at: at('07:00'), atStop: null, pinned: false, ...state } });
   const s = await setup();
   try {
-    const legs = [{ tripId: 'b1', label: 'Bus 132', route: '132', color: 'FFC72C', dep: at('07:10'), arr: at('07:25') }, { tripId: 'o1', label: 'Orange', route: 'Orange', color: 'ED8B00', dep: at('07:33'), arr: at('07:50') }];
-    const body = state => ({ trips: [trip], stopSlackMinutes: 1, oneOffAt: null, override: null, lastUsed: null, state: { trip: 'home', at: at('07:00'), atStop: null, pinned: false, ...state } });
     const post = async (b, q = '?size=large') => (await s.call('POST', `/api/widget${q}`, b)).json();
     s.world.bus2 = ['07:25', '07:33'];
     s.world.orange2 = '07:39';
@@ -751,9 +751,7 @@ test('/api/widget size=large following: the next ride (bell, walking; not the qu
   // No later ride, and today's rows don't reach the end of service: unknown, no line.
   const one = await setup();
   try {
-    const legs = [{ tripId: 'b1', label: 'Bus 132', route: '132', color: 'FFC72C', dep: at('07:10'), arr: at('07:25') }, { tripId: 'o1', label: 'Orange', route: 'Orange', color: 'ED8B00', dep: at('07:33'), arr: at('07:50') }];
-    const b = { trips: [trip], stopSlackMinutes: 1, oneOffAt: null, override: null, lastUsed: null, state: { trip: 'home', at: at('07:00'), atStop: null, pinned: true, kind: 'track', target: { key: 'b1', legs } } };
-    const v = await (await one.call('POST', '/api/widget?size=large', b)).json();
+    const v = await (await one.call('POST', '/api/widget?size=large', body({ kind: 'track', pinned: true, target: { key: 'b1', legs } }))).json();
     assert.ok(v.entries.length && v.entries.every(x => !('nextRide' in x)));
   } finally { await one.close(); }
 });

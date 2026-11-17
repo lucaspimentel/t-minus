@@ -233,7 +233,7 @@ private struct LargeHome: View {
         let tl = content.entry?.tl
         // The server sends the timeline only where it shows: followed states and "Trip timeline".
         if let rows = content.timeline, let tl {
-            let next = content.entry?.nextRide.flatMap { $0.isEmpty ? nil : $0 }
+            let next = content.entry?.nextRide
                 ?? (row >= 0 && content.rows.count > 1 ? "Next: leave \(content.rows[1].time)" : nil)
             timelineLayout(th, rows: rows, marks: tl, next: next, updated: content.updated.map { "Updated \($0)" })
         } else if row >= 0 {
@@ -328,7 +328,7 @@ struct TripTimeline: View {
             ForEach(Array(timelineVariants(rows, marks, hasNext: next != nil, hasUpdated: updated != nil).enumerated()), id: \.offset) { _, v in
                 VStack(alignment: .leading, spacing: 0) {
                     TimelineRows(rows: rows, marks: marks, variant: v, th: th)
-                    if (v.next && next != nil) || (v.updated && updated != nil) {
+                    if v.next || v.updated { // set only when there's text (timelineVariants)
                         Spacer(minLength: 6)
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             if v.next, let next { Text(next).font(.system(size: 14)).foregroundStyle(th.muted).lineLimit(1) }
@@ -440,7 +440,7 @@ private struct TimelineRows: View {
             } content: { small }
         case "ride":
             // The badge on legs not yet boarded: beside the toward line, else the ride line.
-            let tag = p == .plain ? r.source.flatMap { $0.isEmpty ? nil : $0 } : nil
+            let tag = p == .plain ? r.source : nil
             let towardShown = variant.toward && p == .plain && !(r.toward ?? "").isEmpty
             line { color.frame(width: 8).opacity(fade) } content: {
                 VStack(alignment: .leading, spacing: 0) {

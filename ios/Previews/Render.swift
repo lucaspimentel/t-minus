@@ -370,31 +370,22 @@ private let lateRows = [hrow("8:37am", "9:28am", long: "Bus 132", short: "Bus 13
                         hrow("12:16pm", "1:04pm", long: "Bus 132", short: "Bus 132", headsign: "Malden", color: bus, label: "132")]
 // "More rides" (`timeline` false): the server sends no timeline.
 // 2026-11-17: `nextRide` (the bell's entries), `updated` (the answer's time); `old`: neither, no badges.
-private func leaveLarge(_ e: WidgetView.Entry, hide: Int, timeline: Bool, later: [WidgetView.Row]? = nil, nextRide: String? = nil,
-                        updated: String? = "7:33am", old: Bool = false) -> LeaveContent {
+// `nextRide`: the bell's ride (its row alone, the legs bar), with the answer's next ride.
+private func leaveLarge(_ e: WidgetView.Entry, hide: Int, timeline: Bool, later: [WidgetView.Row]? = nil, nextRide: String? = nil, old: Bool = false) -> LeaveContent {
     var e = e
     e.tl = timeline ? marks(0, 0, hide) : nil
     e.nextRide = nextRide
+    if nextRide != nil { e.bar = true }
     var first = busRow
     first.timeline = timeline ? leaveTL(old) : nil
-    return LeaveContent(name: "To work", entry: e, rows: [first] + (later ?? laterRows), timeline: first.timeline, updated: old ? nil : updated)
+    return LeaveContent(name: "To work", entry: e, rows: [first] + (nextRide != nil ? [] : later ?? laterRows), timeline: first.timeline, updated: old ? nil : "7:33am")
 }
 private func followLarge(_ head: String, _ headTime: String, note: String = "", warn: Bool = false, late: Bool = false, dep: Double? = nil,
-                         tl: WidgetView.TLMarks?, rows: [TL]? = nil, nextRide: String? = nil, updated: String? = "7:41am", old: Bool = false) -> LeaveContent {
+                         tl: WidgetView.TLMarks?, rows: [TL]? = nil, nextRide: String? = nil, old: Bool = false) -> LeaveContent {
     var e = WidgetView.Entry(at: 0, row: -1, title: head, count: "", warn: warn, next: "", head: head, headTime: headTime)
     e.note = note; e.late = late; e.dep = dep; e.tl = tl; e.nextRide = nextRide
     e.long = ""; e.arrive = ""
-    return LeaveContent(name: "To work", entry: e, rows: [], timeline: tl == nil ? nil : rows ?? tripTL(old), updated: old ? nil : updated)
-}
-// The bell's ride (row 0, its own timeline with the first walk) with the answer's next ride.
-private func bellLarge(_ e: WidgetView.Entry, hide: Int, nextRide: String) -> LeaveContent {
-    var e = e
-    e.tl = marks(0, 0, hide)
-    e.nextRide = nextRide
-    e.bar = true
-    var first = busRow
-    first.timeline = leaveTL()
-    return LeaveContent(name: "To work", entry: e, rows: [first], timeline: first.timeline, updated: "7:33am")
+    return LeaveContent(name: "To work", entry: e, rows: [], timeline: tl == nil ? nil : rows ?? tripTL(old), updated: old ? nil : "7:41am")
 }
 private let ride5 = WidgetView.TLMarks.Along(after: 1, veh: "gap", stops: alongStops(["Main St @ Salem St", "Main St @ Eastern Ave", "Pleasant St @ Commercial St", "Centre St @ Main St"], from: 57))
 private let ride9 = WidgetView.TLMarks.Along(after: 1, veh: "gap", stops: alongStops(["Main St @ Wyoming Ave", "Main St @ Highland Ave", "… 5 more", "Centre St @ Main St"], from: 51))
@@ -409,8 +400,8 @@ private let largeSamples: [(String, LeaveContent)] = [
     ("Leave · More rides, two-digit hours", leaveLarge(hent("Leave in 15 min", "8:02am"), hide: -1, timeline: false, later: lateRows)),
     ("Leave · Trip timeline: badges, Updated", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1, timeline: true)),
     ("Leave · Trip timeline, old answer (no badges, Updated)", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1, timeline: true, old: true)),
-    ("Bell · Next: leave, Updated", bellLarge(hent("Leave in 9 min", "7:42am"), hide: -1, nextRide: "Next: leave 7:57am")),
-    ("Bell, departs · Last ride today", bellLarge(hent("Departs in 4 min", "7:48am", warn: true), hide: 1, nextRide: "Last ride today")),
+    ("Bell · Next: leave, Updated", leaveLarge(hent("Leave in 9 min", "7:42am"), hide: -1, timeline: true, nextRide: "Next: leave 7:57am")),
+    ("Bell, departs · Last ride today", leaveLarge(hent("Departs in 4 min", "7:48am", warn: true), hide: 1, timeline: true, nextRide: "Last ride today")),
     ("Departs · Trip timeline (boarding time hidden)", leaveLarge(hent("Departs in 7 min", "7:48am", warn: true), hide: 1, timeline: true)),
     ("Departs, too late · More rides", leaveLarge(hent("Departs in 2 min", "7:48am", warn: true, late: true), hide: 1, timeline: false)),
     ("Walking · badges, Next, Updated", followLarge("Departs in 6 min", "7:48am", note: "At the stop ~7:46am · 2 min to spare", tl: marks(0, 0, 0), nextRide: "Next: leave 7:57am")),

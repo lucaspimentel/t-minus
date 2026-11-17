@@ -872,10 +872,9 @@ test('timelineSteps: walks, legs, each transfer\'s walk and time to spare, arriv
   const texts = steps => steps.map(s => (s.kind === 'leg' ? `[${s.leg.route} ${s.leg.source}]`
     : s.kind === 'end' ? `${s.label} ${formatTime(s.time, at('10:00'))}` : s.text));
   assert.deepEqual(texts(timelineSteps(row, homeToOffice, 1, at('10:00'))), [
-    'Walk 5 min · 1 min early at the stop', '[132 live]', 'Walk 5 min · 4 min early', '[Orange live]',
+    'Walk 5 min · 1 min early at the stop', '[132 live]', 'Walk 5 min · 4 min early', '[Orange live]', // no Leave: the row's header has it
     'Walk 10 min', 'Arrive 11:07am',
   ]);
-  assert.ok(!timelineSteps(row, homeToOffice, 1, at('10:00')).some(st => st.label === 'Leave')); // the row's header has it
   assert.equal(timelineSteps(row, homeToOffice, 0, at('10:00'))[0].text, 'Walk 5 min');
   // A headway next leg: "~" on the time to spare; a gap shorter than the walk: short.
   const headway = { ...row, legs: [row.legs[0], { ...row.legs[1], every: 6 }] };
