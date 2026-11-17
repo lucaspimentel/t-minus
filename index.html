@@ -75,14 +75,14 @@
   }
   /* Sticky headers' edge fade (iOS 26's scroll edge effect): no bar or separator. The header's own
      page-color background covers it down to its bottom edge (its bottom padding keeps content clear
-     of the controls); once the page is scrolled (html.scrolled), a 20 px strip below it fades and
-     blurs what passes under. Main header, setup's header, the leg picker's top. No pseudo-element
-     behind the controls (z-index -1): iOS painted one over them after a reload (2026-11-15). */
+     of the controls); once the page is scrolled (html.scrolled), a 20 px strip below it fades what
+     passes under (a plain gradient: no backdrop-filter or mask, which can leave WebKit regions
+     unpainted; the app once showed a blank top half after launch, 2026-11-16). Main header,
+     setup's header, the leg picker's top. No pseudo-element behind the controls (z-index -1): iOS
+     painted one over them after a reload (2026-11-15). */
   html.scrolled :is(header, .setup-head, .picker-top)::after {
     content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 20px; pointer-events: none;
-    background: linear-gradient(var(--bg), color-mix(in srgb, var(--bg) 50%, transparent));
-    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-    -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent);
+    background: linear-gradient(var(--bg), transparent);
   }
   /* Focus scrolls (keyboard, VoiceOver) stop below the pinned header. Main screen only: in setup a
      focused field inside the sticky picker top can't move below the padding, and iOS panned the
@@ -642,7 +642,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-16 · 6debc9b269</footer>
+    <footer class="version">Version 2026-11-16 · 024dc81318</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>

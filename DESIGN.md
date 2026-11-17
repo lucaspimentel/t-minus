@@ -469,8 +469,9 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   background covers it down to its bottom edge (its bottom padding keeps content clear of the
   controls; the main header's is 8 px with a 4 px margin, so the en-route bar's -4px top margin
   stays out from under it) and, once the page is scrolled (`html.scrolled`), a 20 px `::after`
-  strip below it fades and blurs what passes under (`backdrop-filter` and a mask; at the top it
-  would cover the first card). No pseudo-element behind the controls: a `z-index: -1` background
+  strip below it fades what passes under (a plain gradient; at the top it would cover the first
+  card). No `backdrop-filter` or mask: they can leave WebKit regions unpainted, and the app once
+  showed a blank top half after launch (2026-11-16). No pseudo-element behind the controls: a `z-index: -1` background
   was painted over them after a reload in the iOS app (2026-11-15). Setup's
   header and the leg picker's top use the same fade. On the main screen `scroll-padding-top` keeps
   focus scrolls below the header; not in setup, where iOS, unable to scroll the picker's sticky
