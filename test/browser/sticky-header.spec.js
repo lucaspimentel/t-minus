@@ -16,8 +16,8 @@ test('the main header stays at the top while the rows scroll under it', async ({
   // At the top no fade below the header (it would cover the first card); scrolled, a 20 px strip.
   const fade = () => page.evaluate(() => getComputedStyle(document.querySelector('header'), '::after').content);
   expect(await fade()).toBe('none');
-  // Not sticky at the top: the iOS app left a sticky header unpainted until the first scroll.
-  expect(await page.evaluate(() => getComputedStyle(document.querySelector('header')).position)).toBe('static');
+  // Sticky from the start: switching to sticky on the first scroll made it flicker.
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('header')).position)).toBe('sticky');
   // The en-route bar's buttons, pulled up 4 px, aren't under the header's background.
   expect(await page.evaluate(() => {
     const b = [...document.querySelectorAll('#enroute button')].find(x => x.textContent === 'Leaving now');

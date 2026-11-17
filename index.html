@@ -57,15 +57,14 @@
   /* Pinned header row (2026-11-15): sticks at the top, its padding reaching under the status bar
      (the iOS app's inset), so nothing scrolls behind the clock. Its 8 + 4 px below make the old 12;
      the en-route bar's -4px top margin reaches only into the 4 px margin, not under the header's
-     background (which cut the top off its buttons, 2026-11-15). Sticky only once the page is
-     scrolled (html.scrolled; at scroll 0 it is in place anyway): the iOS app's web view, after a
-     load or reload, left the sticky header unpainted until the first scroll (2026-11-16). */
+     background (which cut the top off its buttons, 2026-11-15). Always sticky: turning sticky
+     only once scrolled made it flicker on the first scroll (2026-11-17). */
   header {
     display: flex; align-items: center; gap: 8px; background: var(--bg);
+    position: sticky; top: 0; z-index: 5;
     margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 4px;
     padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 8px;
   }
-  html.scrolled header { position: sticky; top: 0; z-index: 5; }
   /* Staging's tag (APP_ENV=staging, from /api/config): in the header's top padding, so the
      layout is the same as prod's. */
   .env-tag {
@@ -642,7 +641,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-16 · 024dc81318</footer>
+    <footer class="version">Version 2026-11-16 · f23729bef2</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
