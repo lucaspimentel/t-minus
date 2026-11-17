@@ -5,7 +5,7 @@
 // Every state is reached through the fake MBTA API's scenarios (helpers.js), with an
 // assertion that the state is on screen before it is measured.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, at, commute, planOptions, expandOption, pickOption, CR_CONFIG, crCommute, riding } from './helpers.js';
+import { openApp, tick, tickTo, at, commute, planOptions, expandOption, pickOption, CR_CONFIG, CONFIG, crCommute, riding } from './helpers.js';
 import { series } from './fake-mbta.js';
 import { expectLayout } from './layout-checks.js';
 
@@ -45,6 +45,19 @@ test('main list: collapsed rows, an expanded row, amber, hurry and missed, previ
   await page.locator('.row.prev .row-toggle').first().click();
   await expect(page.locator('.row.prev .timeline').first()).toBeVisible();
   await check(page, 'previous ride expanded (I got on)');
+});
+
+// The badges on the toward lines (2026-11-17), the long "every 6 min" one beside a headsign.
+test('main list: an expanded row with a headway leg (badges on the toward lines)', async ({ page }) => {
+  const config = structuredClone(CONFIG);
+  config.trips[1].timingLeg = 0;
+  const scenario = commute();
+  for (const t of scenario.trips) t.live = t.route === '132';
+  await openApp(page, { time: '17:00', config, scenario });
+  const row = page.locator('.row:not(.missed)').first();
+  await row.locator('.row-toggle').click();
+  await expect(row.locator('.timeline .step.ride .toward .badge').first()).toHaveText('every 6 min');
+  await check(page, 'expanded row, headway badge on the toward line');
 });
 
 test('main list: at the stop (long departs-in heads)', async ({ page }) => {

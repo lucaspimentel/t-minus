@@ -67,6 +67,13 @@ The legs bar (2026-11-13, mockups accepted): the same bar on the leave, walk and
 expanded Dynamic Island and the medium widget (a followed ride only: the belled ride, walking, the
 transfer, riding, the final walk; not the leave times, not "Did you get on?"). See "Legs bar".
 
+Transfers (2026-11-17; `transferText`): the app's timelines (rows, the ride card, timed
+auto-route options) and the large widget's say the transfer's walk and the time to spare,
+rounded down: "Walk 2 min · 4 min early", "Walk 5 min · 0 min early", "Walk 5 min · 2 min
+short"; "Transfer · 6 min early" without a walk; "~4 min early" before a headway leg. The source
+badge sits on a leg's "toward" line, else its ride line; the large widget tags only legs not yet
+boarded.
+
 Vehicle names and headsigns (`lineLabel` + `toward` on full text lines, `vehicleArrow` on tight
 ones):
 
@@ -77,7 +84,7 @@ ones):
 | Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
 | App card leg strip | "Orange" | none (the expanded row has it) |
 | Widget Home Screen (small, medium; 2026-10-29; large 2026-11-13) | "Orange Line" | "toward Forest Hills" ("→" where it doesn't fit) |
-| Large widget's timeline (2026-11-13) | the app's timeline: "Bus 132 · 6 stops · 17 min" | "toward Malden" under each upcoming ride (none on done or ridden legs; dropped first when it doesn't fit) |
+| Large widget's timeline (2026-11-13) | the app's timeline: "Bus 132 · 6 stops · 17 min" | "toward Malden" under each upcoming ride (none on done or ridden legs; dropped first when it doesn't fit), with the leg's SCHEDULED / LIVE / EVERY 6 MIN tag beside it (2026-11-17; on the ride line once the toward line is dropped) |
 | Connection lines ("then ● Bus 132 at 6:38pm"), Dynamic Island | "Orange" | none |
 | Riding: ride card, expanded island, the widget's sizes (2026-11-06) | "Orange Line" | the drop-off instead: "to Malden Center" ("to 🚩 Malden Center" at a flag stop) |
 | Riding: the app's timeline, the ridden leg (2026-11-06) | "Orange Line" | none (the leg's last row names the drop-off) |
@@ -113,7 +120,8 @@ Each leg time shown carries a source badge:
 | scheduled | From `/schedules`; no prediction exists for that trip yet |
 
 - **Per leg**: merge predictions and schedules per vehicle `trip` id; the prediction wins
-  when present. A leg's badge is its board stop's source (the time the rider must catch).
+  when present. A leg's badge is its board stop's source (the time the rider must catch). In a
+  timeline the badge sits on the leg's "toward" line, else its ride line (2026-11-17).
   Bus predictions exist only for trips in progress or about to start, so with 30-60 min
   headways later buses are usually scheduled. Observed Orange prediction horizon: ~65 min
   (late evening sample).
@@ -490,17 +498,23 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   only when expanded. All times use the compact "8:04am" form (`formatTime`), with the weekday prefixed
   across dates. Tapping a row replaces the summary with a timeline under a divider:
   "Walk 5 min · 1 min early at the stop" (the slack part only when > 0; no first walk on
-  en-route rows), each leg's stops and ride, "9 min to transfer" (the actual gap: next
-  departure − previous arrival), and "Walk 10 min" (`timelineSteps`), between "Leave 8:04am"
-  and "Arrive 8:56am" lines (gray nodes; no Leave on en-route rows, which have no leave-by);
+  en-route rows), each leg's stops and ride, the transfer's walk and time to spare
+  (`transferText`, 2026-11-17: "Walk 5 min · 4 min early", "Transfer · 6 min early" without a
+  walk, "Walk 5 min · 2 min short" when the gap is shorter than the walk, "~4 min early" before a
+  headway leg; minutes rounded down: the gap is the next departure − the previous arrival, the
+  walk the trip's transfer minutes; until 2026-11-17 "9 min to transfer", the gap alone), and
+  "Walk 10 min" (`timelineSteps`), then an "Arrive 8:56am" line (a gray node). No Leave node
+  (2026-11-17: the row's header has the leave-by; until then a "Leave 8:04am" line came first);
   tap again to collapse. Layout
-  (`renderTimeline`, shared with the ride card): Leave, each stop once, and Arrive as nodes on
+  (`renderTimeline`, shared with the ride card): each stop once and Arrive as nodes on
   the rail with their times in one right-aligned column; each stop a hollow node ("Wyoming Ave @ Fellsway E 7:08am"); each ride as a bar in its route's
   color from its first node to its last (drawn in pieces, so it ends at the node even when a
-  name wraps), with "Orange Line · 13 stops · 15 min SCHEDULED" between the two stops (`rideLine`; `lineLabel`: the
+  name wraps), with "Orange Line · 13 stops · 15 min" between the two stops (`rideLine`; `lineLabel`: the
   vehicle's label, `vehicleLabel` for legs on several routes, plus "Line" for subway lines,
-  "Green Line B") and "toward Forest Hills" below it (`toward`: the trip's headsign, from
-  `include=trip`; left out without one). The stop count ("1 stop"; stops after boarding, the
+  "Green Line B") and "toward Forest Hills SCHEDULED" below it (`toward`: the trip's headsign, from
+  `include=trip`; left out without one, and on the leg being ridden). The source badge sits on
+  the toward line (2026-11-17; before, after the minutes on the ride line), on the ride line
+  only for a leg without one, so every leg's lines have the same shape. The stop count ("1 stop"; stops after boarding, the
   drop-off included) comes from the leg's trip stop list, `/schedules?filter[trip]=…&filter[date]=…`
   (`tripStopsQuery`), counted from the board stop to the drop-off with child platforms matched to
   their stations (`tripStopCount`). It is fetched only when a row is expanded, one request per leg,
@@ -509,7 +523,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   schedules (an ADDED or prediction-only train) counts on the scheduled trip closest in time that
   serves both stops (`stopCountTrip`; none: minutes only). Auto-route options get theirs from the
   plan (legs' `stops`). Walks and transfers on a dotted gray rail with a walking figure
-  (walks over 0 min, every transfer) and short text ("10 min to transfer"). Stop names come
+  (walks over 0 min, every transfer) and short text ("Walk 5 min · 4 min early"). Stop names come
   from the `include=stop` records the schedule and prediction responses already carry
   (`stopNames`, `fields[stop]=name,parent_station`; a parent station takes its platform's
   name; no extra requests); until known they show "—". Long names are cut with "…"; tapping a
@@ -2266,8 +2280,18 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
   - Leave times, Trip timeline (and the bell's ride when it's the only row): the app's expanded
     row timeline without the Leave node (the headline has the leave-by): the first walk, each
     leg's boarding stop and drop-off with their times in a right-aligned column, the ride lines
-    ("Bus 132 · 6 stops · 17 min", "toward Malden" under each), the transfer, the final walk,
-    Arrive; "Next: leave 7:57am" under it when it fits.
+    ("Bus 132 · 6 stops · 17 min", "toward Malden" under each), the transfer ("Walk 5 min · 4 min
+    early"), the final walk, Arrive; "Next: leave 7:57am" under it when it fits, "Updated 7:33am"
+    on the same line at the right (2026-11-17).
+  - Badges (2026-11-17): each leg not yet boarded (leave times, the bell, walking, the question,
+    the next leg in the transfer and while riding) carries the app's source badge in small caps
+    ("SCHEDULED", "LIVE", "EVERY 6 MIN"; muted outline: the widget's theme has no green) beside
+    its "toward" line, or its ride line without one.
+  - Next ride (2026-11-17): the bell's leave and departs entries and walking say "Next: leave
+    11:16am" under the timeline (the first catchable ride after the followed one in today's rows;
+    `widgetNextRide`), or "Last ride today" when there's none and today's rows reach the end of
+    service uncut (else nothing). Not on "Did you get on?" or once riding. "Updated 8:20am" at
+    the right: the answer's time (`updated`), so a saved copy shown after a failed fetch keeps its own.
   - Walking, "Did you get on?" ([Yes] [Missed it] below), riding, the transfer and the final
     walk: the app's ride card timeline (en route: no first walk), with no vehicle line above it
     (the timeline names the vehicle): done steps dimmed, the current one bold (riding: the ride
@@ -2281,8 +2305,9 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
   - Each fact once: the timeline leaves out the time the headline names (the boarding stop's from
     "Departs in", walking and the question; the next boarding stop in the transfer; the drop-off
     while riding; Arrive on the final walk).
-  - Too tall (3 legs, long names; `timelineVariants`): first "Next: leave" goes, then the
-    "toward" lines, then the text is 10% smaller, then whole steps are cut, done ones first, then
+  - Too tall (3 legs, long names; `timelineVariants`): first "Next: leave" (or "Last ride
+    today") goes, then "Updated", then the "toward" lines (the badges move to the ride lines),
+    then the text is 10% smaller, then whole steps are cut, done ones first, then
     the upcoming ones nearest before Arrive, each run as one "⋯" row; never the current step or
     Arrive.
   - Data: the widget posts to `/api/widget?size=large&show=timeline|rides` (the same body) and
@@ -2290,12 +2315,15 @@ The iOS app shows its permissions at the end of setup's Settings card, below a d
     are unchanged): `timeline` (core.js `widgetTimeline`: rows `walk` / `stop` / `ride` / `end`,
     text and times already formatted) on each leave row the entries show (with `show=timeline`)
     and on the view for a followed state, and per entry `tl` (`widgetTimelineMarks`: `done`, `current`, `hide`, and
-    `along`, the stops left and the vehicle). Stop counts come from each leg's trip stop list
+    `along`, the stops left and the vehicle). 2026-11-17: ride rows' `source` (`sourceText`), the
+    view's `updated` ("8:20am"), and in the bell's and walking states each entry's `nextRide`
+    (not the question's); builds before these fields show none of them. Stop counts come from each leg's trip stop list
     (`tripStopsQuery`), the count kept on the server per trip, service date and stops (`legStopCounts`, up to 500;
     a failed fetch: minutes only, tried again at the next reload); "More rides" needs none.
 - **Previews:** the `ios` workflow also renders `widget-<theme>.png` (the leave-time samples and
   every followed state, small and medium) and `widget-large-<theme>.png` (every large state, the
-  overflow and the fallback).
+  overflow and the fallback; 2026-11-17 the badges, Next / Last ride today, Updated, their
+  overflow, and old answers without them).
 
 ## Commuter rail (2026-11-01)
 
@@ -2573,7 +2601,8 @@ as From/To and buses as legs (built 2026-10-11; decided the same day):
     ● Orange"). A tap expands it (one option at a time, like the rows) to the timeline the rows use (`optionSteps` → `renderTimeline`,
     passed to setup as `timeline`): Leave, the walk, each ride's bar from its boarding stop to its
     drop-off, "Walk 3 min to transfer" ("Transfer" in a station), the walk, Arrive; untimed, no
-    times, durations or badges. The card's buttons pick it ("See departures" when timed, "Save
+    times, durations or badges. Timed options keep their Leave node and word transfers as the
+    rows do ("Walk 3 min · 4 min early", "Transfer · 6 min early"; `transferText`, 2026-11-17). The card's buttons pick it ("See departures" when timed, "Save
     trip"). The total includes the walks (a point end's from the
     option, else the field's). The rail-only fallback's options show their stop count instead of
     minutes. Legs carry `stopName` / `alightName` and `stops` (ridden, from the pattern: "Orange

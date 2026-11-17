@@ -9,7 +9,7 @@ import {
   leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES, LIVE_SOON_MS,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
-  autoBellNext, autoBellRow, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText, stopSharesError, withStopShares,
+  autoBellNext, autoBellRow, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, widgetNextRide, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText, stopSharesError, withStopShares,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -501,7 +501,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       try {
         // The ride the app follows (widgetFollow), on its own trip; ended or gone: leave times.
         // The large size (2026-11-13: `size=large`, `show=timeline|rides`): the trip's timeline for
-        // followed states and "Trip timeline", with the shown ride's stop counts (legStopCounts).
+        // followed states and "Trip timeline", with the shown ride's stop counts (legStopCounts);
+        // in the bell's and walking states also the next ride (widgetNextRide, 2026-11-17: "Last
+        // ride today" only when today's rows reach the end of service uncut).
         const large = url.searchParams.get('size') === 'large';
         const slack = body.stopSlackMinutes;
         // The shown ride: { legs, nextDay } (a next-day row counts on that day's trips).
@@ -513,7 +515,11 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
           const trip = cfg.trips.find(x => x.id === body.state.trip);
           const { follow, docs } = await widgetFollowing(trip, body.state, slack, t);
           if (follow) {
-            const big = large && await timeline(trip, docs, { legs: follow.kind === 'ride' ? follow.ride.legs : follow.row.legs });
+            // `next`: widgetView shows it in the bell's and walking states only.
+            const big = large && {
+              ...await timeline(trip, docs, { legs: follow.kind === 'ride' ? follow.ride.legs : follow.row.legs }),
+              next: follow.row ? widgetNextRide(docs.rows, follow.row, docs.toEnd) : '',
+            };
             return reply(res, 200, widgetView(trip.name, null, t, follow, big));
           }
         }
@@ -807,16 +813,19 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
   const winOf = w => ({ 'filter[date]': w.date, 'filter[min_time]': w.minTime, 'filter[max_time]': w.maxTime });
   // Each leg's predictions and today's schedules (the shared cache), and the trip's rows from
-  // them (missed ones too), timed on the leg the page would pick from schedules.
+  // them (missed ones too), timed on the leg the page would pick from schedules. `toEnd`: the
+  // rows are all of today's left (the window reaches the end of service, and `count` didn't cut them).
   async function widgetDocs(trip, slack, t, count = WIDGET_ROWS + 1) {
     const { transit } = tripShape(trip);
+    const w = scheduleWindow(t);
     const [predictions, scheduleDocs] = await Promise.all([
       Promise.all(transit.map(l => mbta('/predictions', predictionQuery(l)))),
-      Promise.all(transit.map(l => mbta('/schedules', { ...legQuery(l), ...winOf(scheduleWindow(t)) }))),
+      Promise.all(transit.map(l => mbta('/schedules', { ...legQuery(l), ...winOf(w) }))),
     ]);
     const timing = scheduleTimingLeg(trip, scheduleDocs);
     const alerts = tripAlerts(predictions, t);
-    return { predictions, scheduleDocs, timing, rows: rowsFromDocs(trip, predictions, scheduleDocs, timing, t, slack, count).map(r => withTripAlerts(r, alerts)) };
+    const rows = rowsFromDocs(trip, predictions, scheduleDocs, timing, t, slack, count).map(r => withTripAlerts(r, alerts));
+    return { predictions, scheduleDocs, timing, rows, toEnd: w.coversEndOfService && rows.length < count };
   }
 
   // The followed state now (widgetFollow), a ride with its legs refreshed by trip id, a missed

@@ -722,6 +722,40 @@ test('/api/widget following: a ride (stops, connection), the bell, walking; ende
   } finally { await s.close(); }
 });
 
+test('/api/widget size=large following: the next ride (bell, walking; not the question or riding), the answer\'s time, badges', async () => {
+  const legs = [{ tripId: 'b1', label: 'Bus 132', route: '132', color: 'FFC72C', dep: at('07:10'), arr: at('07:25') }, { tripId: 'o1', label: 'Orange', route: 'Orange', color: 'ED8B00', dep: at('07:33'), arr: at('07:50') }];
+  const body = state => ({ trips: [trip], stopSlackMinutes: 1, oneOffAt: null, override: null, lastUsed: null, state: { trip: 'home', at: at('07:00'), atStop: null, pinned: false, ...state } });
+  const s = await setup();
+  try {
+    const post = async (b, q = '?size=large') => (await s.call('POST', `/api/widget${q}`, b)).json();
+    s.world.bus2 = ['07:25', '07:33'];
+    s.world.orange2 = '07:39';
+    // The rows' keys are the timing leg's trips: with two buses and two trains, the Orange's.
+    const bell = await post(body({ kind: 'track', pinned: true, target: { key: 'o1', legs } }));
+    assert.ok(bell.entries.some(x => x.row >= 0) && bell.entries.filter(x => x.row >= 0).every(x => /^Next: leave 7:\d\dam$/.test(x.nextRide)));
+    assert.equal(bell.entries.at(-1).head, 'Did you get on?');
+    assert.equal(bell.entries.at(-1).nextRide, undefined);
+    assert.equal(bell.updated, '7:00am');
+    assert.ok(bell.timeline.filter(r => r.kind === 'ride').every(r => typeof r.source === 'string'));
+    const plain = await post(body({ kind: 'track', pinned: true, target: { key: 'o1', legs } }), '');
+    assert.equal(plain.entries.at(-1).head, 'Did you get on?'); // followed
+    assert.ok(!('updated' in plain) && plain.entries.every(x => !('nextRide' in x)));
+    const walk = await post(body({ kind: 'leaving', atStop: at('07:08'), target: { key: 'o1', legs } }));
+    assert.ok(walk.entries.length && walk.entries.every(x => /^Next: leave/.test(x.nextRide)));
+    s.world.clock = at('07:15');
+    s.world.rideStops.b1 = busStops(3, '07:18');
+    const ride = await post(body({ kind: 'stop', ride: { legs, boardedAt: at('07:10') } }));
+    assert.ok(ride.entries.length && ride.entries.every(x => !('nextRide' in x)));
+    assert.equal(ride.updated, '7:15am');
+  } finally { await s.close(); }
+  // No later ride, and today's rows don't reach the end of service: unknown, no line.
+  const one = await setup();
+  try {
+    const v = await (await one.call('POST', '/api/widget?size=large', body({ kind: 'track', pinned: true, target: { key: 'b1', legs } }))).json();
+    assert.ok(v.entries.length && v.entries.every(x => !('nextRide' in x)));
+  } finally { await one.close(); }
+});
+
 const busStops = (n, t) => [['s1', 'Pond St', t], ['s2', 'Elm St', t], ['s3', 'Main St', t], ['s4', 'Lynn St', t], ['5991', 'Oak Grove', '07:25']].slice(5 - n);
 
 test('a followed ride: heads-up, get off, a missed connection, get off again, then dropped', async () => {

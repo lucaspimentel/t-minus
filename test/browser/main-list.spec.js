@@ -26,13 +26,17 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
   const tl = first.locator('.timeline');
   await expect(tl.locator('.step.stop .n')).toHaveText(['Main St @ South St', 'Washington St opp Oak Grove Sta', 'Oak Grove', 'State']);
   await expect(tl.locator('.step.stop .t')).toHaveText(['7:08am', '7:22am', '~7:32am', '~7:47am']);
-  await expect(tl.locator('.step.ride')).toHaveText([/^Bus 132 · 2 stops · 14 min\s*scheduled\s*toward Malden$/i, /^Orange Line · 1 stop · 15 min\s*every 6 min\s*toward Forest Hills$/i]);
-  await expect(tl.locator('.step.ride .toward')).toHaveText(['toward Malden', 'toward Forest Hills']); // the trip's headsign, on its own line
+  await expect(tl.locator('.step.ride')).toHaveText([/^Bus 132 · 2 stops · 14 min\s*toward Malden\s*scheduled$/i, /^Orange Line · 1 stop · 15 min\s*toward Forest Hills\s*every 6 min$/i]);
+  // The trip's headsign on its own line, the badge beside it (2026-11-17), not on the ride line.
+  await expect(tl.locator('.step.ride .toward')).toHaveText([/^toward Malden\s*scheduled$/i, /^toward Forest Hills\s*every 6 min$/i]);
+  await expect(tl.locator('.step.ride .toward .badge')).toHaveCount(2);
+  await expect(tl.locator('.step.ride > .badge')).toHaveCount(0);
   expect(await tl.locator('.tl-leg').evaluateAll(ls => ls.map(l => l.style.getPropertyValue('--c')))).toEqual(['#FFC72C', '#ED8B00']);
-  await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min · 1 min early at the stop', '10 min to transfer', 'Walk 10 min']);
-  // Leave and Arrive at the ends, in the same time column.
-  await expect(tl.locator('.step.end')).toHaveText([/^Leave\s*7:02am$/, /^Arrive\s*~7:57am$/]);
-  await expect(tl.locator('.step').first()).toHaveClass(/\bend\b/);
+  // The transfer: its walk and the time to spare ("~": the Orange Line by its headway).
+  await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min · 1 min early at the stop', 'Walk 5 min · ~5 min early', 'Walk 10 min']);
+  // Arrive at the end; no Leave node (the row's header has the leave-by, 2026-11-17).
+  await expect(tl.locator('.step.end')).toHaveText([/^Arrive\s*~7:57am$/]);
+  await expect(tl.locator('.step').first()).toHaveClass(/\bwalk\b/);
   await expect(tl.locator('.step').last()).toHaveClass(/\bend\b/);
   await expect(tl.locator('.step.walk .walk-icon')).toHaveCount(3);
   // Tapping a stop shows its full name (kept across re-renders) and doesn't collapse the row.
@@ -313,7 +317,7 @@ test('a subway leg with no predictions shows its headway and "~" times; a predic
   const tl = row.locator('.timeline');
   await expect(tl.locator('.step.ride .badge')).toHaveText(['every 6 min', 'live']);
   await expect(tl.locator('.step.stop .t')).toHaveText([/^~\d+:\d+pm$/, /^~\d+:\d+pm$/, /^\d+:\d+pm$/, /^\d+:\d+pm$/]);
-  await expect(tl.locator('.step.end .t')).toHaveText([/^\d+:\d+pm$/, /^\d+:\d+pm$/]); // Leave and Arrive stay plain
+  await expect(tl.locator('.step.end .t')).toHaveText([/^\d+:\d+pm$/]); // Arrive stays plain
   // Home to office ends on the Orange Line: the arrival is "~".
   await page.locator('#toggle select').selectOption('0');
   await expect(page.locator('.row .summary .arrive').first()).toHaveText(/^arrive ~\d+:\d+pm$/);

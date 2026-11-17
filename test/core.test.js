@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, transferText, widgetNextRide, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   validAutoBell, bostonMs, autoBellNext, autoBellRow, autoBellLabel, autoBellTrips,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, tripStopShares, withStopShares, legAtError, stopSharesError, stopCountTrip, stopCountText, rideLine,
@@ -865,26 +865,31 @@ test('getOffText: only with the drop-off left; "Get off here" while stopped ther
   assert.equal(getOffText({ vehicle: { status: 'STOPPED_AT', name: 'Oak Grove', atDropOff: true }, stops: [s('Oak Grove', true)] }), 'Get off here');
 });
 
-test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {
+test('timelineSteps: walks, legs, each transfer\'s walk and time to spare, arrival; no Leave', () => {
   const buses = [veh('b1', '10:24', '10:34', 'live')];
   const trains = [veh('o1', '10:43', '10:57', 'live')];
   const [row] = tripRows(homeToOffice, [buses, trains], 0, at('10:00'), 1);
   const texts = steps => steps.map(s => (s.kind === 'leg' ? `[${s.leg.route} ${s.leg.source}]`
     : s.kind === 'end' ? `${s.label} ${formatTime(s.time, at('10:00'))}` : s.text));
   assert.deepEqual(texts(timelineSteps(row, homeToOffice, 1, at('10:00'))), [
-    'Leave 10:18am', 'Walk 5 min · 1 min early at the stop', '[132 live]', '9 min to transfer', '[Orange live]',
+    'Walk 5 min · 1 min early at the stop', '[132 live]', 'Walk 5 min · 4 min early', '[Orange live]', // no Leave: the row's header has it
     'Walk 10 min', 'Arrive 11:07am',
   ]);
-  assert.equal(timelineSteps(row, homeToOffice, 0, at('10:00'))[1].text, 'Walk 5 min');
-  // En route: no Leave, no first walk.
+  assert.equal(timelineSteps(row, homeToOffice, 0, at('10:00'))[0].text, 'Walk 5 min');
+  // A headway next leg: "~" on the time to spare; a gap shorter than the walk: short.
+  const headway = { ...row, legs: [row.legs[0], { ...row.legs[1], every: 6 }] };
+  assert.equal(timelineSteps(headway, homeToOffice, 1, at('10:00'))[2].text, 'Walk 5 min · ~4 min early');
+  const short = { ...row, legs: [row.legs[0], { ...row.legs[1], dep: row.legs[0].arr + 3 * 60_000 }] };
+  assert.equal(timelineSteps(short, homeToOffice, 1, at('10:00'))[2].text, 'Walk 5 min · 2 min short');
+  // En route: no first walk.
   assert.equal(texts(timelineSteps({ ...row, enRoute: true }, homeToOffice, 1, at('10:00')))[0], '[132 live]');
-  // No walks configured: slack only, then "Arrive".
+  // No walks configured: slack only, then "Arrive"; the 5 min transfer with a 30 s gap: short (rounded down).
   const bare = { legs: homeToOffice.legs.filter(l => l.kind !== 'walk') };
   const tight = { ...row, legs: [row.legs[0], { ...row.legs[1], dep: row.legs[0].arr + 30_000 }], eta: at('10:57') };
   assert.deepEqual(texts(timelineSteps(tight, bare, 1, at('10:00'))), [
-    'Leave 10:18am', '1 min early at the stop', '[132 live]', '<1 min to transfer', '[Orange live]', 'Arrive 10:57am',
+    '1 min early at the stop', '[132 live]', 'Walk 5 min · 5 min short', '[Orange live]', 'Arrive 10:57am',
   ]);
-  assert.equal(timelineSteps(tight, bare, 0, at('10:00'))[1].kind, 'leg');
+  assert.equal(timelineSteps(tight, bare, 0, at('10:00'))[0].kind, 'leg');
 
   // With stop names: each leg's first and last stop (the walks stay short), and its duration.
   const names = stopNames(
@@ -893,9 +898,9 @@ test('timelineSteps: walks, legs, actual transfer gaps, arrival', () => {
   assert.deepEqual([names.get('place-ogmnl'), names.get('70036'), names.get('5991')], ['Oak Grove', 'Oak Grove', 'Washington St opp Oak Grove Sta']);
   const named = timelineSteps(row, homeToOffice, 1, at('10:00'), names);
   assert.deepEqual(texts(named), texts(timelineSteps(row, homeToOffice, 1, at('10:00'))));
-  assert.deepEqual([named[2].from, named[2].to, named[2].minutes, named[4].from, named[4].to, named[4].minutes],
+  assert.deepEqual([named[1].from, named[1].to, named[1].minutes, named[3].from, named[3].to, named[3].minutes],
     ['Main St @ South St', 'Washington St opp Oak Grove Sta', '10 min', 'Oak Grove', 'State', '14 min']);
-  assert.deepEqual([timelineSteps(row, homeToOffice, 1, at('10:00'))[2].from, timelineSteps(row, homeToOffice, 1, at('10:00'))[4].to], [null, null]);
+  assert.deepEqual([timelineSteps(row, homeToOffice, 1, at('10:00'))[1].from, timelineSteps(row, homeToOffice, 1, at('10:00'))[3].to], [null, null]);
   // Walking icons: walks over 0 min and every transfer; none for slack only or "Arrive".
   const walking = steps => steps.filter(st => st.kind === 'walk').map(st => !!st.walking);
   assert.deepEqual(walking(named), [true, true, true]);
@@ -1670,13 +1675,30 @@ test('optionSteps: a timed option as timeline steps; untimed: no times, transfer
   const steps = optionSteps(timed, { walkBefore: 3, walkAfter: 5, slack: 1, legs });
   assert.deepEqual(steps.map(s => s.kind === 'leg' ? `${s.leg.label} ${s.minutes} ${s.leg.source} ${s.from}>${s.to}` : s.kind === 'walk' ? s.text : `${s.label} ${s.time}`), [
     'Leave 0', 'Walk 3 min · 1 min early at the stop', 'Bus 132 11 min live Main St @ South St>Washington St opp Oak Grove Sta',
-    '7 min to transfer', 'Orange 18 min scheduled Oak Grove>State', 'Walk 5 min', `Arrive ${45 * M}`]);
+    'Walk 3 min · 4 min early', 'Orange 18 min scheduled Oak Grove>State', 'Walk 5 min', `Arrive ${45 * M}`]);
   assert.deepEqual(steps[2].leg, { label: 'Bus 132', color: 'FFC72C', dep: 4 * M, arr: 15 * M, source: 'live', headsign: 'Malden' });
   const plain = optionSteps(o, { walkBefore: 3, walkAfter: 0, slack: 1, legs });
   assert.deepEqual(plain.map(s => s.text ?? s.time ?? s.minutes ?? null), [null, 'Walk 3 min', null, 'Walk 3 min to transfer', null, null]);
   assert.deepEqual(plain[2].leg, { label: 'Bus 132', color: 'FFC72C' });
   // Rail only (the browser's search): transfers are station names, in the station.
   assert.equal(optionSteps({ legs: [{}, {}], transfers: ['Oak Grove'] }, { walkBefore: 0, walkAfter: 0, legs })[2].text, 'Transfer');
+  // Timed, in the station: no walk, the time to spare; "~" before a headway leg.
+  const rail = { legs: [{}, {}], transfers: ['Oak Grove'], leave: 0, arrive: 45 * M, deps: [{ dep: 4 * M, arr: 15 * M, source: 'live' }, { dep: 21 * M, arr: 40 * M, source: 'live', every: 6 }] };
+  assert.equal(optionSteps(rail, { walkBefore: 0, walkAfter: 0, legs })[2].text, 'Transfer · ~6 min early');
+});
+
+test('transferText: the walk and the time to spare, rounded down; short; "~" for a headway', () => {
+  const M = 60_000;
+  assert.equal(transferText(6 * M, 2), 'Walk 2 min · 4 min early');
+  assert.equal(transferText(5 * M, 5), 'Walk 5 min · 0 min early');
+  assert.equal(transferText(3 * M, 5), 'Walk 5 min · 2 min short');
+  assert.equal(transferText(6 * M, 0), 'Transfer · 6 min early');
+  assert.equal(transferText(30_000, 0), 'Transfer · 0 min early');
+  assert.equal(transferText(-2 * M, 0), 'Transfer · 2 min short');
+  assert.equal(transferText(6 * M, 2, true), 'Walk 2 min · ~4 min early');
+  assert.equal(transferText(3 * M, 5, true), 'Walk 5 min · ~2 min short');
+  assert.equal(transferText(6 * M + 50_000, 2), 'Walk 2 min · 4 min early');
+  assert.equal(transferText(2 * M + 30_000, 3), 'Walk 3 min · 1 min short');
 });
 
 test('nextWeekday: today on a weekday, else Monday', () => {
@@ -2791,7 +2813,7 @@ test('widgetTimeline: the app timeline as text rows, no Leave; en route without 
   const tl = widgetTimeline(leaveRow(), trip, 2, TL_NAMES, [6, null]);
   assert.deepEqual(tlText(tl.rows), [
     'walk|Walk 5 min · 2 min early at the stop|', 'stop|Main St @ South St|7:48am', 'ride|Bus 132 · 6 stops · 14 min|toward Malden',
-    'stop|Washington St opp Oak Grove Sta|8:02am', 'walk|4 min to transfer|', 'stop|Oak Grove|8:06am', 'ride|Orange Line · 9 min|',
+    'stop|Washington St opp Oak Grove Sta|8:02am', 'walk|Walk 5 min · 1 min short|', 'stop|Oak Grove|8:06am', 'ride|Orange Line · 9 min|',
     'stop|State|8:15am', 'walk|Walk 10 min|', 'end|Arrive|8:25am',
   ]);
   assert.deepEqual(tl.legs, [{ from: 1, ride: 2, to: 3 }, { from: 5, ride: 6, to: 7 }]);
@@ -2804,6 +2826,12 @@ test('widgetTimeline: the app timeline as text rows, no Leave; en route without 
   row.legs[1] = { ...row.legs[1], every: 6, flag: 'alight' };
   const h = widgetTimeline(row, trip, 0, TL_NAMES).rows;
   assert.deepEqual([h[5].time, h.at(-1).time, h[7].name], ['~8:06am', '~8:25am', 'State · Flag stop']);
+  // The app's badge on each timed ride row (2026-11-17); "~" on the headway leg's transfer.
+  assert.deepEqual([tl.rows[2].source, tl.rows[6].source], [undefined, undefined]); // leaveRow's legs carry no source
+  const sourced = leaveRow();
+  sourced.legs = [{ ...sourced.legs[0], source: 'scheduled' }, { ...sourced.legs[1], source: 'live', every: 6 }];
+  const sr = widgetTimeline(sourced, trip, 0, TL_NAMES).rows;
+  assert.deepEqual([sr[2].source, sr[6].source, sr[4].text], ['scheduled', 'every 6 min', 'Walk 5 min · ~1 min short']);
 });
 
 test('widgetTimelineMarks: done, current and the hidden time per phase; the stops left on the bar', () => {
@@ -2865,6 +2893,33 @@ test('widgetView large: the leave rows\' timeline (Trip timeline only), the depa
   assert.equal(bell.rows[0].timeline[0].kind, 'walk');
   assert.equal(bell.timeline[0].kind, 'stop');
   assert.deepEqual(bell.entries.filter(e => e.at <= at('07:49') / 1000).at(-1).tl, { done: 0, current: 0, hide: 0 });
+  // 2026-11-17: `updated` on large answers only; `nextRide` on the bell's row entries and the walk's.
+  assert.equal(v.updated, '7:30am');
+  assert.equal('updated' in plain, false);
+  const next = { ...large, next: 'Next: leave 7:51am' };
+  const nb = widgetView('Home → Work', null, at('07:30'), { kind: 'bell', row: leaveRow() }, next);
+  assert.ok(nb.entries.filter(e => e.row >= 0).every(e => e.nextRide === 'Next: leave 7:51am'));
+  assert.ok(nb.entries.filter(e => e.row < 0).length > 0 && nb.entries.filter(e => e.row < 0).every(e => !('nextRide' in e))); // the question
+  assert.equal(nb.updated, '7:30am');
+  const plainBell = widgetView('Home → Work', null, at('07:30'), { kind: 'bell', row: leaveRow() });
+  assert.ok(!('updated' in plainBell) && plainBell.entries.every(e => !('nextRide' in e)));
+  const nw = widgetView('Home → Work', [], at('07:40'), { kind: 'walk', row: leaveRow(), enRoute: { kind: 'leaving', at: at('07:30'), atStop: at('07:44') } }, next);
+  assert.ok(nw.entries.length && nw.entries.every(e => e.nextRide === 'Next: leave 7:51am'));
+  const nr = widgetView('Home → Work', [], at('07:53'), follow, next);
+  assert.ok(nr.entries.every(e => !('nextRide' in e)) && nr.updated === '7:53am');
+});
+
+test('widgetNextRide: the next catchable ride after the followed one; Last ride today; unknown', () => {
+  const r1 = leaveRow();
+  const r2 = { ...leaveRow(), key: 'b2', leaveBy: at('07:51'), firstDep: at('08:00') };
+  const r3 = { ...leaveRow(), key: 'b3', leaveBy: at('08:06'), firstDep: at('08:15') };
+  assert.equal(widgetNextRide([r1, r2, r3], r1, false), 'Next: leave 7:51am');
+  assert.equal(widgetNextRide([r1, { ...r2, missed: true }, r3], r1, false), 'Next: leave 8:06am');
+  assert.equal(widgetNextRide([r1, { ...r3, nextDay: true }], r1, true), 'Last ride today');
+  assert.equal(widgetNextRide([r1], r1, true), 'Last ride today');
+  assert.equal(widgetNextRide([r1], r1, false), ''); // the rows may not reach the end of service
+  const { key: _, ...walking } = r2; // no key: by departure
+  assert.equal(widgetNextRide([r1, r2, r3], walking, false), 'Next: leave 8:06am');
 });
 
 test('scheduleTimingLeg: the longest headway from schedules, or the pinned leg', () => {
