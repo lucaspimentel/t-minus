@@ -64,7 +64,10 @@ test('the ride card follows the trip: riding, transfer, riding, walking, arrived
   await expect(card(page).locator('.summary')).toHaveCount(0); // the arrival time is the timeline's end only
   // The ridden leg: no headsign (its last row names the drop-off); the next leg keeps its own.
   await expect(card(page).locator('.step.ride.current .toward')).toHaveCount(0);
-  await expect(card(page).locator('.step.ride .toward')).toHaveText(['toward Forest Hills']);
+  await expect(card(page).locator('.step.ride .toward')).toHaveText([/^toward Forest Hills\s*every 6 min$/i]);
+  // The badges: the ridden leg's on its ride line, the next leg's beside its headsign.
+  await expect(card(page).locator('.step.ride.current > .badge')).toHaveCount(1);
+  await expect(card(page).locator('.step.ride .toward .badge')).toHaveCount(1);
   // The buttons sit below the timeline, not on its last row.
   const gap = await card(page).evaluate(c => c.querySelector('.ride-btns').getBoundingClientRect().top - c.querySelector('.timeline').getBoundingClientRect().bottom);
   expect(gap).toBeGreaterThanOrEqual(8);

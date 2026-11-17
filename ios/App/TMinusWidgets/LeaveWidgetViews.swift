@@ -220,7 +220,9 @@ private struct HomeHeadline: View {
 //   the vehicle where it differs from the first ride's, arrival);
 // - leave times with "Trip timeline", walking, "Did you get on?" ([Yes] [Missed it] below), riding,
 //   the transfer and the final walk: the app's timeline (TripTimeline), with no vehicle line above
-//   it (the timeline names the vehicle);
+//   it (the timeline names the vehicle); under it "Next: leave 11:16am" (the answer's
+//   `nextRide` in the bell's and walking states, "Last ride today"; else the leave times' next
+//   row) and "Updated 8:20am" (the answer's `updated`, 2026-11-17);
 // - arrived, or an answer without a timeline (older servers): the medium's layout.
 private struct LargeHome: View {
     let content: LeaveContent
@@ -231,7 +233,9 @@ private struct LargeHome: View {
         let tl = content.entry?.tl
         // The server sends the timeline only where it shows: followed states and "Trip timeline".
         if let rows = content.timeline, let tl {
-            timelineLayout(th, rows: rows, marks: tl, next: row >= 0 && content.rows.count > 1 ? content.rows[1].time : nil)
+            let next = content.entry?.nextRide.flatMap { $0.isEmpty ? nil : $0 }
+                ?? (row >= 0 && content.rows.count > 1 ? "Next: leave \(content.rows[1].time)" : nil)
+            timelineLayout(th, rows: rows, marks: tl, next: next, updated: content.updated.map { "Updated \($0)" })
         } else if row >= 0 {
             VStack(alignment: .leading, spacing: 2) {
                 header(th)
@@ -260,11 +264,11 @@ private struct LargeHome: View {
         }
     }
 
-    private func timelineLayout(_ th: Theme, rows: [WidgetView.TLRow], marks: WidgetView.TLMarks, next: String?) -> some View {
+    private func timelineLayout(_ th: Theme, rows: [WidgetView.TLRow], marks: WidgetView.TLMarks, next: String?, updated: String?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             header(th)
             Rectangle().fill(th.track).frame(height: 1).padding(.top, 6).padding(.bottom, 2)
-            TripTimeline(rows: rows, marks: marks, next: next.map { "Next: leave \($0)" }, th: th)
+            TripTimeline(rows: rows, marks: marks, next: next, updated: updated, th: th)
             if let dep = content.askDep {
                 AnswerButtons(dep: dep, text: th.text, track: th.track).padding(.top, 6)
             }
@@ -306,24 +310,31 @@ private struct LargeHome: View {
 
 // The large size's timeline, as the app's (index.html renderTimeline): stops as nodes on the
 // rail with their times in a right-aligned column, each ride as a bar in its route's color with
-// its line ("Bus 132 · 6 stops · 17 min", "toward Malden" before boarding), walks and transfers
-// on a dotted rail, Arrive at the end; done steps dimmed, the current one bold, the headline's
-// time left out (`hide`), and while riding the vehicle and the stops left on the ridden leg's bar.
-// Too tall (timelineVariants, in order): no "Next: leave", no "toward" lines, smaller text, then
-// steps cut (done ones first, then the upcoming ones nearest Arrive) as one "⋯" row each.
+// its line ("Bus 132 · 6 stops · 17 min", "toward Malden" before boarding), the app's badge
+// (LIVE, SCHEDULED, EVERY 6 MIN; 2026-11-17) on legs not yet boarded, beside the toward line (the
+// ride line without one), walks and transfers on a dotted rail, Arrive at the end; done steps
+// dimmed, the current one bold, the headline's time left out (`hide`), and while riding the
+// vehicle and the stops left on the ridden leg's bar. Below: `next` left, `updated` right.
+// Too tall (timelineVariants, in order): no `next`, no `updated`, no "toward" lines, smaller
+// text, then steps cut (done ones first, then the upcoming ones nearest Arrive) as one "⋯" row each.
 struct TripTimeline: View {
     let rows: [WidgetView.TLRow]
     let marks: WidgetView.TLMarks
     let next: String?
+    var updated: String? = nil
     let th: Theme
     var body: some View {
         ViewThatFits(in: .vertical) {
-            ForEach(Array(timelineVariants(rows, marks, hasNext: next != nil).enumerated()), id: \.offset) { _, v in
+            ForEach(Array(timelineVariants(rows, marks, hasNext: next != nil, hasUpdated: updated != nil).enumerated()), id: \.offset) { _, v in
                 VStack(alignment: .leading, spacing: 0) {
                     TimelineRows(rows: rows, marks: marks, variant: v, th: th)
-                    if v.next, let next {
+                    if (v.next && next != nil) || (v.updated && updated != nil) {
                         Spacer(minLength: 6)
-                        Text(next).font(.system(size: 14)).foregroundStyle(th.muted).lineLimit(1)
+                        HStack(alignment: .firstTextBaseline, spacing: 0) {
+                            if v.next, let next { Text(next).font(.system(size: 14)).foregroundStyle(th.muted).lineLimit(1) }
+                            Spacer(minLength: 8)
+                            if v.updated, let updated { Text(updated).font(.system(size: 12)).foregroundStyle(th.muted).lineLimit(1).fixedSize() }
+                        }
                     }
                 }
             }
@@ -334,17 +345,20 @@ struct TripTimeline: View {
 
 struct TimelineVariant: Hashable {
     var next: Bool
+    var updated: Bool = false
     var toward: Bool
     var scale: CGFloat
     var cut: Set<Int> // row indices left out
 }
 
-// The overflow order: with "Next: leave" and "toward", without Next, without toward, at 0.9,
-// then cutting whole steps (a walk, or a leg's stop, ride and stop): the done ones first (the
-// earliest first), then the upcoming ones nearest before Arrive; never the current rows or Arrive.
-func timelineVariants(_ rows: [WidgetView.TLRow], _ marks: WidgetView.TLMarks, hasNext: Bool) -> [TimelineVariant] {
+// The overflow order: with "Next: leave", "Updated" and "toward", without Next, without Updated,
+// without toward (the badges move to the ride lines), at 0.9, then cutting whole steps (a walk,
+// or a leg's stop, ride and stop): the done ones first (the earliest first), then the upcoming
+// ones nearest before Arrive; never the current rows or Arrive.
+func timelineVariants(_ rows: [WidgetView.TLRow], _ marks: WidgetView.TLMarks, hasNext: Bool, hasUpdated: Bool = false) -> [TimelineVariant] {
     var out: [TimelineVariant] = []
-    if hasNext { out.append(TimelineVariant(next: true, toward: true, scale: 1, cut: [])) }
+    if hasNext { out.append(TimelineVariant(next: true, updated: hasUpdated, toward: true, scale: 1, cut: [])) }
+    if hasUpdated { out.append(TimelineVariant(next: false, updated: true, toward: true, scale: 1, cut: [])) }
     out.append(TimelineVariant(next: false, toward: true, scale: 1, cut: []))
     out.append(TimelineVariant(next: false, toward: false, scale: 1, cut: []))
     out.append(TimelineVariant(next: false, toward: false, scale: 0.9, cut: []))
@@ -370,6 +384,19 @@ func timelineVariants(_ rows: [WidgetView.TLRow], _ marks: WidgetView.TLMarks, h
         out.append(TimelineVariant(next: false, toward: false, scale: 0.9, cut: cut))
     }
     return out
+}
+
+// The app's source badge, small: "SCHEDULED", "LIVE", "EVERY 6 MIN" in an outline (2026-11-17).
+private struct SourceTag: View {
+    let text: String
+    let scale: CGFloat
+    let th: Theme
+    var body: some View {
+        Text(text.uppercased()).font(.system(size: (9 * scale).rounded(), weight: .semibold)).foregroundStyle(th.muted).lineLimit(1)
+            .padding(.horizontal, 4).padding(.vertical, 1)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(th.muted.opacity(0.6), lineWidth: 1))
+            .fixedSize()
+    }
 }
 
 private struct TimelineRows: View {
@@ -412,11 +439,20 @@ private struct TimelineRows: View {
                 }
             } content: { small }
         case "ride":
+            // The badge on legs not yet boarded: beside the toward line, else the ride line.
+            let tag = p == .plain ? r.source.flatMap { $0.isEmpty ? nil : $0 } : nil
+            let towardShown = variant.toward && p == .plain && !(r.toward ?? "").isEmpty
             line { color.frame(width: 8).opacity(fade) } content: {
                 VStack(alignment: .leading, spacing: 0) {
-                    small
-                    if variant.toward, p == .plain, let toward = r.toward, !toward.isEmpty {
-                        Text(toward).font(size(11)).foregroundStyle(th.muted).lineLimit(1)
+                    HStack(spacing: 4) {
+                        small
+                        if let tag, !towardShown { SourceTag(text: tag, scale: variant.scale, th: th) }
+                    }
+                    if towardShown, let toward = r.toward {
+                        HStack(spacing: 4) {
+                            Text(toward).font(size(11)).foregroundStyle(th.muted).lineLimit(1)
+                            if let tag { SourceTag(text: tag, scale: variant.scale, th: th) }
+                        }
                     }
                 }
                 .padding(.vertical, 2)

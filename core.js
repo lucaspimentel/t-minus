@@ -963,8 +963,9 @@ export function timedOptions(options, rows, limit = 8) {
 
 // An auto-route option as timeline steps (timelineSteps' shape): Leave, the walk, each ride
 // (`legs`: [{ label, color, from, to }] per option leg) with its timed vehicle (o.deps) and its
-// stop count (the option leg's `stops`), the transfers between, the walk, Arrive. Untimed: no times, durations or badges; a transfer is its
-// walk ("Walk 3 min to transfer"), or "Transfer" in the station.
+// stop count (the option leg's `stops`), the transfers between, the walk, Arrive. Timed: a
+// transfer reads its walk and the time to spare (transferText). Untimed: no times, durations or
+// badges; a transfer is its walk ("Walk 3 min to transfer"), or "Transfer" in the station.
 export function optionSteps(o, { walkBefore, walkAfter, slack = 0, legs }) {
   const timed = o.leave != null;
   const steps = [{ kind: 'end', label: 'Leave', time: timed ? o.leave : null }];
@@ -975,8 +976,8 @@ export function optionSteps(o, { walkBefore, walkAfter, slack = 0, legs }) {
     if (i > 0) {
       const prev = timed ? o.deps?.[i - 1] : null;
       const t = o.transfers?.[i - 1];
-      const min = typeof t === 'object' ? t?.min : 0;
-      steps.push(d && prev ? { kind: 'walk', text: `${formatCountdown(d.dep - prev.arr)} to transfer`, walking: true }
+      const min = (typeof t === 'object' ? t?.min : 0) ?? 0;
+      steps.push(d && prev ? { kind: 'walk', text: transferText(d.dep - prev.arr, min, !!d.every), walking: true }
         : min > 0 ? { kind: 'walk', text: `Walk ${min} min to transfer`, walking: true } : { kind: 'walk', text: 'Transfer', walking: false });
     }
     const { label, color, from, to } = legs[i];
@@ -1917,19 +1918,19 @@ export function keepAwakeRiding(ride, walkAfter, nowMs, on) {
 // the actual gap at each transfer, and the final walk with the arrival time.
 // `names`: stop id → name (stopNames). Leg steps carry `from`/`to` (null when unknown) and the
 // ride's `minutes`; walk and transfer steps are short text, with `walking` when they involve
-// walking (walks over 0 min, every transfer). `end` steps put the leave-by time ("Leave", rows
-// with one) and the arrival ("Arrive") on the rail like stops.
+// walking (walks over 0 min, every transfer). The `end` step puts the arrival ("Arrive") on the
+// rail like a stop; there's no Leave node (2026-11-17: the row's header has the leave-by).
+// A transfer reads its walk and the time to spare (transferText).
 // `stopCounts`: stops ridden per leg (null: unknown), shown on the ride line when known.
 export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map(), stopCounts = []) {
-  const { walkBefore, walkAfter, transit } = tripShape(trip);
+  const { walkBefore, walkAfter, transit, transfers } = tripShape(trip);
   const steps = [];
-  if (!row.enRoute && row.leaveBy != null) steps.push({ kind: 'end', label: 'Leave', time: row.leaveBy });
   if (!row.enRoute) {
     const parts = [walkBefore > 0 && `Walk ${walkBefore} min`, slackMinutes > 0 && `${slackMinutes} min early at the stop`].filter(Boolean);
     if (parts.length) steps.push({ kind: 'walk', text: parts.join(' · '), walking: walkBefore > 0 });
   }
   row.legs.forEach((leg, i) => {
-    if (i > 0) steps.push({ kind: 'walk', text: `${formatCountdown(leg.dep - row.legs[i - 1].arr)} to transfer`, walking: true });
+    if (i > 0) steps.push({ kind: 'walk', text: transferText(leg.dep - row.legs[i - 1].arr, transfers[i - 1] ?? 0, !!leg.every), walking: true });
     steps.push({
       kind: 'leg', leg, minutes: formatCountdown(leg.arr - leg.dep), approx: !!leg.every, ...stopsOf(stopCounts[i]),
       from: names.get(transit[i]?.stop) ?? null, to: names.get(transit[i]?.alight) ?? null,
@@ -2295,6 +2296,15 @@ export function stopCountTrip(leg, transitLeg, scheduleTrips) {
 
 export const stopCountText = n => `${n} stop${n === 1 ? '' : 's'}`;
 const stopsOf = n => (Number.isInteger(n) && n > 0 ? { stops: n } : {});
+
+// A transfer's line (2026-11-17): its walk and the time to spare, rounded down like the
+// countdowns: "Walk 2 min · 4 min early", "Transfer · 0 min early" (no walk), "Walk 5 min · 2 min
+// short" (a 30 s shortfall is "1 min short"); "~" when the next leg is a headway estimate.
+export function transferText(gapMs, walkMin, approx = false) {
+  const s = Math.floor((gapMs - walkMin * MIN) / MIN);
+  const head = walkMin > 0 ? `Walk ${walkMin} min` : 'Transfer';
+  return `${head} · ${approx ? '~' : ''}${s >= 0 ? s : -s} min ${s >= 0 ? 'early' : 'short'}`;
+}
 
 // A timeline ride line: "Orange Line · 13 stops · 12 min" (stops and minutes when known).
 export const rideLine = s => [lineLabel(s.leg), s.stops > 0 && stopCountText(s.stops), s.minutes].filter(Boolean).join(' · ');
@@ -3236,16 +3246,14 @@ export const WIDGET_RIDE_REFRESH_MIN = 5; // while following a ride (at each sto
 // The large widget's trip timeline (2026-11-13): the app's timeline (timelineSteps) flattened to
 // text rows, without the Leave node (the headline has the leave-by). Rows: { kind: 'walk', text,
 // walking }, { kind: 'stop', name, time, color, bar: 'start' | 'end' } (a leg's boarding stop and
-// drop-off; "—" unknown), { kind: 'ride', text, toward, color }, { kind: 'end', name: 'Arrive',
-// time }. Times carry no weekday. `legs`: each leg's row indices ({ from, ride, to }).
+// drop-off; "—" unknown), { kind: 'ride', text, toward, color, source }, { kind: 'end', name:
+// 'Arrive', time }. `source` (2026-11-17; with a timed leg): the app's badge, sourceText ("live",
+// "scheduled", "every 6 min"). Times carry no weekday. `legs`: each leg's row indices ({ from, ride, to }).
 export function widgetTimeline(row, trip, slackMinutes, names = new Map(), stopCounts = [], { enRoute = false } = {}) {
   const rows = [];
   const legs = [];
   for (const s of timelineSteps({ ...row, enRoute }, trip, slackMinutes, 0, names, stopCounts)) {
-    if (s.kind === 'end') {
-      if (s.label === 'Arrive') rows.push({ kind: 'end', name: 'Arrive', time: s.time == null ? '' : `${s.approx ? '~' : ''}${formatTime(s.time)}` });
-      continue;
-    }
+    if (s.kind === 'end') { rows.push({ kind: 'end', name: 'Arrive', time: s.time == null ? '' : `${s.approx ? '~' : ''}${formatTime(s.time)}` }); continue; }
     if (s.kind === 'walk') { rows.push({ kind: 'walk', text: s.text, walking: !!s.walking }); continue; }
     const color = s.leg.color ?? '';
     const stop = (name, ms, at, bar) => {
@@ -3253,7 +3261,7 @@ export function widgetTimeline(row, trip, slackMinutes, names = new Map(), stopC
       return { kind: 'stop', name: `${name ?? '—'}${flag ? ` · ${flag}` : ''}`, time: ms == null ? '' : legTime(s.leg, ms), color, bar };
     };
     const from = rows.push(stop(s.from, s.leg.dep, 'board', 'start')) - 1;
-    const ride = rows.push({ kind: 'ride', text: rideLine(s), toward: toward(s.leg), color }) - 1;
+    const ride = rows.push({ kind: 'ride', text: rideLine(s), toward: toward(s.leg), color, ...(s.leg.source && { source: sourceText(s.leg) }) }) - 1;
     const to = rows.push(stop(s.to, s.leg.arr, 'alight', 'end')) - 1;
     legs.push({ from, ride, to });
   }
@@ -3316,6 +3324,9 @@ export function widgetTimelineMarks(tl, kind, phase = null, stops = null, boardi
 // above, unchanged): { trip, slack, names, counts }. The rows its entries show carry the trip's
 // timeline (widgetTimeline: per row `timeline`, a followed state's `view.timeline`), and entries
 // `tl` (widgetTimelineMarks). `counts`: stops per leg of the shown ride (the first row's).
+// 2026-11-17: large answers also carry `updated` (the answer's time, "8:20am"), and with `next`
+// (widgetNextRide; followed states) the bell's leave and departs entries and the walk's carry
+// it as `nextRide` ("Next: leave 11:16am", "Last ride today").
 export function widgetView(tripName, rows, nowMs, follow = null, large = null) {
   if (follow && follow.kind !== 'bell') return widgetFollowView(tripName, follow, nowMs, large);
   if (follow) rows = [follow.row];
@@ -3383,7 +3394,20 @@ export function widgetView(tripName, rows, nowMs, follow = null, large = null) {
   }
   tls.forEach((tl, i) => { if (tl) lines[i].timeline = tl.rows; }); // only the rows shown
   if (follow) for (const e of view.entries) if (e.row >= 0) e.bar = true;
+  if (large) view.updated = formatTime(nowMs);
+  if (follow && large?.next) for (const e of view.entries) if (e.row >= 0) e.nextRide = large.next;
   return view;
+}
+
+// The large widget's line under a followed ride's timeline (2026-11-17): the first ride after
+// `row` in today's `rows` that's still catchable ("Next: leave 11:16am"), "Last ride today" when
+// there's none and the rows reach the end of service (`coversEnd`), else '' (unknown).
+export function widgetNextRide(rows, row, coversEnd) {
+  const i = row.key != null ? rows.findIndex(r => r.key === row.key) : -1;
+  const later = i >= 0 ? rows.slice(i + 1) : rows.filter(r => r.firstDep > row.firstDep);
+  const next = later.find(r => !r.missed && !r.nextDay);
+  if (next) return `Next: leave ${formatTime(next.leaveBy)}`;
+  return coversEnd ? 'Last ride today' : '';
 }
 
 // The widget following a ride (widgetFollow; 2026-10-31): the leave, walk and ride cards' content
@@ -3407,6 +3431,8 @@ function widgetFollowView(tripName, follow, nowMs, large = null) {
   const tl = large ? widgetTimeline(follow.kind === 'ride' ? { legs: follow.ride.legs, eta } : follow.row,
     large.trip, large.slack, large.names, large.counts ?? [], { enRoute: true }) : null;
   if (tl) view.timeline = tl.rows;
+  if (large) view.updated = formatTime(nowMs);
+  const nextRide = follow.kind === 'walk' && large?.next ? { nextRide: large.next } : {};
   let stateAt; // t → { st, marks }
   let until;
   const events = [];
@@ -3462,7 +3488,7 @@ function widgetFollowView(tripName, follow, nowMs, large = null) {
       then: st.then ?? [], thenText: st.thenText ?? '', thenWarn: !!st.nextWarn, ...(st.askDep && { dep: st.askDep }),
       ...(st.dropOff && { dropOff: st.dropOff }), ...(st.thenState && { thenState: st.thenState }), ...(st.nextLate && { thenLate: true }),
       // The legs bar (2026-11-13): everywhere but the question; the stops left while riding.
-      ...(!st.askDep && { bar: true }), ...(st.phase === 'riding' && st.stops > 0 && { stops: st.stops }),
+      ...(!st.askDep && { bar: true }), ...(st.phase === 'riding' && st.stops > 0 && { stops: st.stops }), ...nextRide,
     };
   };
   let prevKey = null;
