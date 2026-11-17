@@ -60,7 +60,7 @@ test('Plan a trip…: timed options, best 3, not refreshed', async ({ page }) =>
   await expect(tl.locator('.step.end')).toHaveText([/^Leave\s*7:04am$/, /^Arrive\s*7:35am$/]);
   await expect(tl.locator('.step.stop .n')).toHaveText(['Oak Grove', 'State']);
   await expect(tl.locator('.step.stop .t')).toHaveText(['7:10am', '7:30am']);
-  await expect(tl.locator('.step.ride')).toHaveText(/^Orange Line · 8 stops · 20 min\s*live\s*toward Forest Hills$/i);
+  await expect(tl.locator('.step.ride')).toHaveText(/^Orange Line · 8 stops · 20 min\s*toward Forest Hills\s*live$/i); // the badge beside the headsign
   await expect(tl.locator('.step.walk')).toHaveText(['Walk 5 min · 1 min early at the stop', 'Walk 5 min']);
   await expect(options(page).nth(0).locator('.row-foot button')).toHaveText(['See departures', 'Save trip']);
   // No refresh: minutes later, the same answer (one request).
