@@ -463,7 +463,10 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 - Pinned header (2026-11-15): the header row (trip picker, ↻, ⚙) sticks at the top while
   everything below it (the en-route bar, alerts, the map, the rows) scrolls. It is always sticky:
   turning sticky only once scrolled (tried 2026-11-16 against a header left unpainted after a load)
-  made it flicker on the first scroll (2026-11-17). Its padding reaches
+  made it flicker on the first scroll (2026-11-17).
+  The page always opens at the top (`history.scrollRestoration = 'manual'`; setup's "Reload app"
+  scrolls up first): a reload from far down setup restored that scroll in the iOS app, and the page
+  came up half unpainted, the header missing, until a scroll (2026-11-17). Its padding reaches
   under the status bar (`safe-area-inset-top`, the iOS app's), so nothing scrolls behind the
   clock. No bar or separator: as in iOS 26's scroll edge effect, the header's own page-color
   background covers it down to its bottom edge (its bottom padding keeps content clear of the

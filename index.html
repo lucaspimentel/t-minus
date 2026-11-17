@@ -641,7 +641,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-16 · f23729bef2</footer>
+    <footer class="version">Version 2026-11-16 · 9b2474c105</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -655,6 +655,9 @@
 </main>
 
 <script>
+  // Always open at the top: a reload from far down setup ("Reload app") restored that scroll in the
+  // iOS app, and the page came up half unpainted, the header missing, until a scroll (2026-11-17).
+  try { history.scrollRestoration = 'manual'; } catch {}
   // Shown if the module below never starts (e.g. a stale cached core.js after a deploy).
   setTimeout(() => {
     if (window.appStarted) return;
@@ -674,7 +677,7 @@ import {
   simCurrentRide, simJumpTargets, simPhaseKey, dayRides, simRideLabel, nextWeekday, bostonMs,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, TAP_ZOOM, doubleTap, twoFingerTap, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
 } from './core.js?v=470f99729a';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=4e09e2a0b5';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=031fcd929d';
 
 const API = 'https://api-v3.mbta.com';
 // The simulator (DESIGN.md "Simulator"; sim.js, sim-page.js): on, the app's keys are its own copies.

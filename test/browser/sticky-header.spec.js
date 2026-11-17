@@ -47,3 +47,16 @@ test('setup\'s header stays at the top while its list scrolls', async ({ page })
   const done = await box(page, '#setup-done');
   expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.id, [done.x, done.y])).toBe('setup-done');
 });
+
+test('"Reload app" from far down setup opens the main screen at the top', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 500 });
+  await openApp(page, { time: '07:20' });
+  expect(await page.evaluate(() => history.scrollRestoration)).toBe('manual');
+  await page.locator('#open-setup').click();
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await page.locator('#setup').getByRole('button', { name: 'Reload app' }).click();
+  await page.locator('.row').first().waitFor();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(await page.evaluate(() => history.scrollRestoration)).toBe('manual');
+});

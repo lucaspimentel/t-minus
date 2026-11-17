@@ -650,7 +650,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         saved && h('button', { type: 'button', onclick: exportConfig }, 'Export'),
         h('button', { type: 'button', onclick: () => { ioArea = { mode: 'import', text: '' }; render(); } }, 'Import'),
         // Reloads the page (the service worker is network-first, so this picks up a new version).
-        h('button', { type: 'button', onclick: () => location.reload() }, 'Reload app')),
+        // From the top: a reload from down here came up half unpainted in the iOS app (2026-11-17).
+        h('button', { type: 'button', onclick: () => { window.scrollTo(0, 0); location.reload(); } }, 'Reload app')),
       ioArea && h('div', { class: 'card' },
         ioArea.note && h('div', { class: 'msg' }, ioArea.note),
         h('textarea', { id: 'setup-io', readOnly: ioArea.mode === 'export', value: ioArea.text, placeholder: 'Paste a trips config (JSON)', oninput: e => { ioArea.text = e.target.value; } }),
