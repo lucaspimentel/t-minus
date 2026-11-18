@@ -2076,6 +2076,45 @@ test('shares: a look in flight when the app changes or ends the share doesn\'t o
   } finally { await s.close(); }
 });
 
+test('shares: looks that arrive together share one timing of the answer; a change starts a new one', async () => {
+  const s = await setup();
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).json();
+    let release;
+    s.world.gate = new Promise(r => { release = r; });
+    s.world.clock = at('07:01');
+    const first = look(s, id);
+    await new Promise(r => setTimeout(r, 50));
+    s.world.clock = at('07:01') + 5000;
+    const second = look(s, id);
+    await new Promise(r => setTimeout(r, 50));
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    assert.deepEqual([a.at, b.at], [at('07:01'), at('07:01')]); // the second joined the first's timing
+    // A change from the app drops the memo: the next look is timed anew.
+    s.world.gate = null;
+    s.world.clock = at('07:01') + 6000;
+    assert.equal((await s.call('PUT', `/api/shares/${id}`, { name: 'Lu' }, null, auth(SECRET))).status, 204);
+    assert.equal((await look(s, id)).at, at('07:01') + 6000);
+  } finally { await s.close(); }
+});
+
+test('shares: /r/<id> counts against the IP\'s limit: over it, the page has the plain preview and no new timing', async () => {
+  const s = await setup({ staticRoot: process.cwd() });
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody({ name: 'Lucas' }))).json();
+    while ((await s.call('GET', '/api/vapid')).status !== 429); // the IP's minute is used up
+    s.world.clock = at('07:00') + 20_000; // the memo (15 s) has lapsed, the minute has not
+    const calls = s.world.calls.length;
+    const page = await s.call('GET', `/r/${id}`);
+    const html = await page.text();
+    assert.equal(page.status, 200);
+    assert.match(html, /<meta property="og:title" content="Lucas shared a ride">/);
+    assert.match(html, /<meta property="og:description" content="Live on T-Minus">/);
+    assert.equal(s.world.calls.length, calls);
+  } finally { await s.close(); }
+});
+
 test('shares: requests are validated', async () => {
   const s = await setup();
   try {

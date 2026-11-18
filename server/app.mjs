@@ -406,6 +406,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     res.end(req.method === 'HEAD' ? undefined : f.body);
   }
 
+  const clientIp = req => String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
   async function handle(req, res) {
     const t = now();
     const url = new URL(req.url, 'http://x');
@@ -413,7 +414,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     const isApi = url.pathname.startsWith('/api/') || url.pathname === '/health';
     if (!isApi) {
       const page = url.pathname.match(/^\/r\/([A-Za-z0-9_-]{22})$/);
-      if (page && staticRoot && readStaticFile && (req.method === 'GET' || req.method === 'HEAD')) return serveSharePage(req, res, page[1], t);
+      if (page && staticRoot && readStaticFile && (req.method === 'GET' || req.method === 'HEAD')) return serveSharePage(req, res, page[1], t, clientIp(req));
       if (staticRoot && readStaticFile && (req.method === 'GET' || req.method === 'HEAD')) return serveFile(req, res, url);
       return reply(res, 404, { error: 'Not found' });
     }
@@ -422,7 +423,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     // other sites can't make a visitor's browser set or cancel reminders.
     const origin = req.headers.origin;
     if (origin && origin.replace(/^https?:\/\//, '') !== req.headers.host) return reply(res, 403, { error: 'Origin not allowed' });
-    const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+    const ip = clientIp(req);
     if (path.startsWith('/mbta/')) return proxyMbta(req, res, url, path, ip, t);
     if (limited(ip, t)) return reply(res, 429, { error: 'Too many requests' });
 
@@ -743,6 +744,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       shareTimes(rec);
       store.shareUpdate(rec);
       shareMemo.delete(rec.id);
+    shareInflight.delete(rec.id);
       return reply(res, 204, undefined);
     }
     if (req.method === 'DELETE' && sh) {
@@ -867,6 +869,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   const randomToken = n => b64url(globalThis.crypto.getRandomValues(new Uint8Array(n)));
   const hashSecret = async secret => b64url(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret))));
   const shareMemo = new Map(); // id -> { at, answer }
+  const shareInflight = new Map(); // id -> the answer being timed: a look meanwhile joins it
   const shareGetLimited = minuteLimiter(SHARE_GET_LIMIT); // a link's looks
   const sharePutLimited = minuteLimiter(SHARE_PUT_LIMIT); // its changes
   const stateLegs = st => st.ride?.legs ?? st.target.legs;
@@ -890,6 +893,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     rec.expiresAt = t + DAY;
     store.shareUpdate(rec);
     shareMemo.delete(rec.id);
+    shareInflight.delete(rec.id);
   }
   // The share's live answer, or null once it is over (ended on the way: the time past the arrival).
   async function shareLive(rec, t) {
@@ -922,9 +926,16 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       points: legPoints(rec.trip, [...docs.predictions, ...docs.scheduleDocs].filter(Boolean)), mine: legs.map(l => l.tripId ?? null),
     };
   }
-  async function shareAnswer(rec, t) {
+  function shareAnswer(rec, t) {
     const memo = shareMemo.get(rec.id);
     if (memo && t - memo.at < SHARE_VIEW_TTL && t >= memo.at) return memo.answer;
+    const joined = shareInflight.get(rec.id);
+    if (joined) return joined;
+    const p = timeShare(rec, t).finally(() => { if (shareInflight.get(rec.id) === p) shareInflight.delete(rec.id); });
+    shareInflight.set(rec.id, p);
+    return p;
+  }
+  async function timeShare(rec, t) {
     let answer = null;
     if (!rec.end && t >= rec.endsAt) endShare(rec, 'arrived', t);
     // The MBTA calls take a while: the app may change or end the share meanwhile. The answer then
@@ -951,7 +962,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   }
   // `/r/<id>`: the page (share.html) with this share's link preview ("Lucas · arrives ~7:57am"), noindex.
   const escapeHtml = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  async function serveSharePage(req, res, id, t) {
+  async function serveSharePage(req, res, id, t, ip) {
     let f = files.get('share.html');
     if (!f) {
       const body = await readStaticFile(staticRoot, 'share.html');
@@ -960,7 +971,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
     const rec = store.shareGet(id);
     let og = { title: 'Shared ride', description: 'This ride has ended' };
-    if (rec) {
+    // Past the IP's or the link's limit: the page, with the plain preview (a chat app's fetch is not refused).
+    if (rec && (limited(ip, t) || shareGetLimited(rec.id, t))) og = { title: shareTitle(rec.name), description: 'Live on T-Minus' };
+    else if (rec) {
       try {
         const v = shareView(await shareAnswer(rec, t), t);
         og = { title: v.ogTitle, description: v.ogDescription };

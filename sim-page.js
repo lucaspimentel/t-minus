@@ -206,7 +206,7 @@ export async function startSimPage(sim, { mbtaApi }) {
   }
 
   // ---------- this server, in the page ----------
-  const [{ createApp }, { createMemoryStore }] = await Promise.all([import('./server/app.mjs?v=e158099525'), import('./server/memory-store.mjs?v=a50870064e')]);
+  const [{ createApp }, { createMemoryStore }] = await Promise.all([import('./server/app.mjs?v=f9453dc8c6'), import('./server/memory-store.mjs?v=a50870064e')]);
   const memStore = createMemoryStore();
   memStore.load(serverDump);
   const json = (status, body) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
