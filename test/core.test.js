@@ -3272,6 +3272,7 @@ test('shareFollow: the bell, the walk, assumed boarding past the departure, the 
   // A row the schedules no longer list: rebuilt from the saved legs, with the leave-by.
   const gone = shareFollow(bell, [], 10, at('07:30'), { walkBefore: 5, slack: 1 });
   assert.deepEqual([gone.kind, gone.row.leaveBy, gone.row.firstDep, gone.row.eta], ['bell', at('07:42'), at('07:48'), at('08:25')]);
+  assert.equal(gone.row.lastChance, at('07:43')); // the departure less the walk, as the app's rows
   // Walking: to the departure; at the stop in time: boarded, confirmed; late: unconfirmed.
   assert.deepEqual(shareFollow(walk, [row], 10, at('07:35')), { kind: 'walk', row, enRoute: walk });
   const boarded = shareFollow(walk, [row], 10, at('07:50'));

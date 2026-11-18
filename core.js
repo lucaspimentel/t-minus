@@ -3314,7 +3314,7 @@ export function shareRequestError(b, { trip = null } = {}) {
 export function shareFollow(st, rows, walkAfter, nowMs, { walkBefore = 0, slack = 0 } = {}) {
   if (st.ride) return { kind: 'ride', ride: st.ride };
   const { row: found, legs, dep, eta } = followTarget(st, rows, walkAfter);
-  const row = found ?? { key: st.target.key, legs, firstDep: dep, eta, leaveBy: dep - (walkBefore + slack) * MIN, lastChance: dep };
+  const row = found ?? { key: st.target.key, legs, firstDep: dep, eta, leaveBy: dep - (walkBefore + slack) * MIN, lastChance: dep - walkBefore * MIN };
   const boarded = unconfirmed => ({ kind: 'ride', ride: { legs, boardedAt: dep }, ...(unconfirmed && { unconfirmed: true }) });
   if (st.asking) return boarded(true);
   if (st.kind === 'track') return nowMs >= dep ? boarded(true) : { kind: 'bell', row };
