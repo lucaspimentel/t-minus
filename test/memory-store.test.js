@@ -33,6 +33,16 @@ function run(store) {
   store.replaceAutoBells('e2', [{ id: 'z', nextAt: 40 }]);
   store.updateAutoBell({ id: 'x', nextAt: 45, k: 1 });
   out.push(store.dueAutoBells(60), store.autoBellsFor('e1').map(a => a.id).sort());
+  const sh = (id, owner, expiresAt, extra = {}) => ({ id, owner, expiresAt, ...extra });
+  store.shareAdd(sh('s1', 'o1', 100, { n: 1 }));
+  store.shareAdd(sh('s2', 'o1', 200));
+  store.shareAdd(sh('s3', 'o2', 50));
+  const s1 = store.shareGet('s1');
+  s1.n = 2;
+  out.push(store.shareGet('s1').n); // a copy
+  store.shareUpdate({ ...s1, expiresAt: 300 });
+  store.shareUpdate(sh('gone', 'o1', 1)); // never inserts
+  out.push(store.shareGet('gone'), store.sharesFor('o1').map(x => x.id).sort(), store.shareCount(), store.sharePrune(150), store.shareCount(), store.shareGet('s3'));
   store.cachePut('k1', { text: 'a', lastModified: 'L', at: 1 });
   store.cachePut('k2', { text: 'b', at: 2 });
   store.cacheTouch('k1', 3);
@@ -52,12 +62,14 @@ test('dump and load keep reminders, logs and auto-bells', () => {
   a.add(rem('r', 'e', 5, { x: 1 }));
   a.logPush('e', { at: 1 }, 0, 10);
   a.replaceAutoBells('e', [{ id: 'z', nextAt: 3 }]);
+  a.shareAdd({ id: 's', owner: 'o', expiresAt: 9, k: 1 });
   const b = createMemoryStore();
   b.load(a.dump());
   a.delete('r');
   assert.deepEqual(b.get('r'), rem('r', 'e', 5, { x: 1 }));
   assert.equal(b.logFor('e', 0).length, 1);
   assert.equal(b.dueAutoBells(5)[0].id, 'z');
+  assert.equal(b.shareGet('s').k, 1);
 });
 
 test('server/app.mjs has no Node-only code (the simulator loads it in the page)', async () => {

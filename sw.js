@@ -1,8 +1,8 @@
 // App-shell cache. MBTA API requests and the server's API (/api/: reminders, the MBTA proxy) always go
 // to the network.
-const CACHE = 't-minus-v2';
+const CACHE = 't-minus-v3';
 // sim.js: the simulator's clock, loaded (inert) before the app on every launch.
-const SHELL = ['./', 'index.html', 'core.js', 'setup.js', 'sim.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
+const SHELL = ['./', 'index.html', 'app.css', 'ui.js', 'core.js', 'setup.js', 'sim.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -79,6 +79,7 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return; // never cached (the proxy sends its own data age)
+  if (url.pathname.startsWith('/r/')) return; // a shared ride's page: always the server's (its preview text is per ride)
   // Versioned modules (`?v=<content hash>`) never change: a cached copy is served directly.
   if (url.searchParams.has('v')) {
     event.respondWith(caches.match(event.request).then(c => c ?? fetchAndSave(event.request))

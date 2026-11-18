@@ -11,7 +11,7 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   (same origin only, no CORS). Storage keys use the `t-minus:` prefix (`t-minus-sim:` in the
   simulator: index.html's `P`).
 - `core.js`: pure logic only (no DOM, no fetch); every change there gets a unit test.
-- After changing any shell file (`index.html`, `core.js`, `setup.js`, `sw.js`, `manifest.json`,
+- After changing any shell file (`index.html`, `app.css`, `ui.js`, `share.html`, `share.js`, `core.js`, `setup.js`, `sw.js`, `manifest.json`,
   the simulator's `sim.js`, `sim-page.js`, `sim-mbta.js`, `sim-presets.js`, and `server/app.mjs`,
   `server/memory-store.mjs`, which it loads in the page), run `npm run stamp` (updates the footer
   version and the `?v=<hash>` imports listed in `scripts/stamp.mjs`; a test fails otherwise). Bump `CACHE` in `sw.js` when
@@ -135,7 +135,7 @@ ride, and against these rules:
   `DRY_RUN=1`), open `http://localhost:8790/`.
 - Push server (`server/`, the only backend; its runtime dependencies are `web-push` and `dd-trace`,
   the latter loaded only by the Railway start command; it also
-  serves the app's files, answers setup's "Show nearby", `GET /api/nearby`, auto-route's `GET /api/plan` and `GET /api/places` (Photon / Nominatim), the iOS widget's `POST /api/widget`, and proxies the app's MBTA
+  serves the app's files, answers setup's "Show nearby", `GET /api/nearby`, auto-route's `GET /api/plan` and `GET /api/places` (Photon / Nominatim), the iOS widget's `POST /api/widget`, share my ride (`/api/shares`, the page at `/r/<id>`), and proxies the app's MBTA
   requests, `GET /api/mbta/*`):
   `npm --prefix server ci`, then see `server/README.md` (env vars, `DRY_RUN=1`). `server/app.mjs`
   has no npm imports so `test/server.test.js` runs in `npm test`. The MBTA key goes only into

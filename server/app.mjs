@@ -10,6 +10,7 @@ import {
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
   autoBellNext, autoBellRow, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, widgetNextRide, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText, stopSharesError, withStopShares,
+  shareTrip, shareRequestError, shareFollow, shareView, shareTitle, legsEta, SHARE_AFTER_MIN, SHARE_RESUME_MS, vehiclesQuery, vehiclePositions, legPoints, vehicleLabel,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -31,6 +32,27 @@ const NEARBY_CELL = 0.0005; // degrees (~50 m): nearby stop lists are cached per
 const MAX_NEARBY_STOPS = 500; // cached cells
 const MAX_NEARBY_SETS = 200; // cached stop sets (routes and the hour's schedules)
 const PROXY_RATE_LIMIT = 120; // proxy requests per IP per minute
+const SHARE_VIEW_TTL = 15_000; // a share's answer is timed once per this, however many look
+const SHARE_GET_LIMIT = 120; // a link's looks per minute
+const SHARE_PUT_LIMIT = 20; // its changes per minute
+const MAX_SHARES = 2000;
+const SHARE_MAX_MIN = 12 * 60; // a link lasts at most this long from its creation
+const HTML_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' };
+
+// A fixed window per key (an IP, a link): true once the key passes `max` requests this minute.
+// `prune(t)` drops the keys of earlier minutes.
+function minuteLimiter(max) {
+  const hits = new Map(); // key -> { minute, count }
+  const limited = (key, t) => {
+    const minute = Math.floor(t / MIN);
+    let h = hits.get(key);
+    if (!h || h.minute !== minute) { h = { minute, count: 0 }; hits.set(key, h); }
+    return ++h.count > max;
+  };
+  limited.prune = t => { for (const [k, h] of hits) if (h.minute !== Math.floor(t / MIN)) hits.delete(k); };
+  return limited;
+}
+const retryAfter = t => ({ 'retry-after': String(Math.ceil((MIN - (t % MIN)) / 1000)) });
 const MAX_TRIP_STOP_LISTS = 500; // the large widget's stop counts kept (per trip, service date and stops)
 const MBTA_BUDGET = 800; // MBTA calls per minute past which proxy misses are refused (the key allows 1,000)
 const MAX_MEMORY_COPIES = 2000; // the proxy's realtime copies, in memory
@@ -120,13 +142,14 @@ export function apnsActivityPush({ event, state, nowMs, urgent = false, dismissA
 
 const STATIC = {
   '/': 'index.html', '/index.html': 'index.html', '/core.js': 'core.js', '/setup.js': 'setup.js', '/sw.js': 'sw.js',
+  '/app.css': 'app.css', '/ui.js': 'ui.js', '/share.js': 'share.js',
   '/manifest.json': 'manifest.json', '/icons/icon.svg': 'icons/icon.svg', '/icons/icon-192.png': 'icons/icon-192.png',
   '/icons/icon-512.png': 'icons/icon-512.png', '/basemap.json': 'basemap.json',
   // The simulator (DESIGN.md "Simulator"): its page code, and this server and its memory store, run in the page.
   '/sim.js': 'sim.js', '/sim-mbta.js': 'sim-mbta.js', '/sim-presets.js': 'sim-presets.js', '/sim-page.js': 'sim-page.js',
   '/server/app.mjs': 'server/app.mjs', '/server/memory-store.mjs': 'server/memory-store.mjs',
 };
-const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
+const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', mjs: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
 
 // "Pending notifications": a stored reminder or followed ride as the phone sees it (no
 // subscription keys), with its next push.
@@ -186,7 +209,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     return Promise.race([sendRaw(sub, payload), late]).finally(() => clearTimeout(timer));
   };
   const schedules = new Map(); // reminder id -> { at, docs }
-  const hits = new Map(); // ip -> { minute, count }
+  const limited = minuteLimiter(RATE_LIMIT); // per IP
   let tests = []; // pending test notifications: { subscription, at }
   const nearbyStopsCache = new Map(); // cell -> { at, stops }
   let network = null; // auto-route: { net, at } (transitNetwork), rebuilt daily
@@ -201,7 +224,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   let ticking = false;
   const copies = new Map(); // MBTA cache key -> { at, doc | text, lastModified } (realtime classes)
   const inFlight = new Map(); // MBTA cache key -> the pending fetch, shared
-  const proxyHits = new Map(); // ip -> { minute, count }
+  const proxyLimited = minuteLimiter(PROXY_RATE_LIMIT); // per IP
   let calls = { minute: 0, count: 0 }; // the server's MBTA calls this minute (the budget guard)
 
   // ---------- MBTA (through the shared cache) ----------
@@ -264,13 +287,6 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   // The server's own requests (reminders, stop alerts, nearby): fresh copies only.
   const mbta = async (path, params) => docOf(await cached(path, params));
 
-  function proxyLimited(ip, t) {
-    const minute = Math.floor(t / MIN);
-    const h = proxyHits.get(ip);
-    if (!h || h.minute !== minute) { proxyHits.set(ip, { minute, count: 1 }); return false; }
-    return ++h.count > PROXY_RATE_LIMIT;
-  }
-
   // GET /api/mbta/<path>?<params>: the app's MBTA requests under the server's key. Same origin
   // only, allowlisted, 120/min per IP; a stale copy carries `x-data-age` (seconds).
   async function proxyMbta(req, res, url, path, ip, t) {
@@ -278,7 +294,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (req.method !== 'GET') return reply(res, 404, { error: 'Not found' });
     const site = req.headers['sec-fetch-site'];
     if (site && site !== 'same-origin') return reply(res, 403, { error: 'Origin not allowed' });
-    if (proxyLimited(ip, t)) return reply(res, 429, { error: 'Too many requests' }, { 'retry-after': String(Math.ceil((MIN - (t % MIN)) / 1000)) });
+    if (proxyLimited(ip, t)) return reply(res, 429, { error: 'Too many requests' }, retryAfter(t));
     const mbtaPath = path.slice('/mbta'.length);
     const params = [...url.searchParams];
     const err = proxyRequestError(mbtaPath, params);
@@ -315,13 +331,6 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   function reply(res, status, body, headers = {}) {
     res.writeHead(status, { ...headers, ...(body !== undefined && { 'content-type': 'application/json' }) });
     res.end(body === undefined ? undefined : JSON.stringify(body));
-  }
-
-  function limited(ip, t) {
-    const minute = Math.floor(t / MIN);
-    const h = hits.get(ip);
-    if (!h || h.minute !== minute) { hits.set(ip, { minute, count: 1 }); return false; }
-    return ++h.count > RATE_LIMIT;
   }
 
   function readBody(req) {
@@ -375,7 +384,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   // Staging (`env: 'staging'`, APP_ENV): nothing is cached, so a reload shows the last deploy.
   function cacheControl(url, file) {
     if (env === 'staging') return 'no-store';
-    if (url.searchParams.has('v') && /\.m?js$/.test(file)) return 'public, max-age=31536000, immutable';
+    if (url.searchParams.has('v') && /\.(m?js|css)$/.test(file)) return 'public, max-age=31536000, immutable';
     if (file.startsWith('icons/')) return 'public, max-age=86400';
     return 'no-cache';
   }
@@ -390,18 +399,21 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       files.set(file, f);
     }
     const headers = { 'content-type': TYPES[file.split('.').pop()], 'cache-control': cacheControl(url, file), etag: f.etag };
-    if (file.endsWith('.html')) Object.assign(headers, { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' });
+    if (file.endsWith('.html')) Object.assign(headers, HTML_HEADERS);
     if (req.headers['if-none-match'] === f.etag) { res.writeHead(304, headers); return res.end(); }
     res.writeHead(200, { ...headers, 'content-length': f.body.length });
     res.end(req.method === 'HEAD' ? undefined : f.body);
   }
 
+  const clientIp = req => String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
   async function handle(req, res) {
     const t = now();
     const url = new URL(req.url, 'http://x');
     // The API lives under /api/; /health also answers at the root (Railway's health check).
     const isApi = url.pathname.startsWith('/api/') || url.pathname === '/health';
     if (!isApi) {
+      const page = url.pathname.match(/^\/r\/([A-Za-z0-9_-]{22})$/);
+      if (page && staticRoot && readStaticFile && (req.method === 'GET' || req.method === 'HEAD')) return serveSharePage(req, res, page[1], t, clientIp(req));
       if (staticRoot && readStaticFile && (req.method === 'GET' || req.method === 'HEAD')) return serveFile(req, res, url);
       return reply(res, 404, { error: 'Not found' });
     }
@@ -410,7 +422,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     // other sites can't make a visitor's browser set or cancel reminders.
     const origin = req.headers.origin;
     if (origin && origin.replace(/^https?:\/\//, '') !== req.headers.host) return reply(res, 403, { error: 'Origin not allowed' });
-    const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+    const ip = clientIp(req);
     if (path.startsWith('/mbta/')) return proxyMbta(req, res, url, path, ip, t);
     if (limited(ip, t)) return reply(res, 429, { error: 'Too many requests' });
 
@@ -474,6 +486,15 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       const lon = Number(url.searchParams.get('lon'));
       if (!nearBoston(lat, lon)) return reply(res, 400, { error: 'lat/lon must be near Boston' });
       return reply(res, 200, await nearby(lat, lon, t));
+    }
+
+    // A shared ride's answer (public: the link is the secret).
+    const sh = path.match(/^\/shares\/([A-Za-z0-9_-]{22})$/);
+    if (req.method === 'GET' && sh) {
+      const rec = store.shareGet(sh[1]);
+      if (!rec) return reply(res, 404, { error: 'Not found' });
+      if (shareGetLimited(rec.id, t)) return reply(res, 429, { error: 'Too many requests' }, retryAfter(t));
+      return reply(res, 200, await shareAnswer(rec, t), { 'cache-control': 'no-store' });
     }
 
     let body;
@@ -676,6 +697,72 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       if (b?.tripName != null) entry.tripName = b.tripName;
       if (b?.trip != null || b?.tripName != null) entry.nextPollAt = t;
     };
+    // Share my ride. POST: a new share (the device's other live shares end, `replaced`); its secret
+    // comes back once. PUT (Bearer secret): a changed state, trip (same legs) or name; an `ended`
+    // share revives within SHARE_RESUME_MS with `resume` (an Undo). DELETE: ends it.
+    if (req.method === 'POST' && path === '/shares') {
+      const err = shareRequestError(body);
+      if (err) return reply(res, 400, { error: err });
+      if (store.shareCount() >= MAX_SHARES) return reply(res, 503, { error: 'Too many shared rides' });
+      const secret = body.secret ?? randomToken(32);
+      const owner = await hashSecret(secret);
+      const rec = {
+        id: randomToken(16), owner, trip: shareTrip(body.trip), state: body.state, name: (body.name ?? '').trim(), slack: body.slack ?? 1,
+        createdAt: t, updatedAt: t, end: null,
+      };
+      shareTimes(rec);
+      // Already over: refused before the device's live share is replaced.
+      if (legsEta(stateLegs(rec.state), tripShape(rec.trip).walkAfter) + SHARE_AFTER_MIN * MIN <= t) return reply(res, 400, { error: 'state is over' });
+      for (const old of store.sharesFor(owner)) endShare(old, 'replaced', t);
+      store.shareAdd(rec);
+      log('share created');
+      return reply(res, 201, { id: rec.id, ...(body.secret == null && { secret }) });
+    }
+    if (req.method === 'PUT' && sh) {
+      let b;
+      try { b = JSON.parse(await readBody(req)); } catch (e) { return reply(res, e.status ?? 400, { error: e.status ? 'Body too large' : 'Invalid JSON' }); }
+      const rec = store.shareGet(sh[1]);
+      if (!rec) return reply(res, 404, { error: 'Not found' });
+      if (!(await shareAuthorized(req, rec))) return reply(res, 401, { error: 'Not authorized' });
+      if (sharePutLimited(rec.id, t)) return reply(res, 429, { error: 'Too many requests' }, retryAfter(t));
+      if (rec.end) {
+        if (!(b?.resume === true && rec.end.reason === 'ended' && t - rec.end.at <= SHARE_RESUME_MS)) return reply(res, 410, { error: 'Ended' });
+        rec.end = null;
+      }
+      const err = shareRequestError(b ?? {}, { trip: rec.trip });
+      if (err) return reply(res, 400, { error: err });
+      if (b.trip != null) {
+        const next = shareTrip(b.trip);
+        if (legsKey(next) !== legsKey(rec.trip)) return reply(res, 400, { error: 'trip has other legs' });
+        rec.trip = next;
+      }
+      if (b.state != null) rec.state = b.state;
+      if (b.name != null) rec.name = b.name.trim();
+      if (b.slack != null) rec.slack = b.slack;
+      rec.updatedAt = t;
+      shareTimes(rec);
+      store.shareUpdate(rec);
+      shareMemo.delete(rec.id);
+      shareInflight.delete(rec.id);
+      return reply(res, 204, undefined);
+    }
+    if (req.method === 'DELETE' && sh) {
+      const rec = store.shareGet(sh[1]);
+      if (!rec) return reply(res, 204, undefined);
+      if (!(await shareAuthorized(req, rec))) return reply(res, 401, { error: 'Not authorized' });
+      const q = url.searchParams;
+      const reason = ['ended', 'missed'].includes(q.get('reason')) ? q.get('reason') : 'stopped';
+      const extra = {};
+      if (reason === 'missed') {
+        const legs = stateLegs(rec.state);
+        const leg = legs[Number(q.get('leg'))] ?? legs[0];
+        const dep = Number(q.get('dep'));
+        Object.assign(extra, { vehicle: vehicleLabel(leg) ?? null, dep: Number.isFinite(dep) && q.get('dep') ? dep : leg.dep });
+      }
+      endShare(rec, reason, t, extra);
+      return reply(res, 204, undefined);
+    }
+
     const r = path.match(/^\/rides\/([\w-]{1,64})$/);
     if (req.method === 'PUT' && r) {
       let b;
@@ -770,6 +857,140 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     return reply(res, 404, { error: 'Not found' });
   }
 
+  // ---------- share my ride (DESIGN.md "Share my ride") ----------
+
+  // A share is its own record (not a reminder: it needs no push subscription): the trip without
+  // its name or points, the app's en-route state (the widget's `state`), the sharer's name and the
+  // end. `owner` is the hash of the sharing device's secret (the app keeps it; every change
+  // carries it). The page's answer is timed here at each look (memoized SHARE_VIEW_TTL), so it
+  // moves on with the app closed.
+  const b64url = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const randomToken = n => b64url(globalThis.crypto.getRandomValues(new Uint8Array(n)));
+  const hashSecret = async secret => b64url(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret))));
+  const shareMemo = new Map(); // id -> { at, answer }
+  const shareInflight = new Map(); // id -> the answer being timed: a look meanwhile joins it
+  const shareGetLimited = minuteLimiter(SHARE_GET_LIMIT); // a link's looks
+  const sharePutLimited = minuteLimiter(SHARE_PUT_LIMIT); // its changes
+  const stateLegs = st => st.ride?.legs ?? st.target.legs;
+  // The tick drops answers past their time and the limits' earlier minutes.
+  function pruneShareMemo(t) {
+    for (const [id, m] of shareMemo) if (t - m.at >= SHARE_VIEW_TTL) shareMemo.delete(id);
+    shareGetLimited.prune(t);
+    sharePutLimited.prune(t);
+  }
+
+  // The link works until SHARE_AFTER_MIN after the arrival as tracked (shareLive: a late train keeps
+  // it), at most 12 h from its creation (`endsAt`); the record is kept a day longer, for the page's
+  // "ended" answer.
+  function shareTimes(rec) {
+    rec.endsAt = rec.createdAt + SHARE_MAX_MIN * MIN;
+    rec.expiresAt = (rec.end?.at ?? rec.endsAt) + DAY;
+  }
+  function endShare(rec, reason, t, extra = {}) {
+    if (rec.end) return;
+    rec.end = { reason, at: t, ...extra };
+    rec.expiresAt = t + DAY;
+    store.shareUpdate(rec);
+    shareMemo.delete(rec.id);
+    shareInflight.delete(rec.id);
+  }
+  // The share's live answer, or null once it is over (ended on the way: the time past the arrival).
+  async function shareLive(rec, t) {
+    const { transit, walkAfter, walkBefore } = tripShape(rec.trip);
+    // The vehicles depend on the trip's legs only: asked for at once, beside the rows.
+    const vehiclesP = Promise.all(transit.map(async l => { try { return vehiclePositions(await mbta('/vehicles', vehiclesQuery(l))); } catch { return []; } }));
+    let docs;
+    try {
+      docs = await widgetDocs(rec.trip, rec.slack, t);
+    } catch (e) {
+      log(`share: ${e.message}`); // the MBTA is down: the saved legs, moved on by the clock
+      docs = { predictions: transit.map(() => null), scheduleDocs: transit.map(() => null), rows: [], toEnd: false };
+    }
+    let follow = shareFollow(rec.state, docs.rows, walkAfter, t, { walkBefore, slack: rec.slack });
+    if (follow.kind === 'ride') {
+      const r = await followRide(rec.trip, follow.ride, docs, t);
+      follow = { ...follow, ...r };
+      // Over SHARE_AFTER_MIN after the arrival as tracked (the saved legs when the MBTA has nothing).
+      if (t >= legsEta(follow.ride.legs, walkAfter) + SHARE_AFTER_MIN * MIN) return null;
+    } else if (follow.kind === 'walk') {
+      follow = { ...follow, enRoute: { kind: follow.enRoute.kind, at: follow.enRoute.at, atStop: follow.enRoute.atStop } };
+    }
+    const legs = follow.kind === 'ride' ? follow.ride.legs : follow.row.legs;
+    const ids = new Set(transit.flatMap(l => [l.stop, l.alight]));
+    const names = [...stopNames(...docs.scheduleDocs, ...docs.predictions)].filter(([id]) => ids.has(id));
+    const date = scheduleWindow(t).date;
+    const [counts, vehicles] = await Promise.all([legStopCounts(rec.trip, legs, docs.scheduleDocs, date), vehiclesP]);
+    return {
+      v: 1, at: t, name: rec.name, status: 'live', trip: rec.trip, slack: rec.slack, follow, walkAfter, names, counts, vehicles,
+      points: legPoints(rec.trip, [...docs.predictions, ...docs.scheduleDocs].filter(Boolean)), mine: legs.map(l => l.tripId ?? null),
+    };
+  }
+  function shareAnswer(rec, t) {
+    const memo = shareMemo.get(rec.id);
+    if (memo && t - memo.at < SHARE_VIEW_TTL && t >= memo.at) return memo.answer;
+    const joined = shareInflight.get(rec.id);
+    if (joined) return joined;
+    const p = timeShare(rec, t).finally(() => { if (shareInflight.get(rec.id) === p) shareInflight.delete(rec.id); });
+    shareInflight.set(rec.id, p);
+    return p;
+  }
+  async function timeShare(rec, t) {
+    let answer = null;
+    if (!rec.end && t >= rec.endsAt) endShare(rec, 'arrived', t);
+    // The MBTA calls take a while: the app may change or end the share meanwhile. The answer then
+    // isn't used (it would end or cache a stale state): the record is read again and timed anew, up to 3
+    // times; still changing after that, the last answer is returned once, neither cached nor acted on.
+    const sig = r => JSON.stringify([r.state, r.trip, r.name, r.slack, r.end]);
+    const ended = r => ({ v: 1, at: t, name: r.name, status: 'ended', end: r.end ?? { reason: 'ended', at: t } });
+    for (let tries = 1; !rec.end; tries++) {
+      const before = sig(rec);
+      answer = await shareLive(rec, t);
+      const latest = store.shareGet(rec.id);
+      if (!latest) return ended(rec);
+      if (sig(latest) !== before) {
+        if (tries < 3) { rec = latest; answer = null; continue; }
+        return latest.end ? ended(latest) : answer ?? ended(latest);
+      }
+      if (!answer) endShare(rec, 'arrived', t);
+      break;
+    }
+    answer ??= ended(rec);
+    shareMemo.set(rec.id, { at: t, answer });
+    return answer;
+  }
+  async function shareAuthorized(req, rec) {
+    const m = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization ?? '');
+    return !!m && (await hashSecret(m[1])) === rec.owner;
+  }
+  // `/r/<id>`: the page (share.html) with this share's link preview ("Lucas · arrives ~7:57am"), noindex.
+  const escapeHtml = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  async function serveSharePage(req, res, id, t, ip) {
+    let f = files.get('share.html');
+    if (!f) {
+      const body = await readStaticFile(staticRoot, 'share.html');
+      f = { body: new TextDecoder().decode(body) };
+      files.set('share.html', f);
+    }
+    const rec = store.shareGet(id);
+    let og = { title: 'Shared ride', description: 'This ride has ended' };
+    // Past the IP's or the link's limit: the page, with the plain preview (a chat app's fetch is not refused).
+    if (rec && (limited(ip, t) || shareGetLimited(rec.id, t))) og = { title: shareTitle(rec.name), description: 'Live on T-Minus' };
+    else if (rec) {
+      try {
+        const v = shareView(await shareAnswer(rec, t), t);
+        og = { title: v.ogTitle, description: v.ogDescription };
+      } catch (e) {
+        log(`share page: ${e.message}`);
+        og = { title: shareTitle(rec.name), description: 'Live on T-Minus' };
+      }
+    }
+    const html = f.body.replaceAll('{{ogTitle}}', escapeHtml(og.title)).replaceAll('{{ogDescription}}', escapeHtml(og.description));
+    res.writeHead(rec ? 200 : 404, {
+      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex', ...HTML_HEADERS,
+    });
+    res.end(req.method === 'HEAD' ? undefined : html);
+  }
+
   // ---------- auto-route: timed from now ----------
 
   // Each candidate as a trip (its walks: a point's from the option, else the app's), its legs'
@@ -832,12 +1053,19 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   // connection re-planned, and the ridden vehicle's stops (as checkFollowed); null: leave times.
   // Returns { follow, docs } (the docs read, for the large size's stop names).
   async function widgetFollowing(trip, state, slack, t) {
-    const { transit, walkAfter, transfers } = tripShape(trip);
+    const { walkAfter } = tripShape(trip);
     const docs = await widgetDocs(trip, slack, t);
     const follow = widgetFollow(state, docs.rows, walkAfter, t);
     if (follow?.kind !== 'ride') return { follow, docs };
+    return { follow: { kind: 'ride', walkAfter, ...await followRide(trip, follow.ride, docs, t) }, docs };
+  }
+
+  // A ride refreshed by trip id, a missed connection re-planned, and the ridden vehicle's stops
+  // (as checkFollowed): { ride, stops, stopsLeg, outlook }. `docs`: widgetDocs'.
+  async function followRide(trip, rideIn, docs, t) {
+    const { transit, walkAfter, transfers } = tripShape(trip);
     const maps = transit.map((l, i) => mergeTrips(docs.predictions[i], docs.scheduleDocs[i]));
-    let ride = withTripAlerts({ ...follow.ride, legs: trackLegs(follow.ride.legs, transit, maps) }, tripAlerts(docs.predictions, t));
+    let ride = withTripAlerts({ ...rideIn, legs: trackLegs(rideIn.legs, transit, maps) }, tripAlerts(docs.predictions, t));
     const shares = ride.legs.map(l => l.at ?? null); // a re-planned leg keeps its position's
     const phase = ridePhase(ride, walkAfter, t);
     const outlook = transferOutlook(ride, phase, tripVehicles(transit, maps, null, t), transfers, t);
@@ -849,7 +1077,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
         log(`widget stops: ${e.message}`); // the minutes fallback applies
       }
     }
-    return { follow: { kind: 'ride', ride, walkAfter, stops, stopsLeg: phase.leg, outlook }, docs };
+    return { ride, stops, stopsLeg: phase.leg, outlook };
   }
 
   // The trip's next WIDGET_ROWS upcoming rows (missed ones left out); once today's service runs
@@ -1483,6 +1711,10 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     try {
       await sendTests(now());
       pruneCopies(now());
+      store.sharePrune(now());
+      pruneShareMemo(now());
+      limited.prune(now());
+      proxyLimited.prune(now());
       for (const a of store.dueAutoBells(now())) await checkAutoBell(a);
       for (const rem of store.due(now())) {
         if (!(await (rem.kind === 'ride' ? checkFollowed(rem) : check(rem)))) store.update(rem);

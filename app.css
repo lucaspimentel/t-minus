@@ -1,0 +1,620 @@
+  [hidden] { display: none !important; }
+  :root {
+    color-scheme: light dark; /* native controls (time pickers, checkboxes) follow the theme */
+    --bg: #f5f5f3; --card: #ffffff; --text: #1c1f24; --muted: #6b7078; --border: #dcdde0;
+    --green: #1b7f45; --amber: #a35f00; --red: #c62828; --accent: #ed8b00;
+    --accent-text: #a85a00; /* the accent as text on white (4.5:1); fills keep --accent */
+    --alert-bg: #fff4e0; --alert-border: #f0c070;
+    --press: rgba(0, 0, 0, .07); /* pressed overlay */
+    --map-water: #dbe7f0; --map-land: var(--card); --map-line: var(--border); /* the route map's base map */
+    --here: #1a73e8; /* your location on the maps (both themes): the dot, your vehicle at your GPS position */
+    --map-green: #e4efdc; /* parks: softer in light, stronger in dark (2026-11-09) */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121417; --card: #1c1f24; --text: #eceef1; --muted: #9aa0a8; --border: #2e333a;
+      --green: #4cc47f; --amber: #f0a830; --red: #ff6b6b; --accent: #ed8b00; --accent-text: #ed8b00;
+      --alert-bg: #2e2515; --alert-border: #6b5220;
+      --press: rgba(255, 255, 255, .09);
+      --map-water: #0c1520; --map-land: #22262c; --map-line: #3a4048; --map-green: #25362a;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* No double-tap zoom (iOS Safari ignores user-scalable=no for pinch zoom). No rubber-band
+     bounce: the main list has its own pull-to-refresh. */
+  /* No iOS text inflation: a too-wide line made the whole picker larger (2026-11-02). */
+  html { touch-action: manipulation; overscroll-behavior-y: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent; /* the :active styles below replace iOS's gray flash */
+    /* iOS blurs content right under the status bar. The standalone app starts below it (no
+       status-bar-style meta), so the inset is 0 there; the 22px does the work. */
+    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px max(16px, env(safe-area-inset-bottom));
+  }
+  main { max-width: 480px; margin: 0 auto; }
+  /* Pressed: buttons darken and shrink a little; rows only darken (an inset overlay works on any
+     background). A button pressed inside a row doesn't also darken the row. */
+  button { transition: transform 80ms; }
+  button:not(:disabled):active { box-shadow: inset 0 0 0 100vmax var(--press); transform: scale(.97); }
+  .row:not(.ride):active:not(:has(button:active)) { box-shadow: inset 0 0 0 100vmax var(--press); }
+  /* Pinned header row (2026-11-15): sticks at the top, its padding reaching under the status bar
+     (the iOS app's inset), so nothing scrolls behind the clock. Its 8 + 4 px below make the old 12;
+     the en-route bar's -4px top margin reaches only into the 4 px margin, not under the header's
+     background (which cut the top off its buttons, 2026-11-15). Always sticky: turning sticky
+     only once scrolled made it flicker on the first scroll (2026-11-17). */
+  header {
+    display: flex; align-items: center; gap: 8px; background: var(--bg);
+    position: sticky; top: 0; z-index: 5;
+    margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 4px;
+    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 8px;
+  }
+  /* Staging's tag (APP_ENV=staging, from /api/config): in the header's top padding, so the
+     layout is the same as prod's. */
+  .env-tag {
+    position: absolute; top: calc(env(safe-area-inset-top, 0px) + 4px); left: 50%; transform: translateX(-50%);
+    font-size: 11px; font-weight: 600; letter-spacing: .08em; line-height: 14px;
+    padding: 0 6px; border: 1px solid currentColor; border-radius: 7px; pointer-events: none;
+  }
+  /* Sticky headers' edge fade (iOS 26's scroll edge effect): no bar or separator. The header's own
+     page-color background covers it down to its bottom edge (its bottom padding keeps content clear
+     of the controls); once the page is scrolled (html.scrolled), a 20 px strip below it fades what
+     passes under (a plain gradient: no backdrop-filter or mask, which can leave WebKit regions
+     unpainted; the app once showed a blank top half after launch, 2026-11-16). Main header,
+     setup's header, the leg picker's top. No pseudo-element behind the controls (z-index -1): iOS
+     painted one over them after a reload (2026-11-15). */
+  html.scrolled :is(header, .setup-head, .picker-top)::after {
+    content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 20px; pointer-events: none;
+    background: linear-gradient(var(--bg), transparent);
+  }
+  /* Focus scrolls (keyboard, VoiceOver) stop below the pinned header. Main screen only: in setup a
+     focused field inside the sticky picker top can't move below the padding, and iOS panned the
+     whole view up for the keyboard instead (2026-11-15). */
+  html:has(#setup[hidden]) { scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 80px); }
+  .toggle { display: flex; flex-wrap: wrap; flex: 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .toggle button {
+    flex: 1 1 auto; padding: 10px 6px; border: 0; background: var(--card); color: var(--muted);
+    font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .toggle button[aria-pressed="true"] { background: var(--accent); color: #1c1f24; font-weight: 600; }
+  /* The trip picker (2026-11-12): always a select, the trips then "Plan a trip…"; card style with
+     a line chevron like the header icons (the browsers' own arrows differ). */
+  .toggle select {
+    flex: 1; min-width: 0; min-height: 44px; padding: 10px 40px 10px 12px; border: 0; color: var(--text);
+    font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+    appearance: none; -webkit-appearance: none;
+    background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center / 18px;
+  }
+  .icon-btn {
+    width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); color: var(--text); font-size: 20px; cursor: pointer;
+  }
+  /* Line icons (the setup gear; the map's folded outline until 2026-11-12) in the text color, like
+     ↻; they replaced the 🗺 and ⚙ emoji, which iOS drew in color (2026-11-09). */
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .icon-btn[hidden] { display: none; }
+  .icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  #refresh.busy span { display: inline-block; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { #refresh.busy span { animation: none; opacity: .4; } }
+  /* Pull-to-refresh: sits above the header (height = PULL_HOLD) and comes into view as #app moves down. */
+  .ptr {
+    position: relative; z-index: 6; pointer-events: none; /* above the header's fade */
+    height: 48px; margin-top: -48px; display: flex; align-items: center; justify-content: center; gap: 8px;
+    color: var(--muted); font-size: 14px; opacity: 0;
+  }
+  /* ↓ while pulling, turning to ↑ at the ready point; a spinning ring while refreshing. */
+  .ptr-icon { display: inline-flex; transition: transform 150ms; }
+  .ptr-icon svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .ptr.ready .ptr-icon { transform: rotate(180deg); }
+  .ptr-ring { display: none; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--muted); border-radius: 50%; }
+  .ptr.busy .ptr-icon { display: none; }
+  .ptr.busy .ptr-ring { display: block; animation: spin .8s linear infinite; }
+  /* Setup's waiting lines ("Finding ways…"): the pull-to-refresh ring, at text height, before the text. */
+  .wait { display: flex; align-items: center; gap: 8px; }
+  .wait-ring { flex: none; width: 1em; height: 1em; border: 2px solid var(--border); border-top-color: var(--muted); border-radius: 50%; animation: spin .8s linear infinite; }
+  #app.settling { transition: transform 200ms ease-out; }
+  #app.settling .ptr { transition: opacity 200ms; }
+  @media (prefers-reduced-motion: reduce) {
+    .ptr-icon { transition: none; }
+    .ptr.busy .ptr-ring { animation: none; opacity: .4; }
+    .wait-ring { animation: none; opacity: .4; }
+  }
+  /* At the bottom, just above the version. */
+  .status { font-size: 13px; color: var(--muted); margin: 16px 0 0; min-height: 18px; text-align: center; }
+  /* A one-off trip: a banner under the trip buttons, above "Plan a trip…". */
+  .enroute-bar.oneoff-banner { margin: 0 0 12px; padding: 8px 8px 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
+  .status.stale { color: var(--red); }
+  .status.old { color: var(--amber); }
+  .status .link {
+    padding: 0; border: 0; background: none; color: inherit; font: inherit;
+    text-decoration: underline; cursor: pointer; box-shadow: none !important; transform: none !important;
+  }
+  .alerts { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
+  .alerts li {
+    background: var(--alert-bg); border: 1px solid var(--alert-border); border-radius: 10px;
+    padding: 8px 12px; font-size: 14px;
+  }
+  .alerts b { font-size: 12px; letter-spacing: .03em; }
+  .rows { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .row {
+    background: var(--card); border: 1px solid var(--border); border-left: 6px solid var(--border);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  /* Only the target (.catch: the ride the app answers with, or the belled one) is green, in every
+     mode; later reachable rows are neutral (the .row border, the text color). Amber (to the last chance)
+     and red (missed, still to leave) keep their color on any row; .catch never overrides them. */
+  .row.catch.green, .row.catch.enroute { border-left-color: var(--green); }
+  .row.amber { border-left-color: var(--amber); }
+  .row.hurry { border-left-color: var(--amber); }
+  .big {
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px;
+    font-size: 28px; font-weight: 700;
+  }
+  /* The countdown never breaks; if the time would drop below a long countdown ("Departs in
+     1h 26m"), the countdown steps down (fit1, then fit2: fitHeads); only if it still doesn't fit
+     (a next-day "Thu 5:31am" at 360 px) does the time drop to the next line, still right-aligned. */
+  .big > span { white-space: nowrap; }
+  .big.fit1 > span:first-child { font-size: .86em; } /* 28px → 24px */
+  .big.fit2 > span:first-child { font-size: .72em; } /* 28px → 20px */
+  .big .at { font-size: 20px; font-weight: 600; margin-left: auto; }
+  /* Equal-width digits in the time columns only, so times line up down a list; elsewhere the
+     wide tabular "1" would gap names like "Bus 132". */
+  .step .t, .big .at { font-variant-numeric: tabular-nums; }
+  .catch.green .big, .catch.enroute .big { color: var(--green); }
+  .amber .big { color: var(--amber); }
+  .hurry .big { color: var(--amber); }
+  .row.missed { border-left-color: var(--muted); }
+  .row.prev { border-left-color: var(--muted); }
+  .row.prev + .row:not(.prev) { margin-top: 22px; } /* previous rides apart from the rest */
+  .prev .big { color: var(--muted); font-size: 20px; }
+  .list-btn {
+    display: block; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .list-item.pair { display: flex; gap: 8px; } /* "Show more rides" beside "Show fewer rides" */
+  .missed .big { color: var(--muted); font-size: 20px; }
+  .row.missed.departs { border-left-color: var(--red); }
+  /* Still to leave (often the ride being headed for): full size; smaller once gone. */
+  .missed.departs .big { color: var(--red); font-size: 28px; }
+  .none .big { color: var(--muted); font-size: 20px; }
+  .detail { color: var(--muted); font-size: 14px; }
+  .dot {
+    display: inline-block; width: .7em; height: .7em; border-radius: 50%; margin-right: .35em;
+    vertical-align: baseline; box-shadow: 0 0 0 1px rgb(0 0 0 / .25);
+  }
+  .tag { white-space: nowrap; }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); margin-left: 6px; vertical-align: 2px;
+  }
+  .badge.live { border-color: var(--green); color: var(--green); }
+  .row { cursor: pointer; }
+  /* The row's expand button: looks like the row it sits in. */
+  .row-toggle {
+    display: block; width: 100%; padding: 0; margin: 0; border: 0; background: none; color: inherit;
+    font: inherit; text-align: inherit; cursor: inherit; border-radius: 6px;
+  }
+  :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .row-toggle:focus-visible { outline-offset: 4px; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .strip { display: flex; align-items: center; margin: 4px 0 2px; font-size: 14px; white-space: nowrap; overflow: hidden; }
+  .strip .seg { flex: 0 0 16px; height: 2px; background: var(--border); }
+  .strip .seg:first-child, .strip .seg:last-child { flex-basis: 10px; }
+  .strip .stop { margin-right: 6px; }
+  .strip .dot { margin-right: 4px; vertical-align: -1px; }
+  .row.ride { cursor: default; border-left-color: var(--green); }
+  .row.ride.arrived { border-left-color: var(--border); }
+  .row.ride.amber { border-left-color: var(--amber); }
+  .row.ride.red { border-left-color: var(--red); }
+  .row.ride.red .big { color: var(--red); }
+  .row.ride:not(.amber):not(.red) .big { color: var(--green); }
+  .ride-head { font-size: 20px; font-weight: 700; color: var(--green); }
+  .row.ride.arrived .ride-head { color: var(--text); }
+  .step.current { color: var(--text); font-weight: 600; }
+  .row.tracked { outline: 2px solid var(--green); outline-offset: -2px; }
+  .chev { color: var(--muted); font-size: 20px; line-height: 1; margin-left: 6px; }
+  .row-foot { display: flex; align-items: center; margin-top: 10px; }
+  .row-foot .chev { margin-left: auto; }
+  .track-btn {
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .track-btn.tracking { color: var(--green); border-color: var(--green); }
+  .row-foot { gap: 8px; }
+  /* Touch targets: 44 px minimum (test/browser/webkit-layout.spec.js). Buttons a few px short get an
+     invisible hit area, like .map-tool's (inset counts from the padding box, so the 1 px border is
+     extra), no taller than the gaps around them: the list's 10 px, the row foot's 10 px above. Those
+     with a neighbor closer (stacked items, the ride bar's 8 px wrap) are made taller instead. */
+  .list-btn, .track-btn, .setup button:where(:not(.item, .link, .row-toggle)) { position: relative; }
+  .list-btn::before, .setup button:where(:not(.item, .link, .row-toggle))::before { content: ''; position: absolute; inset: -4.2px 0; }
+  .track-btn::before { content: ''; position: absolute; inset: -6.2px 0; }
+  /* The ▲ ▼ buttons are tall but 38 px wide: the area grows sideways, into the 6 px gaps. */
+  .setup .leg-row > button::before, .setup .trip-row > button::before { inset: 0 -4.2px; }
+  /* The picker's and lists' items stack with a 6 px gap: each reaches 3 px past its border, to the middle. */
+  .setup .field > button.item { min-height: 44px; }
+  .setup .list button.item { position: relative; }
+  .setup .list button.item::before { content: ''; position: absolute; inset: -4px 0; }
+  .alerts-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .track-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .track-btn.on { background: var(--green); color: var(--card); border-color: var(--green); font-weight: 600; }
+  .track-btn:disabled { opacity: .5; cursor: default; }
+  .push-hint { margin-top: 6px; font-size: 13px; color: var(--muted); }
+  /* The bell is on with notifications: a bell beside the collapsed row's badge. */
+  .summary .bell { display: inline-flex; color: var(--green); margin-left: 0; } /* the summary's gap spaces it */
+  .summary .bell svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .ride-outlook { margin-top: 6px; font-size: 14px; color: var(--muted); }
+  .ride-outlook.warn { color: var(--amber); font-weight: 600; }
+  .ride-outlook.late { color: var(--red); }
+  /* Ride card: the stops left along the ridden leg's bar (small dots), and the vehicle on it. */
+  .tl-leg .step.mid::after { top: 0; bottom: 0; }
+  .step.mid { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding-top: 2px; padding-bottom: 2px; }
+  .step.mid .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step.mid .t { flex: none; }
+  .mid-dot { position: absolute; left: 3px; top: calc(2px + .55em); width: 4px; height: 4px; border-radius: 50%; background: var(--card); z-index: 1; }
+  .step.mid.here { font-weight: 600; }
+  .step.mid.gap { height: 16px; padding: 0; }
+  .veh {
+    position: absolute; left: -4px; width: 18px; height: 18px; border-radius: 50%; background: var(--c);
+    border: 3px solid var(--card); box-shadow: 0 0 0 1px var(--c); box-sizing: border-box; z-index: 2;
+  }
+  .step.mid.here .veh { top: calc(2px + .2em); }
+  .step.mid.gap .veh { top: -1px; }
+  .step.stop > .veh { top: calc(.35em - 1px); } /* on the boarding stop's node, centered like it */
+  .step.mid.more button { /* a 44 px touch area, layout-neutral: the padding is taken back by the margin */
+    padding: 13px 0; margin: -13px 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
+    text-decoration: underline; cursor: pointer; box-shadow: none !important; transform: none !important;
+  }
+  .enroute-bar.ride-btns { margin: 12px 0 0; }
+  .enroute-bar #oneoff-remove { min-width: 44px; }
+  .alerts-btn { min-height: 44px; }
+  /* Share my ride (DESIGN.md "Share my ride"): Share / Sharing in the belled row's foot and the ride card's
+     buttons; the sheet and the name dialog. */
+  .share-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .enroute-bar button.sharing { color: var(--green); border-color: var(--green); }
+  dialog.share-dlg { border: 0; padding: 0; background: transparent; color: var(--text); width: calc(100% - 16px); max-width: 480px; margin: auto auto max(16px, env(safe-area-inset-bottom)); }
+  dialog.share-dlg::backdrop { background: rgba(0, 0, 0, .35); }
+  .share-box { background: var(--card); border-radius: 14px; overflow: hidden; border: 1px solid var(--border); }
+  .share-box h2 { margin: 0; padding: 12px 16px; font-size: 13px; font-weight: 400; color: var(--muted); text-align: center; border-bottom: 1px solid var(--border); }
+  .share-box button { display: block; width: 100%; min-height: 52px; border: 0; background: var(--card); color: var(--text); font: inherit; font-size: 17px; cursor: pointer; }
+  .share-box button + button { border-top: 1px solid var(--border); }
+  .share-box button.danger { color: var(--red); }
+  .share-cancel { margin-top: 8px; border: 1px solid var(--border) !important; border-radius: 14px; background: var(--card); color: var(--text); font: inherit; font-size: 17px; font-weight: 600; min-height: 52px; width: 100%; cursor: pointer; }
+  .share-name-form { padding: 12px 16px 4px; }
+  .share-name-form label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+  .share-name-form input { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 16px; }
+  .share-name-form p { margin: 6px 0 8px; font-size: 13px; color: var(--muted); }
+  .share-name-form p.share-name-error { color: var(--red); }
+  /* Auto-route options: cards like the rows (setup). */
+  .setup button.row-toggle { padding: 0; border: 0; border-radius: 6px; background: none; font-size: inherit; }
+  .row.option .opt-head { display: block; font-size: 20px; }
+  #plan-options { margin-top: 6px; grid-template-columns: minmax(0, 1fr); } /* long stop names cut, not widen */
+  .toast {
+    position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 30; /* above the route map sheet (its locate toast) */
+    max-width: 360px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px;
+    background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .18); font-size: 15px;
+  }
+  .toast { cursor: pointer; }
+  /* The simulator's bar (DESIGN.md "Simulator"): fixed at the bottom, dashed in the accent; the
+     toast sits above it, the page scrolls clear of it. */
+  .sim-bar {
+    position: fixed; left: 10px; right: 10px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); z-index: 25;
+    max-width: 460px; margin: 0 auto; max-height: 70vh; overflow-y: auto; padding: 8px 10px;
+    background: var(--card); color: var(--text); border: 2px dashed var(--accent); border-radius: 14px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .2); font-size: 14px;
+  }
+  body.sim-on { padding-bottom: calc(var(--sim-bar-h, 100px) + 28px); }
+  body.sim-on .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--sim-bar-h, 100px) + 24px); }
+  .sim-top { display: flex; align-items: center; gap: 8px; }
+  .sim-tag { background: var(--accent); color: #1c1f24; font-weight: 700; font-size: 11px; padding: 2px 6px; border-radius: 6px; }
+  .sim-clock { flex: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .sim-bar button {
+    min-height: 32px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .sim-top button { border: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; padding: 0; }
+  .sim-bar button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .sim-ctl { display: flex; gap: 6px; margin-top: 8px; }
+  .sim-ctl button { flex: 1; display: inline-flex; align-items: center; justify-content: center; }
+  .sim-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .sim-chips button { flex: 1 1 auto; font-size: 13px; }
+  .sim-bar button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
+  .sim-label { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .sim-bar > button[aria-expanded] { margin-top: 8px; border: 0; padding: 4px 0; color: var(--muted); font-size: 13px; }
+  .sim-pushes { list-style: none; margin: 4px 0 0; padding: 0; font-size: 13px; color: var(--muted); display: grid; gap: 4px; }
+  .toast span { flex: 1; }
+  .toast button {
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+    color: var(--green); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .summary { display: flex; justify-content: space-between; align-items: center; gap: 0 8px; }
+  .summary .badge { margin-left: 0; }
+  .summary .chev { margin-left: 0; }
+  .arrive { margin-left: auto; white-space: nowrap; }
+  /* Expanded row: steps under a divider, joined by a rail through the route dots. */
+  .timeline { position: relative; border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; }
+  /* Walking parts of the rail: dotted; each ride draws its own bar over it (.tl-leg). */
+  .timeline::before {
+    content: ''; position: absolute; left: 4px; top: 14px; bottom: 12px; border-left: 2px dotted var(--border);
+  }
+  .step { position: relative; padding: 3px 0 3px 22px; }
+  .step.walk { font-size: 13px; color: var(--muted); }
+  .tl-leg { position: relative; }
+  /* The ride's bar, in three pieces so it runs node to node even when a long name wraps: from
+     the boarding stop's node down, through the ride line, down to the drop-off's node. */
+  .tl-leg .step::after { content: ''; position: absolute; left: 1px; width: 8px; background: var(--c); }
+  .tl-leg .step.stop:first-child::after { top: calc(8px + .35em); bottom: 0; border-radius: 4px 4px 0 0; }
+  .tl-leg .step.ride::after { top: 0; bottom: 0; }
+  .tl-leg .step.stop:last-child::after { top: 0; height: calc(8px + .35em); border-radius: 0 0 4px 4px; }
+  .step.stop, .step.end { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; }
+  .step.stop { cursor: pointer; }
+  .step.stop .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step.stop.full .n { white-space: normal; }
+  .step.stop .t, .step.end .t { flex: none; }
+  .node.end-node { background: var(--muted); border-color: var(--muted); }
+  .node {
+    position: absolute; left: 0; top: calc(3px + .35em); width: 10px; height: 10px; border-radius: 50%;
+    background: var(--card); border: 2px solid var(--c); box-sizing: border-box; z-index: 1;
+  }
+  .step.ride { font-size: 13px; color: var(--muted); padding-top: 4px; padding-bottom: 4px; }
+  .step.ride .toward { font-size: 12px; }
+  .step.ride .train { font-size: 12px; color: var(--muted); }
+  .step.ride .leg-alert {
+    margin-top: 4px; padding: 4px 8px; font-size: 13px; color: var(--text); font-weight: normal;
+    background: var(--alert-bg); border: 1px solid var(--alert-border); border-radius: 8px;
+  }
+  .step .flag { color: var(--amber); font-weight: 600; }
+  /* Passed steps: muted text (still 4.5:1), faded node, bar and walking figure. */
+  .step.done { color: var(--muted); }
+  .step.done > .node, .step.done::after, .step.done .walk-icon svg { opacity: .4; }
+  .step.walk.current, .step.ride.current { color: var(--text); }
+  /* Walking figure on the rail (centered on it, like the route dots); the card color masks the rail. */
+  .walk-icon {
+    position: absolute; left: -3px; top: 3px; width: 16px; height: 18px; display: flex; align-items: center; justify-content: center;
+    background: var(--card); color: var(--muted);
+  }
+  .walk-icon svg { width: 14px; height: 14px; fill: currentColor; }
+  .step.current .walk-icon { color: var(--text); }
+  .empty { color: var(--muted); padding: 16px 0; }
+  .enroute-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 14px; color: var(--muted); }
+  .enroute-bar button {
+    min-height: 44px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .en-status { flex: 1 1 0; min-width: 0; }
+  .enroute-bar.wide .en-status { flex-basis: 100%; }
+  .version { color: var(--muted); font-size: 12px; text-align: center; margin-top: 20px; }
+  /* Reload prompts: a 44 px target. The new-version card sits above the footer version. */
+  .big-btn { min-height: 44px; padding: 0 22px; font-size: 17px; font-weight: 600; border-radius: 12px;
+    background: var(--accent); border: 1px solid var(--accent); color: #1c1f24; }
+  #loadfail .big-btn { display: block; margin-top: 8px; }
+  .update-card { margin-top: 20px; border: 1px solid var(--accent); border-radius: 14px; padding: 14px; text-align: center; }
+  .update-card .t { font-weight: 600; margin-bottom: 10px; }
+  .update-card .big-btn { width: 100%; }
+  .empty .big-btn { width: 100%; }
+  .empty-help { margin: 0 0 12px; }
+  .empty .secondary-btn { width: 100%; min-height: 44px; margin-top: 10px; border-radius: 12px; cursor: pointer;
+    background: var(--card); border: 1px solid var(--border); color: var(--text); font: inherit; font-size: 17px; font-weight: 600; }
+  /* Setup view (setup.js) */
+  .setup button {
+    padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .setup button.primary { background: var(--accent); color: #1c1f24; border-color: var(--accent); font-weight: 600; }
+  .setup button.danger { color: var(--red); }
+  /* Setup's "Pending notifications" (debug). */
+  .setup .card.pn { padding: 10px 12px; }
+  .pn + .pn { margin-top: 8px; }
+  .pn .k { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .pn .t1 { font-weight: 600; margin-top: 2px; }
+  .pn-line { font-size: 14px; margin-top: 4px; display: flex; gap: 8px; }
+  .pn-line .w, .pn-log .w { color: var(--muted); min-width: 58px; flex: none; font-variant-numeric: tabular-nums; }
+  .pn .ok, .pn-log .ok { color: var(--green); }
+  .pn .bad, .pn-log .bad { color: var(--red); }
+  .pn .det { font-size: 13px; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+  .pn-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .setup .card.pn.warn { border-color: var(--alert-border); background: var(--alert-bg); }
+  .pn-log { font-size: 14px; }
+  .pn-log .e { display: flex; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); }
+  .pn-log .e:first-child { border-top: 0; }
+  .pn-clear { margin-top: 12px; }
+  .setup button:disabled { opacity: .5; }
+  .setup-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    position: sticky; top: 0; z-index: 5; background: var(--bg);
+    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 10px; margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 0;
+  }
+  /* Picker: header, context line and search stick together; the header inside is a plain block. */
+  .picker-top {
+    position: sticky; top: 0; z-index: 5; background: var(--bg);
+    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 8px; margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 0;
+  }
+  .picker-top .setup-head { position: static; padding: 0 0 10px; margin: 0; background: none; }
+  html.scrolled .picker-top .setup-head::after { content: none; } /* the wrapper's fade covers it */
+  .picker-top .muted { margin-top: 0; }
+  .setup .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 14px 14px; margin-bottom: 12px;
+  }
+  .field { display: block; margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+  /* Developer › Simulator (setup). */
+  .sim-card .toggle { margin-top: 10px; flex: none; }
+  .sim-card .field select, .sim-card .field input { display: block; width: 100%; margin-top: 4px; }
+  .sim-card .sim-hint { margin-top: 2px; font-size: 13px; color: var(--muted); }
+  .sim-card > button.primary { display: block; width: 100%; margin-top: 14px; min-height: 44px; font-size: 17px; }
+  .field input { margin-top: 4px; }
+  /* Auto-route: the two walk fields side by side; a picked station's "Change" at the right. */
+  .field-pair { display: flex; gap: 10px; align-items: flex-end; }
+  .field-pair > .field { flex: 1; min-width: 0; }
+  .field > .item { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; }
+  .field .item .change { margin-left: auto; color: var(--accent-text); font-size: 14px; }
+  /* Setup's Permissions (the iOS app). */
+  .setup .perms { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .setup .perms-head { font-size: 14px; color: var(--muted); }
+  .perm-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 34px; margin: 4px 0 0; font-size: 14px; }
+  .perm-off { color: var(--amber); font-weight: 600; }
+  .setup .perm-row button { padding: 4px 12px; }
+  .setup button.perm-settings { width: 100%; margin-top: 12px; display: flex; justify-content: space-between; }
+  .check { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 14px; }
+  .boarding-log div { font-size: 13px; margin: 4px 0; overflow-wrap: anywhere; }
+  .setup .check input { width: auto; margin: 0; }
+  .setup label.check { min-height: 44px; }
+  .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .setup input, .setup textarea, .setup select {
+    width: 100%; font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+  }
+  .setup input:not([type=checkbox]):not([type=radio]), .setup select, .setup textarea { min-height: 44px; }
+  /* iOS draws time and date inputs natively at their own width, ignoring width: 100%; without the
+     native appearance they fit the column (the picker still opens). */
+  .setup input[type=time], .setup input[type=date] {
+    -webkit-appearance: none; appearance: none; min-width: 0; display: block;
+    min-height: calc(1.4em + 18px); /* an empty time input collapses without its appearance */
+  }
+  .setup input[type=time]::-webkit-date-and-time-value, .setup input[type=date]::-webkit-date-and-time-value { text-align: left; }
+  .setup textarea { height: 240px; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; margin-top: 8px; }
+  .leg-row { display: flex; gap: 6px; margin-top: 12px; }
+  .setup .leg-row .leg-item {
+    flex: 1; min-width: 0; display: flex; align-items: center; text-align: left;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 8px 12px 10px;
+  }
+  .leg-main { flex: 1; min-width: 0; }
+  .go { margin-left: auto; padding-left: 8px; color: var(--muted); font-size: 20px; line-height: 1; }
+  .setup .trip-row .item { display: flex; align-items: center; }
+  .trip-main { flex: 1; min-width: 0; }
+  .leg-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .leg-text { font-size: 14px; margin-bottom: 6px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .trip-btns, .io { margin-top: 12px; }
+  .setup button.add { width: 100%; margin: 10px 0 0; }
+  .setup .arrived-note { margin-top: 12px; }
+  .setup button.add.accent { border-color: var(--accent); color: var(--accent-text); }
+  .legs-empty {
+    border: 1px dashed var(--border); border-radius: 10px; padding: 12px; margin-top: 12px;
+    text-align: center; color: var(--muted); font-size: 14px;
+  }
+  .setup details.more { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .setup details.more summary { padding: 12.2px 0; font-size: 14px; color: var(--muted); cursor: pointer; }
+  .setup .list { display: grid; gap: 6px; margin-top: 10px; }
+  .setup button.item { text-align: left; width: 100%; }  .setup .item + .item { margin-top: 0; }
+  .setup .list.trips { margin: 0; }
+  .setup .section { margin: 20px 0 6px; }
+  .setup .list .section-head { margin: 8px 0 0; font-weight: 600; }
+  /* A tag longer than the line (South Station's CR lines) wraps inside instead of widening the page. */
+  .setup .item .conn { color: var(--muted); font-size: 13px; margin-left: 4px; display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .setup button.item.has-dist { display: flex; align-items: baseline; gap: 8px; }
+  .setup .item.has-dist .main { flex: 1; min-width: 0; }
+  /* Seven 44 px buttons don't fit a 320 px card in one row: 4 + 3 there, one row from ~360 px. */
+  .auto-bell .toggle.days { flex-wrap: wrap; margin-top: 4px; }
+  .auto-bell .toggle.days button { flex: 1 1 60px; min-width: 0; min-height: 44px; padding: 10px 0; }
+  .auto-bell .hint { font-size: 14px; margin-top: 8px; }
+  .setup .item .dist { color: var(--muted); font-size: 14px; white-space: nowrap; }
+  .setup button.link { display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; }
+  .leg-routes { display: flex; flex-wrap: wrap; gap: 0 14px; margin: -2px 0 6px; }
+  .leg-routes .check { margin: 0; }
+  .trip-row { display: flex; gap: 6px; }
+  .trip-row .item { flex: 1; min-width: 0; padding: 10px 12px; }
+  .trip-row .item .muted { margin: 2px 0 0; overflow-wrap: anywhere; }
+  .muted { color: var(--muted); font-size: 14px; margin: 4px 0 8px; }
+  .msg { font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
+  .msg.err { color: var(--red); }
+  /* The route map (DESIGN.md "Route map"): the 🗺 sheet and setup's inline maps. Marks are sized
+     in pixels (scaled by the view in script); lines keep their width while zooming. */
+  .map-sheet {
+    position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--bg);
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px max(16px, env(safe-area-inset-bottom));
+  }
+  .map-body { flex: 1; min-height: 0; display: flex; }
+  .map-body .route-map { flex: 1; display: flex; }
+  .map-body .route-svg { flex: 1; height: auto; }
+  /* The sheet's title (2026-11-13; a header row with "Done" until then): the trip's name on the map,
+     level with the corner buttons, clear of both stacks (10 + 40 + 8 px), with a halo. */
+  .map-title {
+    position: absolute; top: 10px; left: 58px; right: 58px; margin: 0; z-index: 1;
+    height: 40px; line-height: 40px; text-align: center; font-size: 18px; font-weight: 600; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none;
+    text-shadow: 0 0 2px var(--bg), 0 0 4px var(--bg), 0 0 6px var(--bg), 0 0 8px var(--bg);
+  }
+  .route-map { margin: 8px 0; position: relative; }
+  /* The map's corner buttons: locate (2026-11-09; off outside the map; 2026-11-10: filled while
+     following, street and area zoom), back to the trip
+     (2026-11-08; ⤢ until 2026-11-09), shown once the view moves off the fit, and on the sheet the
+     whole map (2026-11-09), shown once the base map is in and the view isn't all the way out; on
+     the main screen's map a left stack (2026-11-13): Hide map, then "Open the full map" (on the
+     right until 2026-11-13); the sheet has a left stack too (2026-11-13): "Close the full map"
+     (a "Done" text button in a header row until then). */
+  .map-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .map-tool {
+    position: relative; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text);
+    font: inherit; font-size: 20px; line-height: 1; box-shadow: 0 1px 3px rgb(0 0 0 / .15); cursor: pointer;
+  }
+  .map-tool::before { content: ''; position: absolute; inset: -3px; } /* a 46 px touch area */
+  .map-tool[hidden] { display: none; }
+  .map-tool:disabled { opacity: .4; cursor: default; }
+  /* The main screen's map (2026-11-12): 26% of the screen's height, 160-300 px; it pans and zooms (2026-11-13). */
+  .main-map { margin: 0; }
+  .map-tools.start { right: auto; left: 10px; }
+  .main-map .route-svg { height: clamp(160px, 26vh, 300px); height: clamp(160px, 26svh, 300px); }
+  .main-map-item { position: relative; margin-bottom: 12px; }
+  .main-map-item .map-caption { margin: 6px 0 0; font-size: 13px; }
+  .main-map-item .map-caption[hidden] { display: none; }
+  .map-tool svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+  .map-locate[aria-pressed="true"] svg { fill: currentColor; } /* following you (2026-11-10) */
+  .route-svg {
+    display: block; width: 100%; height: 200px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  .route-svg.still { touch-action: auto; } /* a picture: the page scrolls over it */
+  .map-caption { margin: 6px 0 0; min-height: 20px; font-size: 14px; color: var(--muted); }
+  .map-leg { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .map-leg.faded { stroke-opacity: .35; }
+  .map-walk { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .map-stop circle { fill: var(--card); stroke-width: 1.5; }
+  .map-stop.major circle { stroke-width: 3; }
+  /* A bus line's stops outside your stretch (2026-11-09), faded like its line. */
+  .map-stop.off circle:first-child { stroke-opacity: .35; }
+  .map-stop.off:focus-visible circle:first-child { stroke-opacity: 1; }
+  /* Start and end pins (2026-11-09): green start, red end, both themes; decorative. */
+  .map-pin { pointer-events: none; }
+  .map-pin path { stroke: var(--card); stroke-width: 1.5; stroke-linejoin: round; }
+  .map-pin.start path { fill: #1e8e3e; }
+  .map-pin.end path { fill: #d93025; }
+  .map-pin .hole { fill: var(--card); }
+  .map-pin.faded path, .map-pin.faded .hole { fill-opacity: .35; stroke-opacity: .35; }
+  .map-stop .map-hit { fill: transparent; stroke: none; cursor: pointer; }
+  .map-stop:focus { outline: none; }
+  .map-stop:focus-visible circle:first-child { stroke: var(--text); stroke-width: 3; }
+  .map-label { font-size: 12px; font-weight: 600; fill: var(--text); stroke: var(--bg); stroke-width: 3; paint-order: stroke; stroke-linejoin: round; }
+  /* A vehicle: a round marker pointing the way it travels, the label upright (2026-11-09). */
+  .map-vehicle text { font-size: 9px; font-weight: 700; }
+  .map-vehicle.mine text { font-size: 11px; }
+  .map-vehicle path { stroke: var(--card); stroke-width: 1.5; stroke-linejoin: round; }
+  .map-vehicle.mine path { stroke: var(--text); stroke-width: 2.5; }
+  /* The ridden vehicle at your GPS position (2026-11-12): the location dot's blue. */
+  .map-vehicle.gps path { stroke: var(--here); }
+  .map-vehicle .halo { fill: var(--here); opacity: .2; stroke: none; }
+  /* The base map: beneath the trip, sizes in px at any zoom, not interactive. */
+  .map-base { pointer-events: none; }
+  .map-water { fill: var(--map-water); }
+  .map-land { fill: var(--map-land); fill-rule: evenodd; }
+  .map-green { fill: var(--map-green); fill-rule: evenodd; }
+  .map-lake { fill: var(--map-water); fill-rule: evenodd; }
+  .map-river, .map-town-line, .map-hood-line, .map-faint { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+  .map-river { stroke: var(--map-water); stroke-width: 1.5; }
+  .map-town-line { stroke: var(--map-line); stroke-width: 1; stroke-dasharray: 4 3; }
+  .map-hood-line { stroke: var(--map-line); stroke-width: 1; stroke-dasharray: 1.5 2.5; }
+  /* stroke-opacity, not opacity: a translucent element is composited as a layer, which left
+     seams between Chromium's raster tiles over the land (2026-11-07). */
+  .map-faint { stroke-width: 2.5; stroke-opacity: .3; }
+  .map-faint.cr { stroke-width: 1.5; stroke-opacity: .35; }
+  .map-name { fill: var(--muted); fill-opacity: .8; text-anchor: middle; }
+  .map-name.town { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+  .map-name.hood { font-size: 10px; font-style: italic; }
+  .map-credit { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+  .map-here .halo { fill: var(--here); opacity: .2; }
+  .map-here .dot { fill: var(--here); stroke: #fff; stroke-width: 2; }

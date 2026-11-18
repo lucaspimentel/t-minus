@@ -10,6 +10,7 @@ export function createMemoryStore() {
   let pushLog = []; // { id, endpoint, at, body }
   let appLog = []; // { id, device, at, body }
   let autoBells = new Map(); // id → { endpoint, nextAt, body }
+  let shares = new Map(); // id → { owner, expiresAt, body }
   let nextId = 1;
   const cache = new Map();
   // Insertion order breaks ties, as SQLite's rowid order does.
@@ -59,6 +60,22 @@ export function createMemoryStore() {
     },
     autoBellsFor: endpoint => [...autoBells.values()].filter(a => a.endpoint === endpoint).map(a => copy(a.body)),
     dueAutoBells: t => [...autoBells.values()].filter(a => a.nextAt <= t).sort((a, b) => a.nextAt - b.nextAt).map(a => copy(a.body)),
+    shareAdd: x => {
+      if (shares.has(x.id)) throw new Error('UNIQUE constraint failed: shares.id');
+      shares.set(x.id, { owner: x.owner, expiresAt: x.expiresAt, body: copy(x) });
+    },
+    shareUpdate: x => {
+      const row = shares.get(x.id);
+      if (row) Object.assign(row, { expiresAt: x.expiresAt, body: copy(x) });
+    },
+    shareGet: id => (shares.has(id) ? copy(shares.get(id).body) : null),
+    sharesFor: owner => [...shares.values()].filter(r => r.owner === owner).map(r => copy(r.body)),
+    sharePrune: t => {
+      let n = 0;
+      for (const [id, r] of shares) if (r.expiresAt < t) { shares.delete(id); n++; }
+      return n;
+    },
+    shareCount: () => shares.size,
     cacheGet: key => (cache.has(key) ? { ...cache.get(key) } : null),
     cachePut: (key, e) => { cache.set(key, { text: e.text, lastModified: e.lastModified ?? null, at: e.at }); },
     cacheTouch: (key, at) => { if (cache.has(key)) cache.get(key).at = at; },
@@ -69,7 +86,7 @@ export function createMemoryStore() {
       return n;
     },
     close: () => {},
-    dump: () => copy({ reminders: [...reminders.entries()], pushLog, appLog, autoBells: [...autoBells.entries()], nextId }),
+    dump: () => copy({ reminders: [...reminders.entries()], pushLog, appLog, autoBells: [...autoBells.entries()], shares: [...shares.entries()], nextId }),
     load: d => {
       if (!d) return;
       const x = copy(d);
@@ -77,6 +94,7 @@ export function createMemoryStore() {
       pushLog = x.pushLog;
       appLog = x.appLog;
       autoBells = new Map(x.autoBells);
+      shares = new Map(x.shares ?? []);
       nextId = x.nextId;
     },
   };

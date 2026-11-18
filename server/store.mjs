@@ -50,6 +50,14 @@ export function openStore(dir) {
     );
     CREATE INDEX IF NOT EXISTS auto_bells_due ON auto_bells (next_at);
     CREATE INDEX IF NOT EXISTS auto_bells_endpoint ON auto_bells (endpoint);
+    CREATE TABLE IF NOT EXISTS shares (
+      id TEXT PRIMARY KEY,
+      owner TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      body TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS shares_owner ON shares (owner);
+    CREATE INDEX IF NOT EXISTS shares_expires ON shares (expires_at);
   `);
   const q = {
     add: db.prepare('INSERT INTO reminders (id, endpoint, next_poll_at, body) VALUES (?, ?, ?, ?)'),
@@ -76,6 +84,13 @@ export function openStore(dir) {
     autoDeleteFor: db.prepare('DELETE FROM auto_bells WHERE endpoint = ?'),
     autoFor: db.prepare('SELECT body FROM auto_bells WHERE endpoint = ?'),
     autoDue: db.prepare('SELECT body FROM auto_bells WHERE next_at <= ? ORDER BY next_at'),
+    shareAdd: db.prepare('INSERT INTO shares (id, owner, expires_at, body) VALUES (?, ?, ?, ?)'),
+    // Never inserts: a share pruned while a request waited stays gone.
+    shareUpdate: db.prepare('UPDATE shares SET expires_at = ?, body = ? WHERE id = ?'),
+    shareGet: db.prepare('SELECT body FROM shares WHERE id = ?'),
+    sharesFor: db.prepare('SELECT body FROM shares WHERE owner = ?'),
+    sharePrune: db.prepare('DELETE FROM shares WHERE expires_at < ?'),
+    shareCount: db.prepare('SELECT count(*) AS n FROM shares'),
     cacheGet: db.prepare('SELECT body, last_modified, fetched_at FROM mbta_cache WHERE key = ?'),
     cachePut: db.prepare('INSERT OR REPLACE INTO mbta_cache (key, body, last_modified, fetched_at) VALUES (?, ?, ?, ?)'),
     cacheTouch: db.prepare('UPDATE mbta_cache SET fetched_at = ? WHERE key = ?'),
@@ -122,6 +137,14 @@ export function openStore(dir) {
     updateAutoBell: a => { q.autoUpdate.run(a.nextAt ?? Number.MAX_SAFE_INTEGER, JSON.stringify(a), a.id); },
     autoBellsFor: endpoint => parse(q.autoFor.all(endpoint)),
     dueAutoBells: t => parse(q.autoDue.all(t)),
+    // Shared rides (DESIGN.md "Share my ride"): `owner` is the hash of the sharing device's secret;
+    // rows are kept until `expiresAt` (the end plus 24 h).
+    shareAdd: x => { q.shareAdd.run(x.id, x.owner, x.expiresAt, JSON.stringify(x)); },
+    shareUpdate: x => { q.shareUpdate.run(x.expiresAt, JSON.stringify(x), x.id); },
+    shareGet: id => parse([q.shareGet.get(id)].filter(Boolean))[0] ?? null,
+    sharesFor: owner => parse(q.sharesFor.all(owner)),
+    sharePrune: t => Number(q.sharePrune.run(t).changes),
+    shareCount: () => q.shareCount.get().n,
     // { text, lastModified, at } or null.
     cacheGet: key => {
       const r = q.cacheGet.get(key);
