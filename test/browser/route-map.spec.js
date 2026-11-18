@@ -1486,9 +1486,14 @@ test('the main screen\'s map: a tap on a stop shows its name, a tap elsewhere cl
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
   // A drawn stop between the ends.
   const pt = await pic.evaluate(s => {
-    const g = [...s.querySelectorAll('.map-stop[data-stop]')].find(x => !x.hasAttribute('display') && !x.querySelector('.map-label'));
-    const r = g.querySelector('circle').getBoundingClientRect();
-    return { id: g.dataset.stop, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    // One with no other drawn stop within 14 px, the hit radius (stops are drawn from 10 px apart, 2026-11-17: a
+    // tap between close ones picks the nearer), so the tap is on this one.
+    const centers = [...s.querySelectorAll('.map-stop[data-stop]')].filter(x => !x.hasAttribute('display')).map(g => {
+      const r = g.querySelector('circle').getBoundingClientRect();
+      return { g, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    const c = centers.find(a => !a.g.querySelector('.map-label') && centers.every(b => b === a || Math.hypot(a.x - b.x, a.y - b.y) >= 14));
+    return { id: c.g.dataset.stop, x: c.x, y: c.y };
   });
   await page.mouse.click(pt.x, pt.y);
   await tick(page, 100);

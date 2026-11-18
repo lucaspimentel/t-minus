@@ -678,9 +678,11 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   first boarding stop). Each leg is its route's shape (`route_patterns` with
   `representative_trip.shape`), trimmed to its boarding and drop-off stops, in the route's
   color; its stops are small dots, the ends larger and labeled. An intermediate stop is drawn
-  only when it's 14 px or more from the last one drawn on its leg and from the leg's end
-  (`stopsToShow`, rechecked on zoom; 2026-11-07: the small setup maps were a string of bus-stop
-  dots); a selected stop always. Two leg ends within 250 m are
+  only with room for its dot (`stopsToShow`, rechecked on zoom; 2026-11-07: the small setup maps
+  were a string of bus-stop dots): 12 px or more from the last stop drawn when that is a large
+  ring (a leg end or transfer, the previous leg's at a merged one), 10 px from the last small dot
+  on its leg, and 12 px from its leg's next end (a ring's edge, 7.5, plus a dot's, 4.25; two dots'
+  edges, 8.5; 2026-11-17, 14 px before, which hid Haymarket after State); a selected stop always. Two leg ends within 250 m are
   one transfer: one dot when they share a name, else the next leg's label only ("Oak Grove", not
   "Washington St opp Oak Grove Sta"). Transfer walks are dashed. Start and end pins (2026-11-09, mockups
   accepted): teardrops, green (`#1e8e3e`) at the start and red (`#d93025`) at the end in both
@@ -1883,8 +1885,9 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   large (radius 6,
   stroke 3, one shared ring at a transfer, in the arriving leg's color), the stops between small
   (radius 3.5, stroke 1.5), hollow and faded ahead, filled once passed; the card's own color
-  fills the hollow centers (the island's black). A stop closer than 14 pt to the last one drawn
-  or to its leg's end is skipped, as the map's `stopsToShow`. The start ring fills at the first
+  fills the hollow centers (the island's black). A stop closer than 12 pt to its leg's
+  start ring (while none is drawn yet) or end ring, or than 10 pt to the last dot drawn, is skipped
+  (2026-11-17, 14 pt before, which hid Haymarket after State), as the map's `stopsToShow`. The start ring fills at the first
   departure, a transfer ring at the arriving leg's arrival, the end ring at the last arrival;
   the ridden leg's stops fill by the stops left (`stops`, so the dots agree with "Get off in 5
   stops": the stops between minus those still ahead), else by time; a done leg's are all filled,
