@@ -22,6 +22,8 @@
 //     first stop until its last, like the real API's horizon),
 //   noShapes?: true (the route map's shape requests fail: its straight-line fallback),
 //   dwell?: true (a ride's vehicle stopped at a stop for 30 s after its time),
+//   rideVehicleAt?: { [tripId]: stopId } (a ride's stops: that trip's vehicle stays STOPPED_AT that
+//     stop, and the stop stays listed, as stale stop data; delete the entry to release it),
 // }
 // `live.delay` shifts every stop (or only `live.stops`) by minutes; `live.delays` gives minutes
 // per stop (the simulator's "+2 min late" from a stop on). Times are local
@@ -209,8 +211,9 @@ export function createFakeMbta(scenario, staticData = {}) {
     const t = scenario.trips.find(x => x.id === tripId && onDate(x, serviceDate(now)));
     if (!t) return { data: [], included: [] };
     const times = liveTimes(t);
-    const left = times.filter(s => s.ms >= now - 30_000);
-    const at = scenario.dwell ? left.find(s => s.ms <= now) : null;
+    const held = scenario.rideVehicleAt?.[t.id] ? times.find(s => s.stopId === scenario.rideVehicleAt[t.id]) : null;
+    const left = times.filter(s => s.ms >= now - 30_000 || (held && s.seq >= held.seq));
+    const at = held ?? (scenario.dwell ? left.find(s => s.ms <= now) : null);
     const next = at ?? left.find(s => s.ms > now) ?? left[0];
     const vehicle = { type: 'vehicle', id: `veh-${t.id}`, attributes: { current_status: at ? 'STOPPED_AT' : 'IN_TRANSIT_TO', current_stop_sequence: next?.seq ?? null } };
     return {

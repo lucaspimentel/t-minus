@@ -2330,6 +2330,16 @@ export const GET_OFF_MIN = 2;
 export const RIDE_POLL_MS = 20_000;
 const RIDE_MAX_MS = 3 * 60 * MIN;
 
+// While boarding (2026-11-18): the ridden leg's stops (rideStops) still show its vehicle at the
+// boarding stop: refetch them alone every 15 s, for at most 3 min after the leg became the ridden
+// one, rather than waiting for the 60 s poll. `fetchedAt`: the last fetch (or attempt), `since`:
+// when the leg became the ridden one.
+export const RIDE_BOARDING_REFETCH_MS = 15_000;
+export const RIDE_BOARDING_REFETCH_FOR_MS = 3 * MIN;
+export function boardingRefetchDue({ stops, fetchedAt, since, nowMs }) {
+  return !!stops?.vehicle?.boarding && nowMs - since < RIDE_BOARDING_REFETCH_FOR_MS && nowMs - fetchedAt >= RIDE_BOARDING_REFETCH_MS;
+}
+
 // One poll of a ride's alerts. `alert` = { sent: { [leg]: { first, headsUp, arr, getOff, nextDep } },
 // missedDep, missedNext ({ leg, dep } of the replacement), none }; `stops` = rideStops() for the
 // leg being ridden (or null); `outlook` = transferOutlook(). Returns { alert, sends: [{ kind, leg,
@@ -4350,13 +4360,24 @@ export function pathHeading(path, index) {
 // Your vehicle at your position (2026-11-12): while riding, the ridden vehicle's marker goes to
 // the phone's GPS fix, snapped onto the leg's stretch, since MBTA positions lag (track circuits,
 // the 10 s poll, up to 90 s old). A fix counts when its accuracy is within 50 m (GPS_MAX_ACCURACY_METERS), it's at most
-// 10 s old, it's within 75 m of the line, the vehicle has left the boarding stop (`left`) and the
+// 10 s old, it's within 75 m of the line, the vehicle has left the boarding stop (`left`, or its MBTA
+// position more than 50 m past it: vehicleLeftBoarding; `vehicle` is { x, y, at? }) and the
 // vehicle's MBTA position is within 1 km. Without one, the last counted point (`hold`) stays until
 // the MBTA position passes it along the line or 60 s go by, so the marker never moves back.
 export const RIDE_GPS_MAX_AGE_MS = 10_000;
 export const RIDE_GPS_LINE_METERS = 75;
 export const RIDE_GPS_VEHICLE_METERS = 1000;
 export const RIDE_GPS_HOLD_MS = 60_000;
+export const RIDE_LEFT_METERS = 50;
+// The ridden vehicle's MBTA position past the boarding stop (2026-11-18): fresh (VEHICLE_FRESH_SECONDS),
+// within 150 m of the stretch (as vehiclesOnStretch) and more than RIDE_LEFT_METERS along it (`path`
+// starts at the boarding stop). vehicle: { x, y, at } (at: its updatedAt) or null.
+export function vehicleLeftBoarding(path, vehicle, nowMs) {
+  if (!vehicle || !path || path.length < 2) return false;
+  if (!(nowMs - vehicle.at <= VEHICLE_FRESH_SECONDS * 1000)) return false;
+  const n = nearestOnPath(path, vehicle);
+  return !!n && n.meters <= 150 && n.along > RIDE_LEFT_METERS;
+}
 // path: the ridden stretch [{ x, y }]; fix: { x, y, accuracy, at } or null; vehicle: the ride's
 // MBTA position { x, y } or null (not in /vehicles: no marker); hold: { x, y, at } or null.
 // → { point, heading, hold }: point null keeps the MBTA marker.
@@ -4364,7 +4385,8 @@ export function rideMarker({ path, fix, vehicle, left, hold, nowMs }) {
   const none = { point: null, heading: 0, hold: null };
   if (!vehicle || !path || path.length < 2) return none;
   const held = hold ? nearestOnPath(path, hold) : null;
-  const usable = fix && left && fix.accuracy <= GPS_MAX_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS
+  const gone = left || vehicleLeftBoarding(path, vehicle, nowMs);
+  const usable = fix && gone && fix.accuracy <= GPS_MAX_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS
     && Math.hypot(fix.x - vehicle.x, fix.y - vehicle.y) <= RIDE_GPS_VEHICLE_METERS;
   const snap = usable ? nearestOnPath(path, fix) : null;
   if (snap && snap.meters <= RIDE_GPS_LINE_METERS) {
@@ -4671,7 +4693,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     // The ridden vehicle at your GPS position (2026-11-12; rideMarker).
     if (ride && r.i === ride.leg && mine[r.i]) {
       const v = legVehicles.find(x => x.tripId === mine[r.i]);
-      const m = rideMarker({ path, nowMs, left: ride.left, vehicle: v ? proj.toXY(v) : null, fix: xy(ride.fix), hold: xy(ride.hold) });
+      const m = rideMarker({ path, nowMs, left: ride.left, vehicle: v ? { ...proj.toXY(v), at: v.updatedAt } : null, fix: xy(ride.fix), hold: xy(ride.hold) });
       out.ride = { gps: !!m.point, hold: m.hold && { ...proj.toLatLon(m.hold), at: m.hold.at } };
       if (m.point) {
         const k = out.vehicles.findIndex(x => x.mine && x.id === v.id);

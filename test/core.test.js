@@ -8,6 +8,7 @@ import {
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, transferText, widgetNextRide, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
+  boardingRefetchDue, RIDE_BOARDING_REFETCH_MS, RIDE_BOARDING_REFETCH_FOR_MS,
   reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   validAutoBell, bostonMs, autoBellNext, autoBellRow, autoBellLabel, autoBellTrips,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, tripStopShares, withStopShares, legAtError, stopSharesError, stopCountTrip, stopCountText, rideLine,
@@ -3167,4 +3168,17 @@ test('stagingPlugins: side effects off ("unimplemented"), lists empty, the rest 
   await p.PushNotifications.checkPermissions();
   await p.Geolocation.getCurrentPosition();
   assert.deepEqual(calls, ['TMinus.permissionsStatus', 'TMinus.keepAwake', 'TMinus.serverSet', 'PushNotifications.checkPermissions', 'Geolocation.getCurrentPosition']);
+});
+
+test('boardingRefetchDue: every 15 s while the stops show the vehicle at the boarding stop, up to 3 min', () => {
+  const nowMs = 10_000_000;
+  const boarding = { vehicle: { boarding: true } };
+  const run = (o = {}) => boardingRefetchDue({ stops: boarding, fetchedAt: nowMs - RIDE_BOARDING_REFETCH_MS, since: nowMs - 60_000, nowMs, ...o });
+  assert.equal(run(), true);
+  assert.equal(run({ fetchedAt: nowMs - RIDE_BOARDING_REFETCH_MS + 1 }), false);
+  assert.equal(run({ since: nowMs - RIDE_BOARDING_REFETCH_FOR_MS }), false);
+  assert.equal(run({ since: nowMs - RIDE_BOARDING_REFETCH_FOR_MS + 1 }), true);
+  assert.equal(run({ stops: { vehicle: { status: 'IN_TRANSIT_TO' } } }), false);
+  assert.equal(run({ stops: { vehicle: null } }), false);
+  assert.equal(run({ stops: null }), false);
 });

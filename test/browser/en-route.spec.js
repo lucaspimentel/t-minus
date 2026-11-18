@@ -3,7 +3,7 @@
 // Timeline used below (home to office): bus 132 7:08 → 7:22 (via Pond St 7:12), 5-min
 // transfer, Orange 7:32 → 7:47 (every 6 min), 10-min walk → arrive 7:57.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding, CONFIG, cssColor } from './helpers.js';
+import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding, CONFIG, cssColor, at } from './helpers.js';
 import { series } from './fake-mbta.js';
 
 test.beforeEach(({ page }) => {
@@ -325,6 +325,48 @@ test('still at the boarding stop: its row carries the vehicle, listed once', asy
   await tick(page, 1000);
   await expect(leg.locator('.step.stop').first().locator('.veh')).toHaveCount(0);
   await expect(leg.locator('.step.mid.gap .veh')).toHaveCount(1);
+});
+
+// Stop-data fetches (filter[trip]) between two times that didn't ride along with a full poll
+// (a poll's requests share one moment).
+const extraStopFetches = (mbta, from, to) => {
+  const within = mbta.hits.filter(h => h.at > from && h.at <= to && h.path === '/predictions');
+  const polled = new Set(within.filter(h => !h.query.has('filter[trip]')).map(h => h.at));
+  return within.filter(h => h.query.has('filter[trip]') && !polled.has(h.at)).length;
+};
+
+test('still at the boarding stop: its stops are refetched every 15 s, the row switches before the 60 s poll', async ({ page }) => {
+  const scenario = commute();
+  scenario.rideVehicleAt = { '132in-0708': '25996' };
+  const mbta = await openApp(page, { time: '07:00', scenario });
+  await atTheStop(page);
+  await tickTo(page, '07:08:10'); // boarded; the stops still say the bus is at Main St
+  await tick(page, 1000);
+  const leg = card(page).locator('.tl-leg').first();
+  await expect(leg.locator('.step.stop').first().locator('.veh')).toHaveCount(1);
+  await expect(leg.locator('.step.mid.gap .veh')).toHaveCount(0);
+  const from = at('07:08:10');
+  delete scenario.rideVehicleAt['132in-0708']; // the next stop fetch says it left
+  await tick(page, 16_000);
+  await expect(leg.locator('.step.stop').first().locator('.veh')).toHaveCount(0);
+  await expect(leg.locator('.step.mid.gap .veh')).toHaveCount(1);
+  expect(extraStopFetches(mbta, from, from + 17_000)).toBeGreaterThanOrEqual(1);
+});
+
+test('still at the boarding stop: the 15 s refetch stops 3 min after the leg began', async ({ page }) => {
+  const scenario = commute();
+  scenario.rideVehicleAt = { '132in-0708': '25996' };
+  const mbta = await openApp(page, { time: '07:00', scenario });
+  await atTheStop(page);
+  await tickTo(page, '07:08:10');
+  await tick(page, 1000);
+  const start = at('07:08:10');
+  for (let k = 0; k < 90; k++) await tick(page, 2000); // in steps: a fetch's reply lands in real time
+  expect(extraStopFetches(mbta, start, start + 3 * 60_000)).toBeGreaterThanOrEqual(8);
+  expect(extraStopFetches(mbta, start, start + 3 * 60_000)).toBeLessThanOrEqual(13);
+  const after = at('07:11:20');
+  for (let k = 0; k < 50; k++) await tick(page, 2000);
+  expect(extraStopFetches(mbta, after, after + 100_000)).toBeLessThanOrEqual(0);
 });
 
 test('with only the drop-off left, the headline says to get off; the timeline names the stop', async ({ page }) => {

@@ -1296,9 +1296,9 @@ const stopXY = (loc, k) => loc.locator('svg.route-svg').evaluate((s, id) => {
   return g ? { x: Math.round(+g.dataset.x), y: Math.round(+g.dataset.y) } : null;
 }, busStops[k]);
 
-async function rideWithGps(page, context, vehicles) {
+async function rideWithGps(page, context, vehicles, extra = {}) {
   await context.grantPermissions(['geolocation']);
-  const scenario = { ...commute(), vehicles: [] };
+  const scenario = { ...commute(), vehicles: [], ...extra };
   const mbta = await openApp(page, { map: true, time: '07:00', scenario, init: RIDE_GEO });
   await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
   await tick(page, 1000);
@@ -1329,6 +1329,27 @@ test('riding: your bus at your GPS position in a blue ring, without the dot, on 
   await expect(sheet(page).locator('.map-here')).toHaveCount(0);
   const stop = await stopXY(sheet(page), 14);
   expect(Math.hypot(at.x - stop.x, at.y - stop.y)).toBeLessThan(20);
+});
+
+test('riding: your bus snaps to your GPS position once its MBTA position is past the boarding stop, before its stops say it left', async ({ page, context }) => {
+  // The ride's stops still show the bus at Main St (the stale stop data of a ride's first minute).
+  const { scenario, tripId } = await rideWithGps(page, context, t => [vehicleAt('mine', t, 8)], { rideVehicleAt: { '132in-0708': '25996' } });
+  const map = mainMap(page);
+  await geoAt(page, 14);
+  await tick(page, 50);
+  // At the boarding stop on the MBTA's data: no snap.
+  await expect.poll(() => myVehicle(map).then(v => v?.gps)).toBe(false);
+  await expect(page.locator('.row.ride .tl-leg').first().locator('.step.stop').first().locator('.veh')).toHaveCount(1);
+  // Past it: the snap, though the stops still say boarding.
+  scenario.vehicles = [vehicleAt('mine', tripId, 12)];
+  await tick(page, 10_000);
+  await geoAt(page, 14);
+  await expect.poll(() => myVehicle(map).then(v => v?.gps)).toBe(true);
+  await expect(page.locator('.row.ride .tl-leg').first().locator('.step.stop').first().locator('.veh')).toHaveCount(1);
+  await expect(map.locator('.map-here')).toHaveCount(0);
+  await openMap(page);
+  await tick(page, 500);
+  await expect.poll(() => myVehicle(sheet(page)).then(v => v?.gps)).toBe(true);
 });
 
 test('riding: without a counted fix the GPS point holds until the MBTA position passes it, or 60 s', async ({ page, context }) => {
