@@ -4,7 +4,7 @@
 // Orange 7:56 → 8:11, a 10-min walk: arrive 8:21.
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { openApp, tick, tickTo } from './helpers.js';
+import { openApp, tick, tickTo, at } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -347,3 +347,47 @@ for (const scheme of ['light', 'dark']) {
     expect(await violations(rp)).toEqual([]);
   });
 }
+
+// A one-off (Oak Grove → State, as plan.spec.js): "See departures" with the server's timed answer stubbed.
+const TIMED_OAK_STATE = () => ({ from: 'Oak Grove', to: 'State', timed: true, options: [{
+  legs: [{ route: 'Orange', also: [], direction_id: 0, stop: 'place-ogmnl', alight: 'place-state', stopName: 'Oak Grove', alightName: 'State', stops: 8 }],
+  transfers: [], minutes: 15, walkBefore: 0, walkAfter: 0, leave: at('07:02'), arrive: at('07:28'),
+  deps: [{ dep: at('07:08'), arr: at('07:23'), source: 'scheduled' }],
+}] });
+async function oneOffRide(page) {
+  await page.route(/\/api\/plan\?/, route => route.fulfill({ json: TIMED_OAK_STATE() }));
+  await page.locator('#toggle select').selectOption({ label: 'Plan a trip…' });
+  for (const [field, query, name] of [['from', 'oak gr', 'Oak Grove'], ['to', 'state', 'State']]) {
+    await page.locator(`#setup #plan-${field}`).click();
+    await page.locator('#setup #picker-search').fill(query);
+    await page.locator('#setup .list .item', { hasText: name }).first().click();
+  }
+  const opt = page.locator('#setup #plan-options > .row').first();
+  await opt.locator('.row-toggle').click();
+  await opt.locator('.row-foot').getByRole('button', { name: 'See departures', exact: true }).click();
+  await tick(page, 1000);
+  await bar(page).getByRole('button', { name: 'At the stop' }).click();
+  await tick(page, 1000);
+  await tickTo(page, '07:02:30'); // boarded
+  await expect(card(page)).toBeVisible();
+}
+
+test('a one-off that ends with its ride keeps its share: no DELETE, the page still shows the arrival', async ({ page, context }) => {
+  const { mbta } = await openShareApp(page, context);
+  const deletes = [];
+  page.on('request', r => { if (r.method() === 'DELETE' && r.url().includes('/api/shares/')) deletes.push(r.url()); });
+  await oneOffRide(page);
+  await card(page).getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('#share-name-input').fill('Lucas');
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await expect(card(page).getByRole('button', { name: 'Sharing', exact: true })).toBeVisible();
+  const url = (await page.evaluate(() => window.sharedWith.map(d => d.url))).at(-1);
+  await tickTo(page, '07:23'); // off at 7:17, 5-min walk... arrived
+  await card(page).getByRole('button', { name: 'Done' }).click();
+  await expect(page.locator('#oneoff')).toBeHidden();
+  await tick(page, 21_000);
+  expect(deletes).toEqual([]);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:share') ?? 'null')?.share ?? null)).toBeNull();
+  const rp = await recipient(context, mbta, url, page);
+  await expect(head(rp)).not.toHaveText('This ride has ended');
+});

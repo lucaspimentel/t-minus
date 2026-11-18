@@ -37,7 +37,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-18 · 6b0565742b</footer>
+    <footer class="version">Version 2026-11-18 · fe5f541e40</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -2435,7 +2435,9 @@ function moveTripState(from, to) {
 
 // A trip's reminders (as bell off: their cards end), en-route state (and its stop alerts on the
 // server) and cached data, dropped; returns { state, reminders } for Undo.
-function dropTripState(ref) {
+// `keepShare`: a one-off's ride is over: its share is left to the server's clock (30 min after the
+// arrival) and only forgotten here, so the link isn't cut at the removal.
+function dropTripState(ref, { keepShare = false } = {}) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
   const state = all[ref] ?? null;
   if (state?.alert?.id) pushApi('DELETE', `/rides/${state.alert.id}`).catch(() => {});
@@ -2444,6 +2446,11 @@ function dropTripState(ref) {
   const removed = dropReminders(ref);
   delete cache[ref];
   lastTiming.delete(ref);
+  if (keepShare) {
+    const sh = shareStore();
+    if (sh.share?.tripRef === ref) saveShare({ ...sh, share: null });
+    return { state, reminders: removed, share: null };
+  }
   return { state, reminders: removed, share: endShare('ended', { ref }) };
 }
 
@@ -2461,7 +2468,7 @@ function removeOneOff(undo = true) {
   const idx = oneOffIdx();
   if (idx < 0) return;
   const prev = oneOff;
-  const dropped = dropTripState(prev.trip.id);
+  const dropped = dropTripState(prev.trip.id, { keepShare: !undo });
   oneOff = null;
   store.del(KEY_ONE_OFF);
   config = withOneOff(savedConfig);
