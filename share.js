@@ -3,7 +3,7 @@
 // words it every second (`shareView`). It never touches this origin's storage, the location or
 // RUM: the recipient's own T-Minus data stays out of it.
 import { shareView, mapLegs, SHARE_RESUME_MS, shapesQuery, trimShapesDoc, stopsKey } from './core.js?v=9be7651316';
-import { el, renderTimeline, rideStopRows, mapWidget } from './ui.js?v=0f4eed095f';
+import { el, renderTimeline, rideStopRows, mapWidget, replaceKeepingFocus } from './ui.js?v=00aa5bc25b';
 
 const id = location.pathname.split('/').filter(Boolean).at(-1) ?? '';
 const POLL_MS = 20_000;
@@ -12,6 +12,7 @@ const $ = x => document.getElementById(x);
 let answer = null;
 let timer = null;
 let ended = false;
+let endedDrawn = null; // the answer the ended view shows
 let widget = null;
 let mapSig = '';
 let mapLegsNow = []; // mapLegs(answer.trip) and its signature, per answer
@@ -98,6 +99,8 @@ function render() {
     // Final, unless the rider ended it with Cancel trip or a one-off's removal: an Undo (within SHARE_RESUME_MS
     // of the end, by the server's clock) revives it, so the page asks on until an answer is past that.
     ended = !(answer.end?.reason === 'ended' && answer.at - answer.end.at < SHARE_RESUME_MS);
+    if (endedDrawn === answer) return; // only a new answer changes it
+    endedDrawn = answer;
     $('share-live').hidden = true;
     $('share-map').hidden = true;
     $('share-map').replaceChildren();
@@ -115,10 +118,7 @@ function render() {
   if (view.phase) li.append(el('div', 'share-phase', view.phase));
   if (view.note) li.append(el('div', 'share-note', view.note));
   li.append(renderTimeline(view.steps, now, { phase: view.ridePhase, key: `share:${id}`, along: alongRows(view, now) }));
-  // Redrawn every second: keyboard focus stays on the same control (`data-focus`) when it is still there.
-  const focused = document.activeElement?.dataset?.focus;
-  rows.replaceChildren(li);
-  if (focused) rows.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+  replaceKeepingFocus(rows, li); // redrawn every second
   $('share-foot').textContent = view.footer;
   drawMap(view.ridePhase, now);
   announce(view.phase || view.headline);

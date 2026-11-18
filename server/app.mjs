@@ -743,7 +743,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       shareTimes(rec);
       store.shareUpdate(rec);
       shareMemo.delete(rec.id);
-    shareInflight.delete(rec.id);
+      shareInflight.delete(rec.id);
       return reply(res, 204, undefined);
     }
     if (req.method === 'DELETE' && sh) {
@@ -938,20 +938,23 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     let answer = null;
     if (!rec.end && t >= rec.endsAt) endShare(rec, 'arrived', t);
     // The MBTA calls take a while: the app may change or end the share meanwhile. The answer then
-    // isn't used (it would end or cache a stale state): the record is read again, and timed once more.
+    // isn't used (it would end or cache a stale state): the record is read again and timed anew, up to 3
+    // times; still changing after that, the last answer is returned once, neither cached nor acted on.
     const sig = r => JSON.stringify([r.state, r.trip, r.name, r.slack, r.end]);
-    for (let retry = false; !rec.end; retry = true) {
+    const ended = r => ({ v: 1, at: t, name: r.name, status: 'ended', end: r.end ?? { reason: 'ended', at: t } });
+    for (let tries = 1; !rec.end; tries++) {
       const before = sig(rec);
       answer = await shareLive(rec, t);
-      if (!retry) {
-        const latest = store.shareGet(rec.id);
-        if (!latest) return { v: 1, at: t, name: rec.name, status: 'ended', end: { reason: 'ended', at: t } };
-        if (sig(latest) !== before) { rec = latest; answer = null; continue; }
+      const latest = store.shareGet(rec.id);
+      if (!latest) return ended(rec);
+      if (sig(latest) !== before) {
+        if (tries < 3) { rec = latest; answer = null; continue; }
+        return latest.end ? ended(latest) : answer ?? ended(latest);
       }
       if (!answer) endShare(rec, 'arrived', t);
       break;
     }
-    answer ??= { v: 1, at: t, name: rec.name, status: 'ended', end: rec.end };
+    answer ??= ended(rec);
     shareMemo.set(rec.id, { at: t, answer });
     return answer;
   }

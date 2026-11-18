@@ -463,3 +463,36 @@ test('the page keeps keyboard focus on "… N more" and "Show fewer" across its 
   await fewer.press('Enter');
   await expect(more).toBeFocused();
 });
+
+test('a saved trip\'s share is forgotten once its ride is done: no Sharing on the trip\'s next ride, no change to the old link', async ({ page, context }) => {
+  await openShareApp(page, context);
+  const puts = [];
+  page.on('request', r => { if (r.method() === 'PUT' && r.url().includes('/api/shares/')) puts.push(r.url()); });
+  await bar(page).getByRole('button', { name: 'At the stop' }).click();
+  await tick(page, 1000);
+  await tickTo(page, '07:08:30');
+  await card(page).getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('#share-name-input').fill('Lucas');
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await expect(card(page).getByRole('button', { name: 'Sharing' })).toBeVisible();
+  await tickTo(page, '08:10'); // arrived 7:58: done 5 min later
+  await expect(card(page)).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:share')).share)).toBeNull();
+  const before = puts.length;
+  const row = await belled(page);
+  await expect(row.getByRole('button', { name: 'Share', exact: true })).toBeVisible();
+  await tick(page, 6000);
+  expect(puts.length).toBe(before);
+});
+
+test('a new share keeps the DELETEs still pending', async ({ page, context }) => {
+  await openShareApp(page, context);
+  await belled(page);
+  await share(page, 'Lucas');
+  await page.route(/\/api\/shares\/[\w-]{22}\?/, route => (route.request().method() === 'DELETE' ? route.fulfill({ status: 503, json: {} }) : route.fallback()));
+  await page.locator('.row.tracked').getByRole('button', { name: 'Sharing', exact: true }).click();
+  await page.locator('#share-stop').click();
+  await tick(page, 1000);
+  await share(page);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:share')).pending)).toHaveLength(1);
+});

@@ -2462,7 +2462,7 @@ share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
   arrival as tracked (`SHARE_AFTER_MIN`; the server times it in `shareLive` from the ride's live legs, so
   a late train keeps the link; at most 12 h from creation, `endsAt`). A state that simply goes away
   (the ride done, the question timed out) never ends the share: the server carries the page on by the
-  clock, the app sends no more. A one-off whose ride is over (removed by itself, or "Done") keeps its
+  clock, and the app forgets it (no more changes: a later ride of the same trip never reaches the old link). A one-off whose ride is over (removed by itself, or "Done") keeps its
   share: the app forgets it without a `DELETE`, and the server ends it 30 min after the arrival. No answer at "Did you get on?": the page assumes the rider is on board
   ("not confirmed") until the app says so, however long ago; "Missed it" ends it.
 - **The page (`share.html`, `share.js`):** "Lucas shared a ride" with a green Live pill (blank name:

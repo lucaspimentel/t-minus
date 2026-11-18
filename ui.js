@@ -143,6 +143,14 @@ export function rideStopRows(stops, tripId, now, { open = false, onToggle = () =
 }
 
 
+// Replaces `container`'s children (a once-a-second redraw), keeping keyboard focus on the same control
+// (`data-focus`) when it is still there.
+export function replaceKeepingFocus(container, ...nodes) {
+  const focused = document.activeElement?.dataset?.focus;
+  container.replaceChildren(...nodes);
+  if (focused) container.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+}
+
 export const SVG_NS = 'http://www.w3.org/2000/svg';
 export const svgEl = (tag, attrs = {}, text = null) => {
   const e = document.createElementNS(SVG_NS, tag);
