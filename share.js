@@ -115,7 +115,10 @@ function render() {
   if (view.phase) li.append(el('div', 'share-phase', view.phase));
   if (view.note) li.append(el('div', 'share-note', view.note));
   li.append(renderTimeline(view.steps, now, { phase: view.ridePhase, key: `share:${id}`, along: alongRows(view, now) }));
+  // Redrawn every second: keyboard focus stays on the same control (`data-focus`) when it is still there.
+  const focused = document.activeElement?.dataset?.focus;
   rows.replaceChildren(li);
+  if (focused) rows.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
   $('share-foot').textContent = view.footer;
   drawMap(view.ridePhase, now);
   announce(view.phase || view.headline);

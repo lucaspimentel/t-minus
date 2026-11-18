@@ -4,7 +4,8 @@
 // Orange 7:56 → 8:11, a 10-min walk: arrive 8:21.
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { openApp, tick, tickTo, at } from './helpers.js';
+import { openApp, tick, tickTo, at, commute } from './helpers.js';
+import { series } from './fake-mbta.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -433,4 +434,32 @@ test('the page keeps asking for a minute after Cancel trip: an Undo brings the r
   await tick(page, 21_000); // the resume goes out
   await tick(page, 21_000); // the page asks again
   await expect(head(rp)).toHaveText(/^Arrives in /);
+});
+
+test('the page keeps keyboard focus on "… N more" and "Show fewer" across its redraws', async ({ page, context }) => {
+  // Bus 132 inbound with 14 stops between Pond St and Oak Grove (as en-route.spec.js's long ride).
+  const middle = ['15999', '16000', '16001', '5975', '5976', '5978', '5980', '5982', '5983', '5985', '5986', '5987', '5988', '5990'];
+  const scenario = commute();
+  scenario.trips = [...scenario.trips.filter(t => !t.id.startsWith('132in')),
+    ...series({ prefix: '132in', route: '132', direction: 1, first: '05:44', every: 28, count: 40,
+      stops: [['25996', 0], ['25997', 4], ...middle.map((s, i) => [s, 5 + Math.floor(i * 9 / 14)]), ['5991', 14]] })];
+  const { mbta } = await openShareApp(page, context, { scenario });
+  await bar(page).getByRole('button', { name: 'At the stop' }).click();
+  await tick(page, 1000);
+  await tickTo(page, '07:09');
+  await card(page).getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('#share-name-input').fill('Lucas');
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await expect(card(page).getByRole('button', { name: 'Sharing' })).toBeVisible();
+  const url = (await page.evaluate(() => window.sharedWith)).at(-1).url;
+  const rp = await recipient(context, mbta, url, page);
+  const more = rp.getByRole('button', { name: /^… \d+ more$/ });
+  await more.focus();
+  await more.press('Enter');
+  const fewer = rp.getByRole('button', { name: 'Show fewer' });
+  await expect(fewer).toBeFocused();
+  await tick(rp, 3000); // redrawn each second
+  await expect(fewer).toBeFocused();
+  await fewer.press('Enter');
+  await expect(more).toBeFocused();
 });
