@@ -418,3 +418,19 @@ test('a DELETE the server did not acknowledge is sent again until it does; the l
   await tick(page, 21_000);
   await expect(head(rp)).toHaveText('This ride has ended');
 });
+
+test('the page keeps asking for a minute after Cancel trip: an Undo brings the ride back', async ({ page, context }) => {
+  const { mbta } = await openShareApp(page, context);
+  await belled(page);
+  const url = await share(page, 'Lucas');
+  const rp = await recipient(context, mbta, url, page);
+  await bar(page).getByRole('button', { name: 'Cancel' }).click();
+  await tick(page, 1000);
+  // The page looks between the Cancel and the Undo (a visible page asks again when it is shown).
+  await rp.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(head(rp)).toHaveText('This ride has ended');
+  await page.locator('#toast button').click();
+  await tick(page, 21_000); // the resume goes out
+  await tick(page, 21_000); // the page asks again
+  await expect(head(rp)).toHaveText(/^Arrives in /);
+});

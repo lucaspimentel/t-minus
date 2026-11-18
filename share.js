@@ -2,8 +2,8 @@
 // with the link. It reads the server's answer (`GET /api/shares/:id`) every 20 s while visible and
 // words it every second (`shareView`). It never touches this origin's storage, the location or
 // RUM: the recipient's own T-Minus data stays out of it.
-import { shareView, mapLegs, shapesQuery, trimShapesDoc, stopsKey } from './core.js?v=9422b483c6';
-import { el, renderTimeline, rideStopRows, mapWidget } from './ui.js?v=fbe9ae81ed';
+import { shareView, mapLegs, SHARE_RESUME_MS, shapesQuery, trimShapesDoc, stopsKey } from './core.js?v=9be7651316';
+import { el, renderTimeline, rideStopRows, mapWidget } from './ui.js?v=0f4eed095f';
 
 const id = location.pathname.split('/').filter(Boolean).at(-1) ?? '';
 const POLL_MS = 20_000;
@@ -95,7 +95,9 @@ function render() {
   $('share-title').textContent = view.title;
   const rows = $('share-rows');
   if (!view.live) {
-    ended = true;
+    // Final, unless the rider ended it with Cancel trip or a one-off's removal: an Undo (within SHARE_RESUME_MS
+    // of the end, by the server's clock) revives it, so the page asks on until an answer is past that.
+    ended = !(answer.end?.reason === 'ended' && answer.at - answer.end.at < SHARE_RESUME_MS);
     $('share-live').hidden = true;
     $('share-map').hidden = true;
     $('share-map').replaceChildren();

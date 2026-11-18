@@ -10,7 +10,7 @@ import {
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
   autoBellNext, autoBellRow, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, widgetNextRide, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText, stopSharesError, withStopShares,
-  shareTrip, shareRequestError, shareFollow, shareView, shareTitle, legsEta, SHARE_AFTER_MIN, vehiclesQuery, vehiclePositions, legPoints, vehicleLabel,
+  shareTrip, shareRequestError, shareFollow, shareView, shareTitle, legsEta, SHARE_AFTER_MIN, SHARE_RESUME_MS, vehiclesQuery, vehiclePositions, legPoints, vehicleLabel,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -37,7 +37,6 @@ const SHARE_GET_LIMIT = 120; // a link's looks per minute
 const SHARE_PUT_LIMIT = 20; // its changes per minute
 const MAX_SHARES = 2000;
 const SHARE_MAX_MIN = 12 * 60; // a link lasts at most this long from its creation
-const SHARE_RESUME_MS = 60_000; // an ended share an Undo may revive
 const HTML_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' };
 
 // A fixed window per key (an IP, a link): true once the key passes `max` requests this minute.

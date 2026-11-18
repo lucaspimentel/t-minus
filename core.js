@@ -3268,6 +3268,7 @@ export function widgetFollow(st, rows, walkAfter, nowMs) {
 // state in step with its own (followState); the server times it as the widget's (widgetFollowing)
 // and the page words it here (shareView).
 export const SHARE_AFTER_MIN = 30; // the link works this long after the arrival
+export const SHARE_RESUME_MS = 60_000; // an ended share an Undo may revive; the page keeps polling that long
 export const SHARE_NAME_MAX = 40;
 // Text of up to SHARE_NAME_MAX characters without control characters; the joiner and tag characters
 // of emoji sequences (a family, a flag) are fine.
