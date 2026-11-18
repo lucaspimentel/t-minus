@@ -2,19 +2,20 @@
 // with the link. It reads the server's answer (`GET /api/shares/:id`) every 20 s while visible and
 // words it every second (`shareView`). It never touches this origin's storage, the location or
 // RUM: the recipient's own T-Minus data stays out of it.
-import { shareView, mapLegs, shapesQuery, trimShapesDoc, stopsKey } from './core.js?v=0bdbb1eaa7';
-import { el, renderTimeline, rideStopRows, mapWidget } from './ui.js?v=4ebfad78fc';
+import { shareView, mapLegs, shapesQuery, trimShapesDoc, stopsKey } from './core.js?v=717e2f3d88';
+import { el, renderTimeline, rideStopRows, mapWidget } from './ui.js?v=9b273bbc20';
 
 const id = location.pathname.split('/').filter(Boolean).at(-1) ?? '';
 const POLL_MS = 20_000;
 const $ = x => document.getElementById(x);
 
 let answer = null;
-let polled = 0;
 let timer = null;
 let ended = false;
 let widget = null;
 let mapSig = '';
+let mapLegsNow = []; // mapLegs(answer.trip) and its signature, per answer
+let legsSig = '';
 const shapes = new Map(); // stopsKey -> trimmed shapes, once loaded
 const loading = new Set();
 let lastSpoken = '';
@@ -26,7 +27,7 @@ function loadShapes(leg) {
   loading.add(k);
   fetch(`/api/mbta/route_patterns?${new URLSearchParams(shapesQuery(leg.route, leg.direction_id))}`)
     .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-    .then(doc => { shapes.set(k, trimShapesDoc(doc)); drawMap(); })
+    .then(doc => { shapes.set(k, trimShapesDoc(doc)); render(); })
     .catch(() => {})
     .finally(() => loading.delete(k));
 }
@@ -40,35 +41,29 @@ async function poll() {
     if (res.status === 404) answer = { v: 1, at: Date.now(), name: '', status: 'ended', end: null };
     else if (res.status === 429) wait = Math.max(wait, (Number(res.headers.get('retry-after')) || 60) * 1000);
     else if (res.ok) answer = await res.json();
-    if (res.ok || res.status === 404) polled = Date.now();
+    if (res.ok && answer.status === 'live') { mapLegsNow = mapLegs(answer.trip); legsSig = JSON.stringify(mapLegsNow); }
   } catch { /* keep the last answer: the footer's "Updated" shows its age */ }
   render();
   if (!ended) timer = setTimeout(poll, wait);
 }
 
 let drawnKey = '';
-function drawMap(force = false) {
-  if (!answer || answer.status !== 'live') return;
-  const legs = mapLegs(answer.trip);
-  const sig = JSON.stringify(legs);
-  if (!widget || sig !== mapSig) {
-    mapSig = sig;
+function drawMap(phase, now) {
+  const legs = mapLegsNow;
+  if (!widget || legsSig !== mapSig) {
+    mapSig = legsSig;
     widget = mapWidget({ label: 'Map of the shared ride', pan: true, live: true });
     widget.el.classList.add('main-map');
-    widget.onBasemap = () => drawMap();
     const li = el('div', 'main-map-item');
     li.append(widget.el);
     $('share-map').replaceChildren(li);
     $('share-map').hidden = false;
     legs.forEach(loadShapes);
   }
-  const now = Date.now();
-  const view = shareView(answer, now);
-  const phase = view.ridePhase;
   const finished = phase ? Math.min(phase.leg, legs.length) : 0;
   // Redrawn with a new answer, a phase or a loaded shape, not every second (the vehicles move per answer).
   const key = `${answer.at}:${finished}:${legs.map(l => shapes.has(stopsKey(l.route, l.direction_id))).join()}`;
-  if (!force && key === drawnKey) return;
+  if (key === drawnKey) return;
   drawnKey = key;
   const stop = (leg, p) => ({ id: leg, ...p, name: p.name ?? leg });
   widget.draw({
@@ -88,6 +83,9 @@ function alongRows(view, now) {
   const rows = rideStopRows(f.stops, leg.tripId, now, { open: stopsOpen, onToggle: v => { stopsOpen = v != null; render(); } });
   return { leg: view.ridePhase.leg, rows, boarding: !!f.stops.vehicle?.boarding };
 }
+
+// shareView's colors as the row's classes (green: none).
+const COLOR_CLASS = { text: ' arrived', amber: ' amber', red: ' red' };
 
 function render() {
   if (!answer) return;
@@ -110,15 +108,15 @@ function render() {
     return;
   }
   $('share-live').hidden = false;
-  const li = el('li', `row ride${view.color === 'text' ? ' arrived' : view.color === 'amber' ? ' amber' : view.color === 'red' ? ' red' : ''}`);
-  li.append(el('div', 'ride-head', view.headline.text));
+  const li = el('li', `row ride${COLOR_CLASS[view.color] ?? ''}`);
+  li.append(el('div', 'ride-head', view.headline));
   if (view.phase) li.append(el('div', 'share-phase', view.phase));
   if (view.note) li.append(el('div', 'share-note', view.note));
   li.append(renderTimeline(view.steps, now, { phase: view.ridePhase, key: `share:${id}`, along: alongRows(view, now) }));
   rows.replaceChildren(li);
   $('share-foot').textContent = view.footer;
-  drawMap();
-  announce(view.phase || view.headline.text);
+  drawMap(view.ridePhase, now);
+  announce(view.phase || view.headline);
 }
 
 // The phase line is announced when it changes (not the countdown).

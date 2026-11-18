@@ -2500,7 +2500,7 @@ share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
   end }`; memoized 15 s per link; the MBTA down: the saved legs, moved on by the clock. Records are
   kept 24 h past the end, then pruned. Limits: a link 120 looks and 20 changes a minute (429 with
   `retry-after`), 2000 live shares (503), the IP's 30 a minute.
-- **App (`index.html`):** `KEY_SHARE` `{ secret, share: { id, tripRef, sig, tripJson, sentAt, idle, resume,
+- **App (`index.html`):** `KEY_SHARE` `{ secret, share: { id, tripRef, sig, tripJson, sentAt, resume,
   retryAt } }`; `syncShare` (from each render) PUTs the changed state at most every 4 s, retries after 30 s,
   and ends the share where the rider does; `endShare`, `resumeShare`, `startShare`.
 - **Request budget:** see "Rate limits and request budget".

@@ -3187,7 +3187,7 @@ test('boardingRefetchDue: every 15 s while the stops show the vehicle at the boa
 });
 
 // ---------- share my ride ----------
-import { shareTrip, followState, shareRequestError, shareFollow, shareEndText, shareView, SHARE_AFTER_MIN, mapLegs, widgetStateError } from '../core.js';
+import { shareTrip, followState, shareRequestError, shareFollow, shareEndText, shareView, shareTitle, SHARE_AFTER_MIN, mapLegs } from '../core.js';
 
 const shareHome = () => ({ ...WITH_IDS.trips[0], name: '243 Condor St → Work', near: true, autoBell: { days: [1], arriveBy: '09:00' }, legs: WITH_IDS.trips[0].legs.map(l => (l.kind === 'transit' ? { ...l, lat: 42.4, lon: -71.1 } : l)) });
 const shareLegs = () => leaveRow().legs.map(l => ({ ...l, source: 'scheduled' }));
@@ -3236,11 +3236,13 @@ test('shareRequestError: trip, state with the bell or a ride, name, slack, secre
   assert.equal(shareRequestError({ ...ok, secret: 'short' }), 'secret is invalid');
   assert.equal(shareRequestError({ ...ok, secret: 'a'.repeat(43) }), null);
   // An update: every field optional.
-  assert.equal(shareRequestError({}, { update: true }), null);
-  assert.equal(shareRequestError({ state: shareBell() }, { update: true }), null);
-  assert.equal(shareRequestError({ state: { ...walk } }, { update: true }), 'state is not belled');
-  assert.equal(shareRequestError({ name: 'x'.repeat(41) }, { update: true }), 'name is invalid');
-  assert.equal(typeof widgetStateError, 'function');
+  assert.equal(shareRequestError({}, { trip }), null);
+  assert.equal(shareRequestError({ state: shareBell() }, { trip }), null);
+  assert.equal(shareRequestError({ state: { ...walk } }, { trip }), 'state is not belled');
+  assert.equal(shareRequestError({ name: 'x'.repeat(41) }, { trip }), 'name is invalid');
+  assert.deepEqual([shareTitle('Lucas'), shareTitle('')], ['Lucas shared a ride', 'Shared ride']);
+  // An update's state is checked against the stored trip.
+  assert.equal(shareRequestError({ state: { ...shareBell(), trip: 'nope' } }, { trip }), 'state.trip is invalid');
 });
 
 test('validateConfig: shareName is text of up to 40 characters', () => {
@@ -3294,8 +3296,8 @@ test('shareView: the headline, the phase lines, colors, the note, the timeline, 
   // Before leaving: "Arrives in 1h 55m · ~8:25am" (rounded down), the leave-by, the vehicle.
   let v = shareView(bell, at('07:30'));
   assert.equal(v.title, 'Lucas shared a ride');
-  assert.deepEqual([v.headline.text, v.phase, v.note, v.color], ['Arrives in 55 min · ~8:25am', 'Leaves at 7:39am for Bus 132 at 7:48am', '', 'green']);
-  assert.equal(shareView(bell, at('07:30') + 59_000).headline.text, 'Arrives in 54 min · ~8:25am'); // 54 min 1 s left
+  assert.deepEqual([v.headline, v.phase, v.note, v.color], ['Arrives in 55 min · ~8:25am', 'Leaves at 7:39am for Bus 132 at 7:48am', '', 'green']);
+  assert.equal(shareView(bell, at('07:30') + 59_000).headline, 'Arrives in 54 min · ~8:25am'); // 54 min 1 s left
   assert.equal(shareView(bell, at('07:37')).color, 'amber'); // within 3 min of the leave-by
   assert.equal(shareView(bell, at('07:40')).color, 'amber'); // past the leave-by
   assert.equal(shareView(bell, at('07:43')).color, 'red'); // past the last chance
@@ -3323,7 +3325,7 @@ test('shareView: the headline, the phase lines, colors, the note, the timeline, 
   const riding = shareAnswer({ kind: 'ride', ride, unconfirmed: true, stops, stopsLeg: 0, outlook: { leg: 1, needed: at('08:04'), margin: 4 * MIN, legs: row.legs, missedDep: null, none: false } });
   v = shareView(riding, at('07:53'));
   assert.deepEqual([v.phase, v.note, v.color, v.ridePhase.kind], ['On Bus 132 · 2 stops to Washington St opp Oak Grove Sta', 'not confirmed', 'green', 'riding']);
-  assert.equal(v.headline.text, 'Arrives in 32 min · ~8:25am');
+  assert.equal(v.headline, 'Arrives in 32 min · ~8:25am');
   assert.equal(shareView({ ...riding, follow: { ...riding.follow, stops: null, unconfirmed: false } }, at('07:53')).phase, 'On Bus 132 · 9 min to Washington St opp Oak Grove Sta');
   assert.equal(shareView({ ...riding, follow: { ...riding.follow, unconfirmed: false } }, at('07:53')).note, '');
   // A tight connection is amber, a missed or missing one red.
@@ -3340,14 +3342,14 @@ test('shareView: the headline, the phase lines, colors, the note, the timeline, 
   assert.deepEqual([v.phase, v.ridePhase.kind], ['Walking from State', 'walking']);
   // Arrived: the time without "~", gray-on-text color, no phase line, no note.
   v = shareView(riding, at('08:27'));
-  assert.deepEqual([v.headline.text, v.headline.color, v.phase, v.note], ['Arrived 8:25am', 'text', '', '']);
+  assert.deepEqual([v.headline, v.color, v.phase, v.note], ['Arrived 8:25am', 'text', '', '']);
   assert.equal(v.ogTitle, 'Lucas · arrives ~8:25am');
 });
 
 test('shareView: ended shares say why, without the trip', () => {
   const ended = reason => ({ v: 1, at: at('07:10'), name: 'Lucas', status: 'ended', end: reason });
   let v = shareView(ended({ reason: 'missed', vehicle: 'Bus 132', dep: at('07:36') }), at('07:40'));
-  assert.deepEqual([v.live, v.ended, v.text, v.title, v.ogDescription], [false, true, 'Missed Bus 132 7:36am', 'Lucas shared a ride', 'Missed Bus 132 7:36am']);
+  assert.deepEqual([v.live, v.text, v.title, v.ogDescription], [false, 'Missed Bus 132 7:36am', 'Lucas shared a ride', 'Missed Bus 132 7:36am']);
   v = shareView({ ...ended({ reason: 'stopped' }), name: '' }, at('07:40'));
   assert.deepEqual([v.text, v.title, v.ogTitle], ['This ride has ended', 'Shared ride', 'Shared ride']);
 });

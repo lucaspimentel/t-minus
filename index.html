@@ -37,7 +37,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-18 · bdabd9bf05</footer>
+    <footer class="version">Version 2026-11-18 · 8a5de074c5</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -88,9 +88,9 @@ import {
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints, mapLegs, followState, shareTrip,
   simCurrentRide, simJumpTargets, simPhaseKey, dayRides, simRideLabel, nextWeekday, bostonMs,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, TAP_ZOOM, doubleTap, twoFingerTap, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=0bdbb1eaa7';
-import { el, badge, BELL_SVG, SHARE_SVG, WALK_SVG, walkStep, fullStops, renderTimeline, rideStopRows as uiRideStopRows, SVG_NS, svgEl, textOn, mapColor, basemap, loadBasemap, basemapFor, basemapGroup, basemapWidgets, toolIcon, mapToolButton, mapWidget } from './ui.js?v=4ebfad78fc';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=07842ac504';
+} from './core.js?v=717e2f3d88';
+import { el, badge, BELL_SVG, SHARE_SVG, WALK_SVG, walkStep, fullStops, renderTimeline, rideStopRows as uiRideStopRows, SVG_NS, svgEl, textOn, mapColor, basemap, loadBasemap, basemapFor, basemapGroup, basemapWidgets, toolIcon, mapToolButton, mapWidget } from './ui.js?v=9b273bbc20';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=5916ea230a';
 
 const API = 'https://api-v3.mbta.com';
 // The simulator (DESIGN.md "Simulator"; sim.js, sim-page.js): on, the app's keys are its own copies.
@@ -739,7 +739,7 @@ function serverFetch(path, init) {
   return fetch(`${SERVER_API}${path}`, init);
 }
 // The simulator, started before anything uses it (sim-page.js; null when off).
-const SIM = SIM_ON ? await import('./sim-page.js?v=7805dc8ec2').then(m => m.startSimPage(window.tminusSim, { mbtaApi })) : null;
+const SIM = SIM_ON ? await import('./sim-page.js?v=963d0d2178').then(m => m.startSimPage(window.tminusSim, { mbtaApi })) : null;
 // The iOS app (IOS.md): this page in a WKWebView with Capacitor's bridge (`window.Capacitor`).
 // There, pushes come from APNs (the PushNotifications plugin; the subscription is
 // `{ endpoint: 'apns:<token>' }`), the screen stays on through the app's own plugin
@@ -1198,7 +1198,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=0bdbb1eaa7'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=717e2f3d88'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -1526,7 +1526,7 @@ function bellOff() {
 // a reminder) and times it as the widget; the app keeps it in step with its en-route state
 // (`syncShare`, from each render: the bell, the walk, boarding, a vehicle switch, a re-plan) and ends
 // it where the rider does ("Missed it", bell off, Cancel trip, Stop sharing). `KEY_SHARE`:
-// { secret, share: { id, tripRef, sig, tripJson, sentAt, idle, resume, retryAt } | null }. The secret
+// { secret, share: { id, tripRef, sig, tripJson, sentAt, resume, retryAt } | null }. The secret
 // is the device's, sent as a Bearer token with each change; the server keeps its hash.
 const shareAvailable = !!SERVER_API && !SIM_ON; // the simulator's server is in the page: a link to it can't be opened
 const SHARE_GAP_MS = 4000; // changes go at most this often
@@ -1536,15 +1536,16 @@ const sharingTrip = ref => !!ref && shareStore().share?.tripRef === ref;
 const shareHeaders = secret => ({ 'content-type': 'application/json', authorization: `Bearer ${secret}` });
 let shareBusy = false;
 
-// What the share sends for a trip now: the stripped trip, the app's followed state, the name and the stop slack.
-function shareParts(ref) {
+// What the share sends for a trip now: the stripped trip, the app's followed state, the name and the
+// stop slack. `raw`: the trip's en-route state, when the caller has read it.
+function shareParts(ref, raw = store.get(KEY_EN_ROUTE)?.[ref]) {
   const trip = config?.trips.find(t => t.id === ref);
-  const all = store.get(KEY_EN_ROUTE);
-  const state = trip && all?.[ref] ? followState(ref, withSharesAll(all)[ref]) : null;
+  const state = trip && raw ? followState(ref, withSharesAll({ [ref]: raw })[ref]) : null;
   if (!state) return null;
   const parts = { state, name: config.shareName ?? '', slack: stopSlackMinutes(config) };
-  const tripJson = JSON.stringify(shareTrip(trip));
-  return { ...parts, trip: shareTrip(trip), tripJson, sig: JSON.stringify({ ...parts, trip: tripJson }) };
+  const shared = shareTrip(trip);
+  const tripJson = JSON.stringify(shared);
+  return { ...parts, trip: shared, tripJson, sig: JSON.stringify({ ...parts, trip: tripJson }) };
 }
 
 // The share's link, as the share sheet or the clipboard gives it (only the link: the page says the rest).
@@ -1626,7 +1627,7 @@ function endShare(reason, { ref = null, leg = null, dep = null } = {}) {
 // An Undo of Cancel trip or a one-off's removal: the share goes on (the server revives an `ended` one within a minute).
 function resumeShare(cur) {
   const sh = shareStore();
-  if (cur && !sh.share) saveShare({ ...sh, share: { ...cur, sig: null, resume: true, idle: false, retryAt: 0 } });
+  if (cur && !sh.share) saveShare({ ...sh, share: { ...cur, sig: null, resume: true, retryAt: 0 } });
 }
 
 // From each render: the share follows the trip's en-route state. A trip gone, or its state without the
@@ -1638,31 +1639,31 @@ function syncShare(now) {
   if (!cur || shareBusy || !shareAvailable || now < (cur.retryAt ?? 0)) return;
   if (!config?.trips.some(t => t.id === cur.tripRef)) { endShare('ended'); return; }
   const raw = (store.get(KEY_EN_ROUTE) ?? {})[cur.tripRef];
-  if (!raw) { if (!cur.idle) saveShare({ ...sh, share: { ...cur, idle: true } }); return; }
+  if (!raw) return;
   if (!raw.ride && !raw.pinned) { endShare('ended'); return; }
-  const p = shareParts(cur.tripRef);
-  if (!p || (p.sig === cur.sig && !cur.resume) || now - (cur.sentAt ?? 0) < SHARE_GAP_MS) return;
+  if (now - (cur.sentAt ?? 0) < SHARE_GAP_MS) return;
+  const p = shareParts(cur.tripRef, raw);
+  if (!p || (p.sig === cur.sig && !cur.resume)) return;
   shareBusy = true;
   const body = { state: p.state, name: p.name, slack: p.slack, ...(p.tripJson !== cur.tripJson && { trip: p.trip }), ...(cur.resume && { resume: true }) };
+  // Applied to the share only while it is still this one.
+  const settle = f => { const latest = shareStore(); if (latest.share?.id === cur.id) f(latest); };
+  const retryLater = () => settle(latest => saveShare({ ...latest, share: { ...latest.share, retryAt: Date.now() + 30_000 } }));
   serverFetch(`/shares/${cur.id}`, { method: 'PUT', headers: shareHeaders(sh.secret), body: JSON.stringify(body) })
     .then(res => {
-      const latest = shareStore();
-      if (latest.share?.id !== cur.id) return;
-      if (res.ok) saveShare({ ...latest, share: { ...latest.share, sig: p.sig, tripJson: p.tripJson, sentAt: Date.now(), idle: false, resume: false, retryAt: 0 } });
-      else if ([401, 404, 410].includes(res.status)) { saveShare({ ...latest, share: null }); render(); } // ended on the server
-      else saveShare({ ...latest, share: { ...latest.share, retryAt: Date.now() + 30_000 } });
+      if (res.ok) settle(latest => saveShare({ ...latest, share: { ...latest.share, sig: p.sig, tripJson: p.tripJson, sentAt: Date.now(), resume: false, retryAt: 0 } }));
+      else if ([401, 404, 410].includes(res.status)) settle(latest => { saveShare({ ...latest, share: null }); render(); }); // ended on the server
+      else retryLater();
     })
-    .catch(() => {
-      const latest = shareStore();
-      if (latest.share?.id === cur.id) saveShare({ ...latest, share: { ...latest.share, retryAt: Date.now() + 30_000 } });
-    })
+    .catch(retryLater)
     .finally(() => { shareBusy = false; });
 }
 
 // The Share / Sharing button: in the belled row's foot, and in the ride card's buttons.
-function shareButton(ref, focus, cls = 'track-btn') {
+// `cls`, `onCls`: the button's class and its class while sharing.
+function shareButton(ref, focus, cls = 'track-btn', onCls = 'tracking') {
   const on = sharingTrip(ref);
-  const b = el('button', `${cls} share-btn${on ? (cls === 'track-btn' ? ' tracking' : ' sharing') : ''}`);
+  const b = el('button', `${cls} share-btn${on ? ` ${onCls}` : ''}`);
   b.type = 'button';
   b.innerHTML = SHARE_SVG;
   b.append(on ? 'Sharing' : 'Share');
@@ -2176,7 +2177,7 @@ function renderRideCard(s, now) {
     const [open, closed] = phase.kind === 'transfer' ? [`Keep this ${noun}`, `Different ${noun}?`] : ['Keep this connection', 'Different connection?'];
     btns.append(btn(nextOpen ? open : closed, () => { nextOpen = !nextOpen; render(); }));
   }
-  if (phase.kind !== 'arrived' && shareAvailable) btns.append(shareButton(refOf(tripIdx), 'ride:share', ''));
+  if (phase.kind !== 'arrived' && shareAvailable) btns.append(shareButton(refOf(tripIdx), 'ride:share', '', 'sharing'));
   btns.append(phase.kind === 'arrived'
     ? btn('Done', () => {
       rideNote = null; laterOpen = false; nextOpen = false; stopsOpen = null; setEnRoute(null);
@@ -2297,14 +2298,14 @@ const setupSimulator = () => ({
   presets: () => import('./sim-presets.js?v=8ad9deb13b').then(m => m.PRESETS.map(p => ({ id: p.id, name: p.name }))),
   async rides(i, date) {
     const trip = savedConfig.trips[i];
-    const { dayDocs } = await import('./sim-page.js?v=7805dc8ec2');
+    const { dayDocs } = await import('./sim-page.js?v=963d0d2178');
     const { docs, coverage } = await dayDocs(trip, date, mbtaApi);
     simSeed = { tripRef: trip.id, date, coverage };
     return dayRides(trip, docs, date, stopSlackMinutes(savedConfig)).filter(r => !r.missed && r.leaveBy != null)
       .map(r => ({ label: simRideLabel(r), leaveBy: r.leaveBy }));
   },
   async start({ mode, tripIdx: i, date, leaveBy, early, presetId }) {
-    const m = await import('./sim-page.js?v=7805dc8ec2');
+    const m = await import('./sim-page.js?v=963d0d2178');
     if (mode === 'preset') {
       const { PRESETS } = await import('./sim-presets.js?v=8ad9deb13b');
       const preset = PRESETS.find(p => p.id === presetId);
@@ -3178,7 +3179,7 @@ if (!SIM_ON) {
   let ctl = null;
   try { ctl = JSON.parse(localStorage.getItem('t-minus-simctl')); } catch { /* none */ }
   if (ctl && !ctl.on) {
-    const purge = () => import('./sim-page.js?v=7805dc8ec2').then(m => m.purgeSim()).catch(() => {});
+    const purge = () => import('./sim-page.js?v=963d0d2178').then(m => m.purgeSim()).catch(() => {});
     if (ctl.endedAt && Date.now() - ctl.endedAt < 10_000) {
       showToast('Simulator ended', 'Undo', () => {
         localStorage.setItem('t-minus-simctl', JSON.stringify({ ...ctl, on: true, endedAt: null, clock: { ...ctl.clock, keepPlaying: false } }));

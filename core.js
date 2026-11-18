@@ -3225,17 +3225,26 @@ export function widgetRequestError(b) {
 // { kind: 'walk', row, enRoute } (to the departure; 30 min after the tap), { kind: 'bell', row }
 // (the belled row's leave-by), or null: leave times. `rows`: the trip's rows now, missed ones too
 // (the target is found by its key; departed, it falls back to the saved legs).
+// The arrival at the destination: the last leg's arrival and the walk after it.
+export const legsEta = (legs, walkAfter) => legs[legs.length - 1].arr + walkAfter * MIN;
+
+// The not-yet-boarded state's target as it stands now (widgetFollow, shareFollow): its row from
+// `rows` with the app's stop shares (the server's rows have none; null once the schedules drop
+// it), its legs, departure (the question's, while asking) and arrival.
+function followTarget(st, rows, walkAfter) {
+  const t = st.target;
+  const own = t.legs.map(l => l.at ?? null);
+  const found = rows.find(r => r.key === t.key);
+  const row = found ? { ...found, legs: withStopShares(found.legs, own) } : null;
+  const legs = row?.legs ?? t.legs;
+  return { row, legs, dep: st.asking?.dep ?? row?.firstDep ?? legs[0].dep, eta: legsEta(legs, walkAfter) };
+}
+
 export function widgetFollow(st, rows, walkAfter, nowMs) {
   if (!st) return null;
   const done = ride => ridePhase(ride, walkAfter, nowMs).kind === 'done';
   if (st.ride) return done(st.ride) ? null : { kind: 'ride', ride: st.ride };
-  const t = st.target;
-  const own = t.legs.map(l => l.at ?? null); // the app's stop shares (the server's rows have none)
-  const found = rows.find(r => r.key === t.key);
-  const row = found && { ...found, legs: withStopShares(found.legs, own) };
-  const legs = row?.legs ?? t.legs;
-  const dep = st.asking?.dep ?? row?.firstDep ?? legs[0].dep;
-  const eta = legs[legs.length - 1].arr + walkAfter * MIN;
+  const { row, legs, dep, eta } = followTarget(st, rows, walkAfter);
   const ask = () => (nowMs < dep + ASK_MINUTES * MIN ? { kind: 'ask', row: { legs, firstDep: dep, eta } } : null);
   if (st.asking) return ask();
   if (st.kind === 'track') {
@@ -3274,22 +3283,21 @@ export function shareTrip(trip) {
 
 // A create or update body's error message, or null: `trip`, `state` (widgetState's shape, with the
 // bell or a ride: no sharing without the bell), `name`, `slack`, `secret`.
-export function shareRequestError(b, { update = false } = {}) {
+// An update (`trip`: the share's stored trip) may leave out any field; a new `trip` replaces it.
+export function shareRequestError(b, { trip = null } = {}) {
   if (!b || typeof b !== 'object') return 'body is invalid';
-  let trip = null;
+  const update = !!trip;
   if (b.trip != null || !update) {
     if (!b.trip || validateConfig({ trips: [b.trip] }, { requireIds: true }).length) return 'trip is invalid';
     trip = b.trip;
   }
   if (b.state != null || !update) {
     if (!b.state || typeof b.state !== 'object') return 'state is invalid';
-    if (trip) {
-      const err = widgetStateError(b.state, [trip]);
-      if (err) return err;
-    }
+    const err = widgetStateError(b.state, [trip]);
+    if (err) return err;
     if (!b.state.ride && !b.state.pinned) return 'state is not belled';
   }
-  if (b.name != null && !(typeof b.name === 'string' && b.name.trim().length <= SHARE_NAME_MAX && shareNameOk(b.name.trim()))) return 'name is invalid';
+  if (b.name != null && !(typeof b.name === 'string' && shareNameOk(b.name.trim()))) return 'name is invalid';
   if (b.slack != null && !(Number.isFinite(b.slack) && b.slack >= 0 && b.slack <= 60)) return 'slack is invalid';
   if (b.secret != null && !(typeof b.secret === 'string' && /^[A-Za-z0-9_-]{43}$/.test(b.secret))) return 'secret is invalid';
   return null;
@@ -3303,16 +3311,9 @@ export function shareRequestError(b, { update = false } = {}) {
 // a row the schedules no longer list is rebuilt from the saved legs.
 export function shareFollow(st, rows, walkAfter, nowMs, { walkBefore = 0, slack = 0 } = {}) {
   const over = eta => (nowMs >= eta + SHARE_AFTER_MIN * MIN ? { kind: 'over', eta } : null);
-  const etaOf = legs => legs[legs.length - 1].arr + walkAfter * MIN;
-  if (st.ride) return over(etaOf(st.ride.legs)) ?? { kind: 'ride', ride: st.ride };
-  const t = st.target;
-  const own = t.legs.map(l => l.at ?? null);
-  const found = rows.find(r => r.key === t.key);
-  const row0 = found && { ...found, legs: withStopShares(found.legs, own) };
-  const legs = row0?.legs ?? t.legs;
-  const dep = st.asking?.dep ?? row0?.firstDep ?? legs[0].dep;
-  const eta = etaOf(legs);
-  const row = row0 ?? { key: t.key, legs, firstDep: dep, eta, leaveBy: dep - (walkBefore + slack) * MIN, lastChance: dep };
+  if (st.ride) return over(legsEta(st.ride.legs, walkAfter)) ?? { kind: 'ride', ride: st.ride };
+  const { row: found, legs, dep, eta } = followTarget(st, rows, walkAfter);
+  const row = found ?? { key: st.target.key, legs, firstDep: dep, eta, leaveBy: dep - (walkBefore + slack) * MIN, lastChance: dep };
   const gone = over(eta);
   if (gone) return gone;
   const boarded = unconfirmed => ({ kind: 'ride', ride: { legs, boardedAt: dep }, ...(unconfirmed && { unconfirmed: true }) });
@@ -3322,6 +3323,9 @@ export function shareFollow(st, rows, walkAfter, nowMs, { walkBefore = 0, slack 
   return { kind: 'walk', row, enRoute: st };
 }
 
+// The page's title (and the link preview's, before an answer): "Lucas shared a ride".
+export const shareTitle = name => (name ? `${name} shared a ride` : 'Shared ride');
+
 // What the page says once the share has ended: "Missed Bus 132 7:36am" (`end`: { reason, vehicle,
 // dep }), else "This ride has ended".
 export function shareEndText(end, nowMs) {
@@ -3329,16 +3333,16 @@ export function shareEndText(end, nowMs) {
 }
 
 // The page's words, colors and timeline from the server's answer (`GET /api/shares/:id`) at `nowMs`,
-// redrawn every second. Live: { title, live, headline: { text, color }, phase, note, steps,
-// ridePhase, footer, eta, ogTitle, ogDescription }; ended: { title, ended: true, text, ... }.
+// redrawn every second. Live: { title, live, color, headline, phase, note, steps, ridePhase,
+// footer, ogTitle, ogDescription }; ended: { title, live: false, text, ogTitle, ogDescription }.
 // Colors, as the app's cards: 'green', 'amber' (at risk, catchable), 'red' (too late), 'text'
 // (arrived).
 export function shareView(answer, nowMs) {
-  const title = answer.name ? `${answer.name} shared a ride` : 'Shared ride';
+  const title = shareTitle(answer.name);
   const who = answer.name || 'Shared ride';
   if (answer.status !== 'live') {
     const text = shareEndText(answer.end, nowMs);
-    return { title, live: false, ended: true, text, ogTitle: title, ogDescription: text };
+    return { title, live: false, text, ogTitle: title, ogDescription: text };
   }
   const { trip, follow, walkAfter, slack = 0 } = answer;
   const names = new Map(answer.names ?? []);
@@ -3346,7 +3350,7 @@ export function shareView(answer, nowMs) {
   const name = i => names.get(transit[i]?.stop) ?? null;
   const dropName = i => names.get(transit[i]?.alight) ?? null;
   const ride = follow.kind === 'ride' ? follow.ride : null;
-  const row = ride ? { legs: ride.legs, eta: ride.legs[ride.legs.length - 1].arr + walkAfter * MIN, enRoute: true } : { ...follow.row, enRoute: follow.kind === 'walk' };
+  const row = ride ? { legs: ride.legs, eta: legsEta(ride.legs, walkAfter), enRoute: true } : { ...follow.row, enRoute: follow.kind === 'walk' };
   const eta = row.eta;
   const phase = ride ? ridePhase(ride, walkAfter, nowMs) : null;
   const first = row.legs[0];
@@ -3382,8 +3386,8 @@ export function shareView(answer, nowMs) {
   steps[steps.length - 1] = { ...steps[steps.length - 1], time: null }; // the headline has the arrival
   const arrive = formatTime(eta, nowMs);
   return {
-    title, live: true, color, eta, ridePhase: phase,
-    headline: { text: arrived ? `Arrived ${arrive}` : `Arrives in ${formatCountdown(eta - nowMs)} · ~${arrive}`, color },
+    title, live: true, color, ridePhase: phase,
+    headline: arrived ? `Arrived ${arrive}` : `Arrives in ${formatCountdown(eta - nowMs)} · ~${arrive}`,
     phase: arrived ? '' : text, note: follow.unconfirmed && !arrived ? 'not confirmed' : '', steps,
     footer: `Updated ${formatTime(answer.at, nowMs)} · the link ends ${SHARE_AFTER_MIN} min after arrival`,
     ogTitle: `${who} · arrives ~${arrive}`, ogDescription: 'Live on T-Minus',
