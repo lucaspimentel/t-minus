@@ -7,7 +7,7 @@
 // location and pushes, `server` the in-page server's store, `snaps` and `snap:<id>`).
 import { createFakeMbta, scenarioFromSchedules, staticFromIncluded, mergeTripStops, applyTweaks } from './sim-mbta.js?v=1f61968344';
 import { PRESETS } from './sim-presets.js?v=7d6854750b';
-import { tripShape, legQuery, simDayQuery, serviceDate, pickSnapshot, offsetPoint, legPoints, distanceMeters, ridePhase, nativeBoardingStep, GEOFENCE_METERS } from './core.js?v=a81e453982';
+import { tripShape, legQuery, simDayQuery, serviceDate, pickSnapshot, offsetPoint, legPoints, distanceMeters, ridePhase, nativeBoardingStep, GEOFENCE_METERS } from './core.js?v=78fda9b2d3';
 
 export const SIM_PREFIX = 't-minus-sim:';
 export const SIM_CTL = 't-minus-simctl';

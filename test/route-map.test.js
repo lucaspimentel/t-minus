@@ -398,7 +398,7 @@ test('stopsToShow: a bus line\'s faded stops thin out when zoomed out', () => {
   const st = (id, y, extra = {}) => ({ id, x: 0, y, major: false, leg: 0, ...extra });
   const stops = [st('o0', 0, { off: true }), st('o1', 50, { off: true }), st('b', 100, { major: true }), st('a', 1000, { major: true }), st('o2', 1050, { off: true }), st('o3', 1100, { off: true })];
   assert.equal(stopsToShow(stops, 1).size, 6);
-  const far = stopsToShow(stops, 0.1); // 14 px = 140 m
+  const far = stopsToShow(stops, 0.1); // 12 px from a ring = 120 m
   assert.ok(far.has(2) && far.has(3));
   assert.ok(far.size < 6);
 });
@@ -471,6 +471,24 @@ test('stopsToShow: leg ends always; intermediate stops only with room between th
   // Far out: the ends only, and a selected stop.
   assert.deepEqual(ids(0.01), ['a0', 'a4', 'b0', 'b2']);
   assert.deepEqual(ids(0.01, { keep: 'a1' }), ['a0', 'a1', 'a4', 'b0', 'b2']);
+});
+
+test('stopsToShow: 12 px from a large ring, 10 px between small dots (2026-11-17)', () => {
+  const st = (id, y, leg = 0, major = false) => ({ id, x: 0, y, major, leg });
+  const ids = (stops, ppm = 1, opts) => [...stopsToShow(stops, ppm, opts)].map(i => stops[i].id);
+  // Haymarket-like: 12.5 px after the State ring (hidden at 14 before), Oak Grove far.
+  assert.deepEqual(ids([st('state', 0, 0, true), st('haymarket', 12.5), st('oak', 200, 0, true)]), ['state', 'haymarket', 'oak']);
+  // From the start ring: 12 shows, 11 doesn't.
+  assert.deepEqual(ids([st('s', 0, 0, true), st('a', 12), st('e', 100, 0, true)]), ['s', 'a', 'e']);
+  assert.deepEqual(ids([st('s', 0, 0, true), st('a', 11), st('e', 100, 0, true)]), ['s', 'e']);
+  // Between small dots: 10 shows, 9 doesn't (measured from the last dot drawn).
+  assert.deepEqual(ids([st('s', 0, 0, true), st('a', 12), st('b', 22), st('c', 31), st('d', 40), st('e', 52, 0, true)]), ['s', 'a', 'b', 'd', 'e']);
+  // To the leg's end ring: 11 doesn't show.
+  assert.deepEqual(ids([st('s', 0, 0, true), st('a', 20), st('e', 31, 0, true)]), ['s', 'e']);
+  // A merged transfer ring (the next leg's start dropped; the ring is leg 0's end): 12 from it.
+  assert.deepEqual(ids([st('a0', 0, 0, true), st('a1', 100, 0, true), st('b1', 108, 1), st('b2', 112, 1), st('b3', 300, 1, true)]), ['a0', 'a1', 'b2', 'b3']);
+  // A kept (selected) small stop counts as a dot: the next needs 10, not 12.
+  assert.deepEqual(ids([st('s', 0, 0, true), st('k', 5), st('a', 15), st('e', 100, 0, true)], 1, { keep: 'k' }), ['s', 'k', 'a', 'e']);
 });
 
 test('nextFollowLevel: street first, then alternating; after a pinch the farther level', () => {
