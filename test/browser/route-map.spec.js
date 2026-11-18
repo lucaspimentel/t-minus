@@ -1335,17 +1335,18 @@ test('riding: your bus snaps to your GPS position once its MBTA position is past
   // The ride's stops still show the bus at Main St (the stale stop data of a ride's first minute).
   const { scenario, tripId } = await rideWithGps(page, context, t => [vehicleAt('mine', t, 8)], { rideVehicleAt: { '132in-0708': '25996' } });
   const map = mainMap(page);
+  const atBoarding = page.locator('.row.ride .tl-leg').first().locator('.step.stop').first().locator('.veh');
   await geoAt(page, 14);
   await tick(page, 50);
   // At the boarding stop on the MBTA's data: no snap.
   await expect.poll(() => myVehicle(map).then(v => v?.gps)).toBe(false);
-  await expect(page.locator('.row.ride .tl-leg').first().locator('.step.stop').first().locator('.veh')).toHaveCount(1);
+  await expect(atBoarding).toHaveCount(1);
   // Past it: the snap, though the stops still say boarding.
   scenario.vehicles = [vehicleAt('mine', tripId, 12)];
   await tick(page, 10_000);
   await geoAt(page, 14);
   await expect.poll(() => myVehicle(map).then(v => v?.gps)).toBe(true);
-  await expect(page.locator('.row.ride .tl-leg').first().locator('.step.stop').first().locator('.veh')).toHaveCount(1);
+  await expect(atBoarding).toHaveCount(1);
   await expect(map.locator('.map-here')).toHaveCount(0);
   await openMap(page);
   await tick(page, 500);

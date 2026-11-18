@@ -2107,9 +2107,12 @@ export function ridePhase(ride, walkAfter, nowMs) {
 
 // "Missed it" is offered for 2 min after each boarding.
 export function canUndoBoarding(ride, phase, nowMs) {
-  if (phase.kind !== 'riding') return false;
-  const boarded = phase.leg === 0 ? ride.boardedAt : ride.legs[phase.leg].dep;
-  return nowMs < boarded + 2 * MIN;
+  return phase.kind === 'riding' && nowMs < legBoardedAt(ride, phase) + 2 * MIN;
+}
+// When the ridden leg (phase.kind 'riding') was boarded: the boarding tap for the first, the
+// vehicle's departure for later ones.
+export function legBoardedAt(ride, phase) {
+  return phase.leg === 0 ? ride.boardedAt : ride.legs[phase.leg].dep;
 }
 
 // After missing leg `from`: its next vehicle departing at or after now (other than the missed
@@ -2333,7 +2336,7 @@ const RIDE_MAX_MS = 3 * 60 * MIN;
 // While boarding (2026-11-18): the ridden leg's stops (rideStops) still show its vehicle at the
 // boarding stop: refetch them alone every 15 s, for at most 3 min after the leg became the ridden
 // one, rather than waiting for the 60 s poll. `fetchedAt`: the last fetch (or attempt), `since`:
-// when the leg became the ridden one.
+// when the leg was boarded (legBoardedAt).
 export const RIDE_BOARDING_REFETCH_MS = 15_000;
 export const RIDE_BOARDING_REFETCH_FOR_MS = 3 * MIN;
 export function boardingRefetchDue({ stops, fetchedAt, since, nowMs }) {
@@ -4337,10 +4340,12 @@ export function splitPath(path, a, b) {
 
 // The vehicles ([{ id, tripId, lat, lon, updatedAt }], projected by `proj`) on the stretch of
 // `path` between `fromAlong` and `toAlong`, fresh and within `maxMeters` of it, with their point.
-export function vehiclesOnStretch(vehicles, path, fromAlong, toAlong, proj, nowMs, maxMeters = 150) {
+export const STRETCH_METERS = 150;
+export const vehicleFresh = (updatedAt, nowMs) => nowMs - updatedAt <= VEHICLE_FRESH_SECONDS * 1000;
+export function vehiclesOnStretch(vehicles, path, fromAlong, toAlong, proj, nowMs, maxMeters = STRETCH_METERS) {
   const out = [];
   for (const v of vehicles ?? []) {
-    if (!(nowMs - v.updatedAt <= VEHICLE_FRESH_SECONDS * 1000)) continue;
+    if (!vehicleFresh(v.updatedAt, nowMs)) continue;
     const n = nearestOnPath(path, proj.toXY(v));
     if (!n || n.meters > maxMeters || n.along < fromAlong - 1 || n.along > toAlong + 1) continue;
     out.push({ ...v, point: n.point, heading: pathHeading(path, n.index) });
@@ -4369,14 +4374,14 @@ export const RIDE_GPS_LINE_METERS = 75;
 export const RIDE_GPS_VEHICLE_METERS = 1000;
 export const RIDE_GPS_HOLD_MS = 60_000;
 export const RIDE_LEFT_METERS = 50;
-// The ridden vehicle's MBTA position past the boarding stop (2026-11-18): fresh (VEHICLE_FRESH_SECONDS),
-// within 150 m of the stretch (as vehiclesOnStretch) and more than RIDE_LEFT_METERS along it (`path`
+// The ridden vehicle's MBTA position past the boarding stop (2026-11-18): fresh and within
+// STRETCH_METERS of the stretch (as vehiclesOnStretch), more than RIDE_LEFT_METERS along it (`path`
 // starts at the boarding stop). vehicle: { x, y, at } (at: its updatedAt) or null.
 export function vehicleLeftBoarding(path, vehicle, nowMs) {
   if (!vehicle || !path || path.length < 2) return false;
-  if (!(nowMs - vehicle.at <= VEHICLE_FRESH_SECONDS * 1000)) return false;
+  if (!vehicleFresh(vehicle.at, nowMs)) return false;
   const n = nearestOnPath(path, vehicle);
-  return !!n && n.meters <= 150 && n.along > RIDE_LEFT_METERS;
+  return !!n && n.meters <= STRETCH_METERS && n.along > RIDE_LEFT_METERS;
 }
 // path: the ridden stretch [{ x, y }]; fix: { x, y, accuracy, at } or null; vehicle: the ride's
 // MBTA position { x, y } or null (not in /vehicles: no marker); hold: { x, y, at } or null.
@@ -4385,9 +4390,9 @@ export function rideMarker({ path, fix, vehicle, left, hold, nowMs }) {
   const none = { point: null, heading: 0, hold: null };
   if (!vehicle || !path || path.length < 2) return none;
   const held = hold ? nearestOnPath(path, hold) : null;
-  const gone = left || vehicleLeftBoarding(path, vehicle, nowMs);
-  const usable = fix && gone && fix.accuracy <= GPS_MAX_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS
-    && Math.hypot(fix.x - vehicle.x, fix.y - vehicle.y) <= RIDE_GPS_VEHICLE_METERS;
+  const usable = fix && fix.accuracy <= GPS_MAX_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS
+    && Math.hypot(fix.x - vehicle.x, fix.y - vehicle.y) <= RIDE_GPS_VEHICLE_METERS
+    && (left || vehicleLeftBoarding(path, vehicle, nowMs));
   const snap = usable ? nearestOnPath(path, fix) : null;
   if (snap && snap.meters <= RIDE_GPS_LINE_METERS) {
     const use = held && held.along > snap.along ? held : snap;
