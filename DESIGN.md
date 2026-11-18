@@ -689,7 +689,8 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   themes, a fixed size in pixels, above the legs and stops and below the vehicles and the dot;
   decorative (not tappable, hidden from screen readers). The fit makes room for them and their
   labels (`fitView`'s pixel `boxes` with the map's width, refit until it settles). In the sheet, a tap (or Enter) on
-  a stop shows its name in the caption (a tap waits 250 ms for a second, 2026-11-13); pinch, drag
+  a stop shows its name in the caption (a tap waits 250 ms for a second, 2026-11-13; the nearest
+  drawn stop to the tap, since the 14 px hit circles of dots 10 px apart overlap, 2026-11-17); pinch, drag
   or the wheel zoom and pan; a double-tap zooms in 2× about the point and a two-finger tap (two
   fingers down and up without moving) out 2×, eased like the fit button, a moved view
   (2026-11-13, both maps; `doubleTap`, `twoFingerTap`, `TAP_ZOOM`), from 150 m across

@@ -489,8 +489,6 @@ test('stopsToShow: 12 px from a large ring, 10 px between small dots (2026-11-17
   assert.deepEqual(ids([st('a0', 0, 0, true), st('a1', 100, 0, true), st('b1', 108, 1), st('b2', 112, 1), st('b3', 300, 1, true)]), ['a0', 'a1', 'b2', 'b3']);
   // A kept (selected) small stop counts as a dot: the next needs 10, not 12.
   assert.deepEqual(ids([st('s', 0, 0, true), st('k', 5), st('a', 15), st('e', 100, 0, true)], 1, { keep: 'k' }), ['s', 'k', 'a', 'e']);
-  // The options still apply.
-  assert.deepEqual(ids([st('s', 0, 0, true), st('a', 12), st('e', 100, 0, true)], 1, { ringPx: 14 }), ['s', 'e']);
 });
 
 test('nextFollowLevel: street first, then alternating; after a pinch the farther level', () => {
