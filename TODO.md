@@ -53,8 +53,7 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
 - Share my ride (code review, 2026-11-18): the share sheet can fail on iOS after a slow POST (the
   user activation expires before `navigator.share`; the link is then only shown in a toast); anyone can
   fill `MAX_SHARES` with valid POSTs and block sharing for a day (count only live shares, limit per
-  IP); `shareLive` asks for vehicle positions before it knows the share is over, and simultaneous
-  looks that miss the memo each rebuild the answer (share one in-flight answer per link); the native
+  IP); `shareLive` asks for vehicle positions before it knows the share is over; the native
   "missed" verdict and a bell moved to another trip's bell-only state skip the share's end and Undo
   (decide in `setEnRoute` instead of at each call site).
 

@@ -2457,12 +2457,13 @@ share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
   the bell moved to a later ride of the trip, "Leaving now" / "At the stop" after the bell.
   Ends at once: "Missed it" (the question's, and the ride card's: the page says "Missed Bus 132
   7:36am"), the bell off, Cancel trip (its Undo resumes the link: the server revives an `ended` share
-  within a minute), Stop sharing, a one-off trip's removal (Undo resumes), the shared trip deleted or
+  within a minute), Stop sharing, a one-off trip's ✕ removal (Undo resumes), the shared trip deleted or
   its state without the bell or a ride (the bell moved to another trip). Ends later: 30 min after the
   arrival as tracked (`SHARE_AFTER_MIN`; the server times it in `shareLive` from the ride's live legs, so
   a late train keeps the link; at most 12 h from creation, `endsAt`). A state that simply goes away
   (the ride done, the question timed out) never ends the share: the server carries the page on by the
-  clock, the app sends no more. No answer at "Did you get on?": the page assumes the rider is on board
+  clock, the app sends no more. A one-off whose ride is over (removed by itself, or "Done") keeps its
+  share: the app forgets it without a `DELETE`, and the server ends it 30 min after the arrival. No answer at "Did you get on?": the page assumes the rider is on board
   ("not confirmed") until the app says so, however long ago; "Missed it" ends it.
 - **The page (`share.html`, `share.js`):** "Lucas shared a ride" with a green Live pill (blank name:
   "Shared ride"); the route map (the trip's shapes, its stops, the vehicles' MBTA positions; never the
@@ -2477,7 +2478,10 @@ share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
   ends 30 min after arrival". It reads the server every 20 s while visible and words the answer every
   second (`shareView`, the one wording function: the server uses it for the link preview too). Ended:
   "This ride has ended" (an unknown or purged id the same; "Missed Bus 132 7:36am" after a miss), no
-  map, no polling. The trip's name and its From/To are never sent (`shareTrip` allowlists the legs).
+  map, no polling; after an end the rider can undo (Cancel trip, a one-off's removal: reason `ended`)
+  the page asks on until an answer is more than a minute (`SHARE_RESUME_MS`, by the server's clock)
+  past the end, so an Undo brings the ride back. Redrawn every second, it keeps keyboard focus on the
+  same control (`data-focus`). The trip's name and its From/To are never sent (`shareTrip` allowlists the legs).
 - **Link preview (Open Graph):** the server fills `share.html`'s `{{ogTitle}}` / `{{ogDescription}}`:
   "Lucas · arrives 7:57am" (blank name: "Shared ride · …"), "Live on T-Minus"; ended or unknown: "This ride
   has ended". `noindex` (meta and `X-Robots-Tag`), `no-store`, `no-referrer`, `x-frame-options: DENY`.
@@ -2502,11 +2506,15 @@ share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
   end }`; memoized 15 s per link (a look that was waiting on the MBTA when the app changed or ended the share
   is timed again, never written over the change); the MBTA down: the saved legs, moved on by the clock.
   The app sends a change only after its own `DELETE`s have returned (an Undo's resume can't overtake
-  them). Records are
+  them). A `DELETE` the server didn't acknowledge (offline, 5xx) stays in `KEY_SHARE`'s `pending` and is sent
+  again every 30 s until it is (404/401 settle it); an Undo drops it. Looks that arrive together share one
+  timing of the answer (`shareInflight`; a change or end drops it); `GET /r/<id>` counts against the IP's
+  and the link's limits, and over them serves the page with the plain preview ("Lucas shared a ride",
+  "Live on T-Minus") without timing anything. Records are
   kept 24 h past the end, then pruned. Limits: a link 120 looks and 20 changes a minute (429 with
   `retry-after`), 2000 live shares (503), the IP's 30 a minute.
 - **App (`index.html`):** `KEY_SHARE` `{ secret, share: { id, tripRef, sig, tripJson, sentAt, resume,
-  retryAt } }`; `syncShare` (from each render) PUTs the changed state at most every 4 s, retries after 30 s,
+  retryAt } | null, pending: [{ id, reason, leg, dep, retryAt }] }`; `syncShare` (from each render) PUTs the changed state at most every 4 s, retries after 30 s,
   and ends the share where the rider does; `endShare`, `resumeShare`, `startShare`.
 - **Request budget:** see "Rate limits and request budget".
 - **Deploy:** the Railway watch paths (service settings, not the repo) must include `app.css`, `ui.js`, `share.html` and `share.js`, or a push touching only them doesn't deploy.
