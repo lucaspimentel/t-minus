@@ -7,6 +7,7 @@ import {
   placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel, ME_MIN, mapFits, firstFit, fitChoice, fitTap, sameView,
   TAP_SLOP_PX, DOUBLE_TAP_MS, DOUBLE_TAP_PX, TAP_ZOOM, TWO_FINGER_TAP_MS, doubleTap, twoFingerTap, wheelZoom,
   rideMarker, GPS_MAX_ACCURACY_METERS, RIDE_GPS_MAX_AGE_MS, RIDE_GPS_LINE_METERS, RIDE_GPS_VEHICLE_METERS, RIDE_GPS_HOLD_MS,
+  vehicleLeftBoarding, RIDE_LEFT_METERS, VEHICLE_FRESH_SECONDS,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -823,4 +824,40 @@ test('routeMapModel ride: the ridden vehicle at the snapped fix, the hold in lat
   assert.equal(gone.ride.gps, false);
   // Another leg's ride: nothing changes here.
   assert.ok(routeMapModel({ ...base, ride: { leg: 1, fix, left: true, hold: null } }).vehicles.every(v => !v.gps));
+});
+
+test('vehicleLeftBoarding: fresh, near the line and more than 50 m past the boarding stop', () => {
+  const v = (p, at = NOW) => ({ ...p, at });
+  assert.equal(vehicleLeftBoarding(NORTH, v(up(RIDE_LEFT_METERS)), NOW), false);
+  assert.equal(vehicleLeftBoarding(NORTH, v(up(RIDE_LEFT_METERS + 1)), NOW), true);
+  assert.equal(vehicleLeftBoarding(NORTH, v(up(300, 150)), NOW), true);
+  assert.equal(vehicleLeftBoarding(NORTH, v(up(300, 151)), NOW), false);
+  assert.equal(vehicleLeftBoarding(NORTH, v(up(300), NOW - VEHICLE_FRESH_SECONDS * 1000), NOW), true);
+  assert.equal(vehicleLeftBoarding(NORTH, v(up(300), NOW - VEHICLE_FRESH_SECONDS * 1000 - 1), NOW), false);
+  assert.equal(vehicleLeftBoarding(NORTH, up(300), NOW), false); // no `at`: not fresh
+  assert.equal(vehicleLeftBoarding(NORTH, null, NOW), false);
+  assert.equal(vehicleLeftBoarding([{ x: 0, y: 0 }], v(up(300)), NOW), false);
+  assert.equal(vehicleLeftBoarding(NORTH, v({ x: 0, y: 100 }), NOW), false); // before the stretch
+});
+
+test('rideMarker: the vehicle\'s MBTA position past the boarding stop stands in for `left`', () => {
+  const none = { point: null, heading: 0, hold: null };
+  const run = (vehicle, o = {}) => rideMarker({ path: NORTH, fix: gpsFix(300), vehicle, left: false, hold: null, nowMs: NOW, ...o });
+  assert.ok(run({ ...up(100), at: NOW }).point);
+  assert.deepEqual(run({ ...up(RIDE_LEFT_METERS), at: NOW }), none);
+  assert.deepEqual(run({ ...up(100), at: NOW - 91_000 }), none);
+  assert.deepEqual(run({ ...up(100, 151), at: NOW }), none);
+  assert.deepEqual(run(up(100)), none);
+});
+
+test('routeMapModel ride: left from the vehicle\'s MBTA position, not the stop data', () => {
+  const kept = trimShapesDoc(doc());
+  const now = 1_000_000;
+  const leg = { route: 'Orange', stop: 's0', alight: 's4', label: 'Orange', color: 'ED8B00' };
+  const veh = (k, updatedAt = now) => [{ id: 'mine', tripId: 'mine', route: 'Orange', lat: LINE[k].lat, lon: -71.07, updatedAt }];
+  const fix = { lat: LINE[2].lat, lon: -71.0702, accuracy: 10, at: now };
+  const run = vehicles => routeMapModel({ legs: [leg], shapes: [kept], vehicles: [vehicles], nowMs: now, mine: ['mine'], ride: { leg: 0, fix, left: false, hold: null } });
+  assert.equal(run(veh(1)).vehicles.find(v => v.id === 'mine').gps, true);
+  assert.equal(run(veh(1, now - 91_000)).ride.gps, false); // too old: drawn nowhere, no snap
+  assert.equal(run(veh(0)).ride.gps, false); // still at the boarding stop
 });

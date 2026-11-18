@@ -405,8 +405,10 @@ estimate: "since" only once arrival is recorded, by the tap, the geofence or GPS
     starts after the boarding stop, the leg's `stop` or a child platform of it, which stays
     predicted while the vehicle pulls in: 2026-11-10, a ride started then listed Airport twice).
     The headline's count, the Live Activity and the stop alerts use the same list. Fetched on
-    every poll while riding, and right away when a ride starts; no data (trip id changed,
-    request failed) shows no stops and no vehicle.
+    every poll while riding, and right away when a ride starts; while they still show the vehicle
+    at the boarding stop, refetched alone every 15 s for up to 3 min after boarding that leg
+    (`legBoardedAt`: the ride's start, a later leg's departure; `boardingRefetchDue`, 2026-11-18), so the vehicle's row moves onto the bar within
+    about 15 s of its leaving; no data (trip id changed, request failed) shows no stops and no vehicle.
   - Leg times refresh every tick by trip id from the per-leg predictions already polled
     (`trackLegs`): live entry, then remembered live times, then the leg's own stored live
     time (the ride is saved with it; also on the server, which has no memory), then schedules,
@@ -777,7 +779,10 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   (`rideMarker`, `routeMapModel`'s `ride`; `rideLegStops` in `index.html`, shared with the ride card). Both maps (the main screen's, the sheet); nothing
   else uses it (stop counts, cards, widgets and alerts stay on predictions). A fix counts when its
   accuracy is 50 m or better, it's at most 10 s old, within 75 m of the line, the vehicle has left
-  the boarding stop (the ride's stops, as the timeline's vehicle row) and its MBTA position is
+  the boarding stop (the ride's stops, as the timeline's vehicle row; or, 2026-11-18, its MBTA
+  position on the map is fresh (90 s), within 150 m of the stretch and more than 50 m past the
+  boarding stop along it: `vehicleLeftBoarding`, `RIDE_LEFT_METERS`; a ride starts at the departure,
+  often with the stops still at the boarding stop, and the marker lagged up to a poll) and its MBTA position is
   within 1 km (a missed train stays on its MBTA position). Drawn with a blue ring and halo (the
   location dot's blue, both themes) and without the dot. With no fix that counts (underground,
   coarse), the last point holds, still blue, until the MBTA position passes it along the line or
@@ -1221,7 +1226,9 @@ still holds, to stay well inside it either way:
 - Per poll: one `/predictions` request per transit leg of the shown trip.
 - Schedules: one request per transit leg on load, on trip change, and every 15 min.
 - Alerts: one request every 5 min.
-- While riding a tracked trip: one `/predictions?filter[trip]=…` request per poll (60 s).
+- While riding a tracked trip: one `/predictions?filter[trip]=…` request per poll (60 s); while
+  the ridden leg's stops show the vehicle at the boarding stop, one more every 15 s, up to 3 min
+  after boarding that leg (2026-11-18; at most ~12 extra per leg, also across reloads).
 - Boarding from location (the iOS app's native code, with GPS on): `/vehicles` for the current
   leg every 10 s, `/predictions` per leg every 60 s, `/schedules` per leg every 30 min, all
   through the proxy (its 5 s cache for `/vehicles`): ~8 requests a minute per phone.
@@ -1665,7 +1672,7 @@ the server fails.
 | Request (class) | Size | Latency | Notes |
 |---|---|---|---|
 | `/predictions` leg, 132 / Orange (realtime) | 1.8 / 10.7 KB | ~50 ms | every 60–120 s per leg while open |
-| `/predictions?filter[trip]` riding (realtime) | 14 KB | ~55 ms | every 60 s while riding |
+| `/predictions?filter[trip]` riding (realtime) | 14 KB | ~55 ms | every 60 s while riding (15 s while boarding, ≤3 min per leg) |
 | `/schedules` leg, 6.5 h, 132 / Orange (service day) | 2.7 / 24 KB | 50–75 ms | every 15 min per leg |
 | `/alerts` (minutes) | 1.4 KB | ~45 ms | every 5 min |
 | `/routes`, setup (static) | 65 KB (6 KB gz) | ~50 ms | once per setup session |

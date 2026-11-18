@@ -159,3 +159,16 @@ test('the presets are the browser specs\' commutes', async () => {
   assert.deepEqual(PRESETS.map(p => p.id), ['on-time', 'tight', 'missed', 'earlier', 'cancelled', 'track']);
   for (const p of PRESETS) assert.equal(p.scenario().liveWithinMin, 60);
 });
+
+test('rideVehicleAt: a ride\'s vehicle stays stopped at that stop, which stays listed', () => {
+  const s = scenario();
+  const ask = (sc, time) => createFakeMbta(sc, STATIC).answer(url('/predictions', { 'filter[trip]': 'b-0700' }), at(time));
+  const plain = ask(s, '07:03');
+  assert.equal(plain.data[0].relationships.stop.data.id, 'B'); // A has passed
+  s.rideVehicleAt = { 'b-0700': 'A' };
+  const held = ask(s, '07:03');
+  assert.deepEqual(held.data.map(d => d.relationships.stop.data.id), ['A', 'B', 'P-1']);
+  const v = held.included.find(i => i.type === 'vehicle');
+  assert.equal(v.attributes.current_status, 'STOPPED_AT');
+  assert.equal(v.attributes.current_stop_sequence, held.data[0].attributes.stop_sequence);
+});
