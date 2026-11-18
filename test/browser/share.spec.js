@@ -117,7 +117,7 @@ test('the recipient\'s page: the name, Live, the arrival, the phase, the map; ne
   const rp = await recipient(context, mbta, url, page);
   await expect(rp.locator('#share-title')).toHaveText('Lucas shared a ride');
   await expect(rp.locator('#share-live')).toBeVisible();
-  await expect(head(rp)).toHaveText(/^Arrives in 1h 2\dm · ~8:21am$/);
+  await expect(head(rp)).toHaveText(/^Arrives in 1h 2\dm · 8:21am$/);
   await expect(rp.locator('.share-phase')).toHaveText('Leaves at 7:30am for Bus 132 at 7:36am');
   await expect(rp.locator('.row.ride .step.end .t')).toHaveText(''); // the headline has the arrival
   await expect(rp.locator('.route-svg')).toBeVisible();
@@ -162,6 +162,54 @@ test('the Undo of Cancel trip resumes the same link', async ({ page, context }) 
   await expect(page.locator('.row.tracked').getByRole('button', { name: 'Sharing' })).toBeVisible();
   const rp = await recipient(context, mbta, url, page);
   await expect(head(rp)).toHaveText(/^Arrives in /);
+});
+
+test('the Undo of Cancel trip waits for the Cancel\'s own DELETE: the resume never overtakes it', async ({ page, context }) => {
+  const { mbta } = await openShareApp(page, context);
+  await belled(page);
+  const url = await share(page, 'Lucas');
+  const order = [];
+  let release;
+  const gate = new Promise(r => { release = r; });
+  await page.route(/\/api\/shares\/[A-Za-z0-9_-]{22}/, async route => {
+    const method = route.request().method();
+    if (method === 'GET') return route.fallback();
+    order.push(`${method} start`);
+    if (method === 'DELETE') await gate;
+    await route.fallback();
+    order.push(`${method} done`);
+  });
+  await bar(page).getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('#toast button').click();
+  await tick(page, 21_000); // the changes would go by now
+  expect(order).toEqual(['DELETE start']); // the resume waits
+  release();
+  await expect.poll(async () => { await tick(page, 2000); return order.join(', '); }).toBe('DELETE start, DELETE done, PUT start, PUT done');
+  const rp = await recipient(context, mbta, url, page);
+  await expect(head(rp)).toHaveText(/^Arrives in /);
+});
+
+test('a name with emoji (a family, a flag) is kept with the trips; a name with control characters is refused in the dialog', async ({ page, context }) => {
+  await openShareApp(page, context);
+  await belled(page);
+  const row = page.locator('.row.tracked');
+  await row.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('#share-name-input').fill('Ana \u202eb'); // a bidi override
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await expect(page.locator('#share-name-error')).toBeVisible();
+  await expect(page.locator('#share-name')).toHaveJSProperty('open', true);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')).shareName)).toBeUndefined();
+  const name = 'Ana \u{1F468}\u200D\u{1F469}\u200D\u{1F467} \u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}';
+  await page.locator('#share-name-input').fill(name);
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await expect(row.getByRole('button', { name: 'Sharing', exact: true })).toBeVisible();
+  // Saved with the trips: the config still loads (a reload keeps the trips and the name).
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')));
+  expect(saved.shareName).toBe(name);
+  expect(saved.trips.length).toBeGreaterThan(0);
+  await page.reload();
+  await expect(page.locator('.row').first()).toBeVisible();
+  expect((await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:config')))).shareName).toBe(name);
 });
 
 test('Stop sharing from the sheet ends the page; sharing again gives a new link', async ({ page, context }) => {

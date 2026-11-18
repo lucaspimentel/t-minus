@@ -56,7 +56,7 @@ async function setup({ staticRoot = null } = {}) {
     if (route === '132' && u.pathname === '/schedules') data = [rec('schedule', 'b1', '25996', world.bus), rec('schedule', 'b1', '5991', '07:25')];
     // A second 132 (world.bus2: [Main St, Oak Grove]).
     if (route === '132' && u.pathname === '/schedules' && world.bus2) data.push(rec('schedule', 'b2', '25996', world.bus2[0]), rec('schedule', 'b2', '5991', world.bus2[1]));
-    if (route === 'Orange' && u.pathname === '/predictions' && !world.cancelled) data = [rec('prediction', 'o1', 'place-ogmnl', world.orange), rec('prediction', 'o1', 'place-state', '07:50')];
+    if (route === 'Orange' && u.pathname === '/predictions' && !world.cancelled) data = [rec('prediction', 'o1', 'place-ogmnl', world.orange), rec('prediction', 'o1', 'place-state', world.orangeArr ?? '07:50')];
     // A scheduled Orange trip with no prediction (its train predicted as an ADDED trip, or not running).
     if (route === 'Orange' && u.pathname === '/schedules' && world.orangeGhost) data = [rec('schedule', 'og', 'place-ogmnl', world.orangeGhost), rec('schedule', 'og', 'place-state', '07:47')];
     // Orange schedules only (`cancelled` for no predictions): [[trip id, Oak Grove, State], ...].
@@ -2014,6 +2014,68 @@ test('shares: created without the trip name; the answer follows the bell, then m
   } finally { await s.close(); }
 });
 
+test('shares: a ride ends 30 min after the arrival as tracked: a late train keeps the link', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:30');
+    const ride = { legs: shareLegs(), boardedAt: at('07:10') };
+    const { id } = await (await s.call('POST', '/api/shares', shareBody({ state: { ...shareBody().state, kind: 'stop', ride } }))).json();
+    // The Orange train is 32 min late: State at 08:22, the walk after it to 08:32 (saved: 07:50, 08:00).
+    s.world.orange = '08:05';
+    s.world.orangeArr = '08:22';
+    s.world.clock = at('08:31'); // past the saved arrival + 30 min
+    let v = await look(s, id);
+    assert.equal(v.status, 'live');
+    s.world.clock = at('09:01'); // tracked arrival 08:32 + 30 min = 09:02
+    v = await look(s, id);
+    assert.equal(v.status, 'live');
+    s.world.clock = at('09:03');
+    v = await look(s, id);
+    assert.deepEqual([v.status, v.end.reason], ['ended', 'arrived']);
+  } finally { await s.close(); }
+});
+
+test('shares: a refused new share leaves the device\'s live share alone', async () => {
+  const s = await setup();
+  try {
+    const first = await (await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).json();
+    s.world.clock = at('08:31'); // another ride, already over: 400
+    const over = shareBody({ secret: SECRET, state: { ...shareBody().state, kind: 'stop', ride: { legs: shareLegs(), boardedAt: at('07:10') } } });
+    assert.equal((await s.call('POST', '/api/shares', over)).status, 400);
+    assert.equal(s.store.shareGet(first.id).end, null);
+    s.world.clock = at('07:00');
+    assert.equal((await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).status, 201); // an accepted one replaces it
+    assert.equal(s.store.shareGet(first.id).end.reason, 'replaced');
+  } finally { await s.close(); }
+});
+
+test('shares: a look in flight when the app changes or ends the share doesn\'t overwrite it', async () => {
+  const s = await setup();
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody())).json();
+    // The app's change reaches the store while the look waits for the MBTA (the same writes as PUT and DELETE).
+    const change = f => s.store.shareUpdate(f(s.store.shareGet(id)));
+    const gated = async (f, clock) => {
+      let release;
+      s.world.gate = new Promise(r => { release = r; });
+      s.world.clock = clock;
+      const pending = look(s, id);
+      await new Promise(r => setTimeout(r, 50));
+      change(f);
+      release();
+      return pending;
+    };
+    // Renamed: the look answers with the new name, and the share is still live.
+    let v = await gated(rec => ({ ...rec, name: 'Lu', updatedAt: rec.updatedAt + 1 }), at('07:01'));
+    assert.deepEqual([v.status, v.name], ['live', 'Lu']);
+    assert.equal(s.store.shareGet(id).end, null);
+    // Ended by the rider meanwhile: ended (stopped), not `arrived` from the old state, not a cached live answer.
+    v = await gated(rec => ({ ...rec, end: { reason: 'stopped', at: at('07:02') } }), at('07:02') + 30_000);
+    assert.deepEqual([v.status, v.end.reason], ['ended', 'stopped']);
+    assert.equal((await look(s, id)).end.reason, 'stopped');
+  } finally { await s.close(); }
+});
+
 test('shares: requests are validated', async () => {
   const s = await setup();
   try {
@@ -2157,8 +2219,8 @@ test('shares: /r/<id> serves the page with this ride\'s preview, escaped, noinde
     assert.equal(page.status, 200);
     const html = await page.text();
     // 8:00am: the ride's arrival (7:50 + the 10-min walk).
-    assert.match(html, /<title>&lt;script&gt;x&lt;\/script&gt; &amp; Co · arrives ~8:00am<\/title>/);
-    assert.match(html, /<meta property="og:title" content="&lt;script&gt;x&lt;\/script&gt; &amp; Co · arrives ~8:00am">/);
+    assert.match(html, /<title>&lt;script&gt;x&lt;\/script&gt; &amp; Co · arrives 8:00am<\/title>/);
+    assert.match(html, /<meta property="og:title" content="&lt;script&gt;x&lt;\/script&gt; &amp; Co · arrives 8:00am">/);
     assert.match(html, /<meta property="og:description" content="Live on T-Minus">/);
     assert.equal(html.includes('<script>x'), false);
     assert.equal(html.includes('{{'), false);
@@ -2167,7 +2229,7 @@ test('shares: /r/<id> serves the page with this ride\'s preview, escaped, noinde
     assert.match(page.headers.get('content-type'), /^text\/html/);
     // A blank name; HEAD.
     const b = await (await s.call('POST', '/api/shares', shareBody({ name: '' }))).json();
-    assert.match(await (await s.call('GET', `/r/${b.id}`)).text(), /<title>Shared ride · arrives ~8:00am<\/title>/);
+    assert.match(await (await s.call('GET', `/r/${b.id}`)).text(), /<title>Shared ride · arrives 8:00am<\/title>/);
     assert.equal((await s.call('HEAD', `/r/${b.id}`)).status, 200);
     // Ended and unknown: a generic preview, "This ride has ended", the same for both.
     await s.call('DELETE', `/api/shares/${b.id}`, undefined, null, auth(secretOf(b)));

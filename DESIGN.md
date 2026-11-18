@@ -2447,8 +2447,9 @@ share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
   live the button is green and reads "Sharing"; its tap opens a sheet (title "Sharing this trip until
   30 min after you arrive": "Share link again" (the same link), "Stop sharing", Cancel). The first share
   asks for "Your name" (optional; `shareName` in the config, also in setup's Settings; a blank name
-  is kept: asked once). One share at a time: sharing again (any trip) ends the device's other link
-  (`replaced`). Hidden in the simulator (its server is in the page: a link to it can't be opened).
+  is kept: asked once; up to 40 characters, emoji sequences fine, no control characters: the dialog
+  refuses them, and a saved name that isn't valid is dropped at load, not the trips). One share at a time: sharing again (any trip) ends the device's other link
+  (`replaced`, once the new share is accepted: a refused POST leaves the live one). Hidden in the simulator (its server is in the page: a link to it can't be opened).
   The iOS app's WebView has `navigator.share`; without it the link is copied ("Link copied").
   A cancelled first share sheet ends the share again.
 - **What the link follows:** the trip's ride, as the app's state changes (`followState`, the widget's
@@ -2458,14 +2459,15 @@ share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
   7:36am"), the bell off, Cancel trip (its Undo resumes the link: the server revives an `ended` share
   within a minute), Stop sharing, a one-off trip's removal (Undo resumes), the shared trip deleted or
   its state without the bell or a ride (the bell moved to another trip). Ends later: 30 min after the
-  arrival (`SHARE_AFTER_MIN`; at most 12 h from creation). A state that simply goes away (the ride
-  done, the question timed out) never ends the share: the server carries the page on by the clock, the
-  app sends no more (`idle`). No answer at "Did you get on?": the page assumes the rider is on board
+  arrival as tracked (`SHARE_AFTER_MIN`; the server times it in `shareLive` from the ride's live legs, so
+  a late train keeps the link; at most 12 h from creation, `endsAt`). A state that simply goes away
+  (the ride done, the question timed out) never ends the share: the server carries the page on by the
+  clock, the app sends no more. No answer at "Did you get on?": the page assumes the rider is on board
   ("not confirmed") until the app says so, however long ago; "Missed it" ends it.
 - **The page (`share.html`, `share.js`):** "Lucas shared a ride" with a green Live pill (blank name:
   "Shared ride"); the route map (the trip's shapes, its stops, the vehicles' MBTA positions; never the
   phone's location, no locate button, nothing stored); a ride card in the app's look: the headline
-  "Arrives in 47 min · ~7:57am" (rounded down; "Arrived 7:58am" after the arrival), the phase line
+  "Arrives in 47 min · 7:57am" (rounded down, no "~": that marks a headway estimate; "Arrived 7:58am" after the arrival), the phase line
   ("Leaves at 7:30am for Bus 132 at 7:36am", "Walking to Main St @ South St for Bus 132 at
   7:36am", "On Bus 132 · 2 stops to Washington St opp Oak Grove Sta", "Changing at Oak Grove for
   Orange at 7:41am", "Walking from State"), a muted "not confirmed", and the timeline (read-only;
@@ -2477,7 +2479,7 @@ share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
   "This ride has ended" (an unknown or purged id the same; "Missed Bus 132 7:36am" after a miss), no
   map, no polling. The trip's name and its From/To are never sent (`shareTrip` allowlists the legs).
 - **Link preview (Open Graph):** the server fills `share.html`'s `{{ogTitle}}` / `{{ogDescription}}`:
-  "Lucas · arrives ~7:57am" (blank name: "Shared ride · …"), "Live on T-Minus"; ended or unknown: "This ride
+  "Lucas · arrives 7:57am" (blank name: "Shared ride · …"), "Live on T-Minus"; ended or unknown: "This ride
   has ended". `noindex` (meta and `X-Robots-Tag`), `no-store`, `no-referrer`, `x-frame-options: DENY`.
   The preview is a snapshot from when the link is fetched.
 - **Why a separate page:** `index.html`'s module has dozens of load-time side effects (storage
@@ -2497,7 +2499,10 @@ share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
   `GET /api/shares/:id` (public: the answer) and `GET|HEAD /r/:id` (the page). `GET` times the answer
   with the widget's code (`widgetDocs`, `followRide`, `shareFollow`): live `{ v, at, name, trip, slack,
   follow, walkAfter, names, counts, points, vehicles, mine }`, ended `{ v, at, name, status: 'ended',
-  end }`; memoized 15 s per link; the MBTA down: the saved legs, moved on by the clock. Records are
+  end }`; memoized 15 s per link (a look that was waiting on the MBTA when the app changed or ended the share
+  is timed again, never written over the change); the MBTA down: the saved legs, moved on by the clock.
+  The app sends a change only after its own `DELETE`s have returned (an Undo's resume can't overtake
+  them). Records are
   kept 24 h past the end, then pruned. Limits: a link 120 looks and 20 changes a minute (429 with
   `retry-after`), 2000 live shares (503), the IP's 30 a minute.
 - **App (`index.html`):** `KEY_SHARE` `{ secret, share: { id, tripRef, sig, tripJson, sentAt, resume,

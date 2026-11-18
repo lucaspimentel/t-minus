@@ -287,6 +287,7 @@
   .share-name-form label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
   .share-name-form input { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 16px; }
   .share-name-form p { margin: 6px 0 8px; font-size: 13px; color: var(--muted); }
+  .share-name-form p.share-name-error { color: var(--red); }
   /* Auto-route options: cards like the rows (setup). */
   .setup button.row-toggle { padding: 0; border: 0; border-radius: 6px; background: none; font-size: inherit; }
   .row.option .opt-head { display: block; font-size: 20px; }

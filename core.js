@@ -3269,7 +3269,9 @@ export function widgetFollow(st, rows, walkAfter, nowMs) {
 // and the page words it here (shareView).
 export const SHARE_AFTER_MIN = 30; // the link works this long after the arrival
 export const SHARE_NAME_MAX = 40;
-export const shareNameOk = name => name.length <= SHARE_NAME_MAX && !/\p{C}/u.test(name);
+// Text of up to SHARE_NAME_MAX characters without control characters; the joiner and tag characters
+// of emoji sequences (a family, a flag) are fine.
+export const shareNameOk = name => name.length <= SHARE_NAME_MAX && !/\p{C}/u.test(name.replace(/[\u200d\u{e0020}-\u{e007f}]/gu, ''));
 
 // What a share keeps of a trip: its id and legs, never the name (a one-off's is "243 Condor St → …")
 // or the points and windows. Allowlisted, so a new trip field stays private until listed here.
@@ -3306,16 +3308,13 @@ export function shareRequestError(b, { trip = null } = {}) {
 // What the share follows now, as widgetFollow does for the widget, with the share's rules:
 // { kind: 'ride', ride, unconfirmed? } (boarded, or assumed boarded once the departure passes
 // unanswered: the page says "not confirmed" until the app says so, however long ago), { kind:
-// 'walk', row, enRoute }, { kind: 'bell', row }, or { kind: 'over', eta } (SHARE_AFTER_MIN after
-// the arrival). `rows`: the trip's rows now, missed ones too. `fallback` ({ walkBefore, slack }):
+// 'walk', row, enRoute }, or { kind: 'bell', row }. The end (SHARE_AFTER_MIN after the arrival) is
+// the server's to time, from the ride as tracked: a late train keeps the link. `rows`: the trip's rows now, missed ones too. `fallback` ({ walkBefore, slack }):
 // a row the schedules no longer list is rebuilt from the saved legs.
 export function shareFollow(st, rows, walkAfter, nowMs, { walkBefore = 0, slack = 0 } = {}) {
-  const over = eta => (nowMs >= eta + SHARE_AFTER_MIN * MIN ? { kind: 'over', eta } : null);
-  if (st.ride) return over(legsEta(st.ride.legs, walkAfter)) ?? { kind: 'ride', ride: st.ride };
+  if (st.ride) return { kind: 'ride', ride: st.ride };
   const { row: found, legs, dep, eta } = followTarget(st, rows, walkAfter);
   const row = found ?? { key: st.target.key, legs, firstDep: dep, eta, leaveBy: dep - (walkBefore + slack) * MIN, lastChance: dep };
-  const gone = over(eta);
-  if (gone) return gone;
   const boarded = unconfirmed => ({ kind: 'ride', ride: { legs, boardedAt: dep }, ...(unconfirmed && { unconfirmed: true }) });
   if (st.asking) return boarded(true);
   if (st.kind === 'track') return nowMs >= dep ? boarded(true) : { kind: 'bell', row };
@@ -3387,10 +3386,10 @@ export function shareView(answer, nowMs) {
   const arrive = formatTime(eta, nowMs);
   return {
     title, live: true, color, ridePhase: phase,
-    headline: arrived ? `Arrived ${arrive}` : `Arrives in ${formatCountdown(eta - nowMs)} · ~${arrive}`,
+    headline: arrived ? `Arrived ${arrive}` : `Arrives in ${formatCountdown(eta - nowMs)} · ${arrive}`,
     phase: arrived ? '' : text, note: follow.unconfirmed && !arrived ? 'not confirmed' : '', steps,
     footer: `Updated ${formatTime(answer.at, nowMs)} · the link ends ${SHARE_AFTER_MIN} min after arrival`,
-    ogTitle: `${who} · arrives ~${arrive}`, ogDescription: 'Live on T-Minus',
+    ogTitle: `${who} · arrives ${arrive}`, ogDescription: 'Live on T-Minus',
   };
 }
 

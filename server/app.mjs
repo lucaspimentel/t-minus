@@ -10,8 +10,8 @@ import {
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
   autoBellNext, autoBellRow, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, widgetNextRide, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText, stopSharesError, withStopShares,
+  shareTrip, shareRequestError, shareFollow, shareView, shareTitle, legsEta, SHARE_AFTER_MIN, vehiclesQuery, vehiclePositions, legPoints, vehicleLabel,
 } from '../core.js';
-import { shareTrip, shareRequestError, shareFollow, shareView, shareTitle, legsEta, SHARE_AFTER_MIN, vehiclesQuery, vehiclePositions, legPoints, vehicleLabel } from '../core.js';
 
 const MIN = 60_000;
 const API = 'https://api-v3.mbta.com';
@@ -706,13 +706,14 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       if (store.shareCount() >= MAX_SHARES) return reply(res, 503, { error: 'Too many shared rides' });
       const secret = body.secret ?? randomToken(32);
       const owner = await hashSecret(secret);
-      for (const old of store.sharesFor(owner)) endShare(old, 'replaced', t);
       const rec = {
         id: randomToken(16), owner, trip: shareTrip(body.trip), state: body.state, name: (body.name ?? '').trim(), slack: body.slack ?? 1,
         createdAt: t, updatedAt: t, end: null,
       };
       shareTimes(rec);
-      if (rec.endsAt <= t) return reply(res, 400, { error: 'state is over' });
+      // Already over: refused before the device's live share is replaced.
+      if (legsEta(stateLegs(rec.state), tripShape(rec.trip).walkAfter) + SHARE_AFTER_MIN * MIN <= t) return reply(res, 400, { error: 'state is over' });
+      for (const old of store.sharesFor(owner)) endShare(old, 'replaced', t);
       store.shareAdd(rec);
       log('share created');
       return reply(res, 201, { id: rec.id, ...(body.secret == null && { secret }) });
@@ -876,11 +877,11 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     sharePutLimited.prune(t);
   }
 
-  // The link works until SHARE_AFTER_MIN after the arrival (at most 12 h from its creation); the
-  // record is kept a day longer, for the page's "ended" answer.
+  // The link works until SHARE_AFTER_MIN after the arrival as tracked (shareLive: a late train keeps
+  // it), at most 12 h from its creation (`endsAt`); the record is kept a day longer, for the page's
+  // "ended" answer.
   function shareTimes(rec) {
-    const eta = legsEta(stateLegs(rec.state), tripShape(rec.trip).walkAfter);
-    rec.endsAt = Math.min(eta + SHARE_AFTER_MIN * MIN, rec.createdAt + SHARE_MAX_MIN * MIN);
+    rec.endsAt = rec.createdAt + SHARE_MAX_MIN * MIN;
     rec.expiresAt = (rec.end?.at ?? rec.endsAt) + DAY;
   }
   function endShare(rec, reason, t, extra = {}) {
@@ -903,10 +904,11 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       docs = { predictions: transit.map(() => null), scheduleDocs: transit.map(() => null), rows: [], toEnd: false };
     }
     let follow = shareFollow(rec.state, docs.rows, walkAfter, t, { walkBefore, slack: rec.slack });
-    if (follow.kind === 'over') return null;
     if (follow.kind === 'ride') {
       const r = await followRide(rec.trip, follow.ride, docs, t);
       follow = { ...follow, ...r };
+      // Over SHARE_AFTER_MIN after the arrival as tracked (the saved legs when the MBTA has nothing).
+      if (t >= legsEta(follow.ride.legs, walkAfter) + SHARE_AFTER_MIN * MIN) return null;
     } else if (follow.kind === 'walk') {
       follow = { ...follow, enRoute: { kind: follow.enRoute.kind, at: follow.enRoute.at, atStop: follow.enRoute.atStop } };
     }
@@ -925,9 +927,19 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (memo && t - memo.at < SHARE_VIEW_TTL && t >= memo.at) return memo.answer;
     let answer = null;
     if (!rec.end && t >= rec.endsAt) endShare(rec, 'arrived', t);
-    if (!rec.end) {
+    // The MBTA calls take a while: the app may change or end the share meanwhile. The answer then
+    // isn't used (it would end or cache a stale state): the record is read again, and timed once more.
+    const sig = r => JSON.stringify([r.state, r.trip, r.name, r.slack, r.end]);
+    for (let retry = false; !rec.end; retry = true) {
+      const before = sig(rec);
       answer = await shareLive(rec, t);
+      if (!retry) {
+        const latest = store.shareGet(rec.id);
+        if (!latest) return { v: 1, at: t, name: rec.name, status: 'ended', end: { reason: 'ended', at: t } };
+        if (sig(latest) !== before) { rec = latest; answer = null; continue; }
+      }
       if (!answer) endShare(rec, 'arrived', t);
+      break;
     }
     answer ??= { v: 1, at: t, name: rec.name, status: 'ended', end: rec.end };
     shareMemo.set(rec.id, { at: t, answer });
