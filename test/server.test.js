@@ -2148,3 +2148,36 @@ test('shares: the MBTA failing still moves the page on by the clock', async () =
     assert.deepEqual([v.status, v.follow.kind, v.follow.unconfirmed], ['live', 'ride', true]);
   } finally { await s.close(); }
 });
+
+test('shares: /r/<id> serves the page with this ride\'s preview, escaped, noindex, uncached', async () => {
+  const s = await setup({ staticRoot: process.cwd() });
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody({ name: '<script>x</script> & Co' }))).json();
+    const page = await s.call('GET', `/r/${id}`);
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    // 8:00am: the ride's arrival (7:50 + the 10-min walk).
+    assert.match(html, /<title>&lt;script&gt;x&lt;\/script&gt; &amp; Co · arrives ~8:00am<\/title>/);
+    assert.match(html, /<meta property="og:title" content="&lt;script&gt;x&lt;\/script&gt; &amp; Co · arrives ~8:00am">/);
+    assert.match(html, /<meta property="og:description" content="Live on T-Minus">/);
+    assert.equal(html.includes('<script>x'), false);
+    assert.equal(html.includes('{{'), false);
+    assert.match(html, /<meta name="robots" content="noindex">/);
+    assert.deepEqual([page.headers.get('cache-control'), page.headers.get('x-robots-tag'), page.headers.get('referrer-policy'), page.headers.get('x-frame-options')], ['no-store', 'noindex', 'no-referrer', 'DENY']);
+    assert.match(page.headers.get('content-type'), /^text\/html/);
+    // A blank name; HEAD.
+    const b = await (await s.call('POST', '/api/shares', shareBody({ name: '' }))).json();
+    assert.match(await (await s.call('GET', `/r/${b.id}`)).text(), /<title>Shared ride · arrives ~8:00am<\/title>/);
+    assert.equal((await s.call('HEAD', `/r/${b.id}`)).status, 200);
+    // Ended and unknown: a generic preview, "This ride has ended", the same for both.
+    await s.call('DELETE', `/api/shares/${b.id}`, undefined, null, auth(secretOf(b)));
+    const unknown = await s.call('GET', `/r/${'z'.repeat(22)}`);
+    assert.equal(unknown.status, 404);
+    assert.match(await unknown.text(), /<meta property="og:description" content="This ride has ended">/);
+    // Other paths under /r/ aren't the page.
+    assert.equal((await s.call('GET', '/r/short')).status, 404);
+    assert.equal((await s.call('GET', '/share.html')).status, 404);
+    assert.equal((await s.call('GET', '/share.js')).status, 200);
+  } finally { await s.close(); }
+});
+const secretOf = made => made.secret;

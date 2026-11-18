@@ -7,6 +7,10 @@
 // bus running late).
 import { readFileSync, readdirSync } from 'node:fs';
 import { createFakeMbta, series } from '../../sim-mbta.js';
+import { createServer } from 'node:http';
+import { createApp } from '../../server/app.mjs';
+import { createMemoryStore } from '../../server/memory-store.mjs';
+import { nodeDeps } from '../../server/node-deps.mjs';
 
 export { series };
 
@@ -78,5 +82,36 @@ export async function fakeMbta(context, scenario, { now }) {
       body: JSON.stringify(body ?? {}),
     }).catch(() => {});
   });
+
+  // The push server's share routes (`/api/shares`, the page at `/r/<id>`): the real server code on a
+  // memory store, answering from the same scenario at the page clock's time (DESIGN.md "Share my
+  // ride"). Context-wide, so the sharer's page and a recipient's page talk to one server.
+  mbta.serveServer = async context => {
+    const store = createMemoryStore();
+    const app = createApp({
+      fetch: async url => {
+        const body = answer(new URL(url));
+        if (body === undefined) return { ok: false, status: 503 };
+        return body === null ? { ok: false, status: 404 } : { ok: true, status: 200, headers: { get: () => null }, json: async () => body };
+      },
+      send: async () => {}, store, now: () => mbta.now, publicKey: 'TEST', staticRoot: new URL('../..', import.meta.url).pathname, proxy: false, ...nodeDeps,
+    });
+    const server = createServer(app.handler);
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    mbta.shareCalls = [];
+    await context.route(/\/(api\/shares(\/|\?|$)|r\/[\w-]{22}$)/, async route => {
+      const req = route.request();
+      // (A navigation has no page clock yet: the last time seen stands in.)
+      if (!req.isNavigationRequest()) mbta.now = await req.frame().evaluate(() => Date.now()).catch(() => mbta.now);
+      const url = new URL(req.url());
+      mbta.shareCalls.push({ method: req.method(), path: url.pathname, body: req.postData() });
+      const headers = Object.fromEntries(Object.entries(req.headers()).filter(([k]) => ['authorization', 'content-type'].includes(k)));
+      const res = await fetch(`${base}${url.pathname}${url.search}`, { method: req.method(), headers, body: req.postData() ?? undefined });
+      const out = Object.fromEntries([...res.headers].filter(([k]) => !['content-length', 'transfer-encoding', 'connection'].includes(k)));
+      await route.fulfill({ status: res.status, headers: out, body: Buffer.from(await res.arrayBuffer()) }).catch(() => {});
+    });
+    return { app, store, close: () => new Promise(r => server.close(r)) };
+  };
   return mbta;
 }
