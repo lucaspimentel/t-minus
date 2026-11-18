@@ -37,7 +37,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-18 · fe5f541e40</footer>
+    <footer class="version">Version 2026-11-18 · 6b88dbb44c</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -1532,8 +1532,9 @@ function bellOff() {
 // a reminder) and times it as the widget; the app keeps it in step with its en-route state
 // (`syncShare`, from each render: the bell, the walk, boarding, a vehicle switch, a re-plan) and ends
 // it where the rider does ("Missed it", bell off, Cancel trip, Stop sharing). `KEY_SHARE`:
-// { secret, share: { id, tripRef, sig, tripJson, sentAt, resume, retryAt } | null }. The secret
-// is the device's, sent as a Bearer token with each change; the server keeps its hash.
+// { secret, share: { id, tripRef, sig, tripJson, sentAt, resume, retryAt } | null, pending: [{ id, reason,
+// leg, dep, retryAt }] }. The secret is the device's, sent as a Bearer token with each change; the server
+// keeps its hash. `pending`: DELETEs the server hasn't acknowledged, resent until it does.
 const shareAvailable = !!SERVER_API && !SIM_ON; // the simulator's server is in the page: a link to it can't be opened
 const SHARE_GAP_MS = 4000; // changes go at most this often
 const shareStore = () => store.get(KEY_SHARE) ?? {};
@@ -1542,6 +1543,7 @@ const sharingTrip = ref => !!ref && shareStore().share?.tripRef === ref;
 const shareHeaders = secret => ({ 'content-type': 'application/json', authorization: `Bearer ${secret}` });
 let shareBusy = false;
 let shareEnding = 0; // DELETEs in flight: a change waits for them (an Undo's resume would overtake its own DELETE)
+const deleting = new Set(); // the ids of those
 
 // What the share sends for a trip now: the stripped trip, the app's followed state, the name and the
 // stop slack. `raw`: the trip's en-route state, when the caller has read it.
@@ -1629,22 +1631,40 @@ function endShare(reason, { ref = null, leg = null, dep = null } = {}) {
   const sh = shareStore();
   const cur = sh.share;
   if (!cur || (ref != null && cur.tripRef !== ref)) return null;
-  saveShare({ ...sh, share: null });
-  const q = new URLSearchParams({ reason, ...(leg != null && { leg, dep }) });
-  shareEnding++;
-  serverFetch(`/shares/${cur.id}?${q}`, { method: 'DELETE', headers: shareHeaders(sh.secret) }).catch(() => {}).finally(() => { shareEnding--; });
+  saveShare({ ...sh, share: null, pending: [...(sh.pending ?? []), { id: cur.id, reason, ...(leg != null && { leg, dep }) }] });
+  sendRevocations();
   return cur;
 }
+// The unacknowledged DELETEs (an ended share's link stays live until one gets through), each at most
+// every 30 s. Any answer but a server error settles it (404/401: nothing there to end, or not ours).
+function sendRevocations() {
+  const sh = shareStore();
+  for (const d of sh.pending ?? []) {
+    if (deleting.has(d.id) || Date.now() < (d.retryAt ?? 0)) continue;
+    deleting.add(d.id);
+    shareEnding++;
+    const q = new URLSearchParams({ reason: d.reason, ...(d.leg != null && { leg: d.leg, dep: d.dep }) });
+    const settle = ok => {
+      const latest = shareStore();
+      saveShare({ ...latest, pending: (latest.pending ?? []).flatMap(x => (x.id !== d.id ? [x] : ok ? [] : [{ ...x, retryAt: Date.now() + 30_000 }])) });
+    };
+    serverFetch(`/shares/${d.id}?${q}`, { method: 'DELETE', headers: shareHeaders(sh.secret) })
+      .then(res => settle(res.ok || [401, 404, 410].includes(res.status)), () => settle(false))
+      .finally(() => { deleting.delete(d.id); shareEnding--; });
+  }
+}
 // An Undo of Cancel trip or a one-off's removal: the share goes on (the server revives an `ended` one within a minute).
+// Its DELETE, not yet acknowledged, is dropped (one in flight may still end it: the resume revives it).
 function resumeShare(cur) {
   const sh = shareStore();
-  if (cur && !sh.share) saveShare({ ...sh, share: { ...cur, sig: null, resume: true, retryAt: 0 } });
+  if (cur && !sh.share) saveShare({ ...sh, share: { ...cur, sig: null, resume: true, retryAt: 0 }, pending: (sh.pending ?? []).filter(d => d.id !== cur.id) });
 }
 
 // From each render: the share follows the trip's en-route state. A trip gone, or its state without the
 // bell or a ride (the bell moved elsewhere): ended. A state that is simply gone (the ride done, the
 // question timed out) never ends it: the server carries the page on by the clock; no more changes.
 function syncShare(now) {
+  sendRevocations();
   const sh = shareStore();
   const cur = sh.share;
   if (!cur || shareBusy || shareEnding || !shareAvailable || now < (cur.retryAt ?? 0)) return;

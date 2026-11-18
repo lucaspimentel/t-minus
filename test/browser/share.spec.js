@@ -391,3 +391,30 @@ test('a one-off that ends with its ride keeps its share: no DELETE, the page sti
   const rp = await recipient(context, mbta, url, page);
   await expect(head(rp)).not.toHaveText('This ride has ended');
 });
+
+test('a DELETE the server did not acknowledge is sent again until it does; the link is dead after', async ({ page, context }) => {
+  const { mbta } = await openShareApp(page, context);
+  await belled(page);
+  const url = await share(page, 'Lucas');
+  const rp = await recipient(context, mbta, url, page);
+  let fail = 1;
+  const deletes = [];
+  await page.route(/\/api\/shares\/[\w-]{22}\?/, route => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    deletes.push(route.request().url());
+    if (fail-- > 0) return route.fulfill({ status: 503, json: { error: 'down' } });
+    return route.fallback();
+  });
+  await page.locator('.row.tracked').getByRole('button', { name: 'Sharing', exact: true }).click();
+  await page.locator('#share-stop').click();
+  await tick(page, 1000);
+  expect(deletes).toHaveLength(1);
+  await tick(page, 21_000);
+  expect(deletes).toHaveLength(1); // not before 30 s
+  await expect(head(rp)).not.toHaveText('This ride has ended'); // the server never heard
+  await tick(page, 21_000);
+  expect(deletes).toHaveLength(2);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('t-minus:share')).pending)).toEqual([]);
+  await tick(page, 21_000);
+  await expect(head(rp)).toHaveText('This ride has ended');
+});
