@@ -21,6 +21,7 @@ export const BELL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6
 
 // A walking figure on the timeline rail for steps that involve walking (Material
 // "directions_walk", Apache 2.0).
+export const SHARE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 9H6.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2"/><path d="M12 14V3M8.5 6.5L12 3l3.5 3.5"/></svg>';
 export const WALK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"/></svg>';
 export function walkStep(line, step) {
   if (!step.walking) return line;

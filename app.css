@@ -271,6 +271,22 @@
   .enroute-bar.ride-btns { margin: 12px 0 0; }
   .enroute-bar #oneoff-remove { min-width: 44px; }
   .alerts-btn { min-height: 44px; }
+  /* Share my ride (DESIGN.md "Share my ride"): Share / Sharing in the belled row's foot and the ride card's
+     buttons; the sheet and the name dialog. */
+  .share-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .enroute-bar button.sharing { color: var(--green); border-color: var(--green); }
+  dialog.share-dlg { border: 0; padding: 0; background: transparent; color: var(--text); width: calc(100% - 16px); max-width: 480px; margin: auto auto max(16px, env(safe-area-inset-bottom)); }
+  dialog.share-dlg::backdrop { background: rgba(0, 0, 0, .35); }
+  .share-box { background: var(--card); border-radius: 14px; overflow: hidden; border: 1px solid var(--border); }
+  .share-box h2 { margin: 0; padding: 12px 16px; font-size: 13px; font-weight: 400; color: var(--muted); text-align: center; border-bottom: 1px solid var(--border); }
+  .share-box button { display: block; width: 100%; min-height: 52px; border: 0; background: var(--card); color: var(--text); font: inherit; font-size: 17px; cursor: pointer; }
+  .share-box button + button { border-top: 1px solid var(--border); }
+  .share-box button.danger { color: var(--red); }
+  .share-cancel { margin-top: 8px; border: 1px solid var(--border) !important; border-radius: 14px; background: var(--card); color: var(--text); font: inherit; font-size: 17px; font-weight: 600; min-height: 52px; width: 100%; cursor: pointer; }
+  .share-name-form { padding: 12px 16px 4px; }
+  .share-name-form label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+  .share-name-form input { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 16px; }
+  .share-name-form p { margin: 6px 0 8px; font-size: 13px; color: var(--muted); }
   /* Auto-route options: cards like the rows (setup). */
   .setup button.row-toggle { padding: 0; border: 0; border-radius: 6px; background: none; font-size: inherit; }
   .row.option .opt-head { display: block; font-size: 20px; }

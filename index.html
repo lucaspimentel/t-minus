@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <!-- The simulator's clock (DESIGN.md "Simulator"): inert unless the simulator is on. -->
 <script src='./sim.js?v=d5fd243061'></script>
-<link rel="stylesheet" href='./app.css?v=228b9cef8a'>
+<link rel="stylesheet" href='./app.css?v=2f4d5c5db9'>
 </head>
 <body>
 <main>
@@ -37,7 +37,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-18 · 192aa1bdd3</footer>
+    <footer class="version">Version 2026-11-18 · bdabd9bf05</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -46,6 +46,22 @@
     <p id="map-credit" class="map-credit" hidden></p>
   </div>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
+  <dialog id="share-sheet" class="share-dlg" aria-labelledby="share-sheet-title">
+    <div class="share-box"><h2 id="share-sheet-title">Sharing this trip until 30 min after you arrive</h2>
+      <button type="button" id="share-again">Share link again</button>
+      <button type="button" id="share-stop" class="danger">Stop sharing</button></div>
+    <button type="button" class="share-cancel" id="share-sheet-cancel">Cancel</button>
+  </dialog>
+  <dialog id="share-name" class="share-dlg" aria-labelledby="share-name-title">
+    <div class="share-box"><h2 id="share-name-title">Share this ride</h2>
+      <form class="share-name-form" id="share-name-form" method="dialog">
+        <label for="share-name-input">Your name</label>
+        <input id="share-name-input" type="text" maxlength="40" autocomplete="given-name" enterkeyhint="done">
+        <p>Optional. The page says "Lucas shared a ride"; blank: "Shared ride".</p>
+      </form>
+      <button type="submit" form="share-name-form" id="share-name-ok">Share</button></div>
+    <button type="button" class="share-cancel" id="share-name-cancel">Cancel</button>
+  </dialog>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
   <div class="sim-bar" id="sim-bar" role="region" aria-label="Simulator" hidden></div>
 </main>
@@ -69,12 +85,12 @@ import {
   rowState, targetRow, timelineSteps, stopNames, tripStopsQuery, tripStopCount, tripStopShares, withStopShares, legsKey, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions, isStagingHost, stagingPlugins,
   unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, legBoardedAt, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, boardingRefetchDue, RIDE_BOARDING_REFETCH_MS, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
-  missLeg, boardingSession, boardingWindow, boardingBase, legPoints, mapLegs,
+  missLeg, boardingSession, boardingWindow, boardingBase, legPoints, mapLegs, followState, shareTrip,
   simCurrentRide, simJumpTargets, simPhaseKey, dayRides, simRideLabel, nextWeekday, bostonMs,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, TAP_ZOOM, doubleTap, twoFingerTap, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
 } from './core.js?v=0bdbb1eaa7';
-import { el, badge, BELL_SVG, WALK_SVG, walkStep, fullStops, renderTimeline, rideStopRows as uiRideStopRows, SVG_NS, svgEl, textOn, mapColor, basemap, loadBasemap, basemapFor, basemapGroup, basemapWidgets, toolIcon, mapToolButton, mapWidget } from './ui.js?v=b4450441aa';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=fd26cac6cc';
+import { el, badge, BELL_SVG, SHARE_SVG, WALK_SVG, walkStep, fullStops, renderTimeline, rideStopRows as uiRideStopRows, SVG_NS, svgEl, textOn, mapColor, basemap, loadBasemap, basemapFor, basemapGroup, basemapWidgets, toolIcon, mapToolButton, mapWidget } from './ui.js?v=4ebfad78fc';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=07842ac504';
 
 const API = 'https://api-v3.mbta.com';
 // The simulator (DESIGN.md "Simulator"; sim.js, sim-page.js): on, the app's keys are its own copies.
@@ -86,6 +102,7 @@ const KEY_OVERRIDE = `${P}trip-override`; // { id (a trip id), setAt }
 const KEY_LAST_TRIP = `${P}last-trip`; // a trip id
 // "Leaving now" / "At the stop" per trip id: { [tripRef]: { kind, at, atStop, key, dep, ... } }.
 const KEY_EN_ROUTE = `${P}en-route`;
+const KEY_SHARE = `${P}share`;
 // Declared here: the trip-id clean start (below) clears them at load.
 const KEY_REMINDERS = `${P}reminders`;
 const KEY_ACTIVITY = `${P}activity`;
@@ -693,6 +710,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
       if (tracked) bellOff(); else bellOn(r);
     };
     foot.append(b);
+    if (tracked && shareAvailable) foot.append(shareButton(refOf(tripIdx), `share:${key}`));
     if (tracked && !reminder && !canNotify()) {
       hint = el('div', 'push-hint', `Notifications are off: tracking in the app only.${pushSupported ? '' : ' Add to Home Screen to get them.'}`);
     }
@@ -1496,9 +1514,162 @@ function bellOn(r) {
   if (canNotify() && r.firstDep > Date.now()) notify(r);
 }
 function bellOff() {
+  endShare('ended', { ref: refOf(tripIdx) });
   setEnRoute(unpinTarget(enRouteState()));
   render();
   schedulePoll();
+}
+
+// ---------- share my ride (DESIGN.md "Share my ride") ----------
+
+// A live page for one ride, for anyone with its link. The server keeps the share (its own record, not
+// a reminder) and times it as the widget; the app keeps it in step with its en-route state
+// (`syncShare`, from each render: the bell, the walk, boarding, a vehicle switch, a re-plan) and ends
+// it where the rider does ("Missed it", bell off, Cancel trip, Stop sharing). `KEY_SHARE`:
+// { secret, share: { id, tripRef, sig, tripJson, sentAt, idle, resume, retryAt } | null }. The secret
+// is the device's, sent as a Bearer token with each change; the server keeps its hash.
+const shareAvailable = !!SERVER_API && !SIM_ON; // the simulator's server is in the page: a link to it can't be opened
+const SHARE_GAP_MS = 4000; // changes go at most this often
+const shareStore = () => store.get(KEY_SHARE) ?? {};
+const saveShare = x => store.set(KEY_SHARE, x);
+const sharingTrip = ref => !!ref && shareStore().share?.tripRef === ref;
+const shareHeaders = secret => ({ 'content-type': 'application/json', authorization: `Bearer ${secret}` });
+let shareBusy = false;
+
+// What the share sends for a trip now: the stripped trip, the app's followed state, the name and the stop slack.
+function shareParts(ref) {
+  const trip = config?.trips.find(t => t.id === ref);
+  const all = store.get(KEY_EN_ROUTE);
+  const state = trip && all?.[ref] ? followState(ref, withSharesAll(all)[ref]) : null;
+  if (!state) return null;
+  const parts = { state, name: config.shareName ?? '', slack: stopSlackMinutes(config) };
+  const tripJson = JSON.stringify(shareTrip(trip));
+  return { ...parts, trip: shareTrip(trip), tripJson, sig: JSON.stringify({ ...parts, trip: tripJson }) };
+}
+
+// The share's link, as the share sheet or the clipboard gives it (only the link: the page says the rest).
+// `first`: a cancelled first share sheet ends the share again.
+async function shareLink(id, first) {
+  const url = `${location.origin}/r/${id}`;
+  if (navigator.share) {
+    try { await navigator.share({ url }); return; } catch (e) {
+      if (e?.name === 'AbortError') { if (first) { endShare('stopped'); render(); } return; }
+    }
+  }
+  try { await navigator.clipboard.writeText(url); showToast('Link copied'); } catch { showToast(url); }
+}
+
+function saveShareName(name) {
+  savedConfig = { ...(savedConfig ?? { trips: [] }), shareName: name };
+  store.set(KEY_CONFIG, savedConfig);
+  config = withOneOff(savedConfig);
+}
+// The first share asks for the name once (optional), then goes on.
+function askShareName(then) {
+  const dlg = $('share-name');
+  const input = $('share-name-input');
+  input.value = config.shareName ?? '';
+  let done = false;
+  const finish = ok => {
+    if (done) return;
+    done = true;
+    dlg.close();
+    if (ok) { saveShareName(input.value.trim()); then(); }
+  };
+  $('share-name-form').onsubmit = e => { e.preventDefault(); finish(true); };
+  $('share-name-cancel').onclick = () => finish(false);
+  dlg.onclose = () => { done = true; };
+  dlg.showModal();
+}
+function openShareSheet(id) {
+  const dlg = $('share-sheet');
+  $('share-again').onclick = () => { dlg.close(); shareLink(id, false); };
+  $('share-stop').onclick = () => { dlg.close(); endShare('stopped'); render(); showToast('Sharing stopped'); };
+  $('share-sheet-cancel').onclick = () => dlg.close();
+  dlg.showModal();
+}
+
+// Share / Sharing: a new share of the shown trip's belled or ridden ride, or the sheet of the live one.
+async function startShare() {
+  if (!shareAvailable || !config) return;
+  const ref = refOf(tripIdx);
+  const sh = shareStore();
+  if (sh.share && sh.share.tripRef === ref) return openShareSheet(sh.share.id);
+  if (config.shareName === undefined) return askShareName(startShare);
+  const p = shareParts(ref);
+  if (!p || !(p.state.ride || p.state.pinned)) return;
+  let res;
+  try {
+    res = await serverFetch('/shares', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trip: p.trip, state: p.state, name: p.name, slack: p.slack, ...(sh.secret && { secret: sh.secret }) }),
+    });
+  } catch { res = null; }
+  if (!res?.ok) { showToast("Couldn't start sharing"); return; }
+  const { id, secret } = await res.json();
+  saveShare({ secret: secret ?? sh.secret, share: { id, tripRef: ref, sig: p.sig, tripJson: p.tripJson, sentAt: Date.now() } });
+  render();
+  await shareLink(id, true);
+}
+
+// Ends the share (for `ref` only, when given): `reason` 'stopped' | 'ended' | 'missed' (with the
+// missed leg and its departure, for the page's "Missed Bus 132 7:36am"). Returns the share for an Undo.
+function endShare(reason, { ref = null, leg = null, dep = null } = {}) {
+  const sh = shareStore();
+  const cur = sh.share;
+  if (!cur || (ref != null && cur.tripRef !== ref)) return null;
+  saveShare({ ...sh, share: null });
+  const q = new URLSearchParams({ reason, ...(leg != null && { leg, dep }) });
+  serverFetch(`/shares/${cur.id}?${q}`, { method: 'DELETE', headers: shareHeaders(sh.secret) }).catch(() => {});
+  return cur;
+}
+// An Undo of Cancel trip or a one-off's removal: the share goes on (the server revives an `ended` one within a minute).
+function resumeShare(cur) {
+  const sh = shareStore();
+  if (cur && !sh.share) saveShare({ ...sh, share: { ...cur, sig: null, resume: true, idle: false, retryAt: 0 } });
+}
+
+// From each render: the share follows the trip's en-route state. A trip gone, or its state without the
+// bell or a ride (the bell moved elsewhere): ended. A state that is simply gone (the ride done, the
+// question timed out) never ends it: the server carries the page on by the clock; no more changes.
+function syncShare(now) {
+  const sh = shareStore();
+  const cur = sh.share;
+  if (!cur || shareBusy || !shareAvailable || now < (cur.retryAt ?? 0)) return;
+  if (!config?.trips.some(t => t.id === cur.tripRef)) { endShare('ended'); return; }
+  const raw = (store.get(KEY_EN_ROUTE) ?? {})[cur.tripRef];
+  if (!raw) { if (!cur.idle) saveShare({ ...sh, share: { ...cur, idle: true } }); return; }
+  if (!raw.ride && !raw.pinned) { endShare('ended'); return; }
+  const p = shareParts(cur.tripRef);
+  if (!p || (p.sig === cur.sig && !cur.resume) || now - (cur.sentAt ?? 0) < SHARE_GAP_MS) return;
+  shareBusy = true;
+  const body = { state: p.state, name: p.name, slack: p.slack, ...(p.tripJson !== cur.tripJson && { trip: p.trip }), ...(cur.resume && { resume: true }) };
+  serverFetch(`/shares/${cur.id}`, { method: 'PUT', headers: shareHeaders(sh.secret), body: JSON.stringify(body) })
+    .then(res => {
+      const latest = shareStore();
+      if (latest.share?.id !== cur.id) return;
+      if (res.ok) saveShare({ ...latest, share: { ...latest.share, sig: p.sig, tripJson: p.tripJson, sentAt: Date.now(), idle: false, resume: false, retryAt: 0 } });
+      else if ([401, 404, 410].includes(res.status)) { saveShare({ ...latest, share: null }); render(); } // ended on the server
+      else saveShare({ ...latest, share: { ...latest.share, retryAt: Date.now() + 30_000 } });
+    })
+    .catch(() => {
+      const latest = shareStore();
+      if (latest.share?.id === cur.id) saveShare({ ...latest, share: { ...latest.share, retryAt: Date.now() + 30_000 } });
+    })
+    .finally(() => { shareBusy = false; });
+}
+
+// The Share / Sharing button: in the belled row's foot, and in the ride card's buttons.
+function shareButton(ref, focus, cls = 'track-btn') {
+  const on = sharingTrip(ref);
+  const b = el('button', `${cls} share-btn${on ? (cls === 'track-btn' ? ' tracking' : ' sharing') : ''}`);
+  b.type = 'button';
+  b.innerHTML = SHARE_SVG;
+  b.append(on ? 'Sharing' : 'Share');
+  b.dataset.focus = focus;
+  b.setAttribute('aria-haspopup', 'dialog');
+  b.onclick = e => { e.stopPropagation(); startShare(); };
+  return b;
 }
 
 // Auto-bell (DESIGN.md "Auto-bell"): the saved trips' schedules go to the server, which bells
@@ -1582,6 +1753,7 @@ function render() {
     renderSimBar(now);
   }
   syncWidget();
+  syncShare(now);
   renderToggle();
   $('refresh').hidden = !config; // nothing to refresh without trips
   $('oneoff').hidden = !config || tripIdx !== oneOffIdx();
@@ -1824,6 +1996,7 @@ function renderEnRoute(now, hasRows, riding = false) {
 // Cancel (bar or trip card): ends at once, with "Undo" in a toast for 5 s.
 function cancelTracking() {
   const snap = { ref: refOf(tripIdx), state: enRouteState() };
+  const shared = endShare('ended', { ref: snap.ref });
   rideNote = null;
   laterOpen = false;
   nextOpen = false;
@@ -1837,6 +2010,7 @@ function cancelTracking() {
     if (i !== tripIdx) setTrip(i, true); // Cancel let autoSwitch change trips
     setEnRoute(withoutAlert(snap.state));
     restoreReminders(snap.ref, removed);
+    resumeShare(shared);
     render();
     schedulePoll();
   });
@@ -1847,6 +2021,7 @@ function cancelTracking() {
 function answer(yes) {
   const s = enRouteState();
   if (!s?.asking) return;
+  if (!yes) endShare('missed', { ref: refOf(tripIdx), leg: 0, dep: s.asking.dep });
   setEnRoute(answerBoarding(s, yes));
   render();
   schedulePoll();
@@ -2001,6 +2176,7 @@ function renderRideCard(s, now) {
     const [open, closed] = phase.kind === 'transfer' ? [`Keep this ${noun}`, `Different ${noun}?`] : ['Keep this connection', 'Different connection?'];
     btns.append(btn(nextOpen ? open : closed, () => { nextOpen = !nextOpen; render(); }));
   }
+  if (phase.kind !== 'arrived' && shareAvailable) btns.append(shareButton(refOf(tripIdx), 'ride:share', ''));
   btns.append(phase.kind === 'arrived'
     ? btn('Done', () => {
       rideNote = null; laterOpen = false; nextOpen = false; stopsOpen = null; setEnRoute(null);
@@ -2040,7 +2216,10 @@ function missedIt(phase) {
   const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i])), c?.lastLive, now);
   const { state, note } = missLeg(s, phase.leg, vehicles, transfers, now);
   rideNote = note;
-  if (!note) setEnRoute(state);
+  if (!note) {
+    endShare('missed', { ref: refOf(tripIdx), leg: phase.leg, dep: s.ride.legs[phase.leg].dep });
+    setEnRoute(state);
+  }
   render();
   schedulePoll();
 }
@@ -2229,6 +2408,8 @@ function showSetup({ importOpen = false, plan = false } = {}) {
 function moveTripState(from, to) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
   if (all[from]) { all[to] = all[from]; delete all[from]; store.set(KEY_EN_ROUTE, all); }
+  const sh = shareStore();
+  if (sh.share?.tripRef === from) saveShare({ ...sh, share: { ...sh.share, tripRef: to } });
   for (const [k, rem] of Object.entries(tripReminders(reminders, from))) {
     reminders[reminderKeyOf(to, k.slice(from.length + 1))] = rem;
     delete reminders[k];
@@ -2251,7 +2432,7 @@ function dropTripState(ref) {
   const removed = dropReminders(ref);
   delete cache[ref];
   lastTiming.delete(ref);
-  return { state, reminders: removed };
+  return { state, reminders: removed, share: endShare('ended', { ref }) };
 }
 
 // "See departures" on a planned way: it replaces any one-off and is shown. A new trip id each time.
@@ -2287,6 +2468,7 @@ function removeOneOff(undo = true) {
       store.set(KEY_EN_ROUTE, all);
     }
     restoreReminders(prev.trip.id, dropped.reminders);
+    resumeShare(dropped.share);
     render();
     refresh({ force: true });
   });
