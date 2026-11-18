@@ -15,8 +15,11 @@ export const IMPORTS = [
   { file: 'sim-page.js', dep: 'server/app.mjs' },
   { file: 'sim-page.js', dep: 'server/memory-store.mjs' },
   { file: 'setup.js', dep: 'core.js' },
+  { file: 'ui.js', dep: 'core.js' },
   { file: 'index.html', dep: 'core.js' },
   { file: 'index.html', dep: 'setup.js' },
+  { file: 'index.html', dep: 'ui.js' },
+  { file: 'index.html', dep: 'app.css' },
   { file: 'index.html', dep: 'sim.js' },
   { file: 'index.html', dep: 'sim-page.js' },
   { file: 'index.html', dep: 'sim-presets.js' },
@@ -35,7 +38,7 @@ export function fileHash(name, root = '.') {
 
 // App version shown in the footer: the date it was stamped plus a hash of every shell file
 // (index.html with the version itself blanked), so any change to what's served shows a new one.
-export const VERSION_FILES = ['index.html', 'core.js', 'setup.js', 'sw.js', 'manifest.json',
+export const VERSION_FILES = ['index.html', 'core.js', 'setup.js', 'sw.js', 'manifest.json', 'app.css', 'ui.js',
   'sim.js', 'sim-page.js', 'sim-mbta.js', 'sim-presets.js', 'server/app.mjs', 'server/memory-store.mjs'];
 export const versionRe = /Version (\d{4}-\d{2}-\d{2}) · ([0-9a-f]{10})/;
 

@@ -7,7 +7,7 @@
 // location and pushes, `server` the in-page server's store, `snaps` and `snap:<id>`).
 import { createFakeMbta, scenarioFromSchedules, staticFromIncluded, mergeTripStops, applyTweaks } from './sim-mbta.js?v=ebe8d6ac4b';
 import { PRESETS } from './sim-presets.js?v=8ad9deb13b';
-import { tripShape, legQuery, simDayQuery, serviceDate, pickSnapshot, offsetPoint, legPoints, distanceMeters, ridePhase, nativeBoardingStep, GEOFENCE_METERS } from './core.js?v=98e5b927df';
+import { tripShape, legQuery, simDayQuery, serviceDate, pickSnapshot, offsetPoint, legPoints, distanceMeters, ridePhase, nativeBoardingStep, GEOFENCE_METERS } from './core.js?v=0bdbb1eaa7';
 
 export const SIM_PREFIX = 't-minus-sim:';
 export const SIM_CTL = 't-minus-simctl';
@@ -206,7 +206,7 @@ export async function startSimPage(sim, { mbtaApi }) {
   }
 
   // ---------- this server, in the page ----------
-  const [{ createApp }, { createMemoryStore }] = await Promise.all([import('./server/app.mjs?v=7a21f4acb5'), import('./server/memory-store.mjs?v=2f4642c3da')]);
+  const [{ createApp }, { createMemoryStore }] = await Promise.all([import('./server/app.mjs?v=e1a3e39a67'), import('./server/memory-store.mjs?v=a50870064e')]);
   const memStore = createMemoryStore();
   memStore.load(serverDump);
   const json = (status, body) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });

@@ -11,7 +11,7 @@ Read `DESIGN.md` for decisions and verified MBTA API facts; `TODO.md` for pendin
   (same origin only, no CORS). Storage keys use the `t-minus:` prefix (`t-minus-sim:` in the
   simulator: index.html's `P`).
 - `core.js`: pure logic only (no DOM, no fetch); every change there gets a unit test.
-- After changing any shell file (`index.html`, `core.js`, `setup.js`, `sw.js`, `manifest.json`,
+- After changing any shell file (`index.html`, `app.css`, `ui.js`, `core.js`, `setup.js`, `sw.js`, `manifest.json`,
   the simulator's `sim.js`, `sim-page.js`, `sim-mbta.js`, `sim-presets.js`, and `server/app.mjs`,
   `server/memory-store.mjs`, which it loads in the page), run `npm run stamp` (updates the footer
   version and the `?v=<hash>` imports listed in `scripts/stamp.mjs`; a test fails otherwise). Bump `CACHE` in `sw.js` when

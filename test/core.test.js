@@ -3185,3 +3185,173 @@ test('boardingRefetchDue: every 15 s while the stops show the vehicle at the boa
   assert.equal(run({ stops: { vehicle: null } }), false);
   assert.equal(run({ stops: null }), false);
 });
+
+// ---------- share my ride ----------
+import { shareTrip, followState, shareRequestError, shareFollow, shareEndText, shareView, SHARE_AFTER_MIN, mapLegs, widgetStateError } from '../core.js';
+
+const shareHome = () => ({ ...WITH_IDS.trips[0], name: '243 Condor St → Work', near: true, autoBell: { days: [1], arriveBy: '09:00' }, legs: WITH_IDS.trips[0].legs.map(l => (l.kind === 'transit' ? { ...l, lat: 42.4, lon: -71.1 } : l)) });
+const shareLegs = () => leaveRow().legs.map(l => ({ ...l, source: 'scheduled' }));
+const shareNames = [['25996', 'Main St @ South St'], ['5991', 'Washington St opp Oak Grove Sta'], ['place-ogmnl', 'Oak Grove'], ['place-state', 'State']];
+const shareBell = () => ({ trip: 'home', kind: 'track', at: at('07:00'), atStop: null, pinned: true, target: { key: 'b1', legs: shareLegs() } });
+const shareAnswer = (follow, extra = {}) => ({ v: 1, at: at('07:10'), name: 'Lucas', status: 'live', trip: shareTrip(shareHome()), follow, walkAfter: 10, names: shareNames, counts: [], slack: 1, ...extra });
+
+test('shareTrip: legs and id only; no name, window, points, auto-bell', () => {
+  const t = shareTrip(shareHome());
+  assert.deepEqual(Object.keys(t).sort(), ['id', 'legs', 'name']);
+  assert.equal(t.name, 'Shared ride');
+  assert.equal(JSON.stringify(t).includes('Condor'), false);
+  assert.equal(JSON.stringify(t).includes('42.4'), false);
+  assert.equal(JSON.stringify(t).includes('autoBell'), false);
+  assert.deepEqual(t.legs[1], { kind: 'transit', route: '132', direction_id: 1, stop: '25996', alight: '5991' });
+  assert.deepEqual(shareTrip({ ...shareHome(), timingLeg: 1 }).timingLeg, 1);
+  assert.equal(validateConfig({ trips: [t] }, { requireIds: true }).length, 0);
+});
+
+test('followState: one trip\'s state in the widget\'s shape; widgetState uses it', () => {
+  const s = { kind: 'track', at: 1, pinned: true, bell: true, target: { key: 'b1', legs: shareLegs() } };
+  assert.deepEqual(followState('home', s), widgetState({ home: s }, WITH_IDS.trips));
+  assert.equal(followState('home', null), null);
+  assert.equal(followState('home', { kind: 'track', at: 1 }), null);
+  assert.equal(followState('home', { kind: 'track', at: 1, bell: true }), null); // the bell without a target
+});
+
+test('shareRequestError: trip, state with the bell or a ride, name, slack, secret', () => {
+  const trip = shareTrip(shareHome());
+  const ok = { trip, state: shareBell(), name: 'Lucas', slack: 1 };
+  assert.equal(shareRequestError(ok), null);
+  assert.equal(shareRequestError({ ...ok, name: undefined }), null);
+  assert.equal(shareRequestError(null), 'body is invalid');
+  assert.equal(shareRequestError({ ...ok, trip: { ...trip, id: undefined } }), 'trip is invalid');
+  assert.equal(shareRequestError({ ...ok, trip: undefined }), 'trip is invalid');
+  assert.equal(shareRequestError({ ...ok, state: { ...shareBell(), trip: 'nope' } }), 'state.trip is invalid');
+  assert.equal(shareRequestError({ ...ok, state: undefined }), 'state is invalid');
+  // No sharing without the bell: a walk that isn't pinned; a ride is fine.
+  const walk = { ...shareBell(), kind: 'leaving', atStop: at('07:44'), pinned: false };
+  assert.equal(shareRequestError({ ...ok, state: walk }), 'state is not belled');
+  assert.equal(shareRequestError({ ...ok, state: { ...walk, ride: { legs: shareLegs(), boardedAt: at('07:48') } } }), null);
+  assert.equal(shareRequestError({ ...ok, name: 'x'.repeat(41) }), 'name is invalid');
+  assert.equal(shareRequestError({ ...ok, name: 'a\nb' }), 'name is invalid');
+  assert.equal(shareRequestError({ ...ok, name: 5 }), 'name is invalid');
+  assert.equal(shareRequestError({ ...ok, slack: 99 }), 'slack is invalid');
+  assert.equal(shareRequestError({ ...ok, secret: 'short' }), 'secret is invalid');
+  assert.equal(shareRequestError({ ...ok, secret: 'a'.repeat(43) }), null);
+  // An update: every field optional.
+  assert.equal(shareRequestError({}, { update: true }), null);
+  assert.equal(shareRequestError({ state: shareBell() }, { update: true }), null);
+  assert.equal(shareRequestError({ state: { ...walk } }, { update: true }), 'state is not belled');
+  assert.equal(shareRequestError({ name: 'x'.repeat(41) }, { update: true }), 'name is invalid');
+  assert.equal(typeof widgetStateError, 'function');
+});
+
+test('validateConfig: shareName is text of up to 40 characters', () => {
+  assert.equal(validateConfig({ ...WITH_IDS, shareName: 'Lucas' }).length, 0);
+  assert.equal(validateConfig({ ...WITH_IDS, shareName: '' }).length, 0);
+  assert.match(validateConfig({ ...WITH_IDS, shareName: 5 })[0], /shareName/);
+  assert.match(validateConfig({ ...WITH_IDS, shareName: 'x'.repeat(41) })[0], /shareName/);
+});
+
+test('shareFollow: the bell, the walk, assumed boarding past the departure, the ride, the end', () => {
+  const row = leaveRow();
+  const bell = shareBell();
+  const walk = { ...bell, kind: 'leaving', atStop: at('07:44') };
+  // The bell: its row until the departure; then boarded, "unconfirmed", however long ago (no ASK_MINUTES).
+  assert.deepEqual(shareFollow(bell, [row], 10, at('07:30')), { kind: 'bell', row });
+  const after = shareFollow(bell, [row], 10, at('07:50'));
+  assert.deepEqual([after.kind, after.unconfirmed, after.ride.boardedAt], ['ride', true, at('07:48')]);
+  assert.equal(shareFollow(bell, [row], 10, at('08:10')).unconfirmed, true); // past ASK_MINUTES (30 min after 07:48 is 08:18)
+  assert.equal(shareFollow(bell, [row], 10, at('08:20')).unconfirmed, true);
+  // The question: assumed boarded at the asked departure.
+  const asked = shareFollow({ ...bell, asking: { dep: at('07:49') } }, [row], 10, at('07:50'));
+  assert.deepEqual([asked.unconfirmed, asked.ride.boardedAt], [true, at('07:49')]);
+  // A row the schedules no longer list: rebuilt from the saved legs, with the leave-by.
+  const gone = shareFollow(bell, [], 10, at('07:30'), { walkBefore: 5, slack: 1 });
+  assert.deepEqual([gone.kind, gone.row.leaveBy, gone.row.firstDep, gone.row.eta], ['bell', at('07:42'), at('07:48'), at('08:25')]);
+  // Walking: to the departure; at the stop in time: boarded, confirmed; late: unconfirmed.
+  assert.deepEqual(shareFollow(walk, [row], 10, at('07:35')), { kind: 'walk', row, enRoute: walk });
+  const boarded = shareFollow(walk, [row], 10, at('07:50'));
+  assert.deepEqual([boarded.kind, boarded.unconfirmed], ['ride', undefined]);
+  assert.equal(shareFollow({ ...walk, atStop: at('07:49') }, [row], 10, at('07:50')).unconfirmed, true);
+  // A ride: until SHARE_AFTER_MIN after the arrival (the eta is 08:25).
+  const ride = { legs: row.legs, boardedAt: at('07:48') };
+  assert.equal(shareFollow({ ...walk, ride }, [], 10, at('08:30')).kind, 'ride'); // arrived, still shown
+  assert.equal(shareFollow({ ...walk, ride }, [], 10, at('08:54')).kind, 'ride');
+  assert.deepEqual(shareFollow({ ...walk, ride }, [], 10, at('08:55')), { kind: 'over', eta: at('08:25') });
+  assert.equal(SHARE_AFTER_MIN, 30);
+  // An unconfirmed ride ends the same way.
+  assert.equal(shareFollow(bell, [row], 10, at('08:56')).kind, 'over');
+});
+
+test('shareEndText: the missed vehicle and its time, else ended', () => {
+  assert.equal(shareEndText({ reason: 'missed', vehicle: 'Bus 132', dep: at('07:36') }, at('07:40')), 'Missed Bus 132 7:36am');
+  assert.equal(shareEndText({ reason: 'missed' }, at('07:40')), 'This ride has ended');
+  for (const reason of ['stopped', 'ended', 'replaced', 'arrived']) assert.equal(shareEndText({ reason }, at('07:40')), 'This ride has ended');
+  assert.equal(shareEndText(null, at('07:40')), 'This ride has ended');
+});
+
+test('shareView: the headline, the phase lines, colors, the note, the timeline, the footer, the preview', () => {
+  const row = leaveRow();
+  const bell = shareAnswer({ kind: 'bell', row });
+  // Before leaving: "Arrives in 1h 55m · ~8:25am" (rounded down), the leave-by, the vehicle.
+  let v = shareView(bell, at('07:30'));
+  assert.equal(v.title, 'Lucas shared a ride');
+  assert.deepEqual([v.headline.text, v.phase, v.note, v.color], ['Arrives in 55 min · ~8:25am', 'Leaves at 7:39am for Bus 132 at 7:48am', '', 'green']);
+  assert.equal(shareView(bell, at('07:30') + 59_000).headline.text, 'Arrives in 54 min · ~8:25am'); // 54 min 1 s left
+  assert.equal(shareView(bell, at('07:37')).color, 'amber'); // within 3 min of the leave-by
+  assert.equal(shareView(bell, at('07:40')).color, 'amber'); // past the leave-by
+  assert.equal(shareView(bell, at('07:43')).color, 'red'); // past the last chance
+  // The Arrive row has no time (the headline has it); the other rows keep theirs.
+  const end = v.steps.at(-1);
+  assert.deepEqual([end.kind, end.time], ['end', null]);
+  assert.equal(v.steps.filter(s => s.kind === 'leg').length, 2);
+  assert.equal(v.steps[0].text, 'Walk 5 min · 1 min early at the stop'); // the bell's row has the slack
+  assert.deepEqual([v.footer, v.ogTitle, v.ogDescription], ['Updated 7:10am · the link ends 30 min after arrival', 'Lucas · arrives ~8:25am', 'Live on T-Minus']);
+  assert.equal(v.live, true);
+  // A blank name: neutral wording.
+  const anon = shareView({ ...bell, name: '' }, at('07:30'));
+  assert.deepEqual([anon.title, anon.ogTitle], ['Shared ride', 'Shared ride · arrives ~8:25am']);
+  // Walking: to the stop, named; red once late.
+  const walkSt = { kind: 'leaving', at: at('07:30'), atStop: at('07:44'), pinned: true };
+  const walk = shareAnswer({ kind: 'walk', row, enRoute: walkSt });
+  v = shareView(walk, at('07:40'));
+  assert.deepEqual([v.phase, v.color], ['Walking to Main St @ South St for Bus 132 at 7:48am', 'green']);
+  assert.equal(v.steps[0].kind, 'leg'); // en route: no first walk
+  assert.equal(shareView(shareAnswer({ kind: 'walk', row, enRoute: { ...walkSt, atStop: at('07:50') } }), at('07:40')).color, 'red');
+  assert.equal(shareView({ ...walk, names: [] }, at('07:40')).phase, 'Walking for Bus 132 at 7:48am');
+  // Riding, not confirmed; with stops left, and with minutes only.
+  const ride = { legs: row.legs, boardedAt: at('07:48') };
+  const stops = { vehicle: null, stops: [{ id: 'a', name: 'A', time: at('07:56'), dropOff: false }, { id: 'c', name: 'Oak', time: at('08:02'), dropOff: true }] };
+  const riding = shareAnswer({ kind: 'ride', ride, unconfirmed: true, stops, stopsLeg: 0, outlook: { leg: 1, needed: at('08:04'), margin: 4 * MIN, legs: row.legs, missedDep: null, none: false } });
+  v = shareView(riding, at('07:53'));
+  assert.deepEqual([v.phase, v.note, v.color, v.ridePhase.kind], ['On Bus 132 · 2 stops to Washington St opp Oak Grove Sta', 'not confirmed', 'green', 'riding']);
+  assert.equal(v.headline.text, 'Arrives in 32 min · ~8:25am');
+  assert.equal(shareView({ ...riding, follow: { ...riding.follow, stops: null, unconfirmed: false } }, at('07:53')).phase, 'On Bus 132 · 9 min to Washington St opp Oak Grove Sta');
+  assert.equal(shareView({ ...riding, follow: { ...riding.follow, unconfirmed: false } }, at('07:53')).note, '');
+  // A tight connection is amber, a missed or missing one red.
+  const outlook = o => shareAnswer({ ...riding.follow, outlook: { ...riding.follow.outlook, ...o } });
+  assert.equal(shareView(outlook({ margin: 1 * MIN }), at('07:53')).color, 'amber');
+  assert.equal(shareView(outlook({ missedDep: at('08:00') }), at('07:53')).color, 'red');
+  assert.equal(shareView(outlook({ none: true }), at('07:53')).color, 'red');
+  // The transfer, the last ride and the final walk.
+  v = shareView(riding, at('08:03'));
+  assert.deepEqual([v.phase, v.ridePhase.kind], ['Changing at Washington St opp Oak Grove Sta for Orange at 8:06am', 'transfer']);
+  v = shareView(riding, at('08:10'));
+  assert.equal(v.phase, 'On Orange · 5 min to State');
+  v = shareView(riding, at('08:20'));
+  assert.deepEqual([v.phase, v.ridePhase.kind], ['Walking from State', 'walking']);
+  // Arrived: the time without "~", gray-on-text color, no phase line, no note.
+  v = shareView(riding, at('08:27'));
+  assert.deepEqual([v.headline.text, v.headline.color, v.phase, v.note], ['Arrived 8:25am', 'text', '', '']);
+  assert.equal(v.ogTitle, 'Lucas · arrives ~8:25am');
+});
+
+test('shareView: ended shares say why, without the trip', () => {
+  const ended = reason => ({ v: 1, at: at('07:10'), name: 'Lucas', status: 'ended', end: reason });
+  let v = shareView(ended({ reason: 'missed', vehicle: 'Bus 132', dep: at('07:36') }), at('07:40'));
+  assert.deepEqual([v.live, v.ended, v.text, v.title, v.ogDescription], [false, true, 'Missed Bus 132 7:36am', 'Lucas shared a ride', 'Missed Bus 132 7:36am']);
+  v = shareView({ ...ended({ reason: 'stopped' }), name: '' }, at('07:40'));
+  assert.deepEqual([v.text, v.title, v.ogTitle], ['This ride has ended', 'Shared ride', 'Shared ride']);
+});
+
+test('mapLegs: the transit legs the route map draws', () => {
+  assert.deepEqual(mapLegs(WITH_IDS.trips[0]).map(l => [l.route, l.label, l.color]), [['132', '132', null], ['Orange', 'Orange', null]]);
+});
