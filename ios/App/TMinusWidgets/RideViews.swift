@@ -110,12 +110,16 @@ struct LegsBar: View {
         return shares.map { total * CGFloat($0 / norm) }
     }
 
-    // The stops to draw (indexes): at least `minGap` from the last one drawn (the leg's start
-    // first) and from the leg's end, as the map's stopsToShow.
-    static func shown(_ xs: [CGFloat], start: CGFloat, end: CGFloat, minGap: CGFloat = 14) -> [Int] {
+    private static let ringGap: CGFloat = 12, dotGap: CGFloat = 10
+    // The stops to draw (indexes), at their own positions: at least `ringGap` from the leg's start
+    // ring (the start or a transfer) while none is drawn yet, `dotGap` from the last dot drawn, and
+    // `ringGap` from the leg's end ring. Rings: radius 6 + stroke 3 (edge 7.5); dots: 3.5 + 1.5
+    // (edge 4.25); 12 clears a ring and a dot, 10 two dots (2026-11-17). As the map's stopsToShow.
+    static func shown(_ xs: [CGFloat], start: CGFloat, end: CGFloat) -> [Int] {
         var out: [Int] = []
         var last = start
-        for (i, x) in xs.enumerated() where x - last >= minGap && end - x >= minGap {
+        for (i, x) in xs.enumerated() {
+            guard x - last >= (out.isEmpty ? ringGap : dotGap), end - x >= ringGap else { continue }
             out.append(i)
             last = x
         }

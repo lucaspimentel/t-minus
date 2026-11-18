@@ -12,7 +12,7 @@ private let now = Date().timeIntervalSince1970
 private let orange = "ED8B00", bus = "FFC72C"
 private func legs(_ a: (String, Double, Double)...) -> [RideState.Leg] { a.map { RideState.Leg(color: $0.0, dep: now + $0.1 * 60, arr: now + $0.2 * 60) } }
 // The legs bar's stop shares (2026-11-13): the Orange leg's 8 stops, the bus's 20 (some are skipped
-// where they'd be closer than 14 pt).
+// where they'd be closer than 12 pt to a ring or 10 pt to the last dot).
 private func withAt(_ l: [RideState.Leg], _ at: [[Double]?]) -> [RideState.Leg] {
     zip(l, at).map { var leg = $0.0; leg.at = $0.1; return leg }
 }

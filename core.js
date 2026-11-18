@@ -4764,18 +4764,22 @@ export function stopListStretch(stopsDoc, stop, alight) {
 // The phone's location in the map's coordinates (it stays on the phone).
 export const mapPoint = (model, p) => (model?.origin && p ? projector(model.origin.lat, model.origin.lon).toXY(p) : null);
 
-// The route map's stops to draw at `ppm` pixels per meter: every leg end (major), and an
-// intermediate stop only when it's at least `minPx` from the last one drawn on its leg and from
-// the leg's end, so a zoomed-out bus leg isn't a string of dots; `keep` (a selected stop) always.
+const STOP_DOT_PX = 10, STOP_RING_PX = 12;
+// The route map's stops to draw at `ppm` pixels per meter: every leg end (major) and `keep` (a
+// selected stop) always; an intermediate stop only with room for its dot: at least 12 px from
+// the last one drawn when that is a large ring (a leg end or transfer, on any leg; a ring's edge
+// plus a dot's) or 10 px when it's a small dot on its leg (two dots' edges), and 12 px from
+// its leg's next end. Positions aren't moved. As the legs bar's LegsBar.shown (RideViews.swift).
 // `stops`: routeMapModel's, in leg order. → Set of indices.
-export function stopsToShow(stops, ppm, { minPx = 14, keep = null } = {}) {
+export function stopsToShow(stops, ppm, { keep = null } = {}) {
   const shown = new Set();
-  const far = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) * ppm >= minPx;
+  const far = (a, b, px) => Math.hypot(a.x - b.x, a.y - b.y) * ppm >= px;
   let last = null;
   stops.forEach((st, i) => {
     if (st.major || st.id === keep) { shown.add(i); last = st; return; }
+    if (last && (last.major || last.leg === st.leg) && !far(st, last, last.major ? STOP_RING_PX : STOP_DOT_PX)) return;
     const end = stops.slice(i + 1).find(x => x.major && x.leg === st.leg);
-    if ((!last || last.leg !== st.leg || far(st, last)) && (!end || far(st, end))) { shown.add(i); last = st; }
+    if (!end || far(st, end, STOP_RING_PX)) { shown.add(i); last = st; }
   });
   return shown;
 }
