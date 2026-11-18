@@ -641,7 +641,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-17 · 1d67e187da</footer>
+    <footer class="version">Version 2026-11-17 · 921a9fd47f</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -3522,12 +3522,14 @@ function mapWidget({ label, interactive = false, pan = interactive, focusKey = '
     clearTimeout(tapTimer);
     if (doubleTap(lastTap, t)) { lastTap = null; tapZoom(TAP_ZOOM, t); return; }
     lastTap = t;
-    // The nearest drawn stop to the tap: dots can be 10 px apart (2026-11-17) and the 14 px hit
-    // circles overlap, so the topmost one isn't always the one tapped.
-    const near = !e.target.closest?.('[data-stop]') ? null : [...svg.querySelectorAll('.map-stop[data-stop]:not([display])')]
+    // The tapped stop, or a nearer drawn one whose hit circle (14 px) also holds the tap: dots can
+    // be 10 px apart (2026-11-17), so the topmost hit circle isn't always the dot tapped.
+    const hit = e.target.closest?.('[data-stop]');
+    const near = !hit ? null : [...svg.querySelectorAll('.map-stop[data-stop]:not([display])')]
       .map(g => { const r = g.querySelector('circle').getBoundingClientRect(); return { g, d: Math.hypot(r.x + r.width / 2 - t.x, r.y + r.height / 2 - t.y) }; })
+      .filter(c => c.d <= 14)
       .reduce((a, b) => (!a || b.d < a.d ? b : a), null);
-    const id = near?.g.dataset.stop ?? null;
+    const id = (near?.g ?? hit)?.dataset.stop ?? null;
     tapTimer = setTimeout(() => tapSelect(id), DOUBLE_TAP_MS);
   });
   if (interactive) svg.addEventListener('keydown', e => {
