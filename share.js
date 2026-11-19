@@ -2,8 +2,8 @@
 // with the link. It reads the server's answer (`GET /api/shares/:id`) every 20 s while visible and
 // words it every second (`shareView`). It never touches this origin's storage, the location or
 // RUM: the recipient's own T-Minus data stays out of it.
-import { shareView, mapLegs, SHARE_RESUME_MS, shapesQuery, trimShapesDoc, stopsKey } from './core.js?v=711556524f';
-import { el, renderTimeline, rideStopRows, mapWidget, replaceKeepingFocus } from './ui.js?v=edec667ffa';
+import { shareView, mapLegs, SHARE_RESUME_MS, shapesQuery, trimShapesDoc, stopsKey, rideFollow } from './core.js?v=6b5070d968';
+import { el, renderTimeline, rideStopRows, mapWidget, replaceKeepingFocus } from './ui.js?v=2fbc33774d';
 
 const id = location.pathname.split('/').filter(Boolean).at(-1) ?? '';
 const POLL_MS = 20_000;
@@ -53,7 +53,7 @@ function drawMap(phase, now) {
   const legs = mapLegsNow;
   if (!widget || legsSig !== mapSig) {
     mapSig = legsSig;
-    widget = mapWidget({ label: 'Map of the shared ride', pan: true, live: true });
+    widget = mapWidget({ label: 'Map of the shared ride', pan: true, live: true, followRide: true });
     widget.el.classList.add('main-map');
     const li = el('div', 'main-map-item');
     li.append(widget.el);
@@ -63,15 +63,18 @@ function drawMap(phase, now) {
   }
   const finished = phase ? Math.min(phase.leg, legs.length) : 0;
   // Redrawn with a new answer, a phase or a loaded shape, not every second (the vehicles move per answer).
-  const key = `${answer.at}:${finished}:${legs.map(l => shapes.has(stopsKey(l.route, l.direction_id))).join()}`;
+  const key = `${answer.at}:${finished}:${phase?.kind}:${legs.map(l => shapes.has(stopsKey(l.route, l.direction_id))).join()}`;
   if (key === drawnKey) return;
   drawnKey = key;
+  // The follow button's ride (2026-11-19): the leg being ridden, in its mode.
+  const rideLeg = phase?.kind === 'riding' && answer.follow?.kind === 'ride' ? answer.follow.ride.legs[phase.leg] : null;
+  const follow = rideLeg ? { leg: phase.leg, ...rideFollow(rideLeg) } : null;
   const stop = (leg, p) => ({ id: leg, ...p, name: p.name ?? leg });
   widget.draw({
     legs, shapes: legs.map(l => shapes.get(stopsKey(l.route, l.direction_id)) ?? null),
     fallback: legs.map((l, i) => { const p = answer.points?.[i]; return p?.board && p?.alight ? [stop(l.stop, p.board), stop(l.alight, p.alight)] : null; }),
     fitAlso: [], finished, fitFrom: finished, vehicles: answer.vehicles ?? [], mine: answer.mine ?? legs.map(() => null),
-    nowMs: now, incoming: true, also: legs.map(() => []),
+    nowMs: now, incoming: true, also: legs.map(() => []), follow,
   }, null);
 }
 

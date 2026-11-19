@@ -747,13 +747,37 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
     The view's limits hold near the bound's edge (you can be off center there). A pinch, the
     wheel, a double-tap or a two-finger tap keeps following at its zoom, about you. A lost position (a watch error) keeps it: the
     map stays until the next one.
-  - **Ends on:** a drag (on either map); the fit button; the whole map; a ride phase change; the main screen's
+  - **Ends on:** a drag (on either map); the fit button; the whole map; a ride phase change (not boarding while following you: it goes on to the vehicle, below); the main screen's
     map replaced; your position leaving the bound. It goes on into the sheet at the same level
     and back to the main map when the sheet closes (2026-11-12; until then the sheet opening and
     closing ended it).
   - **Button:** an outline arrow, filled while following (`aria-pressed`); its label names the
     next tap: "Center on my location", "Zoom out to the area", "Zoom in to the street". Back to
     the trip shows while following (on the picture too).
+  - **Follow your vehicle (2026-11-19; mockups accepted the same day):** while riding, the map can
+    keep the ridden vehicle centered. In the app the locate button takes it over: walking or waiting
+    it is the arrow and follows you as above; while riding (`mapState`'s `follow`, from
+    `rideFollow(leg)`) it is the vehicle's glyph, a bus or a train (the vehicle's own route decides:
+    a Green Line leg's train, the Silver Line's bus), outline off and filled while following
+    (`aria-pressed`), with the labels "Follow Bus 132" / "Follow the Orange Line" (the tight
+    vehicle form, no headsign) and then the level labels above. The target is the ride marker
+    (`rideMarker` through `rideFollowTarget` on the map model): your fix snapped onto the line when it counts, else the
+    MBTA's position, recentered with each answer (eased, as locate). The first tap's level is the
+    mode's: a bus 400 m, rail 2 km (`rideFollow().level`); later taps toggle (`nextFollowLevel`).
+    **Boarding while following you** carries the follow on to the vehicle at the mode's first level
+    (the map holds until the vehicle has a position); **alighting** ends it with the first view (the ride phase
+    change), and so do "Missed it" and Cancel trip (the ride is gone). A lost position keeps the
+    follow on and the map still. Outside the bound doesn't disable the button while riding (the
+    vehicle is what it follows). The first tap while riding with the location never asked
+    (`followAsk`) shows a dialog in the share dialogs' style (`#follow-ask`): "Follow Bus 132" /
+    "Follow the Orange Line", "With your location, the map places the bus where you are. Without
+    it, the map uses the MBTA's position, which can lag up to a minute." and "Use my location"
+    (the prompt, then follow uses your fix when it counts) or "Just follow Bus 132" (no prompt;
+    stored under `t-minus:follow-vehicle`, so later taps follow without asking). Cancel, Escape and
+    the backdrop answer nothing: it asks again. After "Use my location" the OS remembers; a granted
+    or a denied permission (the Permissions API) never asks (denied follows the vehicle). The
+    share page has the same follow as its own button (below), without the question: it never uses
+    the phone's location.
   - Until 2026-11-10 one tap centered on you with the whole trip still in view (`centerOn`),
     eased the same way (2026-11-09). **Outside the bound**
   (2026-11-09; `insideReach`, `outsideMap`; once the base map is in): your position is left out
@@ -2493,7 +2517,11 @@ share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
   ("not confirmed") until the app says so, however long ago; "Missed it" ends it.
 - **The page (`share.html`, `share.js`):** "Lucas shared a ride" with a green Live pill (blank name:
   "Shared ride"); the route map (the trip's shapes, its stops, the vehicles' MBTA positions; never the
-  phone's location, no locate button, nothing stored); a ride card in the app's look: the headline
+  phone's location, nothing stored; a follow button below back to the trip, 2026-11-19: while the
+  rider is on a leg whose vehicle has a position, the bus or train glyph (`rideFollow`, "Follow Bus 132" /
+  "Follow the Orange Line", filled while following) keeps the map on that vehicle's MBTA position per
+  answer, at 400 m for a bus and 2 km for rail, then toggles the levels; tapped, never automatic; a
+  drag, back to the trip or alighting ends it; a lost position holds the map; Route map "Follow your vehicle"); a ride card in the app's look: the headline
   "Arrives in 47 min · 7:57am" (rounded down, no "~": that marks a headway estimate; "Arrived 7:58am" after the arrival), the phase line
   ("Leaves at 7:30am for Bus 132 at 7:36am", "Walking to Main St @ South St for Bus 132 at
   7:36am", "On Bus 132 · 2 stops to Washington St opp Oak Grove Sta", "Changing at Oak Grove for

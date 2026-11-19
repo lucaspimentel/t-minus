@@ -338,3 +338,48 @@ test('share: the ride card with Share, and the recipient\'s page live and ended'
   await expect(rp.locator('.share-ended')).toBeVisible();
   await check(rp, 'share page, ended');
 });
+
+// Follow the vehicle (2026-11-19): the share page's button off and on; the app's question while riding.
+test('follow the vehicle: the share page\'s button, off and following', async ({ page, context }) => {
+  test.slow();
+  const mbta = await openApp(page, { time: '07:00', init: shareInit, scenario: { ...commute(), moving: true }, map: true });
+  await mbta.serveServer(context);
+  await atTheStop(page);
+  await tickTo(page, '07:08:30');
+  await expect(card(page).getByRole('button', { name: 'Share', exact: true })).toBeVisible();
+  await card(page).getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('#share-name-input').fill('Lucas');
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await expect(card(page).getByRole('button', { name: 'Sharing' })).toBeVisible();
+  const { url } = (await page.evaluate(() => window.sharedWith)).at(-1);
+  const rp = await context.newPage();
+  await rp.setViewportSize(page.viewportSize());
+  await mbta.serveProxy(rp);
+  await rp.goto(new URL(url).pathname);
+  await expect(rp.locator('.share-phase')).toBeVisible();
+  await page.bringToFront();
+  await tick(page, 21_000);
+  const btn = rp.locator('#share-map .map-follow');
+  await expect(btn).toBeVisible();
+  await check(rp, 'share page, riding, follow off');
+  await btn.click();
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await check(rp, 'share page, riding, following');
+});
+
+test('follow the vehicle: the app\'s question while riding', async ({ page }) => {
+  test.slow();
+  const scenario = { ...commute(), vehicles: [] };
+  await openApp(page, { time: '07:00', scenario, map: true, init: () => { navigator.permissions.query = async () => ({ state: 'prompt', onchange: null }); } });
+  await atTheStop(page);
+  await tickTo(page, '07:08:30');
+  const tripId = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('t-minus:en-route')))[0].ride.legs[0].tripId);
+  scenario.vehicles = [{ id: 'v1', trip: tripId, route: '132', direction: 1, lat: 42.452742, lon: -71.071966 }];
+  await tick(page, 20_000);
+  const btn = page.locator('#rows .main-map .map-locate');
+  await expect(btn).toHaveAttribute('aria-label', 'Follow Bus 132');
+  await check(page, 'riding, the follow glyph');
+  await btn.click();
+  await expect(page.locator('#follow-ask')).toBeVisible();
+  await check(page, 'follow dialog');
+});

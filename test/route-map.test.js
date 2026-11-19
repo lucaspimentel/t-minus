@@ -7,7 +7,7 @@ import {
   placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel, ME_MIN, mapFits, firstFit, fitChoice, fitTap, sameView,
   TAP_SLOP_PX, DOUBLE_TAP_MS, DOUBLE_TAP_PX, TAP_ZOOM, TWO_FINGER_TAP_MS, doubleTap, twoFingerTap, wheelZoom,
   rideMarker, GPS_MAX_ACCURACY_METERS, RIDE_GPS_MAX_AGE_MS, RIDE_GPS_LINE_METERS, RIDE_GPS_VEHICLE_METERS, RIDE_GPS_HOLD_MS,
-  vehicleLeftBoarding, RIDE_LEFT_METERS, VEHICLE_FRESH_SECONDS,
+  vehicleLeftBoarding, RIDE_LEFT_METERS, VEHICLE_FRESH_SECONDS, rideFollow, rideFollowTarget, followAsk,
 } from '../core.js';
 
 // Encodes [{lat, lon}] the way the MBTA's shapes are (Google polyline, precision 5).
@@ -886,4 +886,51 @@ test('routeMapModel ride: left from the vehicle\'s MBTA position, not the stop d
   assert.equal(run(veh(1)).vehicles.find(v => v.id === 'mine').gps, true);
   assert.equal(run(veh(1, now - 91_000)).ride.gps, false); // too old: drawn nowhere, no snap
   assert.equal(run(veh(0)).ride.gps, false); // still at the boarding stop
+});
+
+test('rideFollow: a bus at the street level, rail at the area level, with the vehicle\'s name (2026-11-19)', () => {
+  assert.deepEqual(rideFollow({ route: '132', label: 'Bus 132', headsign: 'Malden' }), { mode: 'bus', level: 'street', name: 'Bus 132' });
+  assert.deepEqual(rideFollow({ route: 'Orange', label: 'Orange' }), { mode: 'rail', level: 'area', name: 'the Orange Line' });
+  const green = { route: 'Green-B', vehicleRoute: 'Green-C', label: 'Green', routeLabels: { 'Green-C': 'Green C' } };
+  assert.deepEqual(rideFollow(green), { mode: 'rail', level: 'area', name: 'the Green Line C' });
+  assert.deepEqual(rideFollow({ route: 'CR-Haverhill', label: 'CR Haverhill' }), { mode: 'rail', level: 'area', name: 'the Haverhill Line' });
+  assert.deepEqual(rideFollow({ route: '741', label: 'Silver 1' }), { mode: 'bus', level: 'street', name: 'Silver 1' });
+  assert.equal(rideFollow({ route: '1', vehicleRoute: 'Red', label: 'Red' }).mode, 'rail'); // the vehicle's route decides
+});
+
+test('routeMapModel and rideFollowTarget: vehicles carry their leg; the target is the ridden vehicle of that leg', () => {
+  const kept = trimShapesDoc(doc());
+  const now = 1_000;
+  const legs = [{ route: 'Orange', stop: 's0', alight: 's2', label: 'Orange', color: 'ED8B00' }, { route: 'Orange', stop: 's2', alight: 's4', label: 'Orange', color: 'ED8B00' }];
+  const veh = (id, k) => ({ id, tripId: id, route: 'Orange', lat: LINE[k].lat, lon: -71.07, updatedAt: now });
+  const base = { legs, shapes: [kept, kept], vehicles: [[veh('a', 1)], [veh('b', 3)]], nowMs: now, mine: ['a', 'b'] };
+  const m = routeMapModel(base);
+  assert.deepEqual(m.vehicles.map(v => [v.id, v.leg, v.mine]), [['a', 0, true], ['b', 1, true]]);
+  assert.deepEqual(rideFollowTarget(m, 0), { x: m.vehicles[0].x, y: m.vehicles[0].y });
+  assert.deepEqual(rideFollowTarget(m, 1), { x: m.vehicles[1].x, y: m.vehicles[1].y });
+  assert.equal(rideFollowTarget(m, 2), null);
+  assert.equal(rideFollowTarget(null, 0), null);
+  // Another leg's vehicle is not mine: ignored.
+  assert.equal(rideFollowTarget(routeMapModel({ ...base, mine: [null, 'b'] }), 0), null);
+  assert.equal(rideFollowTarget(routeMapModel({ ...base, vehicles: [[], [veh('b', 3)]] }), 0), null);
+  // A counted fix: the GPS point; the ride marker pushed without a listed vehicle keeps its leg.
+  const fix = { lat: LINE[1].lat + 0.0003, lon: -71.07, accuracy: 10, at: now };
+  const r = routeMapModel({ ...base, ride: { leg: 0, fix, left: true, hold: null } });
+  const g = r.vehicles.find(v => v.id === 'a');
+  assert.equal(g.gps, true);
+  assert.equal(g.leg, 0);
+  assert.deepEqual(rideFollowTarget(r, 0), { x: g.x, y: g.y });
+  assert.notDeepEqual(rideFollowTarget(r, 0), rideFollowTarget(m, 0));
+});
+
+test('followAsk: ask only while nothing is settled (2026-11-19)', () => {
+  assert.equal(followAsk({}), 'ask');
+  assert.equal(followAsk({ perm: 'prompt' }), 'ask');
+  assert.equal(followAsk({ stored: true }), 'follow');
+  assert.equal(followAsk({ perm: 'denied' }), 'follow');
+  assert.equal(followAsk({ perm: 'granted' }), 'follow');
+  assert.equal(followAsk({ off: true }), 'follow');
+  assert.equal(followAsk({ here: true }), 'follow');
+  assert.equal(followAsk({ asked: true }), 'follow');
+  assert.equal(followAsk({ asked: true, off: false, perm: 'prompt' }), 'follow');
 });

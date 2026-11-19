@@ -3,7 +3,7 @@
 Goal: any MBTA rider (bus, subway, light rail, commuter rail) can set up any number of trips with any
 number of transit legs, without knowing GTFS IDs or the engine's internals.
 
-Done: the N-leg engine and the setup UI, including no direction step, nearby-only next legs,
+Done: follow the vehicle on the route map (the share page's button, the app's locate while riding; 2026-11-19), the N-leg engine and the setup UI, including no direction step, nearby-only next legs,
 rail connections in the drop-off list, multi-route legs (`also`), return trips, the
 timing-leg override, collapsed rows, the trip list with one-at-a-time editing, short
 route labels with MBTA color dots, a sticky picker search, boxed legs in the trip editor, stop names in the timeline, trip tracking, service worker fallbacks (5xx, 3 s
@@ -48,6 +48,9 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
 
 ## Deferred
 
+- Follow the vehicle (2026-11-19): smooth interpolation of the vehicle between position updates
+  (the map steps with each answer, 10-20 s apart); following the incoming vehicle before boarding;
+  faster share polling.
 - Share my ride: native boarding with the page closed doesn't reach the share (the page assumes boarding
   at the departure); an Open Graph image for the link preview.
 - Share my ride (code review, 2026-11-18): the share sheet can fail on iOS after a slow POST (the
