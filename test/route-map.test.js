@@ -428,6 +428,14 @@ test('basemapLayers: paths in meters from the origin, the water rect, lines in d
   assert.deepEqual(m.lines.map(l => [l.kind, l.color]), [['cr', '80276C'], ['sl', null], ['rt', 'DA291C']]);
   assert.ok(Math.abs(m.water.x + 822) < 2 && Math.abs(m.water.y + 2224) < 2 && Math.abs(m.water.w - 1644) < 3 && Math.abs(m.water.h - 3336) < 3, JSON.stringify(m.water));
   assert.deepEqual(m.names.map(n => [n.name, n.kind, n.sub]), [['Malden', 'town', false], ['Back Bay', 'hood', false], ['Boston', 'town', true]]);
+  // Water and parks (`features`, 2026-11-19): after the names, with their widths; bad ones skipped.
+  const withFeatures = basemapLayers({ ...base, features: [
+    { n: 'Spot Pond', k: 'w', lat: 42.45, lon: -71.09, a: 1.2, m: 1500 }, { n: 'Fells', k: 'p', lat: 42.44, lon: -71.1, a: 9, m: 6000 },
+    { n: 'Odd', k: 't', lat: 42.4, lon: -71.07, m: 100 }, { n: 'Zero', k: 'w', lat: 42.4, lon: -71.07, m: 0 }, { n: 7, k: 'w', lat: 42.4, lon: -71.07, m: 100 },
+    { n: 'NaN', k: 'p', lat: NaN, lon: -71.07, m: 100 },
+  ] }, o);
+  assert.deepEqual(withFeatures.names.map(n => [n.name, n.kind, n.span]), [['Malden', 'town', undefined], ['Back Bay', 'hood', undefined], ['Boston', 'town', undefined], ['Spot Pond', 'water', 1500], ['Fells', 'park', 6000]]);
+  assert.equal(basemapLayers({ ...base, features: 'x' }, o).names.length, 3);
   assert.equal(basemapLayers({ ...base, v: 2 }, o), null);
   assert.equal(basemapLayers(base, null), null);
   assert.equal(basemapLayers(null, o), null);
@@ -456,7 +464,25 @@ test('basemapNames: neighborhoods only zoomed in, Boston only zoomed out, fully 
   const clash = [{ name: 'Chelsea', kind: 'town', x: 0, y: 0, area: 6 }, { name: 'East Boston', kind: 'hood', x: 10, y: 10, area: 12 }];
   assert.deepEqual([...basemapNames(clash, view(5000), size)], [0]);
   assert.deepEqual(nameBox('Malden', 'town'), { w: 6 * 7.9, h: 11 });
+  assert.deepEqual(nameBox('Spot Pond', 'water'), { w: 9 * 5.6, h: 10 });
+  assert.deepEqual(nameBox('Fells', 'park'), { w: 5 * 5.6, h: 10 });
   assert.equal(basemapNames(names, null, size).size, 0);
+});
+
+test('basemapNames: water and parks only while as wide on screen as their names, at any zoom; towns, hoods, water, parks', () => {
+  const size = { width: 300, height: 600 };
+  const view = (w, cx = 0, cy = 0) => ({ x: cx - w / 2, y: cy - w, w, h: w * 2 });
+  // "Pond" is 4 × 5.6 = 22.4 px wide; 500 m wide: shown from 0.0448 px/m (6.7 km across) in.
+  const pond = [{ name: 'Pond', kind: 'water', x: 0, y: 0, area: 0.2, span: 500 }];
+  assert.equal(basemapNames(pond, view(9000), size).size, 0); // 0.033 px/m: 16.7 px
+  assert.equal(basemapNames(pond, view(6000), size).size, 1); // 0.05 px/m: 25 px
+  // Above the neighborhoods' span too (features ignore it).
+  assert.equal(basemapNames([{ ...pond[0], span: 5000 }], view(20_000), size).size, 1);
+  const at = (names, v) => [...basemapNames(names, v, size)].map(i => names[i].name).sort();
+  // A town beats an overlapping water name; a hood beats a park; water beats a larger park.
+  assert.deepEqual(at([{ name: 'Chelsea', kind: 'town', x: 0, y: 0, area: 6 }, { name: 'Chelsea River', kind: 'water', x: 10, y: 0, area: 9, span: 9000 }], view(5000)), ['Chelsea']);
+  assert.deepEqual(at([{ name: 'Roxbury', kind: 'hood', x: 0, y: 0, area: 1 }, { name: 'Franklin Park', kind: 'park', x: 10, y: 0, area: 9, span: 9000 }], view(5000)), ['Roxbury']);
+  assert.deepEqual(at([{ name: 'Fells Woods', kind: 'park', x: 0, y: 0, area: 9, span: 9000 }, { name: 'Spot Pond', kind: 'water', x: 10, y: 0, area: 1, span: 9000 }], view(5000)), ['Spot Pond']);
 });
 
 test('stopsToShow: leg ends always; intermediate stops only with room between them', () => {

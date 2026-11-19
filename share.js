@@ -2,8 +2,8 @@
 // with the link. It reads the server's answer (`GET /api/shares/:id`) every 20 s while visible and
 // words it every second (`shareView`). It never touches this origin's storage, the location or
 // RUM: the recipient's own T-Minus data stays out of it.
-import { shareView, mapLegs, SHARE_RESUME_MS, shapesQuery, trimShapesDoc, stopsKey } from './core.js?v=9be7651316';
-import { el, renderTimeline, rideStopRows, mapWidget, replaceKeepingFocus } from './ui.js?v=00aa5bc25b';
+import { shareView, mapLegs, SHARE_RESUME_MS, shapesQuery, trimShapesDoc, stopsKey } from './core.js?v=711556524f';
+import { el, renderTimeline, rideStopRows, mapWidget, replaceKeepingFocus } from './ui.js?v=edec667ffa';
 
 const id = location.pathname.split('/').filter(Boolean).at(-1) ?? '';
 const POLL_MS = 20_000;

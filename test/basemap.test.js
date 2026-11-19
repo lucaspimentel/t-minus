@@ -2,7 +2,7 @@
 // land and shared borders, clipping, label points and areas.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { simplify, simplifyRing, dissolve, clipRing, clipLine, outsideStrips, ringArea, areaKm2, labelPoint, titleCase, toMeters, tierRings, tierLines } from '../scripts/basemap-geo.mjs';
+import { simplify, simplifyRing, dissolve, clipRing, clipLine, outsideStrips, ringArea, areaKm2, labelPoint, titleCase, toMeters, tierRings, tierLines, cleanName, groupNear, labelSpot } from '../scripts/basemap-geo.mjs';
 
 // A square `km` on a side at (lon0, lat0) as a closed GeoJSON ring.
 const { kx, ky } = toMeters(42.4);
@@ -144,4 +144,60 @@ test('tierLines: a line crossing from the inner rect into a strip is split in tw
   const parts = tierLines([[[-71.1, 42.4], [-70.95, 42.4]]], tierSet(inner, outer));
   assert.equal(parts.length, 2);
   assert.ok(parts.every(p => p.some(([px]) => px === -71.0)));
+});
+
+test('cleanName: overrides, piece suffixes, notes and " CR" dropped, title case', () => {
+  const fix = { 'BOSTON PUBLIC GARDEN': 'Public Garden', 'MT AUBURN CEMETERY': 'Mount Auburn Cemetery', 'BACK BAY': null };
+  assert.equal(cleanName('MIDDLESEX FELLS RESERVATION II', fix), 'Middlesex Fells Reservation');
+  assert.equal(cleanName(' Boston  Public Garden ', fix), 'Public Garden');
+  assert.equal(cleanName('MT AUBURN CEMETERY', fix), 'Mount Auburn Cemetery');
+  assert.equal(cleanName('Back Bay', fix), null); // overridden to no name
+  assert.equal(cleanName('NORWOOD POND CR', fix), 'Norwood Pond');
+  assert.equal(cleanName('Nutting Lake [E.B.]', fix), 'Nutting Lake');
+  assert.equal(cleanName('Sawdy Pond: Sandy Pond', fix), 'Sawdy Pond');
+  assert.equal(cleanName("WORLD'S END RESERVATION", fix), "World's End Reservation");
+  assert.equal(cleanName('MOUNT HOOD MEMORIAL PARK AND GOLF COURSE', fix), 'Mount Hood Memorial Park and Golf Course');
+  assert.equal(cleanName('', fix), null);
+  assert.equal(cleanName(null, fix), null);
+  assert.equal(titleCase('MANCHESTER-BY-THE-SEA'), 'Manchester-by-the-Sea'); // towns unchanged
+});
+
+test('groupNear: same-name pieces touching or within the distance merge; far ones and other names stay apart', () => {
+  const item = (name, lon, lat = 42.4) => ({ name, polygons: [[sq(lon, lat)]] });
+  const km = 1000 / kx;
+  const touching = groupNear([item('Fells', -71), item('Fells', -71 + km)], 100);
+  assert.equal(touching.length, 1);
+  assert.equal(touching[0].polygons.length, 2);
+  assert.equal(groupNear([item('Fells', -71), item('Fells', -71 + km + 50 / kx)], 100).length, 1); // 50 m apart
+  assert.equal(groupNear([item('Fells', -71), item('Fells', -71 + 3 * km)], 100).length, 2); // 2 km apart
+  assert.equal(groupNear([item('Fells', -71), item('Blue Hills', -71 + km)], 100).length, 2);
+  // Chained: A near B near C → one.
+  assert.equal(groupNear([item('X', -71), item('X', -71 + 2 * km), item('X', -71 + km)], 100).length, 1);
+});
+
+test('labelSpot: a 1 km square gives about 1 km² and 1,000 m wide, labeled inside', () => {
+  const s = labelSpot([[sq(-71, 42.4)]]);
+  assert.ok(Math.abs(s.a - 1) < 0.01, String(s.a));
+  assert.ok(Math.abs(s.m - 1000) < 5, String(s.m));
+  assert.ok(s.lon > -71 && s.lon < -71 + 1000 / kx && s.lat > 42.4 && s.lat < 42.4 + 1000 / ky);
+});
+
+test('basemap.json: feature names (water, parks, harbors), merged and deduplicated', async () => {
+  const { readFileSync } = await import('node:fs');
+  const base = JSON.parse(readFileSync(new URL('../basemap.json', import.meta.url), 'utf8'));
+  assert.equal(base.v, 1);
+  assert.ok(Array.isArray(base.features) && base.features.length > 300);
+  for (const f of base.features) {
+    assert.ok(typeof f.n === 'string' && f.n && ['w', 'p'].includes(f.k) && Number.isFinite(f.lat) && Number.isFinite(f.lon) && f.m > 0, JSON.stringify(f));
+  }
+  const of = k => new Set(base.features.filter(f => f.k === k).map(f => f.n));
+  const water = of('w'), parks = of('p');
+  for (const n of ['Charles River', 'Spot Pond', 'Fresh Pond', 'Jamaica Pond', 'Upper Mystic Lake', 'Chestnut Hill Reservoir', 'Mystic River', 'Neponset River']) assert.ok(water.has(n), n);
+  for (const n of ['Boston Harbor', 'Dorchester Bay', 'Quincy Bay', 'Massachusetts Bay', 'Broad Sound', 'Nahant Bay', 'Lynn Harbor', 'Hingham Bay', 'Fort Point Channel', 'Salem Sound', 'Beverly Harbor', 'Cape Cod Bay', 'Plymouth Bay', 'Gloucester Harbor']) assert.ok(water.has(n), n);
+  for (const n of ['Boston Common', 'Public Garden', 'Olmsted Park', 'The Riverway', 'Christopher Columbus Park', 'Castle Island', 'Danehy Park', 'Back Bay Fens', 'Franklin Park', 'Lynn Woods']) assert.ok(parks.has(n), n);
+  assert.equal(base.features.filter(f => f.n === 'Middlesex Fells Reservation').length, 1); // merged across five towns
+  for (const n of ['Jamaica Pond Park', 'Charles River Reservation', 'Back Bay']) assert.ok(!water.has(n) && !parks.has(n), n);
+  assert.ok(![...parks].some(n => /School|Cr$/.test(n)));
+  // No feature name in the older `names` (older pages would draw it as a town).
+  assert.ok(base.names.every(x => x.k === 't' || x.k === 'h'));
 });

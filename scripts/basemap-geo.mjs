@@ -228,5 +228,74 @@ export function labelPoint(polygons) {
 }
 
 // "MANCHESTER-BY-THE-SEA" → "Manchester-by-the-Sea"; "NORTH READING" → "North Reading".
-const SMALL = new Set(['by', 'the', 'of']);
-export const titleCase = name => name.toLowerCase().replace(/[a-z]+/g, (w, i) => (i > 0 && SMALL.has(w) ? w : w[0].toUpperCase() + w.slice(1)));
+// After an apostrophe stays lower case ("World's End"); "and" too ("Park and Golf Course").
+const SMALL = new Set(['by', 'the', 'of', 'and']);
+export const titleCase = name => name.toLowerCase().replace(/[a-z]+/g, (w, i, all) => (all[i - 1] === "'" || (i > 0 && SMALL.has(w)) ? w : w[0].toUpperCase() + w.slice(1)));
+
+// A feature's display name (parks, water): `overrides` (keyed by the upper-cased raw name) give
+// the display name as is (null: no name); otherwise a piece suffix (" I", " II") is dropped and the
+// rest title-cased. Null for no name.
+export function cleanName(raw, overrides = {}) {
+  const key = String(raw ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+  if (!key) return null;
+  if (key in overrides) return overrides[key];
+  // "SAWDY POND: SANDY POND" → the first; "[W.B.]" notes and " CR" (conservation restriction) dropped.
+  const base = key.split(':')[0].replace(/\s*\[[^\]]*\]/g, '').replace(/\s+(I|II|III|IV|V|VI|VII|VIII|IX|X|CR)$/, '').trim();
+  if (base in overrides) return overrides[base];
+  return base ? titleCase(base) : null;
+}
+
+const bboxOf = polygons => {
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  for (const poly of polygons) for (const [x, y] of poly[0]) { if (x < w) w = x; if (x > e) e = x; if (y < s) s = y; if (y > n) n = y; }
+  return [w, s, e, n];
+};
+// Two [w, s, e, n] boxes within `m` meters of each other.
+export function boxesNear(a, b, m) {
+  const { kx, ky } = toMeters((a[1] + a[3]) / 2), dx = m / kx, dy = m / ky;
+  return !(a[0] - dx > b[2] || b[0] - dx > a[2] || a[1] - dy > b[3] || b[1] - dy > a[3]);
+}
+// The distance in meters from point p to segment ab (lon/lat, scaled by k).
+function segDist(p, a, b, { kx, ky }) {
+  const ax = a[0] * kx, ay = a[1] * ky, bx = b[0] * kx - ax, by = b[1] * ky - ay, px = p[0] * kx - ax, py = p[1] * ky - ay;
+  const len = bx * bx + by * by;
+  const t = len ? Math.max(0, Math.min(1, (px * bx + py * by) / len)) : 0;
+  return Math.hypot(px - t * bx, py - t * by);
+}
+// True when some vertex of one outer ring lies within `nearM` meters of the other's edges.
+function ringsNear(r1, r2, nearM, k) {
+  const near = (ra, rb) => ra.some(p => rb.some((q, i) => i > 0 && segDist(p, rb[i - 1], q, k) <= nearM));
+  return near(r1, r2) || near(r2, r1);
+}
+// Same-name pieces that touch or lie within `nearM` meters of each other, as one item each.
+// items: [{ name, polygons: [[outer, ...holes]] }] → [{ name, polygons }].
+export function groupNear(items, nearM) {
+  const parent = items.map((_, i) => i);
+  const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const boxes = items.map(it => bboxOf(it.polygons));
+  const byName = new Map();
+  items.forEach((it, i) => { if (!byName.has(it.name)) byName.set(it.name, []); byName.get(it.name).push(i); });
+  for (const idx of byName.values()) {
+    for (let x = 0; x < idx.length; x++) for (let y = x + 1; y < idx.length; y++) {
+      const i = idx[x], j = idx[y];
+      if (find(i) === find(j)) continue;
+      if (!boxesNear(boxes[i], boxes[j], nearM)) continue;
+      const k = toMeters((boxes[i][1] + boxes[i][3]) / 2);
+      if (items[i].polygons.some(p => items[j].polygons.some(q => ringsNear(p[0], q[0], nearM, k)))) parent[find(i)] = find(j);
+    }
+  }
+  const groups = new Map();
+  items.forEach((it, i) => {
+    const r = find(i);
+    if (!groups.has(r)) groups.set(r, { name: it.name, polygons: [], members: [] });
+    groups.get(r).polygons.push(...it.polygons);
+    groups.get(r).members.push(i);
+  });
+  return [...groups.values()];
+}
+// A named feature's label: its label point, area (km²), east-west width (m) and box.
+export function labelSpot(polygons) {
+  const [lon, lat] = labelPoint(polygons);
+  const [w, s, e, n] = bboxOf(polygons);
+  return { lon, lat, a: areaKm2(polygons), m: (e - w) * toMeters((s + n) / 2).kx, box: [w, s, e, n] };
+}
