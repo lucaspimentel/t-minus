@@ -42,6 +42,25 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
 - Show the target ride's timeline in the app while walking (the large widget shows it; the app
   shows only the list and the bar).
 
+## Surface consistency (2026-11-17 screenshots, one by one)
+
+1. Native countdowns round differently: at 5:29 the compact island and the leave card read "36 min"
+   while both widgets read "35 min" (same screenshot). The app and widget floor
+   (`formatCountdown`, `core.js`); `headCountdown` / `shortCountdown` (`RideViews.swift`) use
+   `Text(.dateRange(endingAt:), format: .components(...))`, likely rounding to nearest. Verify
+   with an `ios` preview run (`countTo` = now + 35m40s), then count to `countTo − 30 s` or
+   equivalent. Needs an iOS build.
+2. Leg minutes and transfer spare disagree with the shown times: "6:16pm → 6:31pm · 14 min" (large
+   widget; the app said 15), "arrive 6:31pm, Walk 5 min · 2 min early, bus 6:39pm" (app and
+   widget). Durations (`formatCountdown(arr - dep)`, `core.js` ~985, ~1935) and `transferText`
+   floor the exact ms gap while the times drop seconds. Compute both from the minute-truncated
+   times; DESIGN.md "Transfers" says the spare is rounded down: decide when grilling.
+3. App header "Tracking Orange 6:16pm" (`enRouteStatus`, `core.js`) uses the tight form on a text
+   line: say "Tracking Orange Line 6:16pm" (wording only; the time stays).
+4. Medium widget: the empty band between the vehicle line and "then ● Bus 132 · arrive 6:52pm"
+   (`LeaveWidgetViews.swift`, the medium view). Close it, as the leave card's layout. Needs an
+   iOS build; check the preview PNGs.
+
 ## Ideas (2026-11-06, to grill one by one)
 
 - UI refresh, mostly the setup (settings) screen and the top of the main screen. Mockups first.
