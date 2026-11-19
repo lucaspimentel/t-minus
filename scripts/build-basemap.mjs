@@ -12,7 +12,7 @@
 import { writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { decodePolyline, encodePolyline } from '../core.js';
-import { simplify, simplifyRing, dissolve, clipRing, clipLine, outsideStrips, ringsOf, ringArea, areaKm2, labelPoint, titleCase, tierRings, tierLines, cleanName, groupNear, labelSpot, toMeters } from './basemap-geo.mjs';
+import { simplify, simplifyRing, dissolve, clipRing, clipLine, outsideStrips, ringsOf, ringArea, areaKm2, labelPoint, titleCase, tierRings, tierLines, cleanName, groupNear, labelSpot, boxesNear } from './basemap-geo.mjs';
 
 const OUT = new URL('../basemap.json', import.meta.url);
 const MBTA = 'https://api-v3.mbta.com';
@@ -205,6 +205,8 @@ const lakeFeatures = await arcgisAll(LAKES_25K, detail, { where: `Shape__Area>=$
 const lakes = tierRings(lakeFeatures.flatMap(f => ringsOf(f.geometry)), TIERS).map(enc);
 const features = [];
 const featureOf = (n, k, spot) => ({ n, k, lat: round5(spot.lat), lon: round5(spot.lon), a: Math.round(spot.a * 100) / 100, m: Math.round(spot.m) });
+// A hand-placed name (harbors, Castle Island), with a nominal area for ordering.
+const placed = (x, k) => ({ n: x.n, k, lat: x.lat, lon: x.lon, a: Math.round(((x.m / 1000) ** 2 / 2) * 100) / 100, m: x.m });
 const polysOf = g => (g?.type === 'Polygon' ? [g.coordinates] : g?.type === 'MultiPolygon' ? g.coordinates : []);
 const named = (list, nameOf) => list.map(f => ({ name: nameOf(f), polygons: polysOf(f.geometry), f })).filter(x => x.name && x.polygons.length);
 const waterSpots = groupNear(named(lakeFeatures, f => cleanName(f.properties.NAME, NAME_FIX)), NEAR_M).map(g => ({ name: g.name, spot: labelSpot(g.polygons) }));
@@ -230,7 +232,6 @@ const green = tierRings(dissolve(parks, () => 'all').outline, TIERS, ringOk).map
 console.log('open space', open.length, 'parcels,', parks.length, 'kept');
 // Park names: pieces sharing a cleaned name, merged across towns when within NEAR_M.
 const parkItems = named(open.filter(f => f.properties.SITE_NAME?.trim() && !SKIP_PARK.test(f.properties.SITE_NAME.toUpperCase())), f => cleanName(f.properties.SITE_NAME, NAME_FIX));
-const near = (a, b, m) => { const k = toMeters((a[1] + a[3]) / 2), dx = m / k.kx, dy = m / k.ky; return !(a[0] - dx > b[2] || b[0] - dx > a[2] || a[1] - dy > b[3] || b[1] - dy > a[3]); };
 let dropped = 0, parkCount = 0;
 for (const g of groupNear(parkItems, NEAR_M)) {
   const members = g.members.map(i => parkItems[i].f.properties);
@@ -239,12 +240,12 @@ for (const g of groupNear(parkItems, NEAR_M)) {
   if (acres < MIN_NAMED_ACRES && !must) continue;
   const spot = labelSpot(g.polygons);
   const lower = g.name.toLowerCase();
-  const water = waterSpots.find(w => lower.includes(w.name.toLowerCase()) && near(w.spot.box, spot.box, 300));
+  const water = waterSpots.find(w => lower.includes(w.name.toLowerCase()) && boxesNear(w.spot.box, spot.box, 300));
   if (water) { console.log('park name dropped:', g.name, '(beside', water.name + ')'); dropped++; continue; }
   features.push(featureOf(g.name, 'p', spot));
   parkCount++;
 }
-for (const p of PLACED_PARKS) features.push({ n: p.n, k: 'p', lat: p.lat, lon: p.lon, a: Math.round(((p.m / 1000) ** 2 / 2) * 100) / 100, m: p.m });
+for (const p of PLACED_PARKS) features.push(placed(p, 'p'));
 
 // 5. Coarse tier, outside the detailed rect (with a 50 m overlap): Massachusetts from its towns
 // (the shoreline, the borders between towns), the other states' land from the Census; big lakes,
@@ -267,7 +268,7 @@ for (const g of groupNear(named(bigLakes, f => cleanName(f.properties.NAME, NAME
 }
 for (const h of HARBORS) {
   if (!inRect([h.lon, h.lat], box)) throw new Error(`harbor ${h.n} outside the box`);
-  features.push({ n: h.n, k: 'w', lat: h.lat, lon: h.lon, a: Math.round(((h.m / 1000) ** 2 / 2) * 100) / 100, m: h.m });
+  features.push(placed(h, 'w'));
 }
 const lakeStrips = outsideStrips(box, detail);
 for (const r of bigLakes.flatMap(f => ringsOf(f.geometry))) {

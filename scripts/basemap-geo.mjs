@@ -250,6 +250,11 @@ const bboxOf = polygons => {
   for (const poly of polygons) for (const [x, y] of poly[0]) { if (x < w) w = x; if (x > e) e = x; if (y < s) s = y; if (y > n) n = y; }
   return [w, s, e, n];
 };
+// Two [w, s, e, n] boxes within `m` meters of each other.
+export function boxesNear(a, b, m) {
+  const { kx, ky } = toMeters((a[1] + a[3]) / 2), dx = m / kx, dy = m / ky;
+  return !(a[0] - dx > b[2] || b[0] - dx > a[2] || a[1] - dy > b[3] || b[1] - dy > a[3]);
+}
 // The distance in meters from point p to segment ab (lon/lat, scaled by k).
 function segDist(p, a, b, { kx, ky }) {
   const ax = a[0] * kx, ay = a[1] * ky, bx = b[0] * kx - ax, by = b[1] * ky - ay, px = p[0] * kx - ax, py = p[1] * ky - ay;
@@ -269,15 +274,13 @@ export function groupNear(items, nearM) {
   const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   const boxes = items.map(it => bboxOf(it.polygons));
   const byName = new Map();
-  items.forEach((it, i) => byName.set(it.name, [...(byName.get(it.name) ?? []), i]));
+  items.forEach((it, i) => { if (!byName.has(it.name)) byName.set(it.name, []); byName.get(it.name).push(i); });
   for (const idx of byName.values()) {
     for (let x = 0; x < idx.length; x++) for (let y = x + 1; y < idx.length; y++) {
       const i = idx[x], j = idx[y];
       if (find(i) === find(j)) continue;
-      const [w1, s1, e1, n1] = boxes[i], [w2, s2, e2, n2] = boxes[j];
-      const k = toMeters((s1 + n1) / 2);
-      const dx = nearM / k.kx, dy = nearM / k.ky;
-      if (w1 - dx > e2 || w2 - dx > e1 || s1 - dy > n2 || s2 - dy > n1) continue;
+      if (!boxesNear(boxes[i], boxes[j], nearM)) continue;
+      const k = toMeters((boxes[i][1] + boxes[i][3]) / 2);
       if (items[i].polygons.some(p => items[j].polygons.some(q => ringsNear(p[0], q[0], nearM, k)))) parent[find(i)] = find(j);
     }
   }
@@ -290,7 +293,7 @@ export function groupNear(items, nearM) {
   });
   return [...groups.values()];
 }
-// A named feature's label: its label point, area (km²) and east-west width (m).
+// A named feature's label: its label point, area (km²), east-west width (m) and box.
 export function labelSpot(polygons) {
   const [lon, lat] = labelPoint(polygons);
   const [w, s, e, n] = bboxOf(polygons);

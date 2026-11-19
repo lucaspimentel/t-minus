@@ -4792,10 +4792,10 @@ export function basemapLayers(base, origin) {
   const names = (Array.isArray(base.names) ? base.names : []).filter(x => typeof x?.n === 'string' && Number.isFinite(x.lat) && Number.isFinite(x.lon))
     .map(x => { const q = proj.toXY(x); return { name: x.n, kind: x.k === 'h' ? 'hood' : 'town', x: q.x, y: q.y, area: Number(x.a) || 0, sub: !!x.sub }; });
   for (const x of Array.isArray(base.features) ? base.features : []) {
-    const kind = FEATURE_KINDS[x?.k];
-    if (!kind || typeof x.n !== 'string' || !x.n || !Number.isFinite(x.lat) || !Number.isFinite(x.lon) || !(Number(x.m) > 0) || !Number.isFinite(Number(x.m))) continue;
+    const kind = FEATURE_KINDS[x?.k], span = Number(x?.m);
+    if (!kind || typeof x.n !== 'string' || !x.n || !Number.isFinite(x.lat) || !Number.isFinite(x.lon) || !(span > 0 && Number.isFinite(span))) continue;
     const q = proj.toXY(x);
-    names.push({ name: x.n, kind, x: q.x, y: q.y, area: Number(x.a) || 0, sub: false, span: Number(x.m) });
+    names.push({ name: x.n, kind, x: q.x, y: q.y, area: Number(x.a) || 0, sub: false, span });
   }
   return {
     water: { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y },
