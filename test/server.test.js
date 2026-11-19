@@ -56,7 +56,7 @@ async function setup({ staticRoot = null } = {}) {
     if (route === '132' && u.pathname === '/schedules') data = [rec('schedule', 'b1', '25996', world.bus), rec('schedule', 'b1', '5991', '07:25')];
     // A second 132 (world.bus2: [Main St, Oak Grove]).
     if (route === '132' && u.pathname === '/schedules' && world.bus2) data.push(rec('schedule', 'b2', '25996', world.bus2[0]), rec('schedule', 'b2', '5991', world.bus2[1]));
-    if (route === 'Orange' && u.pathname === '/predictions' && !world.cancelled) data = [rec('prediction', 'o1', 'place-ogmnl', world.orange), rec('prediction', 'o1', 'place-state', '07:50')];
+    if (route === 'Orange' && u.pathname === '/predictions' && !world.cancelled) data = [rec('prediction', 'o1', 'place-ogmnl', world.orange), rec('prediction', 'o1', 'place-state', world.orangeArr ?? '07:50')];
     // A scheduled Orange trip with no prediction (its train predicted as an ADDED trip, or not running).
     if (route === 'Orange' && u.pathname === '/schedules' && world.orangeGhost) data = [rec('schedule', 'og', 'place-ogmnl', world.orangeGhost), rec('schedule', 'og', 'place-state', '07:47')];
     // Orange schedules only (`cancelled` for no predictions): [[trip id, Oak Grove, State], ...].
@@ -1964,3 +1964,321 @@ test('legs bar: a reminder\'s stopsAt reaches its leave card; PUT validates it; 
     assert.equal(bad.status, 400);
   } finally { await s.close(); }
 });
+
+// ---------- share my ride ----------
+
+const shareLegs = () => [
+  { tripId: 'b1', label: 'Bus 132', route: '132', color: 'FFC72C', dep: at('07:10'), arr: at('07:25') },
+  { tripId: 'o1', label: 'Orange', route: 'Orange', color: 'ED8B00', dep: at('07:33'), arr: at('07:50') },
+];
+const SECRET = 'S'.repeat(43);
+const shareBody = (extra = {}) => ({
+  trip: { ...trip, name: 'Home to office' }, name: 'Lucas', slack: 1,
+  state: { trip: 'home', kind: 'track', at: at('07:00'), atStop: null, pinned: true, target: { key: 'b1', legs: shareLegs() } }, ...extra,
+});
+const auth = (secret = SECRET) => ({ authorization: `Bearer ${secret}` });
+const look = async (s, id, headers = {}) => (await s.call('GET', `/api/shares/${id}`, undefined, null, headers)).json();
+
+test('shares: created without the trip name; the answer follows the bell, then moves on with the app closed', async () => {
+  const s = await setup();
+  try {
+    const made = await s.call('POST', '/api/shares', shareBody());
+    assert.equal(made.status, 201);
+    const { id, secret } = await made.json();
+    assert.match(id, /^[A-Za-z0-9_-]{22}$/);
+    assert.match(secret, /^[A-Za-z0-9_-]{43}$/);
+    // The first answer: the bell's row, "Shared ride" as the trip's name, nothing private.
+    let v = await look(s, id);
+    assert.deepEqual([v.status, v.name, v.follow.kind, v.follow.row.key, v.trip.name, v.walkAfter], ['live', 'Lucas', 'bell', 'b1', 'Shared ride', 10]);
+    assert.equal(JSON.stringify(v).includes('Home to office'), false);
+    assert.equal(JSON.stringify(v).includes('window'), false);
+    assert.equal(JSON.stringify(s.store.sharesFor(s.store.shareGet(id).owner)).includes('Home to office'), false);
+    assert.equal(v.follow.row.leaveBy, at('07:04'));
+    // The departure passes, unanswered, with no change from the app: assumed on board, not confirmed.
+    s.world.clock = at('07:12');
+    v = await look(s, id);
+    assert.deepEqual([v.follow.kind, v.follow.unconfirmed, v.follow.ride.boardedAt, v.follow.stopsLeg], ['ride', true, at('07:10'), 0]);
+    assert.deepEqual(v.mine, ['b1', 'o1']);
+    // Arrived; then the link ends 30 min after the arrival (08:00).
+    s.world.clock = at('08:01');
+    v = await look(s, id);
+    assert.equal(v.status, 'live');
+    s.world.clock = at('08:31');
+    v = await look(s, id);
+    assert.deepEqual([v.status, v.end.reason, v.trip, v.follow], ['ended', 'arrived', undefined, undefined]);
+    // Kept for a day for the ended page, then pruned.
+    assert.equal(s.store.shareGet(id).end.reason, 'arrived');
+    s.world.clock = at('08:31') + 25 * 3600_000;
+    await s.app.tick();
+    assert.equal((await s.call('GET', `/api/shares/${id}`)).status, 404);
+  } finally { await s.close(); }
+});
+
+test('shares: a ride ends 30 min after the arrival as tracked: a late train keeps the link', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:30');
+    const ride = { legs: shareLegs(), boardedAt: at('07:10') };
+    const { id } = await (await s.call('POST', '/api/shares', shareBody({ state: { ...shareBody().state, kind: 'stop', ride } }))).json();
+    // The Orange train is 32 min late: State at 08:22, the walk after it to 08:32 (saved: 07:50, 08:00).
+    s.world.orange = '08:05';
+    s.world.orangeArr = '08:22';
+    s.world.clock = at('08:31'); // past the saved arrival + 30 min
+    let v = await look(s, id);
+    assert.equal(v.status, 'live');
+    s.world.clock = at('09:01'); // tracked arrival 08:32 + 30 min = 09:02
+    v = await look(s, id);
+    assert.equal(v.status, 'live');
+    s.world.clock = at('09:03');
+    v = await look(s, id);
+    assert.deepEqual([v.status, v.end.reason], ['ended', 'arrived']);
+  } finally { await s.close(); }
+});
+
+test('shares: a refused new share leaves the device\'s live share alone', async () => {
+  const s = await setup();
+  try {
+    const first = await (await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).json();
+    s.world.clock = at('08:31'); // another ride, already over: 400
+    const over = shareBody({ secret: SECRET, state: { ...shareBody().state, kind: 'stop', ride: { legs: shareLegs(), boardedAt: at('07:10') } } });
+    assert.equal((await s.call('POST', '/api/shares', over)).status, 400);
+    assert.equal(s.store.shareGet(first.id).end, null);
+    s.world.clock = at('07:00');
+    assert.equal((await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).status, 201); // an accepted one replaces it
+    assert.equal(s.store.shareGet(first.id).end.reason, 'replaced');
+  } finally { await s.close(); }
+});
+
+test('shares: a look in flight when the app changes or ends the share doesn\'t overwrite it', async () => {
+  const s = await setup();
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody())).json();
+    // The app's change reaches the store while the look waits for the MBTA (the same writes as PUT and DELETE).
+    const change = f => s.store.shareUpdate(f(s.store.shareGet(id)));
+    const gated = async (f, clock) => {
+      let release;
+      s.world.gate = new Promise(r => { release = r; });
+      s.world.clock = clock;
+      const pending = look(s, id);
+      await new Promise(r => setTimeout(r, 50));
+      change(f);
+      release();
+      return pending;
+    };
+    // Renamed: the look answers with the new name, and the share is still live.
+    let v = await gated(rec => ({ ...rec, name: 'Lu', updatedAt: rec.updatedAt + 1 }), at('07:01'));
+    assert.deepEqual([v.status, v.name], ['live', 'Lu']);
+    assert.equal(s.store.shareGet(id).end, null);
+    // Ended by the rider meanwhile: ended (stopped), not `arrived` from the old state, not a cached live answer.
+    v = await gated(rec => ({ ...rec, end: { reason: 'stopped', at: at('07:02') } }), at('07:02') + 30_000);
+    assert.deepEqual([v.status, v.end.reason], ['ended', 'stopped']);
+    assert.equal((await look(s, id)).end.reason, 'stopped');
+  } finally { await s.close(); }
+});
+
+test('shares: looks that arrive together share one timing of the answer; a change starts a new one', async () => {
+  const s = await setup();
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).json();
+    let release;
+    s.world.gate = new Promise(r => { release = r; });
+    s.world.clock = at('07:01');
+    const first = look(s, id);
+    await new Promise(r => setTimeout(r, 50));
+    s.world.clock = at('07:01') + 5000;
+    const second = look(s, id);
+    await new Promise(r => setTimeout(r, 50));
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    assert.deepEqual([a.at, b.at], [at('07:01'), at('07:01')]); // the second joined the first's timing
+    // A change from the app drops the memo: the next look is timed anew.
+    s.world.gate = null;
+    s.world.clock = at('07:01') + 6000;
+    assert.equal((await s.call('PUT', `/api/shares/${id}`, { name: 'Lu' }, null, auth(SECRET))).status, 204);
+    assert.equal((await look(s, id)).at, at('07:01') + 6000);
+  } finally { await s.close(); }
+});
+
+test('shares: /r/<id> counts against the IP\'s limit: over it, the page has the plain preview and no new timing', async () => {
+  const s = await setup({ staticRoot: process.cwd() });
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody({ name: 'Lucas' }))).json();
+    while ((await s.call('GET', '/api/vapid')).status !== 429); // the IP's minute is used up
+    s.world.clock = at('07:00') + 20_000; // the memo (15 s) has lapsed, the minute has not
+    const calls = s.world.calls.length;
+    const page = await s.call('GET', `/r/${id}`);
+    const html = await page.text();
+    assert.equal(page.status, 200);
+    assert.match(html, /<meta property="og:title" content="Lucas shared a ride">/);
+    assert.match(html, /<meta property="og:description" content="Live on T-Minus">/);
+    assert.equal(s.world.calls.length, calls);
+  } finally { await s.close(); }
+});
+
+test('shares: requests are validated', async () => {
+  const s = await setup();
+  try {
+    const post = b => s.call('POST', '/api/shares', b);
+    assert.equal((await post(shareBody({ trip: { name: 'x' } }))).status, 400);
+    assert.equal((await post(shareBody({ state: { ...shareBody().state, pinned: false, kind: 'leaving', atStop: at('07:05') } }))).status, 400); // no bell
+    assert.equal((await post(shareBody({ name: 'x'.repeat(41) }))).status, 400);
+    assert.equal((await post(shareBody({ secret: 'short' }))).status, 400);
+    s.world.clock = at('09:00'); // the ride is over
+    assert.equal((await post(shareBody())).status, 400);
+    assert.equal((await s.call('GET', '/api/shares/nope')).status, 404);
+    assert.equal((await s.call('GET', `/api/shares/${'a'.repeat(22)}`)).status, 404);
+    assert.equal((await s.call('POST', '/api/shares', shareBody(), 'https://evil.example')).status, 403);
+  } finally { await s.close(); }
+});
+
+test('shares: a device\'s secret: it returns once, authorizes changes, and a new share ends the old', async () => {
+  const s = await setup();
+  try {
+    const first = await (await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).json();
+    assert.equal(first.secret, undefined); // the app's own secret isn't echoed
+    // PUT: the secret, valid legs and state.
+    const put = (id, b, h = auth()) => s.call('PUT', `/api/shares/${id}`, b, null, h);
+    assert.equal((await put(first.id, { name: 'Lu' }, {})).status, 401);
+    assert.equal((await put(first.id, { name: 'Lu' }, auth('T'.repeat(43)))).status, 401);
+    assert.equal((await put(first.id, { trip: { ...trip, legs: trip.legs.slice(2) } })).status, 400); // other legs
+    assert.equal((await put(first.id, { state: { ...shareBody().state, pinned: false, kind: 'leaving', atStop: 1 } })).status, 400);
+    assert.equal((await put(first.id, { name: 'Lu' })).status, 204);
+    assert.equal((await look(s, first.id)).name, 'Lu');
+    assert.equal((await put('b'.repeat(22), { name: 'x' })).status, 404);
+    // A new share by the same device ends the old: `replaced`, "This ride has ended".
+    const second = await (await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).json();
+    assert.notEqual(second.id, first.id);
+    const old = await look(s, first.id);
+    assert.deepEqual([old.status, old.end.reason], ['ended', 'replaced']);
+    assert.equal((await put(first.id, { name: 'x' })).status, 410);
+    assert.equal((await look(s, second.id)).status, 'live');
+    // Another device's share stays.
+    const other = await (await s.call('POST', '/api/shares', shareBody())).json();
+    assert.equal((await look(s, second.id)).status, 'live');
+    assert.equal((await look(s, other.id)).status, 'live');
+  } finally { await s.close(); }
+});
+
+test('shares: DELETE ends it (Bearer secret); missed names the vehicle; an ended share revives within a minute', async () => {
+  const s = await setup();
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).json();
+    const del = (q, h = auth()) => s.call('DELETE', `/api/shares/${id}${q}`, undefined, null, h);
+    assert.equal((await del('', {})).status, 401);
+    assert.equal((await look(s, id)).status, 'live');
+    assert.equal((await del('?reason=missed&leg=0&dep=' + at('07:10'))).status, 204);
+    let v = await look(s, id);
+    assert.deepEqual([v.status, v.end.reason, v.end.vehicle, v.end.dep], ['ended', 'missed', 'Bus 132', at('07:10')]);
+    assert.equal((await del('')).status, 204); // idempotent: the first end stays
+    assert.equal((await look(s, id)).end.reason, 'missed');
+    assert.equal((await del('', auth('T'.repeat(43)))).status, 401);
+    // `missed` is final. `ended` (Cancel trip) revives within SHARE_RESUME_MS with `resume`.
+    const b = await (await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).json();
+    const put = (body) => s.call('PUT', `/api/shares/${b.id}`, body, null, auth());
+    await s.call('DELETE', `/api/shares/${b.id}?reason=ended`, undefined, null, auth());
+    assert.equal((await put({ name: 'x' })).status, 410); // no `resume`
+    s.world.clock += 30_000;
+    assert.equal((await put({ resume: true, state: shareBody().state })).status, 204);
+    assert.equal((await look(s, b.id)).status, 'live');
+    await s.call('DELETE', `/api/shares/${b.id}?reason=ended`, undefined, null, auth());
+    s.world.clock += 61_000;
+    assert.equal((await put({ resume: true })).status, 410);
+    // Stopped: ended with no vehicle.
+    const c = await (await s.call('POST', '/api/shares', shareBody({ secret: SECRET }))).json();
+    await s.call('DELETE', `/api/shares/${c.id}`, undefined, null, auth());
+    assert.deepEqual((await look(s, c.id)).end.reason, 'stopped');
+  } finally { await s.close(); }
+});
+
+test('shares: a missed connection is re-planned at each look; the answer follows the app\'s ride', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('07:15');
+    s.world.rideStops.b1 = busStops(3, '07:18');
+    const ride = { legs: shareLegs(), boardedAt: at('07:10') };
+    const { id } = await (await s.call('POST', '/api/shares', shareBody({ state: { trip: 'home', kind: 'stop', at: at('07:00'), atStop: at('07:08'), pinned: false, ride } }))).json();
+    let v = await look(s, id);
+    assert.deepEqual([v.follow.kind, v.follow.unconfirmed, v.follow.stopsLeg, v.follow.stops.stops.length], ['ride', undefined, 0, 3]);
+    assert.equal(v.counts.length, 2);
+    // Tight (the train leaves 7:28, the bus arrives 7:25): kept. Then it leaves before the bus gets
+    // in: re-planned onto the later train, the miss recorded.
+    s.world.clock = at('07:20');
+    s.world.orange = '07:28';
+    v = await look(s, id);
+    assert.deepEqual([v.follow.ride.legs[1].tripId, v.follow.outlook.margin], ['o1', -2 * 60_000]);
+    s.world.clock = at('07:21');
+    s.world.orange = '07:24';
+    s.world.orange2 = '07:40';
+    v = await look(s, id);
+    assert.deepEqual([v.follow.kind, v.follow.ride.legs[1].tripId, v.follow.ride.missed?.leg, v.follow.outlook.missedDep], ['ride', 'o2', 1, at('07:24')]);
+  } finally { await s.close(); }
+});
+
+test('shares: viewers share one computation per 15 s; each link is limited per minute', async () => {
+  const s = await setup();
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody())).json();
+    await look(s, id);
+    const calls = s.world.calls.length;
+    await look(s, id);
+    await look(s, id);
+    assert.equal(s.world.calls.length, calls); // memoized
+    s.world.clock += 16_000;
+    await look(s, id);
+    assert.ok(s.world.calls.length >= calls); // a new answer (the MBTA copies are cached too)
+    // The link's own limit: 120 looks a minute (the IP's limit is lifted by varying the address).
+    let last;
+    for (let i = 0; i < 125; i++) last = await s.call('GET', `/api/shares/${id}`, undefined, null, { 'x-forwarded-for': `10.0.0.${i}` });
+    assert.equal(last.status, 429);
+    assert.match(last.headers.get('retry-after'), /^\d+$/);
+    s.world.clock += 60_000;
+    assert.equal((await s.call('GET', `/api/shares/${id}`, undefined, null, { 'x-forwarded-for': '10.0.1.1' })).status, 200);
+    // Changes: 20 a minute.
+    const put = () => s.call('PUT', `/api/shares/${id}`, { name: 'x' }, null, { ...auth(), 'x-forwarded-for': `10.1.${Math.random()}` });
+    assert.equal((await put()).status, 401); // another secret: not authorized, but not counted either
+  } finally { await s.close(); }
+});
+
+test('shares: the MBTA failing still moves the page on by the clock', async () => {
+  const s = await setup();
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody())).json();
+    s.world.failing = true;
+    s.world.clock = at('07:20');
+    const v = await look(s, id);
+    assert.deepEqual([v.status, v.follow.kind, v.follow.unconfirmed], ['live', 'ride', true]);
+  } finally { await s.close(); }
+});
+
+test('shares: /r/<id> serves the page with this ride\'s preview, escaped, noindex, uncached', async () => {
+  const s = await setup({ staticRoot: process.cwd() });
+  try {
+    const { id } = await (await s.call('POST', '/api/shares', shareBody({ name: '<script>x</script> & Co' }))).json();
+    const page = await s.call('GET', `/r/${id}`);
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    // 8:00am: the ride's arrival (7:50 + the 10-min walk).
+    assert.match(html, /<title>&lt;script&gt;x&lt;\/script&gt; &amp; Co · arrives 8:00am<\/title>/);
+    assert.match(html, /<meta property="og:title" content="&lt;script&gt;x&lt;\/script&gt; &amp; Co · arrives 8:00am">/);
+    assert.match(html, /<meta property="og:description" content="Live on T-Minus">/);
+    assert.equal(html.includes('<script>x'), false);
+    assert.equal(html.includes('{{'), false);
+    assert.match(html, /<meta name="robots" content="noindex">/);
+    assert.deepEqual([page.headers.get('cache-control'), page.headers.get('x-robots-tag'), page.headers.get('referrer-policy'), page.headers.get('x-frame-options')], ['no-store', 'noindex', 'no-referrer', 'DENY']);
+    assert.match(page.headers.get('content-type'), /^text\/html/);
+    // A blank name; HEAD.
+    const b = await (await s.call('POST', '/api/shares', shareBody({ name: '' }))).json();
+    assert.match(await (await s.call('GET', `/r/${b.id}`)).text(), /<title>Shared ride · arrives 8:00am<\/title>/);
+    assert.equal((await s.call('HEAD', `/r/${b.id}`)).status, 200);
+    // Ended and unknown: a generic preview, "This ride has ended", the same for both.
+    await s.call('DELETE', `/api/shares/${b.id}`, undefined, null, auth(secretOf(b)));
+    const unknown = await s.call('GET', `/r/${'z'.repeat(22)}`);
+    assert.equal(unknown.status, 404);
+    assert.match(await unknown.text(), /<meta property="og:description" content="This ride has ended">/);
+    // Other paths under /r/ aren't the page.
+    assert.equal((await s.call('GET', '/r/short')).status, 404);
+    assert.equal((await s.call('GET', '/share.html')).status, 404);
+    assert.equal((await s.call('GET', '/share.js')).status, 200);
+  } finally { await s.close(); }
+});
+const secretOf = made => made.secret;

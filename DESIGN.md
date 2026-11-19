@@ -405,8 +405,10 @@ estimate: "since" only once arrival is recorded, by the tap, the geofence or GPS
     starts after the boarding stop, the leg's `stop` or a child platform of it, which stays
     predicted while the vehicle pulls in: 2026-11-10, a ride started then listed Airport twice).
     The headline's count, the Live Activity and the stop alerts use the same list. Fetched on
-    every poll while riding, and right away when a ride starts; no data (trip id changed,
-    request failed) shows no stops and no vehicle.
+    every poll while riding, and right away when a ride starts; while they still show the vehicle
+    at the boarding stop, refetched alone every 15 s for up to 3 min after boarding that leg
+    (`legBoardedAt`: the ride's start, a later leg's departure; `boardingRefetchDue`, 2026-11-18), so the vehicle's row moves onto the bar within
+    about 15 s of its leaving; no data (trip id changed, request failed) shows no stops and no vehicle.
   - Leg times refresh every tick by trip id from the per-leg predictions already polled
     (`trackLegs`): live entry, then remembered live times, then the leg's own stored live
     time (the ride is saved with it; also on the server, which has no memory), then schedules,
@@ -678,16 +680,19 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   first boarding stop). Each leg is its route's shape (`route_patterns` with
   `representative_trip.shape`), trimmed to its boarding and drop-off stops, in the route's
   color; its stops are small dots, the ends larger and labeled. An intermediate stop is drawn
-  only when it's 14 px or more from the last one drawn on its leg and from the leg's end
-  (`stopsToShow`, rechecked on zoom; 2026-11-07: the small setup maps were a string of bus-stop
-  dots); a selected stop always. Two leg ends within 250 m are
+  only with room for its dot (`stopsToShow`, rechecked on zoom; 2026-11-07: the small setup maps
+  were a string of bus-stop dots): 12 px or more from the last stop drawn when that is a large
+  ring (a leg end or transfer, the previous leg's at a merged one), 10 px from the last small dot
+  on its leg, and 12 px from its leg's next end (a ring's edge, 7.5, plus a dot's, 4.25; two dots'
+  edges, 8.5; 2026-11-17, 14 px before, which hid Haymarket after State); a selected stop always. Two leg ends within 250 m are
   one transfer: one dot when they share a name, else the next leg's label only ("Oak Grove", not
   "Washington St opp Oak Grove Sta"). Transfer walks are dashed. Start and end pins (2026-11-09, mockups
   accepted): teardrops, green (`#1e8e3e`) at the start and red (`#d93025`) at the end in both
   themes, a fixed size in pixels, above the legs and stops and below the vehicles and the dot;
   decorative (not tappable, hidden from screen readers). The fit makes room for them and their
   labels (`fitView`'s pixel `boxes` with the map's width, refit until it settles). In the sheet, a tap (or Enter) on
-  a stop shows its name in the caption (a tap waits 250 ms for a second, 2026-11-13); pinch, drag
+  a stop shows its name in the caption (a tap waits 250 ms for a second, 2026-11-13; the nearest
+  drawn stop to the tap, since the 14 px hit circles of dots 10 px apart overlap, 2026-11-17); pinch, drag
   or the wheel zoom and pan; a double-tap zooms in 2× about the point and a two-finger tap (two
   fingers down and up without moving) out 2×, eased like the fit button, a moved view
   (2026-11-13, both maps; `doubleTap`, `twoFingerTap`, `TAP_ZOOM`), from 150 m across
@@ -774,7 +779,10 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   (`rideMarker`, `routeMapModel`'s `ride`; `rideLegStops` in `index.html`, shared with the ride card). Both maps (the main screen's, the sheet); nothing
   else uses it (stop counts, cards, widgets and alerts stay on predictions). A fix counts when its
   accuracy is 50 m or better, it's at most 10 s old, within 75 m of the line, the vehicle has left
-  the boarding stop (the ride's stops, as the timeline's vehicle row) and its MBTA position is
+  the boarding stop (the ride's stops, as the timeline's vehicle row; or, 2026-11-18, its MBTA
+  position on the map is fresh (90 s), within 150 m of the stretch and more than 50 m past the
+  boarding stop along it: `vehicleLeftBoarding`, `RIDE_LEFT_METERS`; a ride starts at the departure,
+  often with the stops still at the boarding stop, and the marker lagged up to a poll) and its MBTA position is
   within 1 km (a missed train stays on its MBTA position). Drawn with a blue ring and halo (the
   location dot's blue, both themes) and without the dot. With no fix that counts (underground,
   coarse), the last point holds, still blue, until the MBTA position passes it along the line or
@@ -942,6 +950,7 @@ maps (the sheet, the planner's options, the trip editor).
 ```
 
 - `departureCount`, `stopSlackMinutes`, `wakeMinutes`, `wakeRiding` (boolean), `apiKey`: optional, app-wide.
+- `shareName`: optional text (up to 40 characters), the name on shared rides ("Share my ride"); unset until asked.
 - `trips[].id`: the trip's id (`t` + 8 base36 characters, `newTripId`), set by the app: a new
   trip gets one when saved, a trip without one on load (`withTripIds`). Export leaves ids out
   and Import gives new ones, so they stay on one phone. See "Trip ids".
@@ -1244,7 +1253,9 @@ still holds, to stay well inside it either way:
 - Per poll: one `/predictions` request per transit leg of the shown trip.
 - Schedules: one request per transit leg on load, on trip change, and every 15 min.
 - Alerts: one request every 5 min.
-- While riding a tracked trip: one `/predictions?filter[trip]=…` request per poll (60 s).
+- While riding a tracked trip: one `/predictions?filter[trip]=…` request per poll (60 s); while
+  the ridden leg's stops show the vehicle at the boarding stop, one more every 15 s, up to 3 min
+  after boarding that leg (2026-11-18; at most ~12 extra per leg, also across reloads).
 - Boarding from location (the iOS app's native code, with GPS on): `/vehicles` for the current
   leg every 10 s, `/predictions` per leg every 60 s, `/schedules` per leg every 30 min, all
   through the proxy (its 5 s cache for `/vehicles`): ~8 requests a minute per phone.
@@ -1272,6 +1283,13 @@ still holds, to stay well inside it either way:
   `/schedules?filter[trip]=…` per leg of the shown ride, once per trip and service date (kept on
   the server, up to 500 trips): about 2 per new first ride on a 2-leg commute, a dozen a commute
   at most. Small, medium and "More rides" add none.
+- Share my ride (2026-11-18): a link's page is timed once per 15 s however many look (≤ 4 computes
+  a minute per link): each compute is `/predictions` and `/schedules` per leg, `/vehicles` per leg,
+  the ridden vehicle's stops (`/predictions`) and the legs' stop counts (`/schedules`, kept), all
+  through the shared cache (often shared with the sharer's own polls): about 20 MBTA calls a minute
+  worst case for a 2-leg trip, fewer in the cache. The page itself: 3 GETs a minute, one
+  `/route_patterns` per leg route through the proxy per load, `basemap.json` once. A link
+  preview is one compute. The sharer's app: at most one PUT every 4 s, only when its state changes.
 - Legs bar stop shares (2026-11-13): for the shown trip's belled or ridden ride, the same
   `/schedules?filter[trip]=…` per transit leg, once per service date: the in-memory copy is shared
   with an expanded row's stop counts, and the shares (`stopsAt`, one `at` array per leg) are kept on
@@ -1566,12 +1584,12 @@ service on Railway (`server/`), which also serves the app (see Hosting).
 - **One origin:** the Railway service serves the app at `https://t-minus.lucasp.net/` (a custom
   domain) and its API under `/api/`, so the app's requests to its server are same-origin.
 - **The app's files:** an allowlist from the repo root (`/` → `index.html`, `core.js`,
-  `setup.js`, `sw.js`, `manifest.json`, the three icons, `basemap.json`; the simulator's `sim.js`,
+  `app.css`, `ui.js`, `share.js`, `setup.js`, `sw.js`, `manifest.json`, the three icons, `basemap.json`; the share page at `/r/<id>` (`share.html`, served only there); the simulator's `sim.js`,
   `sim-page.js`, `sim-mbta.js`, `sim-presets.js`, and `server/app.mjs` and
   `server/memory-store.mjs`, which it runs in the page); anything else is a 404. Read once
   per process and kept in memory, with a content-hash `ETag` (304 on `If-None-Match`).
 - **`Cache-Control`** (staging: `no-store` for all; see "Staging"): `no-cache` for the page, `sw.js` and `manifest.json` (revalidated each
-  time); `public, max-age=31536000, immutable` for `?v=<hash>` modules; a day for icons. The
+  time); `public, max-age=31536000, immutable` for `?v=<hash>` modules and styles; a day for icons. The
   page also gets `nosniff`, `no-referrer` and `x-frame-options: DENY`.
 - **History:** the app was on GitHub Pages (`lucaspimentel.github.io/mbta-leave-by/`) until
   2026-10-06; it moved here in two steps (a "moved" banner on the Pages copy, then the repo
@@ -1688,7 +1706,7 @@ the server fails.
 | Request (class) | Size | Latency | Notes |
 |---|---|---|---|
 | `/predictions` leg, 132 / Orange (realtime) | 1.8 / 10.7 KB | ~50 ms | every 60–120 s per leg while open |
-| `/predictions?filter[trip]` riding (realtime) | 14 KB | ~55 ms | every 60 s while riding |
+| `/predictions?filter[trip]` riding (realtime) | 14 KB | ~55 ms | every 60 s while riding (15 s while boarding, ≤3 min per leg) |
 | `/schedules` leg, 6.5 h, 132 / Orange (service day) | 2.7 / 24 KB | 50–75 ms | every 15 min per leg |
 | `/alerts` (minutes) | 1.4 KB | ~45 ms | every 5 min |
 | `/routes`, setup (static) | 65 KB (6 KB gz) | ~50 ms | once per setup session |
@@ -1909,8 +1927,9 @@ widgets; APNs instead of Web Push). Plan for the later phases (leave-time Live A
   large (radius 6,
   stroke 3, one shared ring at a transfer, in the arriving leg's color), the stops between small
   (radius 3.5, stroke 1.5), hollow and faded ahead, filled once passed; the card's own color
-  fills the hollow centers (the island's black). A stop closer than 14 pt to the last one drawn
-  or to its leg's end is skipped, as the map's `stopsToShow`. The start ring fills at the first
+  fills the hollow centers (the island's black). A stop closer than 12 pt to its leg's
+  start ring (while none is drawn yet) or end ring, or than 10 pt to the last dot drawn, is skipped
+  (2026-11-17, 14 pt before, which hid Haymarket after State), as the map's `stopsToShow`. The start ring fills at the first
   departure, a transfer ring at the arriving leg's arrival, the end ring at the last arrival;
   the ridden leg's stops fill by the stops left (`stops`, so the dots agree with "Get off in 5
   stops": the stops between minus those still ahead), else by time; a done leg's are all filled,
@@ -2442,6 +2461,93 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
   leave card shows it from the start.
 - Deferred: skipping a day in advance (`TODO.md`).
 
+## Share my ride (2026-11-18)
+
+A live, read-only page for one ride, for anyone with its link (no app, no account). The sender's
+share sheet gets only the URL (`https://…/r/<id>`); the page says the rest.
+
+- **Who can share, and when (bell first):** a belled ride (Share beside Tracking in the expanded
+  belled row; the en-route bar is unchanged), walking after "Leaving now" / "At the stop" (a belled
+  ride keeps its share) and riding (Share in the ride card's buttons, belled or not; gone once
+  arrived). Rows without the bell have no Share; walking without the bell none either. While a link is
+  live the button is green and reads "Sharing"; its tap opens a sheet (title "Sharing this trip until
+  30 min after you arrive": "Share link again" (the same link), "Stop sharing", Cancel). The first share
+  asks for "Your name" (optional; `shareName` in the config, also in setup's Settings; a blank name
+  is kept: asked once; up to 40 characters, emoji sequences fine, no control characters: the dialog
+  refuses them, and a saved name that isn't valid is dropped at load, not the trips). One share at a time: sharing again (any trip) ends the device's other link
+  (`replaced`, once the new share is accepted: a refused POST leaves the live one). Hidden in the simulator (its server is in the page: a link to it can't be opened).
+  The iOS app's WebView has `navigator.share`; without it the link is copied ("Link copied").
+  A cancelled first share sheet ends the share again.
+- **What the link follows:** the trip's ride, as the app's state changes (`followState`, the widget's
+  `state` shape): a missed connection re-planned, "Different train?" / "Different connection?" picks,
+  the bell moved to a later ride of the trip, "Leaving now" / "At the stop" after the bell.
+  Ends at once: "Missed it" (the question's, and the ride card's: the page says "Missed Bus 132
+  7:36am"), the bell off, Cancel trip (its Undo resumes the link: the server revives an `ended` share
+  within a minute), Stop sharing, a one-off trip's ✕ removal (Undo resumes), the shared trip deleted or
+  its state without the bell or a ride (the bell moved to another trip). Ends later: 30 min after the
+  arrival as tracked (`SHARE_AFTER_MIN`; the server times it in `shareLive` from the ride's live legs, so
+  a late train keeps the link; at most 12 h from creation, `endsAt`). A state that simply goes away
+  (the ride done, the question timed out) never ends the share: the server carries the page on by the
+  clock, and the app forgets it (no more changes: a later ride of the same trip never reaches the old link). A one-off whose ride is over (removed by itself, or "Done") keeps its
+  share: the app forgets it without a `DELETE`, and the server ends it 30 min after the arrival. No answer at "Did you get on?": the page assumes the rider is on board
+  ("not confirmed") until the app says so, however long ago; "Missed it" ends it.
+- **The page (`share.html`, `share.js`):** "Lucas shared a ride" with a green Live pill (blank name:
+  "Shared ride"); the route map (the trip's shapes, its stops, the vehicles' MBTA positions; never the
+  phone's location, no locate button, nothing stored); a ride card in the app's look: the headline
+  "Arrives in 47 min · 7:57am" (rounded down, no "~": that marks a headway estimate; "Arrived 7:58am" after the arrival), the phase line
+  ("Leaves at 7:30am for Bus 132 at 7:36am", "Walking to Main St @ South St for Bus 132 at
+  7:36am", "On Bus 132 · 2 stops to Washington St opp Oak Grove Sta", "Changing at Oak Grove for
+  Orange at 7:41am", "Walking from State"), a muted "not confirmed", and the timeline (read-only;
+  the Arrive row has no time: the headline has it; the ridden leg's stops on its bar). Colors as the
+  cards: green; amber (the bell past its leave-by, a tight connection); red (past the last chance, a
+  late walk, a missed or no connection); the text color once arrived. Footer "Updated 7:10am · the link
+  ends 30 min after arrival". It reads the server every 20 s while visible and words the answer every
+  second (`shareView`, the one wording function: the server uses it for the link preview too). Ended:
+  "This ride has ended" (an unknown or purged id the same; "Missed Bus 132 7:36am" after a miss), no
+  map, no polling; after an end the rider can undo (Cancel trip, a one-off's removal: reason `ended`)
+  the page asks on until an answer is more than a minute (`SHARE_RESUME_MS`, by the server's clock)
+  past the end, so an Undo brings the ride back. Redrawn every second, it keeps keyboard focus on the
+  same control (`data-focus`). The trip's name and its From/To are never sent (`shareTrip` allowlists the legs).
+- **Link preview (Open Graph):** the server fills `share.html`'s `{{ogTitle}}` / `{{ogDescription}}`:
+  "Lucas · arrives 7:57am" (blank name: "Shared ride · …"), "Live on T-Minus"; ended or unknown: "This ride
+  has ended". `noindex` (meta and `X-Robots-Tag`), `no-store`, `no-referrer`, `x-frame-options: DENY`.
+  The preview is a snapshot from when the link is fetched.
+- **Why a separate page:** `index.html`'s module has dozens of load-time side effects (storage
+  migration, native listeners, the service worker, RUM, timers) and reads the viewer's own `t-minus:`
+  storage on the same origin. `share.html` imports `core.js` and `ui.js` (the timeline, route map
+  widget and base map, moved out of `index.html`, DOM only) and links `app.css` (the page's whole style
+  block). It has `<base href="/">` (the link's path is `/r/<id>`), no manifest, no service worker (the
+  app's worker skips `/r/`), no RUM.
+- **Server (`server/app.mjs`; SQLite `shares` table, memory store in the simulator):** a share is its own
+  record (no push subscription needed): `{ id, owner, trip (shareTrip), state, name, slack, createdAt,
+  updatedAt, endsAt, expiresAt, end }`. `id`: 16 random bytes, base64url (22 characters). `owner`: the
+  hash of the device's secret (32 random bytes, `t-minus:share`'s `secret`, returned once by the first
+  `POST`; every change carries it as `Authorization: Bearer`). Routes: `POST /api/shares`
+  (`{ trip, state, name?, slack?, secret? }`, the state with the bell or a ride: `shareRequestError`),
+  `PUT /api/shares/:id` (`state`, `trip` with the same legs, `name`, `slack`, `resume`: 401 bad secret,
+  410 ended), `DELETE /api/shares/:id?reason=stopped|ended|missed&leg&dep` (idempotent),
+  `GET /api/shares/:id` (public: the answer) and `GET|HEAD /r/:id` (the page). `GET` times the answer
+  with the widget's code (`widgetDocs`, `followRide`, `shareFollow`): live `{ v, at, name, trip, slack,
+  follow, walkAfter, names, counts, points, vehicles, mine }`, ended `{ v, at, name, status: 'ended',
+  end }`; memoized 15 s per link (a look that was waiting on the MBTA when the app changed or ended the share
+  is timed again, never written over the change); the MBTA down: the saved legs, moved on by the clock.
+  The app sends a change only after its own `DELETE`s have returned (an Undo's resume can't overtake
+  them). A `DELETE` the server didn't acknowledge (offline, 5xx) stays in `KEY_SHARE`'s `pending` and is sent
+  again every 30 s until it is (404/401 settle it); an Undo drops it. Looks that arrive together share one
+  timing of the answer (`shareInflight`; a change or end drops it); `GET /r/<id>` counts against the IP's
+  and the link's limits, and over them serves the page with the plain preview ("Lucas shared a ride",
+  "Live on T-Minus") without timing anything. Records are
+  kept 24 h past the end, then pruned. Limits: a link 120 looks and 20 changes a minute (429 with
+  `retry-after`), 2000 live shares (503), the IP's 30 a minute.
+- **App (`index.html`):** `KEY_SHARE` `{ secret, share: { id, tripRef, sig, tripJson, sentAt, resume,
+  retryAt } | null, pending: [{ id, reason, leg, dep, retryAt }] }`; `syncShare` (from each render) PUTs the changed state at most every 4 s, retries after 30 s,
+  and ends the share where the rider does; `endShare`, `resumeShare`, `startShare`.
+- **Request budget:** see "Rate limits and request budget".
+- **Deploy:** the Railway watch paths (service settings, not the repo) must include `app.css`, `ui.js`, `share.html` and `share.js`, or a push touching only them doesn't deploy.
+- **Known gaps:** native boarding with the page closed doesn't reach the share until the page opens (the
+  page assumes boarding at the departure meanwhile); share tokens appear in request paths (traces); no
+  Open Graph image.
+
 ## Remaining unknowns
 
 - Daytime Orange prediction horizon (only a late-evening sample was taken). The schedule
@@ -2488,6 +2594,8 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
 - Icons: `icons/icon.svg` is the source; PNGs are rendered from it.
 
 ## Simulator (debug, 2026-11-15)
+
+Share my ride is hidden while it runs: the server is in the page, so a link to it can't be opened elsewhere.
 
 Pretend to be on a ride that isn't happening, on the phone: a virtual clock that can rewind and
 fast-forward, fake MBTA data, the server's pushes and the boarding engine run in the page.

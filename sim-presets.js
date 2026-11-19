@@ -2,7 +2,7 @@
 // "Simulator"): the browser specs' commutes (test/browser/helpers.js `CONFIG`, `commute()`,
 // `CR_CONFIG`, `crCommute()`; test/sim-mbta.test.js keeps them equal) with one situation each.
 // A preset brings its own config: the user's trips are hidden while it runs.
-import { series } from './sim-mbta.js?v=1f61968344';
+import { series } from './sim-mbta.js?v=ebe8d6ac4b';
 
 const label = l => (l.route === '132' ? { label: 'Bus 132', color: 'FFC72C' } : { label: 'Orange', color: 'ED8B00' });
 const transit = (route, direction_id, stop, alight) => ({ kind: 'transit', route, direction_id, stop, alight, ...label({ route }) });

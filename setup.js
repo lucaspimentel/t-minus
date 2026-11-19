@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, sameLegsAs, newTripId, withTripIds, withoutTripIds, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=3e6ce71257';
+} from './core.js?v=711556524f';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -112,6 +112,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
     apiKey: cfg?.apiKey ?? '',
   });
   const app = appFields(saved); // list-screen fields, saved by Done
+  let shareName = saved?.shareName ?? ''; // "Your name", for shared rides (unset until asked or typed here)
   const savedTrips = () => saved?.trips ?? [];
   // The trip being edited: `idx` is its saved index (null for a new trip, inserted at `insertAt`).
   // `initial`: the form as opened (JSON), to tell whether Cancel discards edits (null: always).
@@ -301,11 +302,12 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
 
   // Saves the app-wide fields (if changed) and leaves setup.
   function done() {
-    const cfg = { trips: [], ...saved, ...app, apiKey: app.apiKey.trim() }; // settings alone are fine
+    const nameChanged = shareName.trim() !== (saved?.shareName ?? '');
+    const cfg = { trips: [], ...saved, ...app, apiKey: app.apiKey.trim(), ...(nameChanged && { shareName: shareName.trim() }) }; // settings alone are fine
     const errors = validateConfig(cfg);
     if (errors.length) { listMessages = errs(errors); return render(); }
     const before = appFields(saved);
-    if (cfg.departureCount !== before.departureCount || cfg.stopSlackMinutes !== before.stopSlackMinutes || cfg.wakeMinutes !== before.wakeMinutes || cfg.wakeRiding !== before.wakeRiding || cfg.apiKey !== before.apiKey) {
+    if (cfg.departureCount !== before.departureCount || cfg.stopSlackMinutes !== before.stopSlackMinutes || cfg.wakeMinutes !== before.wakeMinutes || nameChanged || cfg.wakeRiding !== before.wakeRiding || cfg.apiKey !== before.apiKey) {
       persist(cfg);
     }
     onClose();
@@ -642,6 +644,8 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         h('label', { class: 'check' },
           h('input', { type: 'checkbox', checked: app.wakeRiding, onchange: e => { app.wakeRiding = e.target.checked; } }),
           'Keep screen on while riding'),
+        h('label', { class: 'field' }, 'Your name (optional, for shared rides)',
+          h('input', { type: 'text', maxlength: '40', autocomplete: 'given-name', value: shareName, oninput: e => { shareName = e.target.value; } })),
         h('label', { class: 'field' }, 'MBTA API key (optional)',
           // Masked so the key isn't exposed on screen (or in screenshots).
           h('input', { type: 'password', autocomplete: 'off', spellcheck: false, placeholder: 'Used only when the T-Minus server is unreachable', value: app.apiKey, oninput: e => { app.apiKey = e.target.value; } })),

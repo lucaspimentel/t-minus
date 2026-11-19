@@ -281,3 +281,60 @@ test('auto-route: timed options, then the one-off trip banner', async ({ page })
   await tick(page, 1000);
   await check(page, 'one-off banner and rows');
 });
+
+// Share my ride: Share beside Tracking, the name dialog, Sharing, the sheet; the ride card's Share; the
+// recipient's page, live and ended. The server's share routes run on a memory store (mbta.serveServer).
+const shareInit = () => {
+  Object.defineProperty(window.Notification ?? (window.Notification = class {}), 'permission', { configurable: true, get: () => 'denied' });
+  Object.defineProperty(navigator, 'share', { configurable: true, value: async data => { (window.sharedWith ??= []).push(data); } });
+};
+test('share: Share beside Tracking, the name dialog, Sharing, the sheet', async ({ page, context }) => {
+  test.slow();
+  const mbta = await openApp(page, { time: '07:00', init: shareInit });
+  await mbta.serveServer(context);
+  const row = page.locator('.row').nth(1);
+  await row.click();
+  await row.getByRole('button', { name: 'Track', exact: true }).click();
+  await tick(page, 1000);
+  const tracked = page.locator('.row.tracked');
+  await expect(tracked.getByRole('button', { name: 'Share', exact: true })).toBeVisible();
+  await check(page, 'belled row with Share');
+  await tracked.getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(page.locator('#share-name')).toBeVisible();
+  await check(page, 'the name dialog');
+  await page.locator('#share-name-input').fill('Lucas');
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await expect(tracked.getByRole('button', { name: 'Sharing' })).toBeVisible();
+  await check(page, 'belled row with Sharing');
+  await tracked.getByRole('button', { name: 'Sharing' }).click();
+  await expect(page.locator('#share-sheet')).toBeVisible();
+  await check(page, 'the share sheet');
+});
+
+test('share: the ride card with Share, and the recipient\'s page live and ended', async ({ page, context }) => {
+  test.slow();
+  const mbta = await openApp(page, { time: '07:00', init: shareInit });
+  await mbta.serveServer(context);
+  await atTheStop(page);
+  await tickTo(page, '07:08:30');
+  await expect(card(page).getByRole('button', { name: 'Share', exact: true })).toBeVisible();
+  await check(page, 'ride card with Share');
+  await card(page).getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('#share-name-input').fill('A long first name here');
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await expect(card(page).getByRole('button', { name: 'Sharing' })).toBeVisible();
+  await check(page, 'ride card with Sharing');
+  const { url } = (await page.evaluate(() => window.sharedWith)).at(-1);
+  const rp = await context.newPage();
+  await rp.setViewportSize(page.viewportSize());
+  await mbta.serveProxy(rp);
+  await rp.goto(new URL(url).pathname);
+  await expect(rp.locator('.share-phase')).toBeVisible();
+  await check(rp, 'share page, riding');
+  await page.bringToFront();
+  await card(page).getByRole('button', { name: 'Sharing' }).click();
+  await page.locator('#share-stop').click();
+  await tick(page, 21_000);
+  await expect(rp.locator('.share-ended')).toBeVisible();
+  await check(rp, 'share page, ended');
+});

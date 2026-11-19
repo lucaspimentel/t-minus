@@ -43,6 +43,9 @@ export function validateConfig(cfg, { requireIds = false } = {}) {
       !(Number.isInteger(cfg.departureCount) && cfg.departureCount >= 1 && cfg.departureCount <= MAX_DEPARTURE_COUNT)) {
     errors.push(`departureCount must be an integer from 1 to ${MAX_DEPARTURE_COUNT}.`);
   }
+  if (cfg.shareName !== undefined && !(typeof cfg.shareName === 'string' && shareNameOk(cfg.shareName))) {
+    errors.push(`shareName must be text of up to ${SHARE_NAME_MAX} characters.`);
+  }
   // No trips is valid: the settings stay after the last trip is deleted.
   if (!Array.isArray(cfg.trips)) {
     errors.push(cfg.commutes
@@ -2107,9 +2110,12 @@ export function ridePhase(ride, walkAfter, nowMs) {
 
 // "Missed it" is offered for 2 min after each boarding.
 export function canUndoBoarding(ride, phase, nowMs) {
-  if (phase.kind !== 'riding') return false;
-  const boarded = phase.leg === 0 ? ride.boardedAt : ride.legs[phase.leg].dep;
-  return nowMs < boarded + 2 * MIN;
+  return phase.kind === 'riding' && nowMs < legBoardedAt(ride, phase) + 2 * MIN;
+}
+// When the ridden leg (phase.kind 'riding') was boarded: the boarding tap for the first, the
+// vehicle's departure for later ones.
+export function legBoardedAt(ride, phase) {
+  return phase.leg === 0 ? ride.boardedAt : ride.legs[phase.leg].dep;
 }
 
 // After missing leg `from`: its next vehicle departing at or after now (other than the missed
@@ -2329,6 +2335,16 @@ export const ALERT_HEADS_UP_STOPS = 3;
 export const GET_OFF_MIN = 2;
 export const RIDE_POLL_MS = 20_000;
 const RIDE_MAX_MS = 3 * 60 * MIN;
+
+// While boarding (2026-11-18): the ridden leg's stops (rideStops) still show its vehicle at the
+// boarding stop: refetch them alone every 15 s, for at most 3 min after the leg became the ridden
+// one, rather than waiting for the 60 s poll. `fetchedAt`: the last fetch (or attempt), `since`:
+// when the leg was boarded (legBoardedAt).
+export const RIDE_BOARDING_REFETCH_MS = 15_000;
+export const RIDE_BOARDING_REFETCH_FOR_MS = 3 * MIN;
+export function boardingRefetchDue({ stops, fetchedAt, since, nowMs }) {
+  return !!stops?.vehicle?.boarding && nowMs - since < RIDE_BOARDING_REFETCH_FOR_MS && nowMs - fetchedAt >= RIDE_BOARDING_REFETCH_MS;
+}
 
 // One poll of a ride's alerts. `alert` = { sent: { [leg]: { first, headsUp, arr, getOff, nextDep } },
 // missedDep, missedNext ({ leg, dep } of the replacement), none }; `stops` = rideStops() for the
@@ -3165,16 +3181,21 @@ const widgetLegs = legs => legs.map(l => Object.fromEntries(WIDGET_LEG_KEYS.filt
 // `pinned`, `target` ({ key, legs }), `asking`, `ride` ({ legs, boardedAt, missed }).
 export function widgetState(all, trips) {
   const live = Object.entries(all ?? {}).filter(([ref, s]) => s && tripIndex(trips, ref) >= 0);
-  const rank = s => (s.ride ? 0 : s.asking ? 1 : s.kind !== 'track' ? 2 : s.bell ? 3 : 4);
-  const [ref, s] = live.sort((x, y) => rank(x[1]) - rank(y[1]))[0] ?? [];
-  if (!s || rank(s) === 4 || (rank(s) === 3 && !s.target)) return null;
+  const [ref, s] = live.sort((x, y) => followRank(x[1]) - followRank(y[1]))[0] ?? [];
+  return s ? followState(ref, s) : null;
+}
+const followRank = s => (s.ride ? 0 : s.asking ? 1 : s.kind !== 'track' ? 2 : s.bell ? 3 : 4);
+// One trip's en-route state in the widget's request shape (widgetState; the app's share sends the
+// same shape), or null when there is nothing to follow (no target to the bell).
+export function followState(ref, s) {
+  if (!s || followRank(s) === 4 || (followRank(s) === 3 && !s.target)) return null;
   const out = { trip: ref, kind: s.kind, at: s.at, atStop: s.atStop ?? null, pinned: !!s.pinned };
   if (s.target) out.target = { key: s.target.key, legs: widgetLegs(s.target.legs) };
   if (s.asking) out.asking = { dep: s.asking.dep };
   if (s.ride) out.ride = { legs: widgetLegs(s.ride.legs), boardedAt: s.ride.boardedAt, ...(s.ride.missed && { missed: s.ride.missed }) };
   return out;
 }
-function widgetStateError(st, trips) {
+export function widgetStateError(st, trips) {
   const trip = typeof st.trip === 'string' ? trips[tripIndex(trips, st.trip)] : null;
   if (!trip) return 'state.trip is invalid';
   if (!['track', 'leaving', 'stop'].includes(st.kind) || !Number.isFinite(st.at)) return 'state is invalid';
@@ -3204,17 +3225,26 @@ export function widgetRequestError(b) {
 // { kind: 'walk', row, enRoute } (to the departure; 30 min after the tap), { kind: 'bell', row }
 // (the belled row's leave-by), or null: leave times. `rows`: the trip's rows now, missed ones too
 // (the target is found by its key; departed, it falls back to the saved legs).
+// The arrival at the destination: the last leg's arrival and the walk after it.
+export const legsEta = (legs, walkAfter) => legs[legs.length - 1].arr + walkAfter * MIN;
+
+// The not-yet-boarded state's target as it stands now (widgetFollow, shareFollow): its row from
+// `rows` with the app's stop shares (the server's rows have none; null once the schedules drop
+// it), its legs, departure (the question's, while asking) and arrival.
+function followTarget(st, rows, walkAfter) {
+  const t = st.target;
+  const own = t.legs.map(l => l.at ?? null);
+  const found = rows.find(r => r.key === t.key);
+  const row = found ? { ...found, legs: withStopShares(found.legs, own) } : null;
+  const legs = row?.legs ?? t.legs;
+  return { row, legs, dep: st.asking?.dep ?? row?.firstDep ?? legs[0].dep, eta: legsEta(legs, walkAfter) };
+}
+
 export function widgetFollow(st, rows, walkAfter, nowMs) {
   if (!st) return null;
   const done = ride => ridePhase(ride, walkAfter, nowMs).kind === 'done';
   if (st.ride) return done(st.ride) ? null : { kind: 'ride', ride: st.ride };
-  const t = st.target;
-  const own = t.legs.map(l => l.at ?? null); // the app's stop shares (the server's rows have none)
-  const found = rows.find(r => r.key === t.key);
-  const row = found && { ...found, legs: withStopShares(found.legs, own) };
-  const legs = row?.legs ?? t.legs;
-  const dep = st.asking?.dep ?? row?.firstDep ?? legs[0].dep;
-  const eta = legs[legs.length - 1].arr + walkAfter * MIN;
+  const { row, legs, dep, eta } = followTarget(st, rows, walkAfter);
   const ask = () => (nowMs < dep + ASK_MINUTES * MIN ? { kind: 'ask', row: { legs, firstDep: dep, eta } } : null);
   if (st.asking) return ask();
   if (st.kind === 'track') {
@@ -3230,6 +3260,138 @@ export function widgetFollow(st, rows, walkAfter, nowMs) {
   }
   if (!st.pinned && nowMs >= st.at + 30 * MIN) return null;
   return { kind: 'walk', row: row ?? { legs, firstDep: dep, eta }, enRoute: st };
+}
+
+// ---------- share my ride (DESIGN.md "Share my ride") ----------
+
+// A live, read-only page follows one ride for anyone with its link. The app keeps the share's
+// state in step with its own (followState); the server times it as the widget's (widgetFollowing)
+// and the page words it here (shareView).
+export const SHARE_AFTER_MIN = 30; // the link works this long after the arrival
+export const SHARE_RESUME_MS = 60_000; // an ended share an Undo may revive; the page keeps polling that long
+export const SHARE_NAME_MAX = 40;
+// Text of up to SHARE_NAME_MAX characters without control characters; the joiner and tag characters
+// of emoji sequences (a family, a flag) are fine.
+export const shareNameOk = name => name.length <= SHARE_NAME_MAX && !/\p{C}/u.test(name.replace(/[\u200d\u{e0020}-\u{e007f}]/gu, ''));
+
+// What a share keeps of a trip: its id and legs, never the name (a one-off's is "243 Condor St → …")
+// or the points and windows. Allowlisted, so a new trip field stays private until listed here.
+const SHARE_LEG_KEYS = ['kind', 'minutes', 'route', 'also', 'routeLabels', 'direction_id', 'stop', 'alight', 'label', 'color'];
+export function shareTrip(trip) {
+  return {
+    id: trip.id, name: 'Shared ride', ...(trip.timingLeg != null && { timingLeg: trip.timingLeg }),
+    legs: trip.legs.map(l => Object.fromEntries(SHARE_LEG_KEYS.filter(k => l[k] !== undefined).map(k => [k, l[k]]))),
+  };
+}
+
+// A create or update body's error message, or null: `trip`, `state` (widgetState's shape, with the
+// bell or a ride: no sharing without the bell), `name`, `slack`, `secret`.
+// An update (`trip`: the share's stored trip) may leave out any field; a new `trip` replaces it.
+export function shareRequestError(b, { trip = null } = {}) {
+  if (!b || typeof b !== 'object') return 'body is invalid';
+  const update = !!trip;
+  if (b.trip != null || !update) {
+    if (!b.trip || validateConfig({ trips: [b.trip] }, { requireIds: true }).length) return 'trip is invalid';
+    trip = b.trip;
+  }
+  if (b.state != null || !update) {
+    if (!b.state || typeof b.state !== 'object') return 'state is invalid';
+    const err = widgetStateError(b.state, [trip]);
+    if (err) return err;
+    if (!b.state.ride && !b.state.pinned) return 'state is not belled';
+  }
+  if (b.name != null && !(typeof b.name === 'string' && shareNameOk(b.name.trim()))) return 'name is invalid';
+  if (b.slack != null && !(Number.isFinite(b.slack) && b.slack >= 0 && b.slack <= 60)) return 'slack is invalid';
+  if (b.secret != null && !(typeof b.secret === 'string' && /^[A-Za-z0-9_-]{43}$/.test(b.secret))) return 'secret is invalid';
+  return null;
+}
+
+// What the share follows now, as widgetFollow does for the widget, with the share's rules:
+// { kind: 'ride', ride, unconfirmed? } (boarded, or assumed boarded once the departure passes
+// unanswered: the page says "not confirmed" until the app says so, however long ago), { kind:
+// 'walk', row, enRoute }, or { kind: 'bell', row }. The end (SHARE_AFTER_MIN after the arrival) is
+// the server's to time, from the ride as tracked: a late train keeps the link. `rows`: the trip's rows now, missed ones too. `fallback` ({ walkBefore, slack }):
+// a row the schedules no longer list is rebuilt from the saved legs.
+export function shareFollow(st, rows, walkAfter, nowMs, { walkBefore = 0, slack = 0 } = {}) {
+  if (st.ride) return { kind: 'ride', ride: st.ride };
+  const { row: found, legs, dep, eta } = followTarget(st, rows, walkAfter);
+  const row = found ?? { key: st.target.key, legs, firstDep: dep, eta, leaveBy: dep - (walkBefore + slack) * MIN, lastChance: dep - walkBefore * MIN };
+  const boarded = unconfirmed => ({ kind: 'ride', ride: { legs, boardedAt: dep }, ...(unconfirmed && { unconfirmed: true }) });
+  if (st.asking) return boarded(true);
+  if (st.kind === 'track') return nowMs >= dep ? boarded(true) : { kind: 'bell', row };
+  if (nowMs >= dep) return boarded(!(st.atStop <= dep));
+  return { kind: 'walk', row, enRoute: st };
+}
+
+// The page's title (and the link preview's, before an answer): "Lucas shared a ride".
+export const shareTitle = name => (name ? `${name} shared a ride` : 'Shared ride');
+
+// What the page says once the share has ended: "Missed Bus 132 7:36am" (`end`: { reason, vehicle,
+// dep }), else "This ride has ended".
+export function shareEndText(end, nowMs) {
+  return end?.reason === 'missed' && end.vehicle && Number.isFinite(end.dep) ? `Missed ${end.vehicle} ${formatTime(end.dep, nowMs)}` : 'This ride has ended';
+}
+
+// The page's words, colors and timeline from the server's answer (`GET /api/shares/:id`) at `nowMs`,
+// redrawn every second. Live: { title, live, color, headline, phase, note, steps, ridePhase,
+// footer, ogTitle, ogDescription }; ended: { title, live: false, text, ogTitle, ogDescription }.
+// Colors, as the app's cards: 'green', 'amber' (at risk, catchable), 'red' (too late), 'text'
+// (arrived).
+export function shareView(answer, nowMs) {
+  const title = shareTitle(answer.name);
+  const who = answer.name || 'Shared ride';
+  if (answer.status !== 'live') {
+    const text = shareEndText(answer.end, nowMs);
+    return { title, live: false, text, ogTitle: title, ogDescription: text };
+  }
+  const { trip, follow, walkAfter, slack = 0 } = answer;
+  const names = new Map(answer.names ?? []);
+  const { transit } = tripShape(trip);
+  const name = i => names.get(transit[i]?.stop) ?? null;
+  const dropName = i => names.get(transit[i]?.alight) ?? null;
+  const ride = follow.kind === 'ride' ? follow.ride : null;
+  const row = ride ? { legs: ride.legs, eta: legsEta(ride.legs, walkAfter), enRoute: true } : { ...follow.row, enRoute: follow.kind === 'walk' };
+  const eta = row.eta;
+  const phase = ride ? ridePhase(ride, walkAfter, nowMs) : null;
+  const first = row.legs[0];
+  const arrived = nowMs >= eta;
+  let text = '';
+  let color = 'green';
+  if (follow.kind === 'bell') {
+    text = `Leaves at ${formatTime(row.leaveBy, nowMs)} for ${vehicleLabel(first)} at ${legTime(first, first.dep, nowMs)}`;
+    const st = countdownState(nowMs, row.leaveBy, row.lastChance ?? row.firstDep, row.firstDep);
+    color = st === 'green' || st === 'none' ? 'green' : st === 'amber' || st === 'hurry' ? 'amber' : 'red';
+  } else if (follow.kind === 'walk') {
+    const stop = name(0);
+    text = `Walking ${stop ? `to ${stop} ` : ''}for ${vehicleLabel(first)} at ${legTime(first, first.dep, nowMs)}`;
+    if (walkActivityState(row, follow.enRoute, nowMs).late) color = 'red';
+  } else {
+    const leg = ride.legs[phase.leg];
+    const o = outlookText(follow.outlook, ride, nowMs, { transfer: phase.kind === 'transfer' });
+    if (o?.late) color = 'red'; else if (o?.warn) color = 'amber';
+    if (phase.kind === 'riding') {
+      const n = follow.stopsLeg === phase.leg ? follow.stops?.stops?.length ?? 0 : 0; // the stops are for the leg ridden at the reload
+      const to = dropName(phase.leg);
+      text = `On ${vehicleLabel(leg)} · ${n ? stopCountText(n) : formatCountdown(leg.arr - nowMs)}${to ? ` to ${to}` : ''}`;
+    } else if (phase.kind === 'transfer') {
+      const at = dropName(phase.leg - 1);
+      text = `Changing${at ? ` at ${at}` : ''} for ${vehicleLabel(leg)} at ${legTime(leg, leg.dep, nowMs)}`;
+    } else {
+      const from = dropName(transit.length - 1);
+      text = `Walking${from ? ` from ${from}` : ''}`;
+    }
+  }
+  if (arrived) color = 'text';
+  const steps = timelineSteps(row, trip, follow.kind === 'bell' ? slack : 0, nowMs, names, answer.counts ?? []);
+  steps[steps.length - 1] = { ...steps[steps.length - 1], time: null }; // the headline has the arrival
+  const arrive = formatTime(eta, nowMs);
+  return {
+    title, live: true, color, ridePhase: phase,
+    headline: arrived ? `Arrived ${arrive}` : `Arrives in ${formatCountdown(eta - nowMs)} · ${arrive}`,
+    phase: arrived ? '' : text, note: follow.unconfirmed && !arrived ? 'not confirmed' : '', steps,
+    footer: `Updated ${formatTime(answer.at, nowMs)} · the link ends ${SHARE_AFTER_MIN} min after arrival`,
+    ogTitle: `${who} · arrives ${arrive}`, ogDescription: 'Live on T-Minus',
+  };
 }
 
 // The timing leg from schedules alone (as the page does, without its hysteresis).
@@ -4327,10 +4489,12 @@ export function splitPath(path, a, b) {
 
 // The vehicles ([{ id, tripId, lat, lon, updatedAt }], projected by `proj`) on the stretch of
 // `path` between `fromAlong` and `toAlong`, fresh and within `maxMeters` of it, with their point.
-export function vehiclesOnStretch(vehicles, path, fromAlong, toAlong, proj, nowMs, maxMeters = 150) {
+export const STRETCH_METERS = 150;
+export const vehicleFresh = (updatedAt, nowMs) => nowMs - updatedAt <= VEHICLE_FRESH_SECONDS * 1000;
+export function vehiclesOnStretch(vehicles, path, fromAlong, toAlong, proj, nowMs, maxMeters = STRETCH_METERS) {
   const out = [];
   for (const v of vehicles ?? []) {
-    if (!(nowMs - v.updatedAt <= VEHICLE_FRESH_SECONDS * 1000)) continue;
+    if (!vehicleFresh(v.updatedAt, nowMs)) continue;
     const n = nearestOnPath(path, proj.toXY(v));
     if (!n || n.meters > maxMeters || n.along < fromAlong - 1 || n.along > toAlong + 1) continue;
     out.push({ ...v, point: n.point, heading: pathHeading(path, n.index) });
@@ -4350,13 +4514,24 @@ export function pathHeading(path, index) {
 // Your vehicle at your position (2026-11-12): while riding, the ridden vehicle's marker goes to
 // the phone's GPS fix, snapped onto the leg's stretch, since MBTA positions lag (track circuits,
 // the 10 s poll, up to 90 s old). A fix counts when its accuracy is within 50 m (GPS_MAX_ACCURACY_METERS), it's at most
-// 10 s old, it's within 75 m of the line, the vehicle has left the boarding stop (`left`) and the
+// 10 s old, it's within 75 m of the line, the vehicle has left the boarding stop (`left`, or its MBTA
+// position more than 50 m past it: vehicleLeftBoarding; `vehicle` is { x, y, at? }) and the
 // vehicle's MBTA position is within 1 km. Without one, the last counted point (`hold`) stays until
 // the MBTA position passes it along the line or 60 s go by, so the marker never moves back.
 export const RIDE_GPS_MAX_AGE_MS = 10_000;
 export const RIDE_GPS_LINE_METERS = 75;
 export const RIDE_GPS_VEHICLE_METERS = 1000;
 export const RIDE_GPS_HOLD_MS = 60_000;
+export const RIDE_LEFT_METERS = 50;
+// The ridden vehicle's MBTA position past the boarding stop (2026-11-18): fresh and within
+// STRETCH_METERS of the stretch (as vehiclesOnStretch), more than RIDE_LEFT_METERS along it (`path`
+// starts at the boarding stop). vehicle: { x, y, at } (at: its updatedAt) or null.
+export function vehicleLeftBoarding(path, vehicle, nowMs) {
+  if (!vehicle || !path || path.length < 2) return false;
+  if (!vehicleFresh(vehicle.at, nowMs)) return false;
+  const n = nearestOnPath(path, vehicle);
+  return !!n && n.meters <= STRETCH_METERS && n.along > RIDE_LEFT_METERS;
+}
 // path: the ridden stretch [{ x, y }]; fix: { x, y, accuracy, at } or null; vehicle: the ride's
 // MBTA position { x, y } or null (not in /vehicles: no marker); hold: { x, y, at } or null.
 // → { point, heading, hold }: point null keeps the MBTA marker.
@@ -4364,8 +4539,9 @@ export function rideMarker({ path, fix, vehicle, left, hold, nowMs }) {
   const none = { point: null, heading: 0, hold: null };
   if (!vehicle || !path || path.length < 2) return none;
   const held = hold ? nearestOnPath(path, hold) : null;
-  const usable = fix && left && fix.accuracy <= GPS_MAX_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS
-    && Math.hypot(fix.x - vehicle.x, fix.y - vehicle.y) <= RIDE_GPS_VEHICLE_METERS;
+  const usable = fix && fix.accuracy <= GPS_MAX_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS
+    && Math.hypot(fix.x - vehicle.x, fix.y - vehicle.y) <= RIDE_GPS_VEHICLE_METERS
+    && (left || vehicleLeftBoarding(path, vehicle, nowMs));
   const snap = usable ? nearestOnPath(path, fix) : null;
   if (snap && snap.meters <= RIDE_GPS_LINE_METERS) {
     const use = held && held.along > snap.along ? held : snap;
@@ -4671,7 +4847,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     // The ridden vehicle at your GPS position (2026-11-12; rideMarker).
     if (ride && r.i === ride.leg && mine[r.i]) {
       const v = legVehicles.find(x => x.tripId === mine[r.i]);
-      const m = rideMarker({ path, nowMs, left: ride.left, vehicle: v ? proj.toXY(v) : null, fix: xy(ride.fix), hold: xy(ride.hold) });
+      const m = rideMarker({ path, nowMs, left: ride.left, vehicle: v ? { ...proj.toXY(v), at: v.updatedAt } : null, fix: xy(ride.fix), hold: xy(ride.hold) });
       out.ride = { gps: !!m.point, hold: m.hold && { ...proj.toLatLon(m.hold), at: m.hold.at } };
       if (m.point) {
         const k = out.vehicles.findIndex(x => x.mine && x.id === v.id);
@@ -4737,18 +4913,22 @@ export function stopListStretch(stopsDoc, stop, alight) {
 // The phone's location in the map's coordinates (it stays on the phone).
 export const mapPoint = (model, p) => (model?.origin && p ? projector(model.origin.lat, model.origin.lon).toXY(p) : null);
 
-// The route map's stops to draw at `ppm` pixels per meter: every leg end (major), and an
-// intermediate stop only when it's at least `minPx` from the last one drawn on its leg and from
-// the leg's end, so a zoomed-out bus leg isn't a string of dots; `keep` (a selected stop) always.
+const STOP_DOT_PX = 10, STOP_RING_PX = 12;
+// The route map's stops to draw at `ppm` pixels per meter: every leg end (major) and `keep` (a
+// selected stop) always; an intermediate stop only with room for its dot: at least 12 px from
+// the last one drawn when that is a large ring (a leg end or transfer, on any leg; a ring's edge
+// plus a dot's) or 10 px when it's a small dot on its leg (two dots' edges), and 12 px from
+// its leg's next end. Positions aren't moved. As the legs bar's LegsBar.shown (RideViews.swift).
 // `stops`: routeMapModel's, in leg order. → Set of indices.
-export function stopsToShow(stops, ppm, { minPx = 14, keep = null } = {}) {
+export function stopsToShow(stops, ppm, { keep = null } = {}) {
   const shown = new Set();
-  const far = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) * ppm >= minPx;
+  const far = (a, b, px) => Math.hypot(a.x - b.x, a.y - b.y) * ppm >= px;
   let last = null;
   stops.forEach((st, i) => {
     if (st.major || st.id === keep) { shown.add(i); last = st; return; }
+    if (last && (last.major || last.leg === st.leg) && !far(st, last, last.major ? STOP_RING_PX : STOP_DOT_PX)) return;
     const end = stops.slice(i + 1).find(x => x.major && x.leg === st.leg);
-    if ((!last || last.leg !== st.leg || far(st, last)) && (!end || far(st, end))) { shown.add(i); last = st; }
+    if (!end || far(st, end, STOP_RING_PX)) { shown.add(i); last = st; }
   });
   return shown;
 }
@@ -4962,3 +5142,6 @@ export function offsetPoint({ lat, lon }, meters, bearingDeg) {
   const dLon = (meters * Math.sin(b)) / (111_320 * Math.cos(lat * Math.PI / 180));
   return { lat: lat + dLat, lon: lon + dLon };
 }
+
+// The legs the route map draws (a trip's transit legs).
+export const mapLegs = trip => tripShape(trip).transit.map(l => ({ route: l.route, also: l.also, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: l.color ?? null, label: l.label ?? l.route }));

@@ -13,616 +13,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <!-- The simulator's clock (DESIGN.md "Simulator"): inert unless the simulator is on. -->
 <script src='./sim.js?v=d5fd243061'></script>
-<style>
-  [hidden] { display: none !important; }
-  :root {
-    color-scheme: light dark; /* native controls (time pickers, checkboxes) follow the theme */
-    --bg: #f5f5f3; --card: #ffffff; --text: #1c1f24; --muted: #6b7078; --border: #dcdde0;
-    --green: #1b7f45; --amber: #a35f00; --red: #c62828; --accent: #ed8b00;
-    --accent-text: #a85a00; /* the accent as text on white (4.5:1); fills keep --accent */
-    --alert-bg: #fff4e0; --alert-border: #f0c070;
-    --press: rgba(0, 0, 0, .07); /* pressed overlay */
-    --map-water: #dbe7f0; --map-land: var(--card); --map-line: var(--border); /* the route map's base map */
-    --here: #1a73e8; /* your location on the maps (both themes): the dot, your vehicle at your GPS position */
-    --map-green: #e4efdc; /* parks: softer in light, stronger in dark (2026-11-09) */
-    --map-water-name: #2f5f86; --map-green-name: #3d6b35; /* the base map's water and park names */
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #121417; --card: #1c1f24; --text: #eceef1; --muted: #9aa0a8; --border: #2e333a;
-      --green: #4cc47f; --amber: #f0a830; --red: #ff6b6b; --accent: #ed8b00; --accent-text: #ed8b00;
-      --alert-bg: #2e2515; --alert-border: #6b5220;
-      --press: rgba(255, 255, 255, .09);
-      --map-water: #0c1520; --map-land: #22262c; --map-line: #3a4048; --map-green: #25362a;
-      --map-water-name: #7fa8c9; --map-green-name: #8fbf86;
-    }
-  }
-  * { box-sizing: border-box; }
-  /* No double-tap zoom (iOS Safari ignores user-scalable=no for pinch zoom). No rubber-band
-     bounce: the main list has its own pull-to-refresh. */
-  /* No iOS text inflation: a too-wide line made the whole picker larger (2026-11-02). */
-  html { touch-action: manipulation; overscroll-behavior-y: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    -webkit-tap-highlight-color: transparent; /* the :active styles below replace iOS's gray flash */
-    /* iOS blurs content right under the status bar. The standalone app starts below it (no
-       status-bar-style meta), so the inset is 0 there; the 22px does the work. */
-    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px max(16px, env(safe-area-inset-bottom));
-  }
-  main { max-width: 480px; margin: 0 auto; }
-  /* Pressed: buttons darken and shrink a little; rows only darken (an inset overlay works on any
-     background). A button pressed inside a row doesn't also darken the row. */
-  button { transition: transform 80ms; }
-  button:not(:disabled):active { box-shadow: inset 0 0 0 100vmax var(--press); transform: scale(.97); }
-  .row:not(.ride):active:not(:has(button:active)) { box-shadow: inset 0 0 0 100vmax var(--press); }
-  /* Pinned header row (2026-11-15): sticks at the top, its padding reaching under the status bar
-     (the iOS app's inset), so nothing scrolls behind the clock. Its 8 + 4 px below make the old 12;
-     the en-route bar's -4px top margin reaches only into the 4 px margin, not under the header's
-     background (which cut the top off its buttons, 2026-11-15). Always sticky: turning sticky
-     only once scrolled made it flicker on the first scroll (2026-11-17). */
-  header {
-    display: flex; align-items: center; gap: 8px; background: var(--bg);
-    position: sticky; top: 0; z-index: 5;
-    margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 4px;
-    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 8px;
-  }
-  /* Staging's tag (APP_ENV=staging, from /api/config): in the header's top padding, so the
-     layout is the same as prod's. */
-  .env-tag {
-    position: absolute; top: calc(env(safe-area-inset-top, 0px) + 4px); left: 50%; transform: translateX(-50%);
-    font-size: 11px; font-weight: 600; letter-spacing: .08em; line-height: 14px;
-    padding: 0 6px; border: 1px solid currentColor; border-radius: 7px; pointer-events: none;
-  }
-  /* Sticky headers' edge fade (iOS 26's scroll edge effect): no bar or separator. The header's own
-     page-color background covers it down to its bottom edge (its bottom padding keeps content clear
-     of the controls); once the page is scrolled (html.scrolled), a 20 px strip below it fades what
-     passes under (a plain gradient: no backdrop-filter or mask, which can leave WebKit regions
-     unpainted; the app once showed a blank top half after launch, 2026-11-16). Main header,
-     setup's header, the leg picker's top. No pseudo-element behind the controls (z-index -1): iOS
-     painted one over them after a reload (2026-11-15). */
-  html.scrolled :is(header, .setup-head, .picker-top)::after {
-    content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 20px; pointer-events: none;
-    background: linear-gradient(var(--bg), transparent);
-  }
-  /* Focus scrolls (keyboard, VoiceOver) stop below the pinned header. Main screen only: in setup a
-     focused field inside the sticky picker top can't move below the padding, and iOS panned the
-     whole view up for the keyboard instead (2026-11-15). */
-  html:has(#setup[hidden]) { scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 80px); }
-  .toggle { display: flex; flex-wrap: wrap; flex: 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  .toggle button {
-    flex: 1 1 auto; padding: 10px 6px; border: 0; background: var(--card); color: var(--muted);
-    font: inherit; font-size: 14px; cursor: pointer;
-  }
-  .toggle button[aria-pressed="true"] { background: var(--accent); color: #1c1f24; font-weight: 600; }
-  /* The trip picker (2026-11-12): always a select, the trips then "Plan a trip…"; card style with
-     a line chevron like the header icons (the browsers' own arrows differ). */
-  .toggle select {
-    flex: 1; min-width: 0; min-height: 44px; padding: 10px 40px 10px 12px; border: 0; color: var(--text);
-    font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
-    appearance: none; -webkit-appearance: none;
-    background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center / 18px;
-  }
-  .icon-btn {
-    width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 10px;
-    background: var(--card); color: var(--text); font-size: 20px; cursor: pointer;
-  }
-  /* Line icons (the setup gear; the map's folded outline until 2026-11-12) in the text color, like
-     ↻; they replaced the 🗺 and ⚙ emoji, which iOS drew in color (2026-11-09). */
-  .icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0; }
-  .icon-btn[hidden] { display: none; }
-  .icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-  #refresh.busy span { display: inline-block; animation: spin .8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { #refresh.busy span { animation: none; opacity: .4; } }
-  /* Pull-to-refresh: sits above the header (height = PULL_HOLD) and comes into view as #app moves down. */
-  .ptr {
-    position: relative; z-index: 6; pointer-events: none; /* above the header's fade */
-    height: 48px; margin-top: -48px; display: flex; align-items: center; justify-content: center; gap: 8px;
-    color: var(--muted); font-size: 14px; opacity: 0;
-  }
-  /* ↓ while pulling, turning to ↑ at the ready point; a spinning ring while refreshing. */
-  .ptr-icon { display: inline-flex; transition: transform 150ms; }
-  .ptr-icon svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-  .ptr.ready .ptr-icon { transform: rotate(180deg); }
-  .ptr-ring { display: none; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--muted); border-radius: 50%; }
-  .ptr.busy .ptr-icon { display: none; }
-  .ptr.busy .ptr-ring { display: block; animation: spin .8s linear infinite; }
-  /* Setup's waiting lines ("Finding ways…"): the pull-to-refresh ring, at text height, before the text. */
-  .wait { display: flex; align-items: center; gap: 8px; }
-  .wait-ring { flex: none; width: 1em; height: 1em; border: 2px solid var(--border); border-top-color: var(--muted); border-radius: 50%; animation: spin .8s linear infinite; }
-  #app.settling { transition: transform 200ms ease-out; }
-  #app.settling .ptr { transition: opacity 200ms; }
-  @media (prefers-reduced-motion: reduce) {
-    .ptr-icon { transition: none; }
-    .ptr.busy .ptr-ring { animation: none; opacity: .4; }
-    .wait-ring { animation: none; opacity: .4; }
-  }
-  /* At the bottom, just above the version. */
-  .status { font-size: 13px; color: var(--muted); margin: 16px 0 0; min-height: 18px; text-align: center; }
-  /* A one-off trip: a banner under the trip buttons, above "Plan a trip…". */
-  .enroute-bar.oneoff-banner { margin: 0 0 12px; padding: 8px 8px 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
-  .status.stale { color: var(--red); }
-  .status.old { color: var(--amber); }
-  .status .link {
-    padding: 0; border: 0; background: none; color: inherit; font: inherit;
-    text-decoration: underline; cursor: pointer; box-shadow: none !important; transform: none !important;
-  }
-  .alerts { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
-  .alerts li {
-    background: var(--alert-bg); border: 1px solid var(--alert-border); border-radius: 10px;
-    padding: 8px 12px; font-size: 14px;
-  }
-  .alerts b { font-size: 12px; letter-spacing: .03em; }
-  .rows { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .row {
-    background: var(--card); border: 1px solid var(--border); border-left: 6px solid var(--border);
-    border-radius: 12px; padding: 12px 14px;
-  }
-  /* Only the target (.catch: the ride the app answers with, or the belled one) is green, in every
-     mode; later reachable rows are neutral (the .row border, the text color). Amber (to the last chance)
-     and red (missed, still to leave) keep their color on any row; .catch never overrides them. */
-  .row.catch.green, .row.catch.enroute { border-left-color: var(--green); }
-  .row.amber { border-left-color: var(--amber); }
-  .row.hurry { border-left-color: var(--amber); }
-  .big {
-    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px;
-    font-size: 28px; font-weight: 700;
-  }
-  /* The countdown never breaks; if the time would drop below a long countdown ("Departs in
-     1h 26m"), the countdown steps down (fit1, then fit2: fitHeads); only if it still doesn't fit
-     (a next-day "Thu 5:31am" at 360 px) does the time drop to the next line, still right-aligned. */
-  .big > span { white-space: nowrap; }
-  .big.fit1 > span:first-child { font-size: .86em; } /* 28px → 24px */
-  .big.fit2 > span:first-child { font-size: .72em; } /* 28px → 20px */
-  .big .at { font-size: 20px; font-weight: 600; margin-left: auto; }
-  /* Equal-width digits in the time columns only, so times line up down a list; elsewhere the
-     wide tabular "1" would gap names like "Bus 132". */
-  .step .t, .big .at { font-variant-numeric: tabular-nums; }
-  .catch.green .big, .catch.enroute .big { color: var(--green); }
-  .amber .big { color: var(--amber); }
-  .hurry .big { color: var(--amber); }
-  .row.missed { border-left-color: var(--muted); }
-  .row.prev { border-left-color: var(--muted); }
-  .row.prev + .row:not(.prev) { margin-top: 22px; } /* previous rides apart from the rest */
-  .prev .big { color: var(--muted); font-size: 20px; }
-  .list-btn {
-    display: block; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
-    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
-  }
-  .list-item.pair { display: flex; gap: 8px; } /* "Show more rides" beside "Show fewer rides" */
-  .missed .big { color: var(--muted); font-size: 20px; }
-  .row.missed.departs { border-left-color: var(--red); }
-  /* Still to leave (often the ride being headed for): full size; smaller once gone. */
-  .missed.departs .big { color: var(--red); font-size: 28px; }
-  .none .big { color: var(--muted); font-size: 20px; }
-  .detail { color: var(--muted); font-size: 14px; }
-  .dot {
-    display: inline-block; width: .7em; height: .7em; border-radius: 50%; margin-right: .35em;
-    vertical-align: baseline; box-shadow: 0 0 0 1px rgb(0 0 0 / .25);
-  }
-  .tag { white-space: nowrap; }
-  .badge {
-    display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase;
-    padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); margin-left: 6px; vertical-align: 2px;
-  }
-  .badge.live { border-color: var(--green); color: var(--green); }
-  .row { cursor: pointer; }
-  /* The row's expand button: looks like the row it sits in. */
-  .row-toggle {
-    display: block; width: 100%; padding: 0; margin: 0; border: 0; background: none; color: inherit;
-    font: inherit; text-align: inherit; cursor: inherit; border-radius: 6px;
-  }
-  :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-  .row-toggle:focus-visible { outline-offset: 4px; }
-  .sr-only {
-    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
-    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
-  }
-  .strip { display: flex; align-items: center; margin: 4px 0 2px; font-size: 14px; white-space: nowrap; overflow: hidden; }
-  .strip .seg { flex: 0 0 16px; height: 2px; background: var(--border); }
-  .strip .seg:first-child, .strip .seg:last-child { flex-basis: 10px; }
-  .strip .stop { margin-right: 6px; }
-  .strip .dot { margin-right: 4px; vertical-align: -1px; }
-  .row.ride { cursor: default; border-left-color: var(--green); }
-  .row.ride.arrived { border-left-color: var(--border); }
-  .row.ride.amber { border-left-color: var(--amber); }
-  .row.ride.red { border-left-color: var(--red); }
-  .row.ride.red .big { color: var(--red); }
-  .row.ride:not(.amber):not(.red) .big { color: var(--green); }
-  .ride-head { font-size: 20px; font-weight: 700; color: var(--green); }
-  .row.ride.arrived .ride-head { color: var(--text); }
-  .step.current { color: var(--text); font-weight: 600; }
-  .row.tracked { outline: 2px solid var(--green); outline-offset: -2px; }
-  .chev { color: var(--muted); font-size: 20px; line-height: 1; margin-left: 6px; }
-  .row-foot { display: flex; align-items: center; margin-top: 10px; }
-  .row-foot .chev { margin-left: auto; }
-  .track-btn {
-    padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
-    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
-  }
-  .track-btn.tracking { color: var(--green); border-color: var(--green); }
-  .row-foot { gap: 8px; }
-  /* Touch targets: 44 px minimum (test/browser/webkit-layout.spec.js). Buttons a few px short get an
-     invisible hit area, like .map-tool's (inset counts from the padding box, so the 1 px border is
-     extra), no taller than the gaps around them: the list's 10 px, the row foot's 10 px above. Those
-     with a neighbor closer (stacked items, the ride bar's 8 px wrap) are made taller instead. */
-  .list-btn, .track-btn, .setup button:where(:not(.item, .link, .row-toggle)) { position: relative; }
-  .list-btn::before, .setup button:where(:not(.item, .link, .row-toggle))::before { content: ''; position: absolute; inset: -4.2px 0; }
-  .track-btn::before { content: ''; position: absolute; inset: -6.2px 0; }
-  /* The ▲ ▼ buttons are tall but 38 px wide: the area grows sideways, into the 6 px gaps. */
-  .setup .leg-row > button::before, .setup .trip-row > button::before { inset: 0 -4.2px; }
-  /* The picker's and lists' items stack with a 6 px gap: each reaches 3 px past its border, to the middle. */
-  .setup .field > button.item { min-height: 44px; }
-  .setup .list button.item { position: relative; }
-  .setup .list button.item::before { content: ''; position: absolute; inset: -4px 0; }
-  .alerts-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .track-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .track-btn.on { background: var(--green); color: var(--card); border-color: var(--green); font-weight: 600; }
-  .track-btn:disabled { opacity: .5; cursor: default; }
-  .push-hint { margin-top: 6px; font-size: 13px; color: var(--muted); }
-  /* The bell is on with notifications: a bell beside the collapsed row's badge. */
-  .summary .bell { display: inline-flex; color: var(--green); margin-left: 0; } /* the summary's gap spaces it */
-  .summary .bell svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .ride-outlook { margin-top: 6px; font-size: 14px; color: var(--muted); }
-  .ride-outlook.warn { color: var(--amber); font-weight: 600; }
-  .ride-outlook.late { color: var(--red); }
-  /* Ride card: the stops left along the ridden leg's bar (small dots), and the vehicle on it. */
-  .tl-leg .step.mid::after { top: 0; bottom: 0; }
-  .step.mid { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding-top: 2px; padding-bottom: 2px; }
-  .step.mid .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .step.mid .t { flex: none; }
-  .mid-dot { position: absolute; left: 3px; top: calc(2px + .55em); width: 4px; height: 4px; border-radius: 50%; background: var(--card); z-index: 1; }
-  .step.mid.here { font-weight: 600; }
-  .step.mid.gap { height: 16px; padding: 0; }
-  .veh {
-    position: absolute; left: -4px; width: 18px; height: 18px; border-radius: 50%; background: var(--c);
-    border: 3px solid var(--card); box-shadow: 0 0 0 1px var(--c); box-sizing: border-box; z-index: 2;
-  }
-  .step.mid.here .veh { top: calc(2px + .2em); }
-  .step.mid.gap .veh { top: -1px; }
-  .step.stop > .veh { top: calc(.35em - 1px); } /* on the boarding stop's node, centered like it */
-  .step.mid.more button { /* a 44 px touch area, layout-neutral: the padding is taken back by the margin */
-    padding: 13px 0; margin: -13px 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
-    text-decoration: underline; cursor: pointer; box-shadow: none !important; transform: none !important;
-  }
-  .enroute-bar.ride-btns { margin: 12px 0 0; }
-  .enroute-bar #oneoff-remove { min-width: 44px; }
-  .alerts-btn { min-height: 44px; }
-  /* Auto-route options: cards like the rows (setup). */
-  .setup button.row-toggle { padding: 0; border: 0; border-radius: 6px; background: none; font-size: inherit; }
-  .row.option .opt-head { display: block; font-size: 20px; }
-  #plan-options { margin-top: 6px; grid-template-columns: minmax(0, 1fr); } /* long stop names cut, not widen */
-  .toast {
-    position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 30; /* above the route map sheet (its locate toast) */
-    max-width: 360px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px;
-    background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 12px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, .18); font-size: 15px;
-  }
-  .toast { cursor: pointer; }
-  /* The simulator's bar (DESIGN.md "Simulator"): fixed at the bottom, dashed in the accent; the
-     toast sits above it, the page scrolls clear of it. */
-  .sim-bar {
-    position: fixed; left: 10px; right: 10px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); z-index: 25;
-    max-width: 460px; margin: 0 auto; max-height: 70vh; overflow-y: auto; padding: 8px 10px;
-    background: var(--card); color: var(--text); border: 2px dashed var(--accent); border-radius: 14px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, .2); font-size: 14px;
-  }
-  body.sim-on { padding-bottom: calc(var(--sim-bar-h, 100px) + 28px); }
-  body.sim-on .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--sim-bar-h, 100px) + 24px); }
-  .sim-top { display: flex; align-items: center; gap: 8px; }
-  .sim-tag { background: var(--accent); color: #1c1f24; font-weight: 700; font-size: 11px; padding: 2px 6px; border-radius: 6px; }
-  .sim-clock { flex: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .sim-bar button {
-    min-height: 32px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px;
-    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
-  }
-  .sim-top button { border: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; padding: 0; }
-  .sim-bar button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-  .sim-ctl { display: flex; gap: 6px; margin-top: 8px; }
-  .sim-ctl button { flex: 1; display: inline-flex; align-items: center; justify-content: center; }
-  .sim-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-  .sim-chips button { flex: 1 1 auto; font-size: 13px; }
-  .sim-bar button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
-  .sim-label { font-size: 12px; color: var(--muted); margin-top: 8px; }
-  .sim-bar > button[aria-expanded] { margin-top: 8px; border: 0; padding: 4px 0; color: var(--muted); font-size: 13px; }
-  .sim-pushes { list-style: none; margin: 4px 0 0; padding: 0; font-size: 13px; color: var(--muted); display: grid; gap: 4px; }
-  .toast span { flex: 1; }
-  .toast button {
-    padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card);
-    color: var(--green); font: inherit; font-weight: 600; cursor: pointer;
-  }
-  .summary { display: flex; justify-content: space-between; align-items: center; gap: 0 8px; }
-  .summary .badge { margin-left: 0; }
-  .summary .chev { margin-left: 0; }
-  .arrive { margin-left: auto; white-space: nowrap; }
-  /* Expanded row: steps under a divider, joined by a rail through the route dots. */
-  .timeline { position: relative; border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; }
-  /* Walking parts of the rail: dotted; each ride draws its own bar over it (.tl-leg). */
-  .timeline::before {
-    content: ''; position: absolute; left: 4px; top: 14px; bottom: 12px; border-left: 2px dotted var(--border);
-  }
-  .step { position: relative; padding: 3px 0 3px 22px; }
-  .step.walk { font-size: 13px; color: var(--muted); }
-  .tl-leg { position: relative; }
-  /* The ride's bar, in three pieces so it runs node to node even when a long name wraps: from
-     the boarding stop's node down, through the ride line, down to the drop-off's node. */
-  .tl-leg .step::after { content: ''; position: absolute; left: 1px; width: 8px; background: var(--c); }
-  .tl-leg .step.stop:first-child::after { top: calc(8px + .35em); bottom: 0; border-radius: 4px 4px 0 0; }
-  .tl-leg .step.ride::after { top: 0; bottom: 0; }
-  .tl-leg .step.stop:last-child::after { top: 0; height: calc(8px + .35em); border-radius: 0 0 4px 4px; }
-  .step.stop, .step.end { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; }
-  .step.stop { cursor: pointer; }
-  .step.stop .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .step.stop.full .n { white-space: normal; }
-  .step.stop .t, .step.end .t { flex: none; }
-  .node.end-node { background: var(--muted); border-color: var(--muted); }
-  .node {
-    position: absolute; left: 0; top: calc(3px + .35em); width: 10px; height: 10px; border-radius: 50%;
-    background: var(--card); border: 2px solid var(--c); box-sizing: border-box; z-index: 1;
-  }
-  .step.ride { font-size: 13px; color: var(--muted); padding-top: 4px; padding-bottom: 4px; }
-  .step.ride .toward { font-size: 12px; }
-  .step.ride .train { font-size: 12px; color: var(--muted); }
-  .step.ride .leg-alert {
-    margin-top: 4px; padding: 4px 8px; font-size: 13px; color: var(--text); font-weight: normal;
-    background: var(--alert-bg); border: 1px solid var(--alert-border); border-radius: 8px;
-  }
-  .step .flag { color: var(--amber); font-weight: 600; }
-  /* Passed steps: muted text (still 4.5:1), faded node, bar and walking figure. */
-  .step.done { color: var(--muted); }
-  .step.done > .node, .step.done::after, .step.done .walk-icon svg { opacity: .4; }
-  .step.walk.current, .step.ride.current { color: var(--text); }
-  /* Walking figure on the rail (centered on it, like the route dots); the card color masks the rail. */
-  .walk-icon {
-    position: absolute; left: -3px; top: 3px; width: 16px; height: 18px; display: flex; align-items: center; justify-content: center;
-    background: var(--card); color: var(--muted);
-  }
-  .walk-icon svg { width: 14px; height: 14px; fill: currentColor; }
-  .step.current .walk-icon { color: var(--text); }
-  .empty { color: var(--muted); padding: 16px 0; }
-  .enroute-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 14px; color: var(--muted); }
-  .enroute-bar button {
-    min-height: 44px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
-    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
-  }
-  .en-status { flex: 1 1 0; min-width: 0; }
-  .enroute-bar.wide .en-status { flex-basis: 100%; }
-  .version { color: var(--muted); font-size: 12px; text-align: center; margin-top: 20px; }
-  /* Reload prompts: a 44 px target. The new-version card sits above the footer version. */
-  .big-btn { min-height: 44px; padding: 0 22px; font-size: 17px; font-weight: 600; border-radius: 12px;
-    background: var(--accent); border: 1px solid var(--accent); color: #1c1f24; }
-  #loadfail .big-btn { display: block; margin-top: 8px; }
-  .update-card { margin-top: 20px; border: 1px solid var(--accent); border-radius: 14px; padding: 14px; text-align: center; }
-  .update-card .t { font-weight: 600; margin-bottom: 10px; }
-  .update-card .big-btn { width: 100%; }
-  .empty .big-btn { width: 100%; }
-  .empty-help { margin: 0 0 12px; }
-  .empty .secondary-btn { width: 100%; min-height: 44px; margin-top: 10px; border-radius: 12px; cursor: pointer;
-    background: var(--card); border: 1px solid var(--border); color: var(--text); font: inherit; font-size: 17px; font-weight: 600; }
-  /* Setup view (setup.js) */
-  .setup button {
-    padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
-    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
-  }
-  .setup button.primary { background: var(--accent); color: #1c1f24; border-color: var(--accent); font-weight: 600; }
-  .setup button.danger { color: var(--red); }
-  /* Setup's "Pending notifications" (debug). */
-  .setup .card.pn { padding: 10px 12px; }
-  .pn + .pn { margin-top: 8px; }
-  .pn .k { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-  .pn .t1 { font-weight: 600; margin-top: 2px; }
-  .pn-line { font-size: 14px; margin-top: 4px; display: flex; gap: 8px; }
-  .pn-line .w, .pn-log .w { color: var(--muted); min-width: 58px; flex: none; font-variant-numeric: tabular-nums; }
-  .pn .ok, .pn-log .ok { color: var(--green); }
-  .pn .bad, .pn-log .bad { color: var(--red); }
-  .pn .det { font-size: 13px; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
-  .pn-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
-  .setup .card.pn.warn { border-color: var(--alert-border); background: var(--alert-bg); }
-  .pn-log { font-size: 14px; }
-  .pn-log .e { display: flex; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); }
-  .pn-log .e:first-child { border-top: 0; }
-  .pn-clear { margin-top: 12px; }
-  .setup button:disabled { opacity: .5; }
-  .setup-head {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    position: sticky; top: 0; z-index: 5; background: var(--bg);
-    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 10px; margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 0;
-  }
-  /* Picker: header, context line and search stick together; the header inside is a plain block. */
-  .picker-top {
-    position: sticky; top: 0; z-index: 5; background: var(--bg);
-    padding: calc(env(safe-area-inset-top, 0px) + 22px) 16px 8px; margin: calc(-22px - env(safe-area-inset-top, 0px)) -16px 0;
-  }
-  .picker-top .setup-head { position: static; padding: 0 0 10px; margin: 0; background: none; }
-  html.scrolled .picker-top .setup-head::after { content: none; } /* the wrapper's fade covers it */
-  .picker-top .muted { margin-top: 0; }
-  .setup .card {
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    padding: 10px 14px 14px; margin-bottom: 12px;
-  }
-  .field { display: block; margin: 10px 0 0; font-size: 14px; color: var(--muted); }
-  /* Developer › Simulator (setup). */
-  .sim-card .toggle { margin-top: 10px; flex: none; }
-  .sim-card .field select, .sim-card .field input { display: block; width: 100%; margin-top: 4px; }
-  .sim-card .sim-hint { margin-top: 2px; font-size: 13px; color: var(--muted); }
-  .sim-card > button.primary { display: block; width: 100%; margin-top: 14px; min-height: 44px; font-size: 17px; }
-  .field input { margin-top: 4px; }
-  /* Auto-route: the two walk fields side by side; a picked station's "Change" at the right. */
-  .field-pair { display: flex; gap: 10px; align-items: flex-end; }
-  .field-pair > .field { flex: 1; min-width: 0; }
-  .field > .item { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; }
-  .field .item .change { margin-left: auto; color: var(--accent-text); font-size: 14px; }
-  /* Setup's Permissions (the iOS app). */
-  .setup .perms { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
-  .setup .perms-head { font-size: 14px; color: var(--muted); }
-  .perm-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 34px; margin: 4px 0 0; font-size: 14px; }
-  .perm-off { color: var(--amber); font-weight: 600; }
-  .setup .perm-row button { padding: 4px 12px; }
-  .setup button.perm-settings { width: 100%; margin-top: 12px; display: flex; justify-content: space-between; }
-  .check { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 14px; }
-  .boarding-log div { font-size: 13px; margin: 4px 0; overflow-wrap: anywhere; }
-  .setup .check input { width: auto; margin: 0; }
-  .setup label.check { min-height: 44px; }
-  .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-  .setup input, .setup textarea, .setup select {
-    width: 100%; font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text);
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px;
-  }
-  .setup input:not([type=checkbox]):not([type=radio]), .setup select, .setup textarea { min-height: 44px; }
-  /* iOS draws time and date inputs natively at their own width, ignoring width: 100%; without the
-     native appearance they fit the column (the picker still opens). */
-  .setup input[type=time], .setup input[type=date] {
-    -webkit-appearance: none; appearance: none; min-width: 0; display: block;
-    min-height: calc(1.4em + 18px); /* an empty time input collapses without its appearance */
-  }
-  .setup input[type=time]::-webkit-date-and-time-value, .setup input[type=date]::-webkit-date-and-time-value { text-align: left; }
-  .setup textarea { height: 240px; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; margin-top: 8px; }
-  .leg-row { display: flex; gap: 6px; margin-top: 12px; }
-  .setup .leg-row .leg-item {
-    flex: 1; min-width: 0; display: flex; align-items: center; text-align: left;
-    border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 8px 12px 10px;
-  }
-  .leg-main { flex: 1; min-width: 0; }
-  .go { margin-left: auto; padding-left: 8px; color: var(--muted); font-size: 20px; line-height: 1; }
-  .setup .trip-row .item { display: flex; align-items: center; }
-  .trip-main { flex: 1; min-width: 0; }
-  .leg-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
-  .leg-text { font-size: 14px; margin-bottom: 6px; }
-  .btns { display: flex; flex-wrap: wrap; gap: 6px; }
-  .trip-btns, .io { margin-top: 12px; }
-  .setup button.add { width: 100%; margin: 10px 0 0; }
-  .setup .arrived-note { margin-top: 12px; }
-  .setup button.add.accent { border-color: var(--accent); color: var(--accent-text); }
-  .legs-empty {
-    border: 1px dashed var(--border); border-radius: 10px; padding: 12px; margin-top: 12px;
-    text-align: center; color: var(--muted); font-size: 14px;
-  }
-  .setup details.more { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
-  .setup details.more summary { padding: 12.2px 0; font-size: 14px; color: var(--muted); cursor: pointer; }
-  .setup .list { display: grid; gap: 6px; margin-top: 10px; }
-  .setup button.item { text-align: left; width: 100%; }  .setup .item + .item { margin-top: 0; }
-  .setup .list.trips { margin: 0; }
-  .setup .section { margin: 20px 0 6px; }
-  .setup .list .section-head { margin: 8px 0 0; font-weight: 600; }
-  /* A tag longer than the line (South Station's CR lines) wraps inside instead of widening the page. */
-  .setup .item .conn { color: var(--muted); font-size: 13px; margin-left: 4px; display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
-  .setup button.item.has-dist { display: flex; align-items: baseline; gap: 8px; }
-  .setup .item.has-dist .main { flex: 1; min-width: 0; }
-  /* Seven 44 px buttons don't fit a 320 px card in one row: 4 + 3 there, one row from ~360 px. */
-  .auto-bell .toggle.days { flex-wrap: wrap; margin-top: 4px; }
-  .auto-bell .toggle.days button { flex: 1 1 60px; min-width: 0; min-height: 44px; padding: 10px 0; }
-  .auto-bell .hint { font-size: 14px; margin-top: 8px; }
-  .setup .item .dist { color: var(--muted); font-size: 14px; white-space: nowrap; }
-  .setup button.link { display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; }
-  .leg-routes { display: flex; flex-wrap: wrap; gap: 0 14px; margin: -2px 0 6px; }
-  .leg-routes .check { margin: 0; }
-  .trip-row { display: flex; gap: 6px; }
-  .trip-row .item { flex: 1; min-width: 0; padding: 10px 12px; }
-  .trip-row .item .muted { margin: 2px 0 0; overflow-wrap: anywhere; }
-  .muted { color: var(--muted); font-size: 14px; margin: 4px 0 8px; }
-  .msg { font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
-  .msg.err { color: var(--red); }
-  /* The route map (DESIGN.md "Route map"): the 🗺 sheet and setup's inline maps. Marks are sized
-     in pixels (scaled by the view in script); lines keep their width while zooming. */
-  .map-sheet {
-    position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--bg);
-    padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px max(16px, env(safe-area-inset-bottom));
-  }
-  .map-body { flex: 1; min-height: 0; display: flex; }
-  .map-body .route-map { flex: 1; display: flex; }
-  .map-body .route-svg { flex: 1; height: auto; }
-  /* The sheet's title (2026-11-13; a header row with "Done" until then): the trip's name on the map,
-     level with the corner buttons, clear of both stacks (10 + 40 + 8 px), with a halo. */
-  .map-title {
-    position: absolute; top: 10px; left: 58px; right: 58px; margin: 0; z-index: 1;
-    height: 40px; line-height: 40px; text-align: center; font-size: 18px; font-weight: 600; color: var(--text);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none;
-    text-shadow: 0 0 2px var(--bg), 0 0 4px var(--bg), 0 0 6px var(--bg), 0 0 8px var(--bg);
-  }
-  .route-map { margin: 8px 0; position: relative; }
-  /* The map's corner buttons: locate (2026-11-09; off outside the map; 2026-11-10: filled while
-     following, street and area zoom), back to the trip
-     (2026-11-08; ⤢ until 2026-11-09), shown once the view moves off the fit, and on the sheet the
-     whole map (2026-11-09), shown once the base map is in and the view isn't all the way out; on
-     the main screen's map a left stack (2026-11-13): Hide map, then "Open the full map" (on the
-     right until 2026-11-13); the sheet has a left stack too (2026-11-13): "Close the full map"
-     (a "Done" text button in a header row until then). */
-  .map-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 8px; }
-  .map-tool {
-    position: relative; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;
-    border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text);
-    font: inherit; font-size: 20px; line-height: 1; box-shadow: 0 1px 3px rgb(0 0 0 / .15); cursor: pointer;
-  }
-  .map-tool::before { content: ''; position: absolute; inset: -3px; } /* a 46 px touch area */
-  .map-tool[hidden] { display: none; }
-  .map-tool:disabled { opacity: .4; cursor: default; }
-  /* The main screen's map (2026-11-12): 26% of the screen's height, 160-300 px; it pans and zooms (2026-11-13). */
-  .main-map { margin: 0; }
-  .map-tools.start { right: auto; left: 10px; }
-  .main-map .route-svg { height: clamp(160px, 26vh, 300px); height: clamp(160px, 26svh, 300px); }
-  .main-map-item { position: relative; margin-bottom: 12px; }
-  .main-map-item .map-caption { margin: 6px 0 0; font-size: 13px; }
-  .main-map-item .map-caption[hidden] { display: none; }
-  .map-tool svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
-  .map-locate[aria-pressed="true"] svg { fill: currentColor; } /* following you (2026-11-10) */
-  .route-svg {
-    display: block; width: 100%; height: 200px; background: var(--card); border: 1px solid var(--border);
-    border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none;
-  }
-  .route-svg.still { touch-action: auto; } /* a picture: the page scrolls over it */
-  .map-caption { margin: 6px 0 0; min-height: 20px; font-size: 14px; color: var(--muted); }
-  .map-leg { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-  .map-leg.faded { stroke-opacity: .35; }
-  .map-walk { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-  .map-stop circle { fill: var(--card); stroke-width: 1.5; }
-  .map-stop.major circle { stroke-width: 3; }
-  /* A bus line's stops outside your stretch (2026-11-09), faded like its line. */
-  .map-stop.off circle:first-child { stroke-opacity: .35; }
-  .map-stop.off:focus-visible circle:first-child { stroke-opacity: 1; }
-  /* Start and end pins (2026-11-09): green start, red end, both themes; decorative. */
-  .map-pin { pointer-events: none; }
-  .map-pin path { stroke: var(--card); stroke-width: 1.5; stroke-linejoin: round; }
-  .map-pin.start path { fill: #1e8e3e; }
-  .map-pin.end path { fill: #d93025; }
-  .map-pin .hole { fill: var(--card); }
-  .map-pin.faded path, .map-pin.faded .hole { fill-opacity: .35; stroke-opacity: .35; }
-  .map-stop .map-hit { fill: transparent; stroke: none; cursor: pointer; }
-  .map-stop:focus { outline: none; }
-  .map-stop:focus-visible circle:first-child { stroke: var(--text); stroke-width: 3; }
-  .map-label { font-size: 12px; font-weight: 600; fill: var(--text); stroke: var(--bg); stroke-width: 3; paint-order: stroke; stroke-linejoin: round; }
-  /* A vehicle: a round marker pointing the way it travels, the label upright (2026-11-09). */
-  .map-vehicle text { font-size: 9px; font-weight: 700; }
-  .map-vehicle.mine text { font-size: 11px; }
-  .map-vehicle path { stroke: var(--card); stroke-width: 1.5; stroke-linejoin: round; }
-  .map-vehicle.mine path { stroke: var(--text); stroke-width: 2.5; }
-  /* The ridden vehicle at your GPS position (2026-11-12): the location dot's blue. */
-  .map-vehicle.gps path { stroke: var(--here); }
-  .map-vehicle .halo { fill: var(--here); opacity: .2; stroke: none; }
-  /* The base map: beneath the trip, sizes in px at any zoom, not interactive. */
-  .map-base { pointer-events: none; }
-  .map-water { fill: var(--map-water); }
-  .map-land { fill: var(--map-land); fill-rule: evenodd; }
-  .map-green { fill: var(--map-green); fill-rule: evenodd; }
-  .map-lake { fill: var(--map-water); fill-rule: evenodd; }
-  .map-river, .map-town-line, .map-hood-line, .map-faint { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
-  .map-river { stroke: var(--map-water); stroke-width: 1.5; }
-  .map-town-line { stroke: var(--map-line); stroke-width: 1; stroke-dasharray: 4 3; }
-  .map-hood-line { stroke: var(--map-line); stroke-width: 1; stroke-dasharray: 1.5 2.5; }
-  /* stroke-opacity, not opacity: a translucent element is composited as a layer, which left
-     seams between Chromium's raster tiles over the land (2026-11-07). */
-  .map-faint { stroke-width: 2.5; stroke-opacity: .3; }
-  .map-faint.cr { stroke-width: 1.5; stroke-opacity: .35; }
-  .map-name { fill: var(--muted); fill-opacity: .8; text-anchor: middle; }
-  .map-name.town { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
-  .map-name.hood { font-size: 10px; font-style: italic; }
-  .map-name.water, .map-name.park { font-size: 10px; font-style: italic; fill-opacity: 1; }
-  .map-name.water { fill: var(--map-water-name); }
-  .map-name.park { fill: var(--map-green-name); }
-  .map-credit { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
-  .map-here .halo { fill: var(--here); opacity: .2; }
-  .map-here .dot { fill: var(--here); stroke: #fff; stroke-width: 2; }
-</style>
+<link rel="stylesheet" href='./app.css?v=65ec941fa2'>
 </head>
 <body>
 <main>
@@ -646,7 +37,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-18 · 1e14641fb8</footer>
+    <footer class="version">Version 2026-11-19 · 1a96ad0b19</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -655,6 +46,23 @@
     <p id="map-credit" class="map-credit" hidden></p>
   </div>
   <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
+  <dialog id="share-sheet" class="share-dlg" aria-labelledby="share-sheet-title">
+    <div class="share-box"><h2 id="share-sheet-title">Sharing this trip until 30 min after you arrive</h2>
+      <button type="button" id="share-again">Share link again</button>
+      <button type="button" id="share-stop" class="danger">Stop sharing</button></div>
+    <button type="button" class="share-cancel" id="share-sheet-cancel">Cancel</button>
+  </dialog>
+  <dialog id="share-name" class="share-dlg" aria-labelledby="share-name-title">
+    <div class="share-box"><h2 id="share-name-title">Share this ride</h2>
+      <form class="share-name-form" id="share-name-form" method="dialog">
+        <label for="share-name-input">Your name</label>
+        <input id="share-name-input" type="text" maxlength="40" autocomplete="given-name" enterkeyhint="done">
+        <p>Optional. The page says "Lucas shared a ride"; blank: "Shared ride".</p>
+        <p class="share-name-error" id="share-name-error" role="alert" hidden>Up to 40 characters, with no line breaks or other control characters.</p>
+      </form>
+      <button type="submit" form="share-name-form" id="share-name-ok">Share</button></div>
+    <button type="button" class="share-cancel" id="share-name-cancel">Cancel</button>
+  </dialog>
   <div class="toast" id="toast" role="status" hidden><span></span><button type="button"></button></div>
   <div class="sim-bar" id="sim-bar" role="region" aria-label="Simulator" hidden></div>
 </main>
@@ -673,16 +81,17 @@
 </script>
 <script type="module">
 import {
-  validateConfig, withTripIds, newTripId, setupSavePlan, sameLegsAs, staleServerEntries, reminderKeyOf, reminderRef, tripReminders, tripShape, tripMarker, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
+  validateConfig, shareNameOk, withTripIds, newTripId, setupSavePlan, sameLegsAs, staleServerEntries, reminderKeyOf, reminderRef, tripReminders, tripShape, tripMarker, commuteEntities, shownTrip, widgetRequest, widgetState, pickByLocation, scheduleWindow, nextServiceWindow, fillRows,
   departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, mergeTrips, legVehicles, rememberLive, liveKey, storeLive, loadLive, tripVehicles, legTime, sourceText, averageHeadway, pickTimingLeg, tripRows,
   rowState, targetRow, timelineSteps, stopNames, tripStopsQuery, tripStopCount, tripStopShares, withStopShares, legsKey, stopCountTrip, rideLine, serviceDate, startEnRoute, tripStarted, pinTarget, advanceEnRoute, enRouteActive, enRouteStatus, pollIntervalMs, dataAgeText, retryDelayMs, rateLimitDelayMs, pullOffset, PULL_READY, PULL_HOLD, pageVersion, isNewerPage, RUM_SDK_URL, rumInitOptions, isStagingHost, stagingPlugins,
-  unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
+  unpinTarget, autoBellTrips, answerBoarding, askAnswerMatches, migrateEnRoute, askActivityState, ASK_MINUTES, onVehicle, vehicleLabel, toward, NO_TRIPS_HELP, legRoutes, trackLegs, ridePhase, canUndoBoarding, legBoardedAt, replanFrom, rideHeadline, liveActivityState, walkActivityState, rideStops, rideStopsQuery, boardingRefetchDue, RIDE_BOARDING_REFETCH_MS, shownStops, transferOutlook, outlookText, otherVehicles, connectionChoices, vehicleNoun, previousRides, switchLeg,
   filterAlerts, tripAlerts, withTripAlerts, flagStop, expandStops, childToParentMap, formatTime, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, legQuery, predictionQuery,
-  missLeg, boardingSession, boardingWindow, boardingBase, legPoints,
+  missLeg, boardingSession, boardingWindow, boardingBase, legPoints, mapLegs, followState, shareTrip,
   simCurrentRide, simJumpTargets, simPhaseKey, dayRides, simRideLabel, nextWeekday, bostonMs,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, TAP_ZOOM, doubleTap, twoFingerTap, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X,
-} from './core.js?v=3e6ce71257';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=98eaa0ecd5';
+} from './core.js?v=711556524f';
+import { el, badge, BELL_SVG, SHARE_SVG, WALK_SVG, walkStep, fullStops, renderTimeline, rideStopRows as uiRideStopRows, SVG_NS, svgEl, textOn, mapColor, basemap, loadBasemap, basemapFor, basemapGroup, basemapWidgets, toolIcon, mapToolButton, mapWidget, replaceKeepingFocus } from './ui.js?v=edec667ffa';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=552c57508a';
 
 const API = 'https://api-v3.mbta.com';
 // The simulator (DESIGN.md "Simulator"; sim.js, sim-page.js): on, the app's keys are its own copies.
@@ -694,6 +103,7 @@ const KEY_OVERRIDE = `${P}trip-override`; // { id (a trip id), setAt }
 const KEY_LAST_TRIP = `${P}last-trip`; // a trip id
 // "Leaving now" / "At the stop" per trip id: { [tripRef]: { kind, at, atStop, key, dep, ... } }.
 const KEY_EN_ROUTE = `${P}en-route`;
+const KEY_SHARE = `${P}share`;
 // Declared here: the trip-id clean start (below) clears them at load.
 const KEY_REMINDERS = `${P}reminders`;
 const KEY_ACTIVITY = `${P}activity`;
@@ -718,9 +128,14 @@ let idsAdded = false;
 function loadConfig() {
   const saved = store.get(KEY_CONFIG);
   if (!saved || typeof saved !== 'object') return null;
-  const { cfg, added } = withTripIds(saved);
+  const { cfg: withIds, added } = withTripIds(saved);
+  // A share name that isn't valid is dropped (asked for again) rather than taking the trips with it.
+  const badName = withIds.shareName !== undefined && !(typeof withIds.shareName === 'string' && shareNameOk(withIds.shareName));
+  const { shareName: _dropped, ...rest } = withIds;
+  const cfg = badName ? rest : withIds;
   if (validateConfig(cfg).length) return null;
-  if (added) { store.set(KEY_CONFIG, cfg); idsAdded = true; }
+  if (added || badName) store.set(KEY_CONFIG, cfg);
+  if (added) idsAdded = true;
   return cfg;
 }
 
@@ -835,6 +250,7 @@ function fetchPredictions(trip) {
 function fetchRideStops(tripId) {
   return api('/predictions', rideStopsQuery(tripId));
 }
+const rideStopsEntry = (tripId, doc) => ({ tripId, doc, at: Date.now() });
 
 // Stops per leg for an expanded row's ride lines: each leg's trip stop list (tripStopsQuery),
 // fetched on first expand and kept in memory by trip and service date ({ doc } | { pending } |
@@ -991,8 +407,8 @@ async function refresh({ force = false } = {}) {
     if (riding) {
       const tripId = riding.leg.tripId;
       tasks.push(fetchRideStops(tripId)
-        .then(doc => { c.rideStops = { tripId, doc, at: Date.now() }; })
-        .catch(() => { c.rideStops = { tripId, doc: null, at: Date.now() }; }));
+        .then(doc => { c.rideStops = rideStopsEntry(tripId, doc); })
+        .catch(() => { c.rideStops = rideStopsEntry(tripId, null); }));
     }
     await Promise.all(tasks);
     // Once today's service is running out, fetch the next service day's morning schedule.
@@ -1161,18 +577,6 @@ function currentAlerts(now) {
   return filterAlerts(c.alerts.doc, routes, expandStops(stops, parents), now);
 }
 
-function el(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text != null) e.textContent = text;
-  return e;
-}
-
-// LIVE / SCHEDULED, or "every 6 min" (styled as scheduled) on a subway leg with no predictions.
-function badge(leg) {
-  return el('span', `badge ${leg.source}`, sourceText(leg));
-}
-
 // The trip picker (2026-11-12): a select for any number of trips (the 2-trip buttons and the
 // "Plan a trip…" button under them until then), the trips, a separator (<hr>, drawn by
 // Chromium 119+ and Safari 17+, skipped elsewhere), then "Plan a trip…", which opens the
@@ -1312,6 +716,7 @@ function renderRow(r, now, isCatch, pinnedKey = null, gone = null, prev = false)
       if (tracked) bellOff(); else bellOn(r);
     };
     foot.append(b);
+    if (tracked && shareAvailable) foot.append(shareButton(refOf(tripIdx), `share:${key}`));
     if (tracked && !reminder && !canNotify()) {
       hint = el('div', 'push-hint', `Notifications are off: tracking in the app only.${pushSupported ? '' : ' Add to Home Screen to get them.'}`);
     }
@@ -1340,7 +745,7 @@ function serverFetch(path, init) {
   return fetch(`${SERVER_API}${path}`, init);
 }
 // The simulator, started before anything uses it (sim-page.js; null when off).
-const SIM = SIM_ON ? await import('./sim-page.js?v=82586725c8').then(m => m.startSimPage(window.tminusSim, { mbtaApi })) : null;
+const SIM = SIM_ON ? await import('./sim-page.js?v=964c6f6bb9').then(m => m.startSimPage(window.tminusSim, { mbtaApi })) : null;
 // The iOS app (IOS.md): this page in a WKWebView with Capacitor's bridge (`window.Capacitor`).
 // There, pushes come from APNs (the PushNotifications plugin; the subscription is
 // `{ endpoint: 'apns:<token>' }`), the screen stays on through the app's own plugin
@@ -1422,7 +827,6 @@ for (const e of staleServer) {
   if (SERVER_API) serverFetch(`/${e.kind === 'ride' ? 'rides' : 'reminders'}/${e.id}`, { method: 'DELETE' }).catch(() => {});
 }
 let reminderBusy = null; // the row key while a request is in flight
-const BELL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
 
 const reminderKey = r => reminderKeyOf(refOf(tripIdx), rowKey(r));
 // The row's reminder (the bell's, with notifications).
@@ -1800,7 +1204,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=3e6ce71257'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=711556524f'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2116,9 +1520,187 @@ function bellOn(r) {
   if (canNotify() && r.firstDep > Date.now()) notify(r);
 }
 function bellOff() {
+  endShare('ended', { ref: refOf(tripIdx) });
   setEnRoute(unpinTarget(enRouteState()));
   render();
   schedulePoll();
+}
+
+// ---------- share my ride (DESIGN.md "Share my ride") ----------
+
+// A live page for one ride, for anyone with its link. The server keeps the share (its own record, not
+// a reminder) and times it as the widget; the app keeps it in step with its en-route state
+// (`syncShare`, from each render: the bell, the walk, boarding, a vehicle switch, a re-plan) and ends
+// it where the rider does ("Missed it", bell off, Cancel trip, Stop sharing). `KEY_SHARE`:
+// { secret, share: { id, tripRef, sig, tripJson, sentAt, resume, retryAt } | null, pending: [{ id, reason,
+// leg, dep, retryAt }] }. The secret is the device's, sent as a Bearer token with each change; the server
+// keeps its hash. `pending`: DELETEs the server hasn't acknowledged, resent until it does.
+const shareAvailable = !!SERVER_API && !SIM_ON; // the simulator's server is in the page: a link to it can't be opened
+const SHARE_GAP_MS = 4000; // changes go at most this often
+const shareStore = () => store.get(KEY_SHARE) ?? {};
+const saveShare = x => store.set(KEY_SHARE, x);
+const sharingTrip = ref => !!ref && shareStore().share?.tripRef === ref;
+const shareHeaders = secret => ({ 'content-type': 'application/json', authorization: `Bearer ${secret}` });
+let shareBusy = false;
+const deleting = new Set(); // the ids of DELETEs in flight: a change waits for them (an Undo's resume would overtake its own DELETE)
+
+// What the share sends for a trip now: the stripped trip, the app's followed state, the name and the
+// stop slack. `raw`: the trip's en-route state, when the caller has read it.
+function shareParts(ref, raw = store.get(KEY_EN_ROUTE)?.[ref]) {
+  const trip = config?.trips.find(t => t.id === ref);
+  const state = trip && raw ? followState(ref, withSharesAll({ [ref]: raw })[ref]) : null;
+  if (!state) return null;
+  const parts = { state, name: config.shareName ?? '', slack: stopSlackMinutes(config) };
+  const shared = shareTrip(trip);
+  const tripJson = JSON.stringify(shared);
+  return { ...parts, trip: shared, tripJson, sig: JSON.stringify({ ...parts, trip: tripJson }) };
+}
+
+// The share's link, as the share sheet or the clipboard gives it (only the link: the page says the rest).
+// `first`: a cancelled first share sheet ends the share again.
+async function shareLink(id, first) {
+  const url = `${location.origin}/r/${id}`;
+  if (navigator.share) {
+    try { await navigator.share({ url }); return; } catch (e) {
+      if (e?.name === 'AbortError') { if (first) { endShare('stopped'); render(); } return; }
+    }
+  }
+  try { await navigator.clipboard.writeText(url); showToast('Link copied'); } catch { showToast(url); }
+}
+
+function saveShareName(name) {
+  savedConfig = { ...(savedConfig ?? { trips: [] }), shareName: name };
+  store.set(KEY_CONFIG, savedConfig);
+  config = withOneOff(savedConfig);
+}
+// The first share asks for the name once (optional), then goes on.
+function askShareName(then) {
+  const dlg = $('share-name');
+  const input = $('share-name-input');
+  input.value = config.shareName ?? '';
+  let done = false;
+  const error = $('share-name-error');
+  error.hidden = true;
+  const finish = ok => {
+    if (done) return;
+    if (ok && !shareNameOk(input.value.trim())) { error.hidden = false; input.focus(); return; } // stays open
+    done = true;
+    dlg.close();
+    if (ok) { saveShareName(input.value.trim()); then(); }
+  };
+  $('share-name-form').onsubmit = e => { e.preventDefault(); finish(true); };
+  $('share-name-cancel').onclick = () => finish(false);
+  dlg.onclose = () => { done = true; };
+  dlg.showModal();
+}
+function openShareSheet(id) {
+  const dlg = $('share-sheet');
+  $('share-again').onclick = () => { dlg.close(); shareLink(id, false); };
+  $('share-stop').onclick = () => { dlg.close(); endShare('stopped'); render(); showToast('Sharing stopped'); };
+  $('share-sheet-cancel').onclick = () => dlg.close();
+  dlg.showModal();
+}
+
+// Share / Sharing: a new share of the shown trip's belled or ridden ride, or the sheet of the live one.
+async function startShare() {
+  if (!shareAvailable || !config) return;
+  const ref = refOf(tripIdx);
+  const sh = shareStore();
+  if (sh.share && sh.share.tripRef === ref) return openShareSheet(sh.share.id);
+  if (config.shareName === undefined) return askShareName(startShare);
+  const p = shareParts(ref);
+  if (!p || !(p.state.ride || p.state.pinned)) return;
+  let res;
+  try {
+    res = await serverFetch('/shares', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trip: p.trip, state: p.state, name: p.name, slack: p.slack, ...(sh.secret && { secret: sh.secret }) }),
+    });
+  } catch { res = null; }
+  if (!res?.ok) { showToast("Couldn't start sharing"); return; }
+  const { id, secret } = await res.json();
+  saveShare({ ...shareStore(), secret: secret ?? sh.secret, share: { id, tripRef: ref, sig: p.sig, tripJson: p.tripJson, sentAt: Date.now() } });
+  render();
+  await shareLink(id, true);
+}
+
+// Ends the share (for `ref` only, when given): `reason` 'stopped' | 'ended' | 'missed' (with the
+// missed leg and its departure, for the page's "Missed Bus 132 7:36am"). Returns the share for an Undo.
+function endShare(reason, { ref = null, leg = null, dep = null } = {}) {
+  const sh = shareStore();
+  const cur = sh.share;
+  if (!cur || (ref != null && cur.tripRef !== ref)) return null;
+  saveShare({ ...sh, share: null, pending: [...(sh.pending ?? []), { id: cur.id, reason, ...(leg != null && { leg, dep }) }] });
+  sendRevocations();
+  return cur;
+}
+// The unacknowledged DELETEs (an ended share's link stays live until one gets through), each at most
+// every 30 s. Any answer but a server error settles it (404/401: nothing there to end, or not ours).
+function sendRevocations() {
+  const sh = shareStore();
+  for (const d of sh.pending ?? []) {
+    if (deleting.has(d.id) || Date.now() < (d.retryAt ?? 0)) continue;
+    deleting.add(d.id);
+    const q = new URLSearchParams({ reason: d.reason, ...(d.leg != null && { leg: d.leg, dep: d.dep }) });
+    const settle = ok => {
+      const latest = shareStore();
+      saveShare({ ...latest, pending: (latest.pending ?? []).flatMap(x => (x.id !== d.id ? [x] : ok ? [] : [{ ...x, retryAt: Date.now() + 30_000 }])) });
+    };
+    serverFetch(`/shares/${d.id}?${q}`, { method: 'DELETE', headers: shareHeaders(sh.secret) })
+      .then(res => settle(res.ok || [401, 404, 410].includes(res.status)), () => settle(false))
+      .finally(() => deleting.delete(d.id));
+  }
+}
+// An Undo of Cancel trip or a one-off's removal: the share goes on (the server revives an `ended` one within a minute).
+// Its DELETE, not yet acknowledged, is dropped (one in flight may still end it: the resume revives it).
+function resumeShare(cur) {
+  const sh = shareStore();
+  if (cur && !sh.share) saveShare({ ...sh, share: { ...cur, sig: null, resume: true, retryAt: 0 }, pending: (sh.pending ?? []).filter(d => d.id !== cur.id) });
+}
+
+// From each render: the share follows the trip's en-route state. A trip gone, or its state without the
+// bell or a ride (the bell moved elsewhere): ended. A state that is simply gone (the ride done, the
+// question timed out) never ends it: the server carries the page on by the clock; the app forgets it
+// (no more changes: a later ride of the trip mustn't reach the old link).
+function syncShare(now) {
+  sendRevocations();
+  const sh = shareStore();
+  const cur = sh.share;
+  if (!cur || shareBusy || deleting.size || !shareAvailable || now < (cur.retryAt ?? 0)) return;
+  if (!config?.trips.some(t => t.id === cur.tripRef)) { endShare('ended'); return; }
+  const raw = (store.get(KEY_EN_ROUTE) ?? {})[cur.tripRef];
+  if (!raw) { saveShare({ ...sh, share: null }); render(); return; }
+  if (!raw.ride && !raw.pinned) { endShare('ended'); return; }
+  if (now - (cur.sentAt ?? 0) < SHARE_GAP_MS) return;
+  const p = shareParts(cur.tripRef, raw);
+  if (!p || (p.sig === cur.sig && !cur.resume)) return;
+  shareBusy = true;
+  const body = { state: p.state, name: p.name, slack: p.slack, ...(p.tripJson !== cur.tripJson && { trip: p.trip }), ...(cur.resume && { resume: true }) };
+  // Applied to the share only while it is still this one.
+  const settle = f => { const latest = shareStore(); if (latest.share?.id === cur.id) f(latest); };
+  const retryLater = () => settle(latest => saveShare({ ...latest, share: { ...latest.share, retryAt: Date.now() + 30_000 } }));
+  serverFetch(`/shares/${cur.id}`, { method: 'PUT', headers: shareHeaders(sh.secret), body: JSON.stringify(body) })
+    .then(res => {
+      if (res.ok) settle(latest => saveShare({ ...latest, share: { ...latest.share, sig: p.sig, tripJson: p.tripJson, sentAt: Date.now(), resume: false, retryAt: 0 } }));
+      else if ([401, 404, 410].includes(res.status)) settle(latest => { saveShare({ ...latest, share: null }); render(); }); // ended on the server
+      else retryLater();
+    })
+    .catch(retryLater)
+    .finally(() => { shareBusy = false; });
+}
+
+// The Share / Sharing button: in the belled row's foot, and in the ride card's buttons.
+// `cls`, `onCls`: the button's class and its class while sharing.
+function shareButton(ref, focus, cls = 'track-btn', onCls = 'tracking') {
+  const on = sharingTrip(ref);
+  const b = el('button', `${cls} share-btn${on ? ` ${onCls}` : ''}`);
+  b.type = 'button';
+  b.innerHTML = SHARE_SVG;
+  b.append(on ? 'Sharing' : 'Share');
+  b.dataset.focus = focus;
+  b.setAttribute('aria-haspopup', 'dialog');
+  b.onclick = e => { e.stopPropagation(); startShare(); };
+  return b;
 }
 
 // Auto-bell (DESIGN.md "Auto-bell"): the saved trips' schedules go to the server, which bells
@@ -2188,95 +1770,6 @@ function tripStopNames() {
   return stopNames(...(c?.schedules?.docs ?? []), ...(c?.nextDay?.docs ?? []), ...(c?.predictions ?? []));
 }
 
-// A walking figure on the timeline rail for steps that involve walking (Material
-// "directions_walk", Apache 2.0).
-const WALK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"/></svg>';
-function walkStep(line, step) {
-  if (!step.walking) return line;
-  const icon = el('span', 'walk-icon');
-  icon.innerHTML = WALK_SVG;
-  line.prepend(icon);
-  return line;
-}
-
-// The timeline: each stop once and "Arrive" at the end ("Leave" first only in setup's auto-route
-// options: a row's header has its leave-by, 2026-11-17), as nodes with their times; each ride as a
-// bar in its route's color from its first stop to its last, with "Bus 132 · 9 min" and "toward
-// Malden LIVE" between them; walks and transfers on the dotted rail. Names not known yet show "—". Long names are cut; tapping a stop
-// shows it in full (kept per `key` across re-renders) without collapsing the row.
-// `phase` (ride card): what's done is dimmed, the current step is bold. `along` (ride card): rows
-// placed on the ridden leg's bar, before its drop-off ({ leg, rows, boarding }; `boarding`: the vehicle
-// hasn't left the boarding stop, its dot is on that stop's node).
-const fullStops = new Set();
-function renderTimeline(steps, now, { phase = null, key = '', along = null } = {}) {
-  const timeline = el('div', 'timeline');
-  const n = steps.filter(s => s.kind === 'leg').length;
-  const p = phase ? phase.leg : -1; // index of the leg being ridden, or the one after the transfer
-  const kind = phase?.kind;
-  // Walk step before leg `i` (i === n: the last walk).
-  const walkState = i => !phase ? ''
-    : kind === 'riding' ? (i <= p ? ' done' : '')
-      : kind === 'transfer' ? (i < p ? ' done' : i === p ? ' current' : '')
-        : i < n ? ' done' : ' current';
-  // Leg `i`'s parts: its boarding stop, ride line, and drop-off stop.
-  const legState = (i, part) => {
-    if (!phase || i > p) return '';
-    if (kind !== 'riding' && kind !== 'transfer') return ' done';
-    if (i < p) return ' done';
-    if (kind === 'riding') return part === 'from' ? ' done' : ' current';
-    return part === 'from' ? ' current' : '';
-  };
-  // `veh`: the vehicle's dot on the node (the boarding stop, before the vehicle leaves it).
-  const stopLine = (name, time, id, cls, leg, at, veh = false) => {
-    const line = el('div', `step stop${cls}${fullStops.has(id) ? ' full' : ''}`);
-    const n = el('span', 'n', name ?? '—');
-    // "Malden Center · Flag stop": tell the crew to stop there.
-    if (name && flagStop(leg, at)) n.append(' · ', el('span', 'flag', flagStop(leg, at)));
-    line.append(el('span', veh ? 'veh' : 'node'), n, el('span', 't', time == null ? '' : legTime(leg, time, now)));
-    if (name) {
-      line.onclick = e => {
-        e.stopPropagation();
-        if (fullStops.has(id)) fullStops.delete(id); else fullStops.add(id);
-        line.classList.toggle('full');
-      };
-    }
-    return line;
-  };
-  let i = 0;
-  for (const s of steps) {
-    if (s.kind === 'end') {
-      // "Arrive 11:16pm" (an option's "Leave 10:30pm"): a gray node with the time in the stops' column.
-      const line = el('div', `step end${walkState(i)}`);
-      line.append(el('span', 'node end-node'), el('span', 'n', s.label), el('span', 't', s.time == null ? '' : `${s.approx ? '~' : ''}${formatTime(s.time, now)}`));
-      timeline.append(line);
-      continue;
-    }
-    if (s.kind === 'walk') {
-      timeline.append(walkStep(el('div', `step walk${walkState(i)}`, s.text), s));
-      continue;
-    }
-    const leg = el('div', 'tl-leg');
-    leg.style.setProperty('--c', s.leg.color ? `#${s.leg.color}` : 'var(--muted)');
-    // "Orange Line · 13 stops · 15 min" (stops when known), then "toward Forest Hills LIVE" (the
-    // trip's headsign and the badge, 2026-11-17) below; no headsign on the leg being ridden
-    // (2026-11-06: it matters only before boarding; the leg's last row names the drop-off), the
-    // badge then on the ride line. Untimed (an auto-route option in setup): no minutes.
-    const ride = el('div', `step ride${legState(i, 'ride')}`, rideLine(s));
-    const towardLine = s.leg.headsign && !(kind === 'riding' && i === p) ? el('div', 'toward', toward(s.leg)) : null;
-    if (s.leg.source) (towardLine ?? ride).append(badge(s.leg));
-    if (towardLine) ride.append(towardLine);
-    // Commuter rail: "Train 2317 · Track 5", and the train's own alerts.
-    const train = [s.leg.train && `Train ${s.leg.train}`, s.leg.track && `Track ${s.leg.track}`].filter(Boolean).join(' · ');
-    if (train) ride.append(el('div', 'train', train));
-    for (const a of s.leg.alerts ?? []) ride.append(el('div', 'leg-alert', a));
-    leg.append(stopLine(s.from, s.leg.dep, `${key}/${i}/from`, legState(i, 'from'), s.leg, 'board', along?.leg === i && along.boarding), ride,
-      ...(along?.leg === i ? along.rows : []), stopLine(s.to, s.leg.arr, `${key}/${i}/to`, legState(i, 'to'), s.leg, 'alight'));
-    timeline.append(leg);
-    i++;
-  }
-  return timeline;
-}
-
 // The row expanded by a tap, by row key (the timing vehicle's trip id; next-day ids repeat).
 // One at a time (2026-11-09): expanding a row collapses the other.
 let expandedRow = null;
@@ -2291,6 +1784,7 @@ function render() {
     renderSimBar(now);
   }
   syncWidget();
+  syncShare(now);
   renderToggle();
   $('refresh').hidden = !config; // nothing to refresh without trips
   $('oneoff').hidden = !config || tripIdx !== oneOffIdx();
@@ -2354,6 +1848,7 @@ function render() {
     rideFetchFor = riding.leg.tripId;
     setTimeout(() => refresh());
   }
+  if (riding) syncBoardingRefetch(en, now);
   syncStopShares();
   syncLeaveCard(now);
   syncLiveActivity(en, now);
@@ -2460,12 +1955,9 @@ function gotOn(r) {
   });
 }
 
-// Replaces the rows (every render, once a second), keeping keyboard focus on the same control
-// (`data-focus`) when it is still there.
+// Replaces the rows (every render, once a second), keeping keyboard focus.
 function setRows(...rows) {
-  const focused = document.activeElement?.dataset?.focus;
-  $('rows').replaceChildren(...rows);
-  if (focused) $('rows').querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+  replaceKeepingFocus($('rows'), ...rows);
   fitHeads();
 }
 
@@ -2532,6 +2024,7 @@ function renderEnRoute(now, hasRows, riding = false) {
 // Cancel (bar or trip card): ends at once, with "Undo" in a toast for 5 s.
 function cancelTracking() {
   const snap = { ref: refOf(tripIdx), state: enRouteState() };
+  const shared = endShare('ended', { ref: snap.ref });
   rideNote = null;
   laterOpen = false;
   nextOpen = false;
@@ -2545,6 +2038,7 @@ function cancelTracking() {
     if (i !== tripIdx) setTrip(i, true); // Cancel let autoSwitch change trips
     setEnRoute(withoutAlert(snap.state));
     restoreReminders(snap.ref, removed);
+    resumeShare(shared);
     render();
     schedulePoll();
   });
@@ -2555,6 +2049,7 @@ function cancelTracking() {
 function answer(yes) {
   const s = enRouteState();
   if (!s?.asking) return;
+  if (!yes) endShare('missed', { ref: refOf(tripIdx), leg: 0, dep: s.asking.dep });
   setEnRoute(answerBoarding(s, yes));
   render();
   schedulePoll();
@@ -2620,38 +2115,25 @@ let laterOpen = false; // "Different train?" choices shown
 let nextOpen = false; // "Different connection?" / transfer "Different bus?" choices shown
 let stopsOpen = null; // trip id of the leg whose full stop list is shown ("… N more" tapped)
 let rideFetchFor = null; // trip id whose stops were last requested outside the poll
-// The ridden leg's rows on its timeline bar, before the drop-off: the vehicle ("At <stop>" while
-// stopped at one, else a marker just above the next stop; none at the drop-off, nor before it leaves
-// the boarding stop), then the stops
-// left (shownStops: next 2, "… N more", the stop before the drop-off; "… N more" expands).
-function rideStopRows(stops, tripId, now) {
-  const mid = (cls, ...kids) => {
-    const d = el('div', `step mid${cls}`);
-    d.append(...kids);
-    return d;
-  };
-  const rows = [];
-  const v = stops.vehicle;
-  // Not on the bar at the drop-off, nor before leaving the boarding stop (its dot is on that stop's node).
-  const onBar = !v?.atDropOff && !v?.boarding;
-  if (onBar && v?.status === 'STOPPED_AT') rows.push(mid(' here', el('span', 'veh'), el('span', 'n', `At ${v.name}`)));
-  else if (onBar) rows.push(mid(' gap', el('span', 'veh')));
-  const open = stopsOpen === tripId;
-  const toggle = (text, value) => {
-    const b = el('button', null, text);
-    b.type = 'button';
-    b.dataset.focus = 'ride:more';
-    b.onclick = e => { e.stopPropagation(); stopsOpen = value; render(); };
-    return mid(' more', b);
-  };
-  for (const st of shownStops(stops.stops, open)) {
-    if (st.more) { rows.push(toggle(`… ${st.more} more`, tripId)); continue; }
-    if (st.dropOff) continue; // the timeline's drop-off row
-    rows.push(mid('', el('span', 'mid-dot'), el('span', 'n', st.name), el('span', 't', formatTime(st.time, now))));
-  }
-  if (open && shownStops(stops.stops).length < stops.stops.length) rows.push(toggle('Show fewer', null));
-  return rows;
+// The ridden leg's stops are refetched every 15 s while they show the vehicle at the boarding stop
+// (boardingRefetchDue, 2026-11-18): when the last refetch started, and whether one is out.
+let boardingLast = 0, boardingBusy = false;
+function syncBoardingRefetch(s, now) {
+  if (!config || setupView || document.hidden || boardingBusy || inFlight) return;
+  const trip = config.trips[tripIdx], c = cache[trip.id];
+  if (!c?.rideStops || c.rateLimited) return;
+  const fetchedAt = Math.max(c.rideStops.at, boardingLast);
+  if (now - fetchedAt < RIDE_BOARDING_REFETCH_MS) return; // not due: skip parsing the stops
+  const { phase, leg, stops } = rideLegStops(trip, s.ride, now);
+  if (!leg || !boardingRefetchDue({ stops, fetchedAt, since: legBoardedAt(s.ride, phase), nowMs: now })) return;
+  boardingBusy = true; boardingLast = now;
+  const tripId = leg.tripId, started = Date.now();
+  fetchRideStops(tripId)
+    .then(doc => { if (c.rideStops?.tripId === tripId && c.rideStops.at <= started) c.rideStops = rideStopsEntry(tripId, doc); })
+    .catch(() => {})
+    .finally(() => { boardingBusy = false; if (!setupView) render(); });
 }
+const rideStopRows = (stops, tripId, now) => uiRideStopRows(stops, tripId, now, { open: stopsOpen === tripId, onToggle: v => { stopsOpen = v; render(); } });
 
 function renderRideCard(s, now) {
   const trip = config.trips[tripIdx];
@@ -2722,6 +2204,7 @@ function renderRideCard(s, now) {
     const [open, closed] = phase.kind === 'transfer' ? [`Keep this ${noun}`, `Different ${noun}?`] : ['Keep this connection', 'Different connection?'];
     btns.append(btn(nextOpen ? open : closed, () => { nextOpen = !nextOpen; render(); }));
   }
+  if (phase.kind !== 'arrived' && shareAvailable) btns.append(shareButton(refOf(tripIdx), 'ride:share', '', 'sharing'));
   btns.append(phase.kind === 'arrived'
     ? btn('Done', () => {
       rideNote = null; laterOpen = false; nextOpen = false; stopsOpen = null; setEnRoute(null);
@@ -2761,7 +2244,10 @@ function missedIt(phase) {
   const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(c?.predictions?.[i], c?.schedules?.docs[i])), c?.lastLive, now);
   const { state, note } = missLeg(s, phase.leg, vehicles, transfers, now);
   rideNote = note;
-  if (!note) setEnRoute(state);
+  if (!note) {
+    endShare('missed', { ref: refOf(tripIdx), leg: phase.leg, dep: s.ride.legs[phase.leg].dep });
+    setEnRoute(state);
+  }
   render();
   schedulePoll();
 }
@@ -2836,19 +2322,19 @@ let simSeed = null; // { tripRef, date, coverage }
 const setupSimulator = () => ({
   active: SIM_ON,
   defaultDate: nextWeekday(Date.now()),
-  presets: () => import('./sim-presets.js?v=7d6854750b').then(m => m.PRESETS.map(p => ({ id: p.id, name: p.name }))),
+  presets: () => import('./sim-presets.js?v=8ad9deb13b').then(m => m.PRESETS.map(p => ({ id: p.id, name: p.name }))),
   async rides(i, date) {
     const trip = savedConfig.trips[i];
-    const { dayDocs } = await import('./sim-page.js?v=82586725c8');
+    const { dayDocs } = await import('./sim-page.js?v=964c6f6bb9');
     const { docs, coverage } = await dayDocs(trip, date, mbtaApi);
     simSeed = { tripRef: trip.id, date, coverage };
     return dayRides(trip, docs, date, stopSlackMinutes(savedConfig)).filter(r => !r.missed && r.leaveBy != null)
       .map(r => ({ label: simRideLabel(r), leaveBy: r.leaveBy }));
   },
   async start({ mode, tripIdx: i, date, leaveBy, early, presetId }) {
-    const m = await import('./sim-page.js?v=82586725c8');
+    const m = await import('./sim-page.js?v=964c6f6bb9');
     if (mode === 'preset') {
-      const { PRESETS } = await import('./sim-presets.js?v=7d6854750b');
+      const { PRESETS } = await import('./sim-presets.js?v=8ad9deb13b');
       const preset = PRESETS.find(p => p.id === presetId);
       const [hh, mm] = preset.time.split(':').map(Number);
       await m.startSim({ mode, presetId, at: bostonMs(nextWeekday(Date.now()), hh * 60 + mm) });
@@ -2950,6 +2436,8 @@ function showSetup({ importOpen = false, plan = false } = {}) {
 function moveTripState(from, to) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
   if (all[from]) { all[to] = all[from]; delete all[from]; store.set(KEY_EN_ROUTE, all); }
+  const sh = shareStore();
+  if (sh.share?.tripRef === from) saveShare({ ...sh, share: { ...sh.share, tripRef: to } });
   for (const [k, rem] of Object.entries(tripReminders(reminders, from))) {
     reminders[reminderKeyOf(to, k.slice(from.length + 1))] = rem;
     delete reminders[k];
@@ -2963,7 +2451,9 @@ function moveTripState(from, to) {
 
 // A trip's reminders (as bell off: their cards end), en-route state (and its stop alerts on the
 // server) and cached data, dropped; returns { state, reminders } for Undo.
-function dropTripState(ref) {
+// `keepShare`: a one-off's ride is over: its share is left to the server's clock (30 min after the
+// arrival) and only forgotten here, so the link isn't cut at the removal.
+function dropTripState(ref, { keepShare = false } = {}) {
   const all = store.get(KEY_EN_ROUTE) ?? {};
   const state = all[ref] ?? null;
   if (state?.alert?.id) pushApi('DELETE', `/rides/${state.alert.id}`).catch(() => {});
@@ -2972,7 +2462,12 @@ function dropTripState(ref) {
   const removed = dropReminders(ref);
   delete cache[ref];
   lastTiming.delete(ref);
-  return { state, reminders: removed };
+  if (keepShare) {
+    const sh = shareStore();
+    if (sh.share?.tripRef === ref) saveShare({ ...sh, share: null });
+    return { state, reminders: removed, share: null };
+  }
+  return { state, reminders: removed, share: endShare('ended', { ref }) };
 }
 
 // "See departures" on a planned way: it replaces any one-off and is shown. A new trip id each time.
@@ -2989,7 +2484,7 @@ function removeOneOff(undo = true) {
   const idx = oneOffIdx();
   if (idx < 0) return;
   const prev = oneOff;
-  const dropped = dropTripState(prev.trip.id);
+  const dropped = dropTripState(prev.trip.id, { keepShare: !undo });
   oneOff = null;
   store.del(KEY_ONE_OFF);
   config = withOneOff(savedConfig);
@@ -3008,6 +2503,7 @@ function removeOneOff(undo = true) {
       store.set(KEY_EN_ROUTE, all);
     }
     restoreReminders(prev.trip.id, dropped.reminders);
+    resumeShare(dropped.share);
     render();
     refresh({ force: true });
   });
@@ -3062,13 +2558,6 @@ $('open-setup').onclick = () => showSetup();
 // The trip drawn at true positions: shapes kept on the phone, the phone's location and the
 // legs' vehicles while the sheet is open. Coordinates never leave the phone: shape and vehicle
 // requests carry the route and direction only.
-const SVG_NS = 'http://www.w3.org/2000/svg';
-const svgEl = (tag, attrs = {}, text = null) => {
-  const e = document.createElementNS(SVG_NS, tag);
-  for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, v);
-  if (text != null) e.textContent = text;
-  return e;
-};
 const shapeDocs = new Map(); // stopsKey → trimmed shapes (trimShapesDoc), once loaded
 const shapeLoads = new Map(); // stopsKey → the pending load
 const shapeFailedAt = new Map(); // stopsKey → when a load failed (retried after a minute)
@@ -3096,502 +2585,6 @@ function mapFallback(leg, point = null) {
   if (list) return list;
   return point?.board && point?.alight ? [{ id: leg.stop, ...point.board, name: point.board.name ?? leg.stop }, { id: leg.alight, ...point.alight, name: point.alight.name ?? leg.alight }] : null;
 }
-// Readable text on a route color (dark on the 132's yellow, white on the Orange Line's orange).
-function textOn(hex) {
-  const n = parseInt(hex ?? '6b7078', 16);
-  const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
-  const L = 0.2126 * lin(n >> 16 & 255) + 0.7152 * lin(n >> 8 & 255) + 0.0722 * lin(n & 255);
-  return (L + 0.05) / 0.05 > 1.05 / (L + 0.05) ? '#1c1f24' : '#ffffff';
-}
-const mapColor = c => (c ? `#${c}` : 'var(--muted)');
-
-// The base map (basemap.json, scripts/build-basemap.mjs): land, green areas, water, borders, names
-// and faint lines behind every map. Fetched the first time a map opens (a plain same-origin GET, nothing
-// about the rider); a failure leaves the maps without it until the next opening. Its paths are
-// projected once per map origin (basemapLayers), not on every redraw.
-let basemap = null;
-let basemapLoad = null;
-const basemapWidgets = new Set(); // maps to redraw when it arrives
-const basemapCache = new Map(); // origin → basemapLayers (the last 8)
-function loadBasemap() {
-  if (basemap || basemapLoad) return;
-  basemapLoad = fetch('basemap.json').then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))).then(doc => {
-    if (doc?.v !== 1) return;
-    basemap = doc;
-    for (const w of basemapWidgets) { if (w.svg.isConnected) (w.onBasemap ?? w.redraw)?.(); else basemapWidgets.delete(w); }
-  }).catch(() => {}).finally(() => { basemapLoad = null; });
-}
-function basemapFor(origin) {
-  const k = `${origin.lat},${origin.lon}`;
-  if (!basemapCache.has(k)) {
-    basemapCache.set(k, basemapLayers(basemap, origin));
-    if (basemapCache.size > 8) basemapCache.delete(basemapCache.keys().next().value);
-  }
-  return basemapCache.get(k);
-}
-// The base map's SVG group for a map (each map owns its own: a node is in one SVG only), with
-// its names as marks (sized in px, shown by basemapNames).
-function basemapGroup(layers) {
-  const g = svgEl('g', { class: 'map-base', 'aria-hidden': 'true' });
-  const path = (d, cls, attrs = {}) => d && g.append(svgEl('path', { d, class: cls, ...attrs }));
-  g.append(svgEl('rect', { class: 'map-water', x: layers.water.x, y: layers.water.y, width: layers.water.w, height: layers.water.h }));
-  path(layers.coarse, 'map-land');
-  path(layers.land, 'map-land');
-  path(layers.green, 'map-green');
-  path(layers.lakes, 'map-lake');
-  path(layers.rivers, 'map-river');
-  path(layers.towns, 'map-town-line');
-  path(layers.hoods, 'map-hood-line');
-  for (const l of layers.lines) path(l.d, `map-faint ${l.kind}`, { stroke: mapColor(l.color) });
-  const marks = layers.names.map(n => {
-    const m = svgEl('g');
-    m.dataset.x = n.x; m.dataset.y = n.y;
-    m.append(svgEl('text', { class: `map-name ${n.kind}`, y: 4 }, n.name));
-    g.append(m);
-    return m;
-  });
-  return { g, names: layers.names, marks };
-}
-
-// A corner button's 24 px line icon, and a corner button (its clicks don't reach the map).
-const toolIcon = (...parts) => { const i = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }); i.append(...parts); return i; };
-function mapToolButton(cls, label, focus, icon, onClick) {
-  const b = Object.assign(document.createElement('button'), { type: 'button', className: `map-tool ${cls}` });
-  b.setAttribute('aria-label', label);
-  b.dataset.focus = focus;
-  b.append(icon);
-  b.addEventListener('click', e => { e.stopPropagation(); onClick(e); });
-  return b;
-}
-
-// A map widget: `el` (a div with the SVG and, when interactive, a caption) and draw(input, here)
-// (input: routeMapModel's, without `aspect`; here: the phone's { lat, lon } or null). Interactive:
-// pinch / drag / wheel to zoom and pan, stops as buttons whose names show in the caption.
-// `pan` (the main screen's map, 2026-11-13; on with `interactive`): the same drag and pinch, the
-// wheel only with ctrl, and a tap on a stop labels it on the map (pointer only: no stop buttons,
-// caption or whole map). Both: a double-tap zooms in, a two-finger tap out (2026-11-13).
-// The view the rider zoomed to is kept across redraws; marks keep their size in pixels.
-// `live` (the main screen's map and the sheet, 2026-11-12): refits at a fit are eased.
-function mapWidget({ label, interactive = false, pan = interactive, focusKey = 'map', caption = null, locate = false, live = false }) {
-  const svg = svgEl('svg', { class: `route-svg${pan ? '' : ' still'}`, role: interactive ? 'group' : 'img', 'aria-label': label });
-  const el = document.createElement('div');
-  el.className = 'route-map';
-  el.append(svg);
-  const cap = caption ?? (interactive ? Object.assign(document.createElement('p'), { className: 'map-caption' }) : null);
-  if (cap && !caption) { cap.setAttribute('aria-live', 'polite'); el.append(cap); }
-  const w = { el, svg, model: null, view: null, touched: false, selected: null, marks: [], stopMarks: [], vehicleMarks: [], note: '', base: null, out: false,
-    following: false, level: null, followSpan: null, followAt: null, // locate's follow (2026-11-10)
-    // The two fits (2026-11-12): `fits` { trip, me }, the chosen `mode` ('first' | 'trip' | 'me';
-    // `fit` is its view), a view state to restore on the next draw (`pending`, from the other
-    // map: w.restore), the ride's phase drawn last (`finished`: a change resets the view).
-    fits: null, mode: 'first', pending: null, finished: null };
-  Object.defineProperty(w, 'fit', { get: () => (w.fits ? w.fits[fitChoice(w.fits, w.mode)] : null) });
-  basemapWidgets.add(w);
-  loadBasemap();
-  const size = () => ({ width: svg.clientWidth || 340, height: svg.clientHeight || 200 });
-  const mpp = () => (w.view ? w.view.w / size().width : 1); // meters per pixel
-  let fitBtn = null, wholeBtn = null, limitsOf = null;
-  // The mode the fit button's next tap goes to; null: nothing to switch to.
-  const nextFit = () => (w.fits ? fitTap({ fits: w.fits, mode: w.mode, moved: w.touched }) : null);
-  function apply() {
-    // The fit button (2026-11-12): hidden with nothing to switch to; its label and icon name the next tap.
-    if (fitBtn) {
-      const next = nextFit();
-      fitBtn.hidden = !next;
-      const kind = next ? fitChoice(w.fits, next) : 'trip';
-      if (fitBtn.dataset.kind !== kind) {
-        fitBtn.dataset.kind = kind;
-        fitBtn.setAttribute('aria-label', kind === 'me' ? 'Show the trip and my location' : 'Show the whole trip');
-        fitBtn.replaceChildren(fitIcon(kind));
-      }
-    }
-    if (wholeBtn) {
-      const lim = w.fit && limitsOf ? limitsOf() : null;
-      wholeBtn.hidden = !lim?.edges || (!!w.view && Math.abs(w.view.w - lim.maxSpan) / lim.maxSpan < 0.01);
-    }
-    if (!w.view) return;
-    svg.setAttribute('viewBox', `${w.view.x} ${w.view.y} ${w.view.w} ${w.view.h}`);
-    const s = mpp();
-    for (const m of w.marks) m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`);
-    // Intermediate stops only with room between them (a zoomed-out bus leg isn't a row of dots).
-    if (w.model) {
-      const shown = stopsToShow(w.model.stops, 1 / s, { keep: w.selected });
-      w.stopMarks.forEach((m, i) => { if (shown.has(i)) m.removeAttribute('display'); else m.setAttribute('display', 'none'); });
-    }
-    // Zoomed out: your ride's vehicle only; zooming back in polls at once (`w.onZoomIn`).
-    const out = zoomedOut(w.view, w.fit);
-    for (const { g, v } of w.vehicleMarks) { if (vehicleShown(v, out)) g.removeAttribute('display'); else g.setAttribute('display', 'none'); }
-    if (w.out && !out) setTimeout(() => w.onZoomIn?.());
-    w.out = out;
-    w.updateLocate?.();
-    if (w.base) {
-      const shown = basemapNames(w.base.names, w.view, size());
-      w.base.marks.forEach((m, i) => {
-        if (shown.has(i)) { m.removeAttribute('display'); m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`); }
-        else m.setAttribute('display', 'none');
-      });
-    }
-  }
-  function showCaption() {
-    if (!cap) return;
-    const st = w.model?.stops.find(x => x.id === w.selected);
-    cap.textContent = st?.name ?? w.note;
-  }
-  function select(id) {
-    w.selected = w.selected === id ? null : id;
-    w.redraw?.();
-  }
-  // Moves the view to `to`, eased over FIT_MS (a jump with Reduce Motion). A pan, pinch or
-  // another move takes over (fitAnim).
-  const FIT_MS = 250;
-  let fitAnim = 0;
-  let animGoal = null; // the view an ease is heading to (follow and refits compare against it)
-  const animateTo = to => {
-    const id = ++fitAnim;
-    if (!w.view || matchMedia('(prefers-reduced-motion: reduce)').matches) { animGoal = null; w.view = to; apply(); return; }
-    const from = w.view, t0 = performance.now();
-    animGoal = to;
-    const step = now => {
-      if (id !== fitAnim) return;
-      const t = (now - t0) / FIT_MS;
-      if (t >= 1) { animGoal = null; w.view = to; apply(); return; }
-      w.view = easeView(from, to, t);
-      apply();
-      requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  };
-  // Off the fits (a pan, pinch, wheel, locate, the whole map): the next fit tap goes to the first view.
-  const markMoved = () => { w.touched = true; w.mode = 'first'; };
-  // The view's state for the other map (2026-11-12): the fit mode, follow, or a moved view (its
-  // center as a position, the two maps' origins can differ; meters per pixel).
-  w.viewState = () => {
-    const o = w.model?.origin, v = animGoal ?? w.view;
-    const moved = w.touched && !w.following && v && o;
-    return {
-      mode: w.mode,
-      follow: w.following ? { level: w.level, span: w.followSpan } : null,
-      moved: moved ? { center: projector(o.lat, o.lon).toLatLon({ x: v.x + v.w / 2, y: v.y + v.h / 2 }), mpp: v.w / size().width } : null,
-    };
-  };
-  w.restore = state => { w.pending = state; };
-  // A ride phase change: the first view, follow off.
-  const reset = () => { w.stopFollow?.(); w.mode = 'first'; w.touched = false; w.pending = null; };
-  // A restored state at this map's size: fits and follow recomputed, a moved view at its center
-  // and scale within this map's limits.
-  function restoreNow(st, p, width, height) {
-    if (w.following && !st.follow) w.stopFollow?.();
-    const lim = limitsOf?.() ?? null;
-    if (st.follow && w.startFollow) {
-      markMoved();
-      Object.assign(w, { following: true, level: st.follow.level, followSpan: st.follow.span });
-      if (p) { w.followAt = p; w.view = viewAt(p, w.followSpan, width / height, lim); } else w.view = w.fit;
-      w.updateLocate();
-    } else if (st.moved && w.model.origin) {
-      markMoved();
-      w.view = viewAt(mapPoint(w.model, st.moved.center), st.moved.mpp * width, width / height, lim);
-    } else {
-      Object.assign(w, { mode: st.mode ?? 'first', touched: false });
-      w.view = w.fit;
-    }
-  }
-  // `jump`: a size change, no ease.
-  w.draw = (input, here = null, note = '', { jump = false } = {}) => {
-    w.redraw = opts => w.draw(input, here, note, opts);
-    // A ride phase change: the first view, follow off (2026-11-12).
-    if (w.finished != null && input.finished !== w.finished) reset();
-    w.finished = input.finished;
-    const { width, height } = size();
-    const model = routeMapModel({ ...input, aspect: width / height, width });
-    const focused = svg.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
-    w.model = model;
-    w.note = note;
-    w.fits = model.fits;
-    const p = mapPoint(model, here);
-    if (w.pending) {
-      const st = w.pending;
-      w.pending = null;
-      restoreNow(st, p, width, height);
-    } else if (!w.touched || !w.view) {
-      // At a fit, it follows the changes (2026-11-12): eased on the live maps; the first drawing
-      // and a size change jump.
-      if (!w.view || jump || !live) w.view = w.fit;
-      else if (!sameView(animGoal ?? w.view, w.fit, width)) animateTo(w.fit);
-    }
-    const mark = (x, y, cls) => { const g = svgEl('g', { class: cls }); g.dataset.x = x; g.dataset.y = y; w.marks.push(g); return g; };
-    w.marks = [];
-    w.stopMarks = [];
-    const parts = [];
-    for (const wk of model.walks) parts.push(svgEl('line', { class: 'map-walk', x1: wk.from.x, y1: wk.from.y, x2: wk.to.x, y2: wk.to.y, 'data-kind': wk.kind }));
-    for (const l of model.legs) parts.push(svgEl('polyline', { class: `map-leg${l.faded ? ' faded' : ''}${l.off ? ' off' : ''}`, stroke: mapColor(l.color), 'data-color': l.color ?? '', points: l.path.map(p => `${p.x},${p.y}`).join(' ') }));
-    for (const st of model.stops) {
-      const g = mark(st.x, st.y, `map-stop${st.major ? ' major' : ''}${st.off ? ' off' : ''}`);
-      w.stopMarks.push(g);
-      g.append(svgEl('circle', { r: st.major ? 6 : 3.5, stroke: mapColor(st.color) }));
-      if (st.label || w.selected === st.id) g.append(svgEl('text', { x: 10, y: 4, class: 'map-label' }, st.name));
-      if (pan) {
-        g.append(svgEl('circle', { r: 14, class: 'map-hit' }));
-        g.dataset.stop = st.id;
-        if (interactive) { // the sheet's stops are buttons
-          g.dataset.focus = `${focusKey}:stop:${st.id}`;
-          g.setAttribute('role', 'button');
-          g.setAttribute('tabindex', '0');
-          g.setAttribute('aria-label', st.name);
-          g.setAttribute('aria-pressed', String(w.selected === st.id));
-        }
-      }
-      parts.push(g);
-    }
-    // The start and end pins (2026-11-09): decorative, above the stops and below the vehicles.
-    for (const pl of model.places) {
-      const g = mark(pl.x, pl.y, `map-pin ${pl.kind}${pl.faded ? ' faded' : ''}${pl.onStop ? ' on-stop' : ''}`);
-      g.setAttribute('aria-hidden', 'true');
-      g.append(svgEl('path', { d: 'M0 0C-2 -6 -8 -10 -8 -16A8 8 0 1 1 8 -16C8 -10 2 -6 0 0Z' }), svgEl('circle', { cy: -16, r: 3, class: 'hole' }));
-      if (pl.label) g.append(svgEl('text', { x: pl.side === 'left' ? -PIN_LABEL_X : PIN_LABEL_X, y: -12, 'text-anchor': pl.side === 'left' ? 'end' : null, class: 'map-label' }, pl.label));
-      parts.push(g);
-    }
-    w.vehicleMarks = [];
-    for (const v of model.vehicles) {
-      const g = mark(v.x, v.y, `map-vehicle${v.mine ? ' mine' : ''}${v.gps ? ' gps' : ''}`);
-      // A circle with a point at `heading` (the travel direction); the label stays upright.
-      const r = Math.max(11, v.label.length * 3 + 3) * (v.mine ? 1.25 : 1), tip = r + 7;
-      const pin = svgEl('path', { d: `M${tip} 0L${r * 0.5} ${-r * 0.866}A${r} ${r} 0 1 0 ${r * 0.5} ${r * 0.866}Z`, fill: mapColor(v.color), transform: `rotate(${v.heading ?? 0})` });
-      // At your GPS position (2026-11-12): a blue ring and halo, like the location dot it replaces.
-      if (v.gps) g.append(svgEl('circle', { r: r + 9, class: 'halo' }));
-      g.append(pin, svgEl('text', { y: v.mine ? 4 : 3.2, 'text-anchor': 'middle', fill: textOn(v.color) }, v.label));
-      Object.assign(g.dataset, { vehicle: v.id, heading: Math.round(v.heading ?? 0) });
-      w.vehicleMarks.push({ g, v });
-      parts.push(g);
-    }
-    if (p && !model.ride?.gps) { const g = mark(p.x, p.y, 'map-here'); g.append(svgEl('circle', { r: 14, class: 'halo' }), svgEl('circle', { r: 6, class: 'dot' })); parts.push(g); }
-    // The base map beneath, built once per origin (a vehicle or location redraw reuses it).
-    const baseKey = model.origin && basemap ? `${model.origin.lat},${model.origin.lon}` : null;
-    if (w.base?.key !== baseKey) {
-      const layers = baseKey && basemapFor(model.origin);
-      w.base = layers ? { key: baseKey, ...basemapGroup(layers) } : null;
-    }
-    svg.replaceChildren(...(w.base ? [w.base.g] : []), ...parts);
-    apply();
-    // Following (2026-11-10): each new position recenters; none (lost, outside) leaves the map still.
-    if (w.following && p) { w.followAt = p; w.followTo?.(p); }
-    showCaption();
-    if (focused) svg.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
-  };
-  new ResizeObserver(() => { if (!w.touched && w.redraw) w.redraw({ jump: true }); else apply(); }).observe(svg);
-  // Inside an option card: a tap on the map doesn't toggle the card (a picture too).
-  el.addEventListener('click', e => e.stopPropagation());
-  const pointers = new Map(); // the sheet's fingers on the map (a gesture holds off follow's recenter)
-  if (!pan && !locate) return w;
-
-  // Pan and zoom limits once the base map is in: the view's edges within commuter rail's farthest
-  // stations (the base map's `reach`, 2 km more) and the trip, out until all of it shows
-  // (2026-11-09; until then the center, 5 km more).
-  const limits = limitsOf = () => {
-    const o = w.model?.origin;
-    const area = basemap && o ? areaRect(basemap.reach, projector(o.lat, o.lon)) : null;
-    const { width, height } = size();
-    return viewLimits(w.fit, { area, aspect: width / height });
-  };
-  const tools = Object.assign(document.createElement('div'), { className: 'map-tools' });
-  // Locate (2026-11-09; `w.onLocate`, the caller's: the location, then w.startFollow). From
-  // 2026-11-10 it follows you: a first tap zooms to the street, later ones switch street / area.
-  let followTo = null;
-  if (locate) {
-    const b = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-locate' });
-    b.setAttribute('aria-label', 'Center on my location');
-    b.setAttribute('aria-pressed', 'false');
-    b.dataset.focus = `${focusKey}:locate`; // the main list's redraw keeps its focus
-    const icon = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' });
-    icon.append(svgEl('path', { d: 'M3 11 21 3l-8 18-2-8z' }));
-    b.append(icon);
-    const nextLevel = () => nextFollowLevel({ following: w.following, level: w.level, width: w.view?.w ?? 0 });
-    // The label names what a tap does next.
-    w.updateLocate = () => {
-      const label = b.disabled ? 'Center on my location (outside the map)'
-        : !w.following ? 'Center on my location'
-        : nextLevel() === 'area' ? 'Zoom out to the area' : 'Zoom in to the street';
-      if (b.getAttribute('aria-label') !== label) b.setAttribute('aria-label', label);
-      b.setAttribute('aria-pressed', String(w.following));
-    };
-    b.addEventListener('click', e => {
-      e.stopPropagation();
-      if (w.following && w.followAt) {
-        w.level = nextLevel();
-        w.followSpan = FOLLOW_SPANS[w.level];
-        followTo(w.followAt, true);
-        w.updateLocate();
-      } else w.onLocate?.();
-    });
-    tools.append(b);
-    // Off while your known position is outside the base map's bound (2026-11-09); it ends follow.
-    w.setLocateOutside = out => {
-      if (b.disabled === out) return;
-      b.disabled = out;
-      if (out) w.stopFollow();
-      w.updateLocate();
-    };
-    // The first position after a tap: follow on, at street level.
-    w.startFollow = here => {
-      const p = mapPoint(w.model, here);
-      if (!p || !w.fit) return;
-      Object.assign(w, { following: true, level: 'street', followSpan: FOLLOW_SPANS.street, followAt: p });
-      markMoved(); // the fit button shows; a redraw keeps the view
-      followTo(p, true);
-      w.updateLocate();
-    };
-    // A drag, back to the trip, the whole map, or leaving the bound: the view stays where it is.
-    w.stopFollow = () => {
-      Object.assign(w, { following: false, level: null, followSpan: null });
-      w.updateLocate();
-    };
-    // You at the follow span, eased; skipped during a gesture or when it would move under 2 px.
-    followTo = w.followTo = (p, force = false) => {
-      if (!w.following || !w.view) return;
-      const { width, height } = size();
-      const to = viewAt(p, w.followSpan, width / height, limits());
-      if (!force) {
-        if (pointers.size) return;
-        if (sameView(animGoal ?? w.view, to, width)) return;
-      }
-      animateTo(to);
-    };
-  }
-  // Back to the trip (⤢ until 2026-11-09): a route inside frame corners.
-  // Trip + me (2026-11-12): the same with a filled dot, you, in the top-left corner.
-  const fitIcon = kind => toolIcon(svgEl('path', { d: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4' }), svgEl('circle', { cx: 9, cy: 15, r: 1.6 }), svgEl('circle', { cx: 15, cy: 9, r: 1.6 }), svgEl('path', { d: 'M10.2 13.8 13.8 10.2' }),
-    ...(kind === 'me' ? [svgEl('circle', { cx: 8.6, cy: 8.6, r: 2.2, fill: 'currentColor', stroke: 'none' })] : []));
-  fitBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-fit', hidden: true });
-  fitBtn.dataset.focus = `${focusKey}:fit`;
-  // From a moved view, the first view; at a fit, the other one (2026-11-12).
-  fitBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    const next = nextFit();
-    if (!next || !w.view) return;
-    w.stopFollow?.();
-    Object.assign(w, { mode: next, touched: false });
-    animateTo(w.fit);
-    apply(); // the button's label now, not after the ease
-  });
-  tools.append(fitBtn);
-  // The whole map (the sheet, 2026-11-09): fully zoomed out over the bound; hidden until the base
-  // map is in and while already all the way out (apply).
-  if (interactive) {
-    wholeBtn = mapToolButton('map-whole', 'Show the whole map', `${focusKey}:whole`, toolIcon(svgEl('path', { d: 'M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14' })), () => {
-      const lim = w.fit && limits();
-      if (!lim?.edges || !w.view) return;
-      w.stopFollow?.();
-      const { width, height } = size();
-      markMoved();
-      animateTo(wholeView(lim, width / height));
-    });
-    wholeBtn.hidden = true;
-    tools.append(wholeBtn);
-  }
-  el.append(tools);
-  if (!pan) return w;
-
-  // Taps and keys on stops; drags and pinches move the view. While following (2026-11-10), a drag
-  // ends it; a pinch, the wheel, a double-tap or a two-finger tap keeps it, zooming about you, at
-  // the new span. A single tap waits DOUBLE_TAP_MS for a second one (2026-11-13).
-  // A gesture: px moved, a drag, a pinch, the most fingers down, when the first went down, the
-  // first two's midpoint (a two-finger tap).
-  let moved = 0, dragged = false, pinched = false, maxPointers = 0, downAt = 0, downMid = null;
-  let lastTap = null, tapTimer = 0;
-  const stopFit = () => { fitAnim++; animGoal = null; };
-  // `from` zoomed by `factor` about `at`, or you while following (which goes on at the new span).
-  const zoomFollow = (from, factor, at) => {
-    const c = w.following && w.followAt ? w.followAt : at;
-    const to = zoomView(from, factor, c.x, c.y, limits());
-    if (w.following) { w.level = null; w.followSpan = to.w; }
-    return to;
-  };
-  const toView = (cx, cy) => { const r = svg.getBoundingClientRect(); return { x: w.view.x + (cx - r.left) * mpp(), y: w.view.y + (cy - r.top) * mpp() }; };
-  // A stop: selected (the sheet: toggled, its name in the caption; the main map: labeled). Elsewhere:
-  // the main map's label cleared.
-  const tapSelect = id => {
-    if (!svg.isConnected) return;
-    if (id) select(id);
-    else if (!interactive && w.selected) { w.selected = null; w.redraw?.(); }
-  };
-  // Twice in or out about the point (you while following), eased; a moved view.
-  const tapZoom = (factor, client) => {
-    if (!w.view) return;
-    const to = zoomFollow(animGoal ?? w.view, factor, toView(client.x, client.y));
-    markMoved();
-    animateTo(to);
-    apply(); // the fit button now, not after the ease
-  };
-  svg.addEventListener('click', e => {
-    if (dragged || maxPointers > 1) return;
-    const t = { t: performance.now(), x: e.clientX, y: e.clientY };
-    clearTimeout(tapTimer);
-    if (doubleTap(lastTap, t)) { lastTap = null; tapZoom(TAP_ZOOM, t); return; }
-    lastTap = t;
-    const id = e.target.closest?.('[data-stop]')?.dataset.stop ?? null;
-    tapTimer = setTimeout(() => tapSelect(id), DOUBLE_TAP_MS);
-  });
-  if (interactive) svg.addEventListener('keydown', e => {
-    const g = e.target.closest?.('[data-stop]');
-    if (g && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(g.dataset.stop); }
-  });
-  svg.addEventListener('pointerdown', e => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    stopFit();
-    if (!pointers.size) { moved = 0; dragged = false; pinched = false; maxPointers = 0; downMid = null; downAt = performance.now(); }
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    maxPointers = Math.max(maxPointers, pointers.size);
-    if (pointers.size === 2) { const [a, b] = pointers.values(); downMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
-  });
-  svg.addEventListener('pointermove', e => {
-    const prev = pointers.get(e.pointerId);
-    if (!prev || !w.view) return;
-    const cur = { x: e.clientX, y: e.clientY };
-    moved += Math.hypot(cur.x - prev.x, cur.y - prev.y);
-    if (!dragged && moved < TAP_SLOP_PX) return;
-    if (!dragged) { dragged = true; try { svg.setPointerCapture(e.pointerId); } catch {} }
-    const others = [...pointers].filter(([id]) => id !== e.pointerId).map(([, q]) => q);
-    if (others.length) {
-      const o = others[0], d0 = Math.hypot(prev.x - o.x, prev.y - o.y), d1 = Math.hypot(cur.x - o.x, cur.y - o.y);
-      const mid = toView((cur.x + o.x) / 2, (cur.y + o.y) / 2);
-      pinched = true;
-      if (d0 > 0) w.view = zoomFollow(w.view, d1 / d0, mid);
-    } else {
-      if (!pinched) w.stopFollow?.(); // a finger left from a pinch keeps following
-      w.view = panView(w.view, -(cur.x - prev.x) * mpp(), -(cur.y - prev.y) * mpp(), limits());
-    }
-    pointers.set(e.pointerId, cur);
-    markMoved();
-    apply();
-  });
-  const up = e => {
-    if (!pointers.delete(e.pointerId) || pointers.size) return;
-    if (!dragged && twoFingerTap({ pointers: maxPointers, moved, ms: performance.now() - downAt })) {
-      lastTap = null;
-      clearTimeout(tapTimer);
-      tapZoom(1 / TAP_ZOOM, downMid);
-    }
-    setTimeout(() => { dragged = false; });
-  };
-  svg.addEventListener('pointerup', up);
-  svg.addEventListener('pointercancel', up);
-  // The wheel (2026-11-13): the main map's plain wheel scrolls the page; ctrl (a trackpad pinch) zooms.
-  svg.addEventListener('wheel', e => {
-    if (!w.view) return;
-    const f = wheelZoom({ deltaY: e.deltaY, ctrlKey: e.ctrlKey, plain: interactive });
-    if (f == null) return;
-    stopFit();
-    e.preventDefault();
-    w.view = zoomFollow(w.view, f, toView(e.clientX, e.clientY));
-    markMoved();
-    apply();
-  }, { passive: false });
-  // Drags don't reach setup's card, nor pull-to-refresh (2026-11-13); the main map's taps still
-  // reach the wake lock (pointerdown).
-  el.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
-  if (interactive) el.addEventListener('pointerdown', e => e.stopPropagation(), { passive: true });
-  return w;
-}
-
 // Setup's maps (the planner's options, the trip editor): kept per key while the legs are the
 // same, so a redraw of setup keeps the view; redrawn when a leg's shape arrives.
 const setupMaps = new Map();
@@ -3696,7 +2689,6 @@ const takeMapView = at => {
   tripMapView = null;
   return k;
 };
-const mapLegs = trip => tripShape(trip).transit.map(l => ({ route: l.route, also: l.also, direction_id: l.direction_id, stop: l.stop, alight: l.alight, color: l.color ?? null, label: l.label ?? l.route }));
 // What the main map and the sheet draw from the app's state: the legs' stop points (no shape
 // yet), the ride's phase, and your trip per leg (the ride's, else the belled one's).
 // The ride's leg (legs before it are done): 0 before boarding.
@@ -4221,7 +3213,7 @@ if (!SIM_ON) {
   let ctl = null;
   try { ctl = JSON.parse(localStorage.getItem('t-minus-simctl')); } catch { /* none */ }
   if (ctl && !ctl.on) {
-    const purge = () => import('./sim-page.js?v=82586725c8').then(m => m.purgeSim()).catch(() => {});
+    const purge = () => import('./sim-page.js?v=964c6f6bb9').then(m => m.purgeSim()).catch(() => {});
     if (ctl.endedAt && Date.now() - ctl.endedAt < 10_000) {
       showToast('Simulator ended', 'Undo', () => {
         localStorage.setItem('t-minus-simctl', JSON.stringify({ ...ctl, on: true, endedAt: null, clock: { ...ctl.clock, keepPlaying: false } }));
