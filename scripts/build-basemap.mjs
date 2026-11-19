@@ -46,7 +46,7 @@ const MIN_COARSE_LAKE_M2 = 1_000_000;
 // merged across towns) and the must-haves whatever their size; named lakes and wide rivers.
 const MIN_NAMED_ACRES = 50;
 const NEAR_M = 100;
-const MUST_PARKS = new Set(['BOSTON COMMON', 'BOSTON PUBLIC GARDEN', 'JAMAICA POND PARK', 'OLMSTED PARK', 'THE RIVERWAY', 'CHRISTOPHER COLUMBUS WATERFRONT PARK', 'CASTLE ISLAND', 'DANEHY PARK']);
+const MUST_PARKS = new Set(['BOSTON COMMON', 'BOSTON PUBLIC GARDEN', 'JAMAICA POND PARK', 'OLMSTED PARK', 'THE RIVERWAY', 'CHRISTOPHER COLUMBUS WATERFRONT PARK', 'DANEHY PARK']);
 // Raw (upper-cased) source names → display names.
 const NAME_FIX = {
   'BOSTON PUBLIC GARDEN': 'Public Garden',
@@ -75,6 +75,8 @@ const HARBORS = [
   { n: 'Plymouth Bay', lat: 41.975, lon: -70.62, m: 3000 },
   { n: 'Gloucester Harbor', lat: 42.595, lon: -70.665, m: 1500 },
 ];
+// Parks not filed under their own name (Castle Island is part of Old Harbor Reservation).
+const PLACED_PARKS = [{ n: 'Castle Island', lat: 42.3379, lon: -71.0123, m: 400 }];
 const PACE_MS = process.env.MBTA_API_KEY ? 0 : 3500; // keyless: 20 requests a minute
 
 // Every page of an ArcGIS layer's features in a rect (more than one page's worth).
@@ -242,6 +244,7 @@ for (const g of groupNear(parkItems, NEAR_M)) {
   features.push(featureOf(g.name, 'p', spot));
   parkCount++;
 }
+for (const p of PLACED_PARKS) features.push({ n: p.n, k: 'p', lat: p.lat, lon: p.lon, a: Math.round(((p.m / 1000) ** 2 / 2) * 100) / 100, m: p.m });
 
 // 5. Coarse tier, outside the detailed rect (with a 50 m overlap): Massachusetts from its towns
 // (the shoreline, the borders between towns), the other states' land from the Census; big lakes,

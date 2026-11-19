@@ -421,6 +421,36 @@ test('base map names follow the view: zoomed out, Boston instead of neighborhood
   expect(await shownNames(page)).toContain('Arlington');
 });
 
+// Water and park names (2026-11-19): only while the feature is as wide on screen as its name;
+// italic, in --map-water-name / --map-green-name; behind towns and neighborhoods.
+test('base map water and park names: shown zoomed in, italic in their colors, behind a town', async ({ page }) => {
+  await serveBase(page, { base: { ...BASE, features: [
+    { n: 'Test Pond', k: 'w', lat: 42.4125, lon: -71.095, a: 0.45, m: 820 },
+    { n: 'Test Woods', k: 'p', lat: 42.425, lon: -71.10, a: 1.8, m: 1640 },
+    { n: 'Malden River', k: 'w', lat: 42.43, lon: -71.066, a: 5, m: 50_000 }, // on Malden: the town wins
+  ] } });
+  await openApp(page, { map: true, time: '07:00', init: DENIED });
+  await openMap(page);
+  expect(await shownNames(page)).not.toContain('Test Pond');
+  expect(await shownNames(page)).not.toContain('Malden River');
+  expect(await shownNames(page)).toContain('Malden');
+  const at = await svg(page).evaluate(s => {
+    const g = [...s.querySelectorAll('.map-name')].find(x => x.textContent === 'Test Pond').closest('g');
+    const [vx, vy, vw, vh] = s.getAttribute('viewBox').split(' ').map(Number), r = s.getBoundingClientRect();
+    return { x: r.x + ((g.dataset.x - vx) / vw) * r.width, y: r.y + ((g.dataset.y - vy) / vh) * r.height };
+  });
+  await page.mouse.move(at.x, at.y);
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -100);
+  expect(await shownNames(page)).toEqual(expect.arrayContaining(['Test Pond', 'Test Woods']));
+  const style = name => svg(page).locator('.map-name', { hasText: name }).evaluate(t => { const c = getComputedStyle(t); return [c.fill, c.fontStyle, c.fontSize]; });
+  for (const scheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme: scheme });
+    expect(await style('Test Pond')).toEqual([await cssColor(page, '--map-water-name'), 'italic', '10px']);
+    expect(await style('Test Woods')).toEqual([await cssColor(page, '--map-green-name'), 'italic', '10px']);
+  }
+  expect(await style('Test Pond')).toEqual(['rgb(127, 168, 201)', 'italic', '10px']); // dark
+});
+
 test('without the base map the map draws as today; the next opening tries again', async ({ page }) => {
   const served = await serveBase(page, { fail: true });
   await openApp(page, { map: true, time: '07:00', init: DENIED });

@@ -823,7 +823,8 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   `pickPattern`, `trimPath`, `vehiclesOnStretch`, `rideMarker`, `vehicleRouteLabel`, `fitView` / `zoomView` / `panView`, the two fits' `mapFits` / `firstFit` / `fitChoice` / `fitTap`, `sameView`, locate's `nextFollowLevel` / `viewAt`,
   `routeMapModel`, `basemapLayers`, `basemapNames`); the SVG, gestures and the sheet in
   `index.html` (`mapWidget`, `openMapSheet`, `routeMapEl` for setup, `loadBasemap`); the base
-  map's build in `scripts/build-basemap.mjs` with its geometry in `scripts/basemap-geo.mjs`.
+  map's build in `scripts/build-basemap.mjs` with its geometry in `scripts/basemap-geo.mjs`
+  (`cleanName`, `groupNear`, `labelSpot` for feature names).
 
 **Base map** (2026-11-07, mockups accepted 2026-11-07): a minimal Boston map behind all three
 maps (the sheet, the planner's options, the trip editor).
@@ -834,7 +835,9 @@ maps (the sheet, the planner's options, the trip editor).
   them and narrow rivers as thin water lines; town borders, dashed (only edges two towns share, never the coastline); Boston
   neighborhood borders, dotted; faint lines in their route colors: commuter rail (1.5 px, 35%),
   then the Silver Line, then rapid transit (2.5 px, 30%); town names (small caps) and Boston
-  neighborhood names (italic), muted; then the trip as before. Colors: `--map-water`,
+  neighborhood names (italic), muted; water and park names (2026-11-19, mockups accepted: italic 10 px,
+  water `--map-water-name` #2f5f86 light / #7fa8c9 dark, parks `--map-green-name` #3d6b35 /
+  #8fbf86; at least 5.3:1 on water, green and land in both themes); then the trip as before. Colors: `--map-water`,
   `--map-land`, `--map-green`, `--map-line` in both themes. Faint lines use `stroke-opacity`, not `opacity`:
   a translucent element is composited as a layer, which left seams between Chromium's raster
   tiles over the land (faded legs too).
@@ -843,6 +846,13 @@ maps (the sheet, the planner's options, the trip editor).
   map; overlapping names keep the town, then the larger area, and the other shows once zooming in
   separates them; rechecked on every pan and zoom. Names sit under the trip (not moved aside).
   Boston's neighborhoods only (Cambridge's official ones are planning names).
+  **Water and parks** (2026-11-19, mockups accepted): lakes, ponds, wide rivers, harbors and bays,
+  parks and reservations, at any zoom but only while the feature is at least as wide on screen as
+  its name (its east-west extent in meters, `span`; so the Common shows under about 3 km across,
+  the Public Garden under about 1.5 km, Lynn Woods at 20 km; a river's merged pieces span its
+  length, so "Charles River" shows zoomed out); placed after towns and neighborhoods, water before
+  parks, larger first, only in free space (a town over the Fells keeps it hidden). The same rule on
+  all three maps.
 - **Coverage, three tiers** (2026-11-09; every layer follows its tier): **inner**, 5 m, a fixed
   rect each edge 1 km past an anchor: Boston College (west), Fields Corner (south), Wonderland
   (east) and the 132's Main St @ South St (north), about 16 × 21 km (`INNER` in the build);
@@ -870,7 +880,23 @@ maps (the sheet, the planner's options, the trip editor).
   for the credit "MassGIS (Bureau of Geographic Information), Commonwealth of Massachusetts
   EOTSS": the file carries one credit line, shown under the sheet's map once the base map is
   drawn (and in README).
-- **File:** `basemap.json` at the repo root, built by `NODE_USE_ENV_PROXY=1 node
+  **Feature names** (2026-11-19): `NAME` of the 1:25,000 lakes (the ones drawn) and of the outer
+  tier's Hydro_100k lakes labeled outside the middle rect; `SITE_NAME` of open-space sites of 50
+  acres or more (any purpose, cemeteries and golf courses included; school grounds and well fields
+  skipped) plus a must-have list (Boston Common, Public Garden, Jamaica Pond Park, Olmsted Park, The
+  Riverway, Christopher Columbus Park, Danehy Park; the ones under 20 acres also join the green
+  fill), and Castle Island placed by hand (filed under Old Harbor Reservation); harbors and bays
+  placed by hand with a nominal width (Boston Harbor, Dorchester Bay, Quincy Bay, Massachusetts
+  Bay, Broad Sound, Nahant Bay, Lynn Harbor, Hingham Bay, Fort Point Channel, Salem Sound, Beverly
+  Harbor, Cape Cod Bay, Plymouth Bay, Gloucester Harbor). Same-name pieces within 100 m merge into
+  one label across towns (`groupNear`; the Fells spans five towns), at the label point of its
+  largest piece (`labelSpot`). Names cleaned (`cleanName`): title case, piece suffixes (" II"),
+  notes ("[W.B.]") and " CR" dropped, overrides in the build (`NAME_FIX`: "Lynn Woods", "Mount
+  Auburn Cemetery"; "Back Bay", the Fens' water, has none: it's the neighborhood). A park whose name
+  holds a water name within 300 m is dropped ("Jamaica Pond Park", "Charles River Reservation").
+- **File:** `basemap.json` at the repo root (feature names in `features`, `{ n, k: 'w' | 'p', lat,
+  lon, a, m }`, apart from `names`: older pages draw an unknown `k` in `names` as a town; 510 names,
+  41 KB, 246 KB, 143 KB gzipped on 2026-11-19), built by `NODE_USE_ENV_PROXY=1 node
   scripts/build-basemap.mjs` (~1 min keyless, about 7 paced MBTA requests) and committed; rebuild
   when the sources change. Rings and lines are Google polylines (precision 5), simplified per
   tier (5 m inner, 30 m middle, 150 m outer; 20 m and 100 m until 2026-11-10; before 2026-11-09 one detailed tier at 10 m, and
