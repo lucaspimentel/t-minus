@@ -4771,8 +4771,11 @@ export function encodePolyline(points) {
 
 // The base map (basemap.json, scripts/build-basemap.mjs) in a map's coordinates (meters from
 // `origin`, as routeMapModel's): SVG path strings per layer (green: parks, '' in older files), the water rect, the faint lines in
-// draw order (commuter rail, Silver Line, rapid transit) and the names. Null for an unknown file.
+// draw order (commuter rail, Silver Line, rapid transit) and the names: towns and neighborhoods
+// (`names`), then water and parks (`features`, with `span`: the feature's width in meters; a
+// separate key since older pages map an unknown `k` in `names` to a town). Null for an unknown file.
 const BASE_LINE_ORDER = ['cr', 'sl', 'rt'];
+const FEATURE_KINDS = { w: 'water', p: 'park' };
 export function basemapLayers(base, origin) {
   if (base?.v !== 1 || !origin) return null;
   const proj = projector(origin.lat, origin.lon);
@@ -4788,6 +4791,12 @@ export function basemapLayers(base, origin) {
     .sort((x, y) => BASE_LINE_ORDER.indexOf(x.kind) - BASE_LINE_ORDER.indexOf(y.kind));
   const names = (Array.isArray(base.names) ? base.names : []).filter(x => typeof x?.n === 'string' && Number.isFinite(x.lat) && Number.isFinite(x.lon))
     .map(x => { const q = proj.toXY(x); return { name: x.n, kind: x.k === 'h' ? 'hood' : 'town', x: q.x, y: q.y, area: Number(x.a) || 0, sub: !!x.sub }; });
+  for (const x of Array.isArray(base.features) ? base.features : []) {
+    const kind = FEATURE_KINDS[x?.k];
+    if (!kind || typeof x.n !== 'string' || !x.n || !Number.isFinite(x.lat) || !Number.isFinite(x.lon) || !(Number(x.m) > 0) || !Number.isFinite(Number(x.m))) continue;
+    const q = proj.toXY(x);
+    names.push({ name: x.n, kind, x: q.x, y: q.y, area: Number(x.a) || 0, sub: false, span: Number(x.m) });
+  }
   return {
     water: { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y },
     coarse: path(base.coarse, true), land: path(base.land, true), green: path(base.green, true), lakes: path(base.lakes, true), rivers: path(base.rivers, false),
@@ -4796,11 +4805,14 @@ export function basemapLayers(base, origin) {
 }
 
 // A base map name's box in px, centered on its point (estimated from its length).
-export const nameBox = (name, kind) => (kind === 'hood' ? { w: name.length * 5.6, h: 10 } : { w: name.length * 7.9, h: 11 });
+// Towns: 11 px small caps; neighborhoods, water and parks: 10 px italic.
+export const nameBox = (name, kind) => (kind === 'town' ? { w: name.length * 7.9, h: 11 } : { w: name.length * 5.6, h: 10 });
+const NAME_RANK = { town: 0, hood: 1, water: 2, park: 3 };
 // The base map names to draw in `view` (meters) on a `width` × `height` px map: Boston's
-// neighborhoods only under `hoodSpan` meters across (a `sub` town, Boston, only above it); each
-// name fully inside the map; towns, then neighborhoods, larger first, and a name overlapping one
-// already placed is left out (zooming in separates them). → Set of indices into `names`.
+// neighborhoods only under `hoodSpan` meters across (a `sub` town, Boston, only above it); water
+// and parks (`span`) only while the feature is at least as wide on screen as its name; each
+// name fully inside the map; towns, then neighborhoods, water, parks, larger first, and a name
+// overlapping one already placed is left out (zooming in separates them). → Set of indices into `names`.
 export function basemapNames(names, view, { width, height }, { hoodSpan = 10_000, margin = 2 } = {}) {
   const shown = new Set();
   if (!view || !(width > 0) || !(height > 0)) return shown;
@@ -4808,10 +4820,11 @@ export function basemapNames(names, view, { width, height }, { hoodSpan = 10_000
   const hoods = view.w < hoodSpan;
   const placed = [];
   const order = names.map((n, i) => i).filter(i => (names[i].kind === 'hood' ? hoods : !(names[i].sub && hoods)))
-    .sort((i, j) => (names[i].kind === names[j].kind ? names[j].area - names[i].area : names[i].kind === 'hood' ? 1 : -1));
+    .sort((i, j) => (names[i].kind === names[j].kind ? names[j].area - names[i].area : (NAME_RANK[names[i].kind] ?? 0) - (NAME_RANK[names[j].kind] ?? 0)));
   for (const i of order) {
     const n = names[i];
     const { w, h } = nameBox(n.name, n.kind);
+    if (n.span > 0 && n.span * ppm < w) continue;
     const cx = (n.x - view.x) * ppm, cy = (n.y - view.y) * ppm;
     const box = { x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2 };
     if (box.x0 < margin || box.y0 < margin || box.x1 > width - margin || box.y1 > height - margin) continue;
