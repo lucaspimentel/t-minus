@@ -4638,10 +4638,10 @@ export function nextFollowLevel({ following, level, width }) {
 }
 // Follow the vehicle (2026-11-19): the ridden leg's follow mode. A bus follows at the street
 // level, a subway or rail leg at the area level; `name` is the tight form for a bus ("Bus 132"),
-// "the Orange Line" for rail (the dialog's and the labels' wording).
+// "the Orange Line" for rail (the dialog's and the labels' wording); `noun` vehicleNoun's ("bus", "train").
 export function rideFollow(leg) {
-  const bus = isBusRoute(leg.vehicleRoute ?? leg.route);
-  return { mode: bus ? 'bus' : 'rail', level: bus ? 'street' : 'area', name: bus ? vehicleLabel(leg) : `the ${lineLabel(leg)}` };
+  const noun = vehicleNoun(leg), bus = noun === 'bus';
+  return { mode: bus ? 'bus' : 'rail', level: bus ? 'street' : 'area', name: bus ? vehicleLabel(leg) : `the ${lineLabel(leg)}`, noun };
 }
 // The point the follow mode centers on: the ridden vehicle of `leg` in the map model (at the
 // GPS point when the fix counts, else the MBTA's position), or null without a position.
@@ -4653,7 +4653,7 @@ export function rideFollowTarget(model, leg) {
 // answered (`stored`: "Just follow" saved), the location was asked or refused or is granted (`asked`
 // this session, `off`, the Permissions API's `perm`, a fix `here`), else 'ask'.
 export function followAsk({ stored = false, asked = false, off = false, perm = null, here = false } = {}) {
-  return stored || off || perm === 'denied' || perm === 'granted' || here || (asked && !off) ? 'follow' : 'ask';
+  return stored || asked || off || here || perm === 'denied' || perm === 'granted' ? 'follow' : 'ask';
 }
 // A view `span` meters wide (within the limits' spans) centered on `p` at `aspect`, kept inside
 // the limits (clampView: near the bound's edge, `p` is off center).

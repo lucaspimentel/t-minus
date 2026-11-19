@@ -889,12 +889,12 @@ test('routeMapModel ride: left from the vehicle\'s MBTA position, not the stop d
 });
 
 test('rideFollow: a bus at the street level, rail at the area level, with the vehicle\'s name (2026-11-19)', () => {
-  assert.deepEqual(rideFollow({ route: '132', label: 'Bus 132', headsign: 'Malden' }), { mode: 'bus', level: 'street', name: 'Bus 132' });
-  assert.deepEqual(rideFollow({ route: 'Orange', label: 'Orange' }), { mode: 'rail', level: 'area', name: 'the Orange Line' });
+  assert.deepEqual(rideFollow({ route: '132', label: 'Bus 132', headsign: 'Malden' }), { mode: 'bus', level: 'street', name: 'Bus 132', noun: 'bus' });
+  assert.deepEqual(rideFollow({ route: 'Orange', label: 'Orange' }), { mode: 'rail', level: 'area', name: 'the Orange Line', noun: 'train' });
   const green = { route: 'Green-B', vehicleRoute: 'Green-C', label: 'Green', routeLabels: { 'Green-C': 'Green C' } };
-  assert.deepEqual(rideFollow(green), { mode: 'rail', level: 'area', name: 'the Green Line C' });
-  assert.deepEqual(rideFollow({ route: 'CR-Haverhill', label: 'CR Haverhill' }), { mode: 'rail', level: 'area', name: 'the Haverhill Line' });
-  assert.deepEqual(rideFollow({ route: '741', label: 'Silver 1' }), { mode: 'bus', level: 'street', name: 'Silver 1' });
+  assert.deepEqual(rideFollow(green), { mode: 'rail', level: 'area', name: 'the Green Line C', noun: 'train' });
+  assert.deepEqual(rideFollow({ route: 'CR-Haverhill', label: 'CR Haverhill' }), { mode: 'rail', level: 'area', name: 'the Haverhill Line', noun: 'train' });
+  assert.deepEqual(rideFollow({ route: '741', label: 'Silver 1' }), { mode: 'bus', level: 'street', name: 'Silver 1', noun: 'bus' });
   assert.equal(rideFollow({ route: '1', vehicleRoute: 'Red', label: 'Red' }).mode, 'rail'); // the vehicle's route decides
 });
 

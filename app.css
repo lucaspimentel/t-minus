@@ -569,7 +569,7 @@
   .main-map-item .map-caption { margin: 6px 0 0; font-size: 13px; }
   .main-map-item .map-caption[hidden] { display: none; }
   .map-tool svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
-  .map-locate[aria-pressed="true"] svg:not(.veh-glyph) { fill: currentColor; } /* following you (2026-11-10) */
+  .map-tool[aria-pressed="true"] .arrow-glyph { fill: currentColor; } /* following you (2026-11-10) */
   /* The vehicle glyphs (2026-11-19: the share page's follow button, the app's locate while riding):
      outline off; following, the body filled with its line and windows in the card color. */
   .map-tool .veh-glyph circle { fill: currentColor; }
