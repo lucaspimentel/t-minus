@@ -16,7 +16,9 @@ jobs:
       - run: npm test
 
   browser:
-    runs-on: ubuntu-latest
+    # Pinned (2026-11-19): Playwright's browsers and --with-deps target Ubuntu 24.04; on a newer
+    # ubuntu-latest image the install failed and WebKit lacked libicudata.so.74.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -44,7 +46,9 @@ jobs:
 
   # The WebKit layout spec on two emulated iPhones (test/browser/webkit-layout.spec.js).
   webkit:
-    runs-on: ubuntu-latest
+    # Pinned (2026-11-19): Playwright's browsers and --with-deps target Ubuntu 24.04; on a newer
+    # ubuntu-latest image the install failed and WebKit lacked libicudata.so.74.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
