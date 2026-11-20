@@ -37,7 +37,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-19 · 2226dbd4f8</footer>
+    <footer class="version">Version 2026-11-19 · ddaf24b4d1</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -97,7 +97,7 @@ import {
   simCurrentRide, simJumpTargets, simPhaseKey, dayRides, simRideLabel, nextWeekday, bostonMs,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, TAP_ZOOM, doubleTap, twoFingerTap, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X, rideFollow, followAsk,
 } from './core.js?v=e6fe0476c3';
-import { el, badge, BELL_SVG, SHARE_SVG, WALK_SVG, walkStep, fullStops, renderTimeline, rideStopRows as uiRideStopRows, SVG_NS, svgEl, textOn, mapColor, basemap, loadBasemap, basemapFor, basemapGroup, basemapWidgets, toolIcon, mapToolButton, mapWidget, replaceKeepingFocus } from './ui.js?v=a4d8daaa2a';
+import { el, badge, BELL_SVG, SHARE_SVG, WALK_SVG, walkStep, fullStops, renderTimeline, rideStopRows as uiRideStopRows, SVG_NS, svgEl, textOn, mapColor, basemap, loadBasemap, basemapFor, basemapGroup, basemapWidgets, toolIcon, mapToolButton, mapWidget, replaceKeepingFocus } from './ui.js?v=14d5ae5d06';
 import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=ac7be9ba86';
 
 const API = 'https://api-v3.mbta.com';
@@ -2686,7 +2686,7 @@ function mapLocation(onChange, seed = null) {
   const permission = () => permStatus ??= navigator.permissions?.query({ name: 'geolocation' }).then(st => {
     st.onchange = () => { if (!loc.stopped) loc.perm = st.state; };
     return st;
-  });
+  }, err => { permStatus = null; throw err; }); // a failed query is asked again at the next resume
   const resume = loc.resume = () => {
     if (loc.asked && !loc.off) { watch(); return; }
     permission()?.then(st => {
@@ -2825,7 +2825,9 @@ function mainMapItem() {
   e.loc = mapLocation(center => {
     if (mainMap !== e) return;
     drawMainMap();
-    if (center && !widget.ride && !outsideMap(e.loc.here)) widget.startFollow(e.loc.here);
+    // While riding, the vehicle (a locate tap whose fix came after boarding still follows).
+    if (center && widget.ride) { if (!widget.following) widget.startRideFollow(); }
+    else if (center && !outsideMap(e.loc.here)) widget.startFollow(e.loc.here);
   }, keep?.loc);
   if (keep) widget.restore(keep.view);
   widget.onLocate = () => e.loc.locate();
@@ -2902,7 +2904,8 @@ function openMapSheet() {
   m.loc = mapLocation(center => {
     if (mapSheet !== m) return;
     drawMapSheet();
-    if (center && !widget.ride && !outsideMap(m.loc.here)) widget.startFollow(m.loc.here);
+    if (center && widget.ride) { if (!widget.following) widget.startRideFollow(); } // as the main map's
+    else if (center && !outsideMap(m.loc.here)) widget.startFollow(m.loc.here);
   }, kept?.loc);
   if (kept) widget.restore(kept.view);
   widget.onLocate = () => m.loc.locate();

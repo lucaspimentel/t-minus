@@ -336,7 +336,8 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     const moved = w.touched && !w.following && v && o;
     return {
       mode: w.mode,
-      follow: w.following ? { level: w.level, span: w.followSpan } : null,
+      // `ride`: on the ridden vehicle (2026-11-19), so a restore across boarding or the ride's end retargets.
+      follow: w.following ? { level: w.level, span: w.followSpan, ride: !!w.ride } : null,
       moved: moved ? { center: projector(o.lat, o.lon).toLatLon({ x: v.x + v.w / 2, y: v.y + v.h / 2 }), mpp: v.w / size().width } : null,
     };
   };
@@ -348,11 +349,17 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
   // A restored state at this map's size: fits and follow recomputed, a moved view at its center
   // and scale within this map's limits.
   function restoreNow(st, p, width, height) {
-    if (w.following && !st.follow) w.stopFollow?.();
+    // A follow of the vehicle saved before the ride ended (a hidden map shown again after "Missed it"
+    // or Cancel trip: the same phase) ends, as it would have on a shown map.
+    const follow = st.follow && !(st.follow.ride && !w.ride) ? st.follow : null;
+    if (w.following && !follow) w.stopFollow?.();
     const lim = limitsOf?.() ?? null;
-    if (st.follow && w.startFollow) {
+    if (follow && w.startFollow) {
       markMoved();
-      Object.assign(w, { following: true, level: st.follow.level, followSpan: st.follow.span });
+      // Following you, saved before boarding: on to the vehicle at the mode's first level (the draw's boarding).
+      const boarded = !!w.ride && follow.ride === false;
+      const level = boarded ? w.ride.level : follow.level;
+      Object.assign(w, { following: true, level, followSpan: boarded ? FOLLOW_SPANS[level] : follow.span });
       const fp = followPoint(p);
       if (fp) { w.followAt = fp; w.view = viewAt(fp, w.followSpan, width / height, lim); } else w.view = w.fit;
       w.updateLocate();

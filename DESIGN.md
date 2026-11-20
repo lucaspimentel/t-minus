@@ -90,6 +90,7 @@ ones):
 | Riding: the app's timeline, the ridden leg (2026-11-06) | "Orange Line" | none (the leg's last row names the drop-off) |
 | Route map: vehicle badges (2026-11-07) | "OL", "132" (the island's compact label); a Green branch's letter "B", a bus `also` route's "117" (2026-11-12) | none |
 | Route map: stop labels and the caption (a tapped stop's label on the main map, 2026-11-13) | the stop's name ("Oak Grove", "Main St @ South St") | none |
+| Route map: the follow button and its question (2026-11-19) | "Follow Bus 132" / "Follow the Orange Line" (`rideFollow`: the bus's tight form, rail's line) | none |
 | Route map: pin labels (2026-11-09) | the place's name to its first comma ("243 Condor St", "Current location") | none |
 
 Commuter rail (2026-11-01) follows the same two forms: "Haverhill Line" on text lines,
