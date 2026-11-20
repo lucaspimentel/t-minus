@@ -1,8 +1,8 @@
 // DOM rendering shared by the app (index.html) and the share page (share.js): the timeline, the
 // route map widget and the base map. No app state: callers pass in what varies.
 import {
-  DOUBLE_TAP_MS, FOLLOW_SPANS, PIN_LABEL_X, TAP_SLOP_PX, TAP_ZOOM, areaRect, basemapLayers, basemapNames, doubleTap, easeView, fitChoice, fitTap, flagStop, formatTime, legTime, mapPoint, nextFollowLevel, panView, projector, rideLine, routeMapModel, sameView, shownStops, sourceText, stopsToShow, toward, twoFingerTap, vehicleShown, viewAt, viewLimits, wheelZoom, wholeView, zoomView, zoomedOut,
-} from './core.js?v=711556524f';
+  DOUBLE_TAP_MS, FOLLOW_SPANS, PIN_LABEL_X, TAP_SLOP_PX, TAP_ZOOM, areaRect, basemapLayers, basemapNames, doubleTap, easeView, fitChoice, fitTap, flagStop, formatTime, legTime, mapPoint, nextFollowLevel, panView, projector, rideFollowTarget, rideLine, routeMapModel, sameView, shownStops, sourceText, stopsToShow, toward, twoFingerTap, vehicleShown, viewAt, viewLimits, wheelZoom, wholeView, zoomView, zoomedOut,
+} from './core.js?v=e6fe0476c3';
 
 export function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -235,7 +235,7 @@ export function mapToolButton(cls, label, focus, icon, onClick) {
 // caption or whole map). Both: a double-tap zooms in, a two-finger tap out (2026-11-13).
 // The view the rider zoomed to is kept across redraws; marks keep their size in pixels.
 // `live` (the main screen's map and the sheet, 2026-11-12): refits at a fit are eased.
-export function mapWidget({ label, interactive = false, pan = interactive, focusKey = 'map', caption = null, locate = false, live = false }) {
+export function mapWidget({ label, interactive = false, pan = interactive, focusKey = 'map', caption = null, locate = false, live = false, followRide = false }) {
   const svg = svgEl('svg', { class: `route-svg${pan ? '' : ' still'}`, role: interactive ? 'group' : 'img', 'aria-label': label });
   const el = document.createElement('div');
   el.className = 'route-map';
@@ -244,6 +244,9 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
   if (cap && !caption) { cap.setAttribute('aria-live', 'polite'); el.append(cap); }
   const w = { el, svg, model: null, view: null, touched: false, selected: null, marks: [], stopMarks: [], vehicleMarks: [], note: '', base: null, out: false,
     following: false, level: null, followSpan: null, followAt: null, // locate's follow (2026-11-10)
+    // Follow the vehicle (2026-11-19): the ridden leg's follow mode ({ leg, mode, level, name }, the
+    // draw input's `follow`) and its vehicle's point.
+    ride: null, rideTarget: null,
     // The two fits (2026-11-12): `fits` { trip, me }, the chosen `mode` ('first' | 'trip' | 'me';
     // `fit` is its view), a view state to restore on the next draw (`pending`, from the other
     // map: w.restore), the ride's phase drawn last (`finished`: a change resets the view).
@@ -333,22 +336,32 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     const moved = w.touched && !w.following && v && o;
     return {
       mode: w.mode,
-      follow: w.following ? { level: w.level, span: w.followSpan } : null,
+      // `ride`: on the ridden vehicle (2026-11-19), so a restore across boarding or the ride's end retargets.
+      follow: w.following ? { level: w.level, span: w.followSpan, ride: !!w.ride } : null,
       moved: moved ? { center: projector(o.lat, o.lon).toLatLon({ x: v.x + v.w / 2, y: v.y + v.h / 2 }), mpp: v.w / size().width } : null,
     };
   };
   w.restore = state => { w.pending = state; };
   // A ride phase change: the first view, follow off.
   const reset = () => { w.stopFollow?.(); w.mode = 'first'; w.touched = false; w.pending = null; };
+  // What follow centers on: the ridden vehicle while riding, else you (`p`).
+  const followPoint = p => (w.ride ? w.rideTarget : p);
   // A restored state at this map's size: fits and follow recomputed, a moved view at its center
   // and scale within this map's limits.
   function restoreNow(st, p, width, height) {
-    if (w.following && !st.follow) w.stopFollow?.();
+    // A follow of the vehicle saved before the ride ended (a hidden map shown again after "Missed it"
+    // or Cancel trip: the same phase) ends, as it would have on a shown map.
+    const follow = st.follow && !(st.follow.ride && !w.ride) ? st.follow : null;
+    if (w.following && !follow) w.stopFollow?.();
     const lim = limitsOf?.() ?? null;
-    if (st.follow && w.startFollow) {
+    if (follow && w.startFollow) {
       markMoved();
-      Object.assign(w, { following: true, level: st.follow.level, followSpan: st.follow.span });
-      if (p) { w.followAt = p; w.view = viewAt(p, w.followSpan, width / height, lim); } else w.view = w.fit;
+      // Following you, saved before boarding: on to the vehicle at the mode's first level (the draw's boarding).
+      const boarded = !!w.ride && follow.ride === false;
+      const level = boarded ? w.ride.level : follow.level;
+      Object.assign(w, { following: true, level, followSpan: boarded ? FOLLOW_SPANS[level] : follow.span });
+      const fp = followPoint(p);
+      if (fp) { w.followAt = fp; w.view = viewAt(fp, w.followSpan, width / height, lim); } else w.view = w.fit;
       w.updateLocate();
     } else if (st.moved && w.model.origin) {
       markMoved();
@@ -366,11 +379,16 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     w.finished = input.finished;
     const { width, height } = size();
     const model = routeMapModel({ ...input, aspect: width / height, width });
+    const rf = input.follow ?? null;
+    const prevRide = w.ride;
+    w.ride = rf;
+    w.rideTarget = rf ? rideFollowTarget(model, rf.leg) : null;
     const focused = svg.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
     w.model = model;
     w.note = note;
     w.fits = model.fits;
     const p = mapPoint(model, here);
+    const restored = !!w.pending; // a follow carried over from the other map, not a boarding
     if (w.pending) {
       const st = w.pending;
       w.pending = null;
@@ -435,8 +453,19 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     }
     svg.replaceChildren(...(w.base ? [w.base.g] : []), ...parts);
     apply();
+    // Boarding while following you: the follow goes on to the vehicle at the mode's first level
+    // (2026-11-19). The ride gone with no phase change (a missed connection, a cancelled trip) ends it.
+    const boarded = w.following && !restored && !prevRide && !!rf;
+    if (boarded) Object.assign(w, { level: rf.level, followSpan: FOLLOW_SPANS[rf.level] });
+    else if (w.following && prevRide && !rf) w.stopFollow?.();
     // Following (2026-11-10): each new position recenters; none (lost, outside) leaves the map still.
-    if (w.following && p) { w.followAt = p; w.followTo?.(p); }
+    // While riding, the vehicle's point (the ride marker's: GPS or the MBTA's), not the phone's.
+    if (w.following) {
+      const fp = followPoint(p);
+      if (rf || fp) w.followAt = fp; // riding without a position: held, not on your last fix
+      if (fp) w.followTo?.(fp, boarded);
+    }
+    w.updateLocate?.();
     showCaption();
     if (focused) svg.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
   };
@@ -444,7 +473,7 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
   // Inside an option card: a tap on the map doesn't toggle the card (a picture too).
   el.addEventListener('click', e => e.stopPropagation());
   const pointers = new Map(); // the sheet's fingers on the map (a gesture holds off follow's recenter)
-  if (!pan && !locate) return w;
+  if (!pan && !locate && !followRide) return w;
 
   // Pan and zoom limits once the base map is in: the view's edges within commuter rail's farthest
   // stations (the base map's `reach`, 2 km more) and the trip, out until all of it shows
@@ -456,58 +485,51 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     return viewLimits(w.fit, { area, aspect: width / height });
   };
   const tools = Object.assign(document.createElement('div'), { className: 'map-tools' });
-  // Locate (2026-11-09; `w.onLocate`, the caller's: the location, then w.startFollow). From
-  // 2026-11-10 it follows you: a first tap zooms to the street, later ones switch street / area.
   let followTo = null;
-  if (locate) {
-    const b = Object.assign(document.createElement('button'), { type: 'button', className: 'map-tool map-locate' });
-    b.setAttribute('aria-label', 'Center on my location');
-    b.setAttribute('aria-pressed', 'false');
-    b.dataset.focus = `${focusKey}:locate`; // the main list's redraw keeps its focus
-    const icon = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' });
-    icon.append(svgEl('path', { d: 'M3 11 21 3l-8 18-2-8z' }));
-    b.append(icon);
-    const nextLevel = () => nextFollowLevel({ following: w.following, level: w.level, width: w.view?.w ?? 0 });
-    // The label names what a tap does next.
-    w.updateLocate = () => {
-      const label = b.disabled ? 'Center on my location (outside the map)'
-        : !w.following ? 'Center on my location'
-        : nextLevel() === 'area' ? 'Zoom out to the area' : 'Zoom in to the street';
-      if (b.getAttribute('aria-label') !== label) b.setAttribute('aria-label', label);
-      b.setAttribute('aria-pressed', String(w.following));
-    };
-    b.addEventListener('click', e => {
-      e.stopPropagation();
-      if (w.following && w.followAt) {
-        w.level = nextLevel();
-        w.followSpan = FOLLOW_SPANS[w.level];
-        followTo(w.followAt, true);
-        w.updateLocate();
-      } else w.onLocate?.();
-    });
-    tools.append(b);
-    // Off while your known position is outside the base map's bound (2026-11-09); it ends follow.
-    w.setLocateOutside = out => {
-      if (b.disabled === out) return;
-      b.disabled = out;
-      if (out) w.stopFollow();
-      w.updateLocate();
-    };
-    // The first position after a tap: follow on, at street level.
-    w.startFollow = here => {
-      const p = mapPoint(w.model, here);
-      if (!p || !w.fit) return;
-      Object.assign(w, { following: true, level: 'street', followSpan: FOLLOW_SPANS.street, followAt: p });
-      markMoved(); // the fit button shows; a redraw keeps the view
-      followTo(p, true);
-      w.updateLocate();
-    };
-    // A drag, back to the trip, the whole map, or leaving the bound: the view stays where it is.
+  // The follow core (2026-11-19: the app's locate, and the share page's follow button).
+  const nextLevel = () => nextFollowLevel({ following: w.following, level: w.level, width: w.view?.w ?? 0 });
+  const levelLabel = () => (nextLevel() === 'area' ? 'Zoom out to the area' : 'Zoom in to the street');
+  let locateBtn = null, followBtn = null, outside = false;
+  // A tap while following: the other level, about the vehicle or you (held without a position).
+  const toggleLevel = () => {
+    w.level = nextLevel();
+    w.followSpan = FOLLOW_SPANS[w.level];
+    if (w.followAt) followTo(w.followAt, true);
+    w.updateLocate();
+  };
+  // The button's icons, by kind: the vehicle glyphs (2026-11-19; outline off, filled while
+  // following: app.css .veh-glyph) and locate's arrow (filled while following you: .arrow-glyph).
+  const GLYPHS = {
+    bus: () => [svgEl('rect', { x: 5, y: 3, width: 14, height: 15, rx: 3, class: 'body' }), svgEl('path', { d: 'M5 11h14', class: 'inner' }), svgEl('path', { d: 'M8 18v3M16 18v3' }), svgEl('circle', { cx: 8.5, cy: 14.5, r: 0.6, class: 'inner' }), svgEl('circle', { cx: 15.5, cy: 14.5, r: 0.6, class: 'inner' })],
+    rail: () => [svgEl('rect', { x: 6, y: 3, width: 12, height: 14, rx: 4, class: 'body' }), svgEl('path', { d: 'M6 10h12', class: 'inner' }), svgEl('circle', { cx: 9.5, cy: 13.5, r: 0.6, class: 'inner' }), svgEl('circle', { cx: 14.5, cy: 13.5, r: 0.6, class: 'inner' }), svgEl('path', { d: 'M9 17l-2 4M15 17l2 4' })],
+    arrow: () => [svgEl('path', { d: 'M3 11 21 3l-8 18-2-8z' })],
+  };
+  const followIcon = kind => {
+    const i = toolIcon(...GLYPHS[kind]());
+    i.classList.add(kind === 'arrow' ? 'arrow-glyph' : 'veh-glyph');
+    return i;
+  };
+  // A follow button's state; the icon swaps only when its kind changes, so the element and its focus stay.
+  const syncFollowBtn = (b, kind, label) => {
+    if (b.dataset.kind !== kind) { b.dataset.kind = kind; b.replaceChildren(followIcon(kind)); }
+    if (b.getAttribute('aria-label') !== label) b.setAttribute('aria-label', label);
+    const pressed = String(w.following);
+    if (b.getAttribute('aria-pressed') !== pressed) b.setAttribute('aria-pressed', pressed);
+  };
+  // A tap on either button: the other level while following; else the vehicle while riding
+  // (`w.onFollowRide`, the app's permission check; the share page starts at once), else you.
+  const onFollowTap = () => {
+    if (w.following && (w.followAt || w.ride)) toggleLevel();
+    else if (w.ride) (w.onFollowRide ?? w.startRideFollow)();
+    else w.onLocate?.();
+  };
+  if (locate || followRide) {
+    // Off the follow: the view stays where it is (a drag, back to the trip, the whole map, leaving the bound).
     w.stopFollow = () => {
       Object.assign(w, { following: false, level: null, followSpan: null });
       w.updateLocate();
     };
-    // You at the follow span, eased; skipped during a gesture or when it would move under 2 px.
+    // You (or the ridden vehicle) at the follow span, eased; skipped during a gesture or when it would move under 2 px.
     followTo = w.followTo = (p, force = false) => {
       if (!w.following || !w.view) return;
       const { width, height } = size();
@@ -517,6 +539,56 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
         if (sameView(animGoal ?? w.view, to, width)) return;
       }
       animateTo(to);
+    };
+    // A tap while riding (2026-11-19): follow the ridden vehicle at the mode's first level; with
+    // no position yet the map holds until the first one.
+    w.startRideFollow = () => {
+      if (!w.ride || !w.fit) return;
+      Object.assign(w, { following: true, level: w.ride.level, followSpan: FOLLOW_SPANS[w.ride.level], followAt: w.rideTarget });
+      markMoved(); // the fit button shows; a redraw keeps the view
+      if (w.rideTarget) followTo(w.rideTarget, true);
+      apply();
+      w.updateLocate();
+    };
+    w.updateLocate = () => {
+      const rideLabel = w.ride && (w.following ? levelLabel() : `Follow ${w.ride.name}`);
+      if (locateBtn) {
+        locateBtn.disabled = outside && !w.ride;
+        syncFollowBtn(locateBtn, w.ride?.mode ?? 'arrow', rideLabel
+          || (locateBtn.disabled ? 'Center on my location (outside the map)' : !w.following ? 'Center on my location' : levelLabel()));
+      }
+      if (followBtn) {
+        followBtn.hidden = !(w.ride && (w.following || w.rideTarget));
+        if (w.ride) syncFollowBtn(followBtn, w.ride.mode, rideLabel);
+      }
+    };
+  }
+  // Locate (2026-11-09; `w.onLocate`, the caller's: the location, then w.startFollow). From
+  // 2026-11-10 it follows you: a first tap zooms to the street, later ones switch street / area.
+  // While riding (2026-11-19) it is the follow button: the vehicle's glyph, `w.onFollowRide`.
+  if (locate) {
+    // `data-focus`: the main list's redraw keeps its focus.
+    locateBtn = mapToolButton('map-locate', 'Center on my location', `${focusKey}:locate`, followIcon('arrow'), onFollowTap);
+    locateBtn.dataset.kind = 'arrow';
+    locateBtn.setAttribute('aria-pressed', 'false');
+    tools.append(locateBtn);
+    // Off while your known position is outside the base map's bound (2026-11-09); it ends follow.
+    // Not while riding: the vehicle is what it follows.
+    w.setLocateOutside = out => {
+      if (outside === out) return;
+      outside = out;
+      if (out && !w.ride) w.stopFollow();
+      w.updateLocate();
+    };
+    // The first position after a tap: follow on, at street level (not while following the vehicle).
+    w.startFollow = here => {
+      if (w.ride && w.following) return;
+      const p = mapPoint(w.model, here);
+      if (!p || !w.fit) return;
+      Object.assign(w, { following: true, level: 'street', followSpan: FOLLOW_SPANS.street, followAt: p });
+      markMoved(); // the fit button shows; a redraw keeps the view
+      followTo(p, true);
+      w.updateLocate();
     };
   }
   // Back to the trip (⤢ until 2026-11-09): a route inside frame corners.
@@ -536,6 +608,14 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     apply(); // the button's label now, not after the ease
   });
   tools.append(fitBtn);
+  // The share page's follow button (2026-11-19), below back to the trip: shown while riding a leg
+  // whose vehicle has a position (and while following, through a lost one).
+  if (followRide) {
+    // Its icon, label and state come from updateLocate's first draw.
+    followBtn = mapToolButton('map-follow', 'Follow the vehicle', `${focusKey}:follow`, document.createTextNode(''), onFollowTap);
+    followBtn.hidden = true;
+    tools.append(followBtn);
+  }
   // The whole map (the sheet, 2026-11-09): fully zoomed out over the bound; hidden until the base
   // map is in and while already all the way out (apply).
   if (interactive) {

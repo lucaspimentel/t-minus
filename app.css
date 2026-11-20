@@ -290,6 +290,9 @@
   .share-name-form input { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 16px; }
   .share-name-form p { margin: 6px 0 8px; font-size: 13px; color: var(--muted); }
   .share-name-form p.share-name-error { color: var(--red); }
+  /* The follow question (2026-11-19): a title, the explanation (its rule under it), then the two choices. */
+  #follow-ask h2 { font-weight: 600; border-bottom: 0; padding-bottom: 6px; }
+  #follow-ask .follow-ask-text { margin: 0; padding: 0 16px 12px; font-size: 13px; color: var(--muted); text-align: center; border-bottom: 1px solid var(--border); }
   /* Auto-route options: cards like the rows (setup). */
   .setup button.row-toggle { padding: 0; border: 0; border-radius: 6px; background: none; font-size: inherit; }
   .row.option .opt-head { display: block; font-size: 20px; }
@@ -543,7 +546,7 @@
   }
   .route-map { margin: 8px 0; position: relative; }
   /* The map's corner buttons: locate (2026-11-09; off outside the map; 2026-11-10: filled while
-     following, street and area zoom), back to the trip
+     following, street and area zoom; while riding, the vehicle's glyph and follow, 2026-11-19), back to the trip
      (2026-11-08; ⤢ until 2026-11-09), shown once the view moves off the fit, and on the sheet the
      whole map (2026-11-09), shown once the base map is in and the view isn't all the way out; on
      the main screen's map a left stack (2026-11-13): Hide map, then "Open the full map" (on the
@@ -566,7 +569,13 @@
   .main-map-item .map-caption { margin: 6px 0 0; font-size: 13px; }
   .main-map-item .map-caption[hidden] { display: none; }
   .map-tool svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
-  .map-locate[aria-pressed="true"] svg { fill: currentColor; } /* following you (2026-11-10) */
+  .map-tool[aria-pressed="true"] .arrow-glyph { fill: currentColor; } /* following you (2026-11-10) */
+  /* The vehicle glyphs (2026-11-19: the share page's follow button, the app's locate while riding):
+     outline off; following, the body filled with its line and windows in the card color. */
+  .map-tool .veh-glyph circle { fill: currentColor; }
+  .map-tool[aria-pressed="true"] .veh-glyph { fill: none; }
+  .map-tool[aria-pressed="true"] .veh-glyph .body { fill: currentColor; }
+  .map-tool[aria-pressed="true"] .veh-glyph .inner { stroke: var(--card); }
   .route-svg {
     display: block; width: 100%; height: 200px; background: var(--card); border: 1px solid var(--border);
     border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none;

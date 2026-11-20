@@ -4636,6 +4636,25 @@ export function nextFollowLevel({ following, level, width }) {
   if (level === 'area') return 'street';
   return width < (FOLLOW_SPANS.street + FOLLOW_SPANS.area) / 2 ? 'area' : 'street';
 }
+// Follow the vehicle (2026-11-19): the ridden leg's follow mode. A bus follows at the street
+// level, a subway or rail leg at the area level; `name` is the tight form for a bus ("Bus 132"),
+// "the Orange Line" for rail (the dialog's and the labels' wording); `noun` vehicleNoun's ("bus", "train").
+export function rideFollow(leg) {
+  const noun = vehicleNoun(leg), bus = noun === 'bus';
+  return { mode: bus ? 'bus' : 'rail', level: bus ? 'street' : 'area', name: bus ? vehicleLabel(leg) : `the ${lineLabel(leg)}`, noun };
+}
+// The point the follow mode centers on: the ridden vehicle of `leg` in the map model (at the
+// GPS point when the fix counts, else the MBTA's position), or null without a position.
+export function rideFollowTarget(model, leg) {
+  const v = (model?.vehicles ?? []).find(x => x.mine && x.leg === leg);
+  return v ? { x: v.x, y: v.y } : null;
+}
+// Whether a tap on the follow button asks first (2026-11-19): 'follow' once the question was
+// answered (`stored`: "Just follow" saved), the location was asked or refused or is granted (`asked`
+// this session, `off`, the Permissions API's `perm`, a fix `here`), else 'ask'.
+export function followAsk({ stored = false, asked = false, off = false, perm = null, here = false } = {}) {
+  return stored || asked || off || here || perm === 'denied' || perm === 'granted' ? 'follow' : 'ask';
+}
 // A view `span` meters wide (within the limits' spans) centered on `p` at `aspect`, kept inside
 // the limits (clampView: near the bound's edge, `p` is off center).
 export function viewAt(p, span, aspect, limits = null) {
@@ -4740,7 +4759,7 @@ const WALK_GAP_METERS = 25;
 // `off` legs (faded) and its other stops as `off` stops; vehicles from the line's start to the
 // drop-off. The view still fits the stretches, walks and `fitAlso` only.
 // → { origin, view, legs: [{ color, path, faded, off }], stops: [{ id, name, x, y, major, label, leg, color, off }],
-//     walks: [{ from, to, kind }], vehicles: [{ id, x, y, color, label, mine, gps? }], here, ride,
+//     walks: [{ from, to, kind }], vehicles: [{ id, x, y, color, label, mine, leg, gps? }], here, ride,
 //     places: [{ kind: 'start'|'end', x, y, onStop, label, side: 'left'|'right', faded }] }
 // Places (2026-11-09): a pin at each end, at a walk's place (labeled, on the side away from the
 // walk) or else on the first boarding / last drop-off stop (unlabeled: the stop's label names
@@ -4822,7 +4841,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
     });
     (r.offAfter ?? []).forEach(offStop);
     const place = (list, route) => {
-      for (const v of list) out.vehicles.push({ id: v.id, x: v.point.x, y: v.point.y, heading: v.heading, color, label: vehicleRouteLabel(r.leg, v.route ?? route), mine: !!mine[r.i] && v.tripId === mine[r.i] });
+      for (const v of list) out.vehicles.push({ id: v.id, x: v.point.x, y: v.point.y, heading: v.heading, color, label: vehicleRouteLabel(r.leg, v.route ?? route), mine: !!mine[r.i] && v.tripId === mine[r.i], leg: r.i });
     };
     const own = new Set((r.others ?? []).map(a => a.route));
     const legVehicles = vehicles[r.i] ?? [];
@@ -4853,7 +4872,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
         const k = out.vehicles.findIndex(x => x.mine && x.id === v.id);
         const at = { x: m.point.x, y: m.point.y, heading: m.heading, gps: true };
         if (k >= 0) out.vehicles[k] = { ...out.vehicles[k], ...at };
-        else out.vehicles.push({ id: v.id, ...at, color, label: vehicleRouteLabel(r.leg, v.route), mine: true });
+        else out.vehicles.push({ id: v.id, ...at, color, label: vehicleRouteLabel(r.leg, v.route), mine: true, leg: r.i });
       }
     }
     return path;

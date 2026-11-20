@@ -307,9 +307,149 @@ test('another trip\'s share ends the first; the bell moved to another ride keeps
   await expect(rp.locator('.share-note')).toHaveText('not confirmed');
 });
 
+// Follow the vehicle on the share page (2026-11-19). A ride on bus 132 (7:08:30 at the stop), then the
+// Orange Line after the transfer; every vehicle moves with the clock (`scenario.moving`).
+const shareMap = rp => rp.locator('#share-map svg.route-svg');
+const followBtn = rp => rp.locator('#share-map .map-follow');
+// The view's width and how far its center is from your vehicle, as fractions of the width.
+const viewOnVehicle = rp => shareMap(rp).evaluate(s => {
+  const [x, y, w, h] = s.getAttribute('viewBox').split(/\s+/).map(Number);
+  const g = s.querySelector('.map-vehicle.mine');
+  return { width: Math.round(w), dx: g ? Math.abs(+g.dataset.x - (x + w / 2)) / w : null, dy: g ? Math.abs(+g.dataset.y - (y + h / 2)) / w : null };
+});
+async function rideShare(page, context, { scenario = { ...commute(), moving: true }, until = '07:08:30' } = {}) {
+  const { mbta } = await openShareApp(page, context, { scenario, map: true });
+  await bar(page).getByRole('button', { name: 'At the stop' }).click();
+  await tick(page, 1000);
+  await tickTo(page, until);
+  await card(page).getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('#share-name-input').fill('Lucas');
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await expect(card(page).getByRole('button', { name: 'Sharing' })).toBeVisible();
+  const url = (await page.evaluate(() => window.sharedWith)).at(-1).url;
+  const rp = await recipient(context, mbta, url, page);
+  await rp.emulateMedia({ reducedMotion: 'reduce' });
+  await tick(page, 21_000);
+  return { mbta, rp, scenario };
+}
+
+test('share page: the follow button shows while riding, follows the vehicle at 400 m, and the levels toggle', async ({ page, context }) => {
+  const { mbta } = await openShareApp(page, context, { scenario: { ...commute(), moving: true }, map: true });
+  await bar(page).getByRole('button', { name: 'At the stop' }).click();
+  await tick(page, 1000);
+  await tickTo(page, '07:08:30');
+  await card(page).getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('#share-name-input').fill('Lucas');
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await expect(card(page).getByRole('button', { name: 'Sharing' })).toBeVisible();
+  const url = (await page.evaluate(() => window.sharedWith)).at(-1).url;
+  const rp = await recipient(context, mbta, url, page);
+  await rp.emulateMedia({ reducedMotion: 'reduce' });
+  await tick(page, 21_000);
+  await expect(rp.locator('.share-phase')).toHaveText(/^On Bus 132 · /);
+  const btn = followBtn(rp);
+  await expect(btn).toBeVisible();
+  await expect(btn).toHaveAttribute('aria-label', 'Follow Bus 132');
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  await expect(btn.locator('svg.veh-glyph')).toHaveCount(1);
+  expect(await btn.evaluate(b => b.nextElementSibling === null && b.previousElementSibling?.classList.contains('map-fit'))).toBe(true); // below back to the trip
+  await btn.click();
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await expect(btn).toHaveAttribute('aria-label', 'Zoom out to the area');
+  await expect.poll(() => viewOnVehicle(rp)).toMatchObject({ width: 400 });
+  expect((await viewOnVehicle(rp)).dx).toBeLessThan(0.02);
+  expect((await viewOnVehicle(rp)).dy).toBeLessThan(0.02);
+  // The next answer: the vehicle moved, the view with it.
+  const before = await shareMap(rp).getAttribute('viewBox');
+  await tick(page, 21_000);
+  await expect.poll(() => shareMap(rp).getAttribute('viewBox')).not.toBe(before);
+  const after = await viewOnVehicle(rp);
+  expect(after.width).toBe(400);
+  expect(after.dx).toBeLessThan(0.02);
+  expect(after.dy).toBeLessThan(0.02);
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  // Another tap: the area; and back.
+  await btn.click();
+  await expect.poll(() => viewOnVehicle(rp)).toMatchObject({ width: 2000 });
+  await expect(btn).toHaveAttribute('aria-label', 'Zoom in to the street');
+  await btn.click();
+  await expect.poll(() => viewOnVehicle(rp)).toMatchObject({ width: 400 });
+  // No location, no storage.
+  expect(await rp.evaluate(() => window.geo)).toBe(0);
+});
+
+test('share page: a drag, back to the trip and alighting end the follow; the next boarding has the button off; the train follows at 2 km', async ({ page, context }) => {
+  test.setTimeout(150_000); // minutes of clock with moving vehicles
+  const { rp } = await rideShare(page, context);
+  const btn = followBtn(rp);
+  const fit = rp.locator('#share-map .map-fit');
+  await btn.click();
+  await expect.poll(() => viewOnVehicle(rp)).toMatchObject({ width: 400 });
+  // A drag.
+  const box = await shareMap(rp).boundingBox();
+  await rp.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await rp.mouse.down();
+  await rp.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 20, { steps: 5 });
+  await rp.mouse.up();
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  // Again, then back to the trip.
+  await btn.click();
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await fit.click();
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  await expect(btn).toBeVisible();
+  await btn.click();
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  // Alighting (7:22): the follow ends, the button is gone during the transfer.
+  await tickTo(page, '07:23');
+  await tick(page, 21_000);
+  await expect(rp.locator('.share-phase')).not.toHaveText(/^On Bus 132/);
+  await expect(btn).toBeHidden();
+});
+
+test('share page: the Orange Line leg follows at 2 km with the train glyph; a lost position holds the view', async ({ page, context }) => {
+  test.setTimeout(150_000); // minutes of clock with moving vehicles
+  // The fake's moving vehicles run straight between stops, off the real Orange line: the train is listed at Oak Grove.
+  const scenario = { ...commute(), vehicles: [{ id: 'ol', trip: 'OLin-0732', route: 'Orange', direction: 0, lat: 42.43668, lon: -71.071097 }] };
+  const { rp } = await rideShare(page, context, { scenario, until: '07:35' });
+  await expect(rp.locator('.share-phase')).toHaveText(/^On Orange/);
+  const btn = followBtn(rp);
+  await expect(btn).toHaveAttribute('aria-label', 'Follow the Orange Line');
+  await expect(btn.locator('svg.veh-glyph .body')).toHaveAttribute('rx', '4'); // the train's body
+  await btn.click();
+  await expect.poll(() => viewOnVehicle(rp)).toMatchObject({ width: 2000 });
+  await expect(btn).toHaveAttribute('aria-label', 'Zoom in to the street');
+  // Lost position: no vehicles in the next answers; follow stays on and the view holds.
+  const held = await shareMap(rp).getAttribute('viewBox');
+  scenario.vehicles = [];
+  await tick(page, 21_000);
+  await tick(page, 21_000);
+  await expect(btn).toBeVisible();
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  expect(await shareMap(rp).getAttribute('viewBox')).toBe(held);
+});
+
 // Axe violations (`meta-viewport` is disabled as in a11y.spec.js: iOS ignores user-scalable=no).
 const violations = async page => (await new AxeBuilder({ page }).disableRules(['meta-viewport']).analyze())
   .violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`);
+
+for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on the share page's follow button, off and on (${scheme})`, async ({ page, context }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    const { rp } = await rideShare(page, context);
+    await rp.emulateMedia({ colorScheme: scheme });
+    const btn = followBtn(rp);
+    await expect(btn).toBeVisible();
+    expect(await violations(rp)).toEqual([]);
+    await btn.click();
+    await expect(btn).toHaveAttribute('aria-pressed', 'true');
+    expect(await violations(rp)).toEqual([]);
+    // The focus stays on the button across the answers' redraws.
+    await btn.focus();
+    await tick(page, 21_000);
+    await expect(btn).toBeFocused();
+  });
+}
 
 for (const scheme of ['light', 'dark']) {
   test(`axe finds nothing on Share and Sharing, the name dialog, the sheet, the ride card's Sharing and the share page (${scheme})`, async ({ page, context }) => {

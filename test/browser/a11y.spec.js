@@ -25,6 +25,33 @@ for (const scheme of ['light', 'dark']) {
 }
 
 for (const scheme of ['light', 'dark']) {
+  test(`axe finds nothing on the main map's follow glyph (off, on) and the follow question; the button keeps focus across redraws (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+    await page.addInitScript(() => { navigator.permissions.query = async () => ({ state: 'prompt', onchange: null }); });
+    const scenario = { ...commute(), vehicles: [] };
+    await openApp(page, { map: true, time: '07:00', scenario });
+    await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+    await tick(page, 1000);
+    await tickTo(page, '07:08:30');
+    const tripId = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('t-minus:en-route')))[0].ride.legs[0].tripId);
+    scenario.vehicles = [{ id: 'v1', trip: tripId, route: '132', direction: 1, lat: 42.452742, lon: -71.071966 }];
+    await tick(page, 20_000);
+    const btn = page.locator('#rows .main-map .map-locate');
+    await expect(btn).toHaveAttribute('aria-label', 'Follow Bus 132');
+    expect(await violations(page)).toEqual([]); // the glyph, off
+    await btn.click();
+    await expect(page.locator('#follow-ask')).toBeVisible();
+    expect(await violations(page)).toEqual([]); // the question
+    await page.getByRole('button', { name: 'Just follow Bus 132' }).click();
+    await expect(btn).toHaveAttribute('aria-pressed', 'true');
+    expect(await violations(page)).toEqual([]); // the glyph, following
+    await btn.focus();
+    await tick(page, 3000); // the once-a-second redraw
+    expect(await page.evaluate(() => document.activeElement?.dataset.focus)).toBe('main-map:locate');
+  });
+}
+
+for (const scheme of ['light', 'dark']) {
   test(`axe finds nothing on the main list (each row state), an expanded row, and setup (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await openApp(page, { time: '06:55' });
