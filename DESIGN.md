@@ -81,7 +81,7 @@ ones):
 |---|---|---|
 | Notifications (reminders, ride alerts) | "Orange Line" | "toward Malden" |
 | Leave, walk and ride cards (Lock Screen, expanded island; 2026-10-29 the widget's layout, the ride card 2026-10-31) | "Orange Line" | "toward Malden" ("→" where it doesn't fit) |
-| Ride bar, the app's expanded row | "Orange Line" | "toward Malden" (as now) |
+| Ride bar (`enRouteStatus`: "Tracking Orange Line 6:16pm toward Malden", 2026-11-21; "Orange" before), the app's expanded row | "Orange Line" | "toward Malden" while tracking (none in the bar's boarding question: "Did you get on the 6:16pm Orange Line?") |
 | App card leg strip | "Orange" | none (the expanded row has it) |
 | Widget Home Screen (small, medium; 2026-10-29; large 2026-11-13) | "Orange Line" | "toward Forest Hills" ("→" where it doesn't fit) |
 | Large widget's timeline (2026-11-13) | the app's timeline: "Bus 132 · 6 stops · 17 min" | "toward Malden" under each upcoming ride (none on done or ridden legs; dropped first when it doesn't fit), with the leg's SCHEDULED / LIVE / EVERY 6 MIN tag beside it (2026-11-17; on the ride line once the toward line is dropped) |
@@ -96,7 +96,8 @@ ones):
 Commuter rail (2026-11-01) follows the same two forms: "Haverhill Line" on text lines,
 "CR Haverhill" where tight, "CR" as the compact island badge, 🚆. Its assigned track goes before
 the headsign so a cut line keeps it: "Haverhill Line · Track 5 toward Haverhill" ("→ Haverhill"
-on the cards and widget). The train number ("Train 2317 · Track 5") is in the expanded row only;
+on the cards and widget); the bar while tracking has none (2026-11-21: "Tracking Haverhill Line
+7:44am toward Haverhill"). The train number ("Train 2317 · Track 5") is in the expanded row only;
 a flag stop reads "Malden Center · Flag stop" there and "Haverhill Line · Flag stop" on the ride
 card. See "Commuter rail".
 
@@ -365,8 +366,8 @@ estimate: "since" only once arrival is recorded, by the tap, the geofence or GPS
   bell at a time across all trips: a new one turns the other off (its pin, reminder and card).
   The pin is never re-taken and has no 30-min cap. From the normal list it starts
   `kind: 'track'`: rows keep their leave-by countdowns, the pinned row has a green outline (and,
-  collapsed, a small bell when a reminder is set), and the bar reads "Tracking Bus 132 7:40am"
-  [Leaving now] [At the stop] [Cancel] (both keep the pin; Cancel turns the bell off, with
+  collapsed, a small bell when a reminder is set), and the bar reads "Tracking Bus 132 7:40am toward
+  Malden" [Leaving now] [At the stop] [Cancel] (both keep the pin; Cancel turns the bell off, with
   "Tracking cancelled · Undo"). In every mode the pinned row is the highlighted target instead of
   the first reachable one (in the normal list too, 2026-11-04; amber/red stay amber/red under the outline). Bell off drops only the pin (`unpinTarget`): plain tracking ends;
   "Leaving now" / "At the stop" stays and the highlight goes back to the first reachable ride.

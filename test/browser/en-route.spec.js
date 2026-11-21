@@ -447,7 +447,7 @@ test('the bell pins a later departure; at its departure it asks, and Yes tracks 
   await tick(page, 1000);
   await expect(page.locator('.row.tracked .big')).toContainText('7:30am'); // leave-by kept in the list
   await expect(bell(page.locator('.row.tracked'), 'Tracking')).toHaveAttribute('aria-pressed', 'true');
-  await expect(bar(page)).toContainText('Tracking Bus 132 7:36am');
+  await expect(bar(page)).toContainText('Tracking Bus 132 7:36am toward Malden');
   await tickTo(page, '07:09');
   await expect(card(page)).toHaveCount(0); // the 7:08 left without boarding
   await tickTo(page, '07:36:30');
@@ -476,7 +476,7 @@ test('"Missed it" drops the pin; unanswered, the question closes after 30 min', 
   await next.click();
   await bell(next).click();
   await tick(page, 1000);
-  await expect(bar(page)).toContainText('Tracking Bus 132 8:04am');
+  await expect(bar(page)).toContainText('Tracking Bus 132 8:04am toward Malden');
   await tickTo(page, '08:04:30');
   await expect(bar(page)).toContainText('Did you get on the 8:04am Bus 132?');
   await tickTo(page, '08:34:30');
@@ -503,14 +503,14 @@ test('the bell off ends plain tracking; Cancel in the bar has Undo; one bell at 
   await expect(toast(page)).toContainText('Tracking cancelled');
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await tick(page, 1000);
-  await expect(bar(page)).toContainText('Tracking Bus 132 7:36am');
+  await expect(bar(page)).toContainText('Tracking Bus 132 7:36am toward Malden');
   // Another departure's bell moves the pin.
   const third = page.locator('.row').nth(2);
   await third.click();
   await bell(third).click();
   await tick(page, 1000);
   await expect(page.locator('.row.tracked')).toHaveCount(1);
-  await expect(bar(page)).toContainText('Tracking Bus 132 8:04am');
+  await expect(bar(page)).toContainText('Tracking Bus 132 8:04am toward Malden');
 });
 
 // The trip picker's options, as shown (rows redraw every second, so read them in one go).

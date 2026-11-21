@@ -1885,8 +1885,9 @@ export function trackText(leg, was, nowMs) {
   };
 }
 
-// "Did you get on the 7:48am Bus 132?" (the bar, the push at departure).
-export const boardingQuestion = (first, nowMs) => `Did you get on the ${legTime(first, first.dep, nowMs)} ${vehicleLabel(first)}?`;
+// "Did you get on the 7:48am Bus 132?" (the bar, the push at departure): a text line, so the
+// line in full ("7:48am Orange Line"), with no headsign and no track (2026-11-21).
+export const boardingQuestion = (first, nowMs) => `Did you get on the ${legTime(first, first.dep, nowMs)} ${lineLabel(first)}?`;
 
 // "Bus 132 toward Malden at 7:48am": a row's first vehicle (reminders and the leave card).
 export function firstVehicleLine(row, nowMs) {
@@ -2659,7 +2660,10 @@ export function enRouteStatus(state, nowMs) {
   if (state.asking) return boardingQuestion(state.target.legs[0], nowMs);
   if (state.kind === 'track') {
     const leg = state.target?.legs[0];
-    return leg ? `Tracking ${vehicleLabel(leg)} ${legTime(leg, leg.dep, nowMs)}` : 'Tracking';
+    if (!leg) return 'Tracking'; // the target row is gone
+    // A text line: the line in full, the time, then the headsign (2026-11-21); no track (the rows
+    // and the ride card have it).
+    return [`Tracking ${lineLabel(leg)} ${legTime(leg, leg.dep, nowMs)}`, toward(leg)].filter(Boolean).join(' ');
   }
   // "since" only once arrival is recorded (tapped, the geofence, GPS); "Leaving now"'s estimate
   // stays "Walking" after it passes (2026-11-10: "At the stop since ~9:24am" beside [At the stop]).

@@ -55,9 +55,7 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
    widget). Durations (`formatCountdown(arr - dep)`, `core.js` ~985, ~1935) and `transferText`
    floor the exact ms gap while the times drop seconds. Compute both from the minute-truncated
    times; DESIGN.md "Transfers" says the spare is rounded down: decide when grilling.
-3. App header "Tracking Orange 6:16pm" (`enRouteStatus`, `core.js`) uses the tight form on a text
-   line: say "Tracking Orange Line 6:16pm" (wording only; the time stays).
-4. Medium widget: the empty band between the vehicle line and "then ● Bus 132 · arrive 6:52pm"
+3. Medium widget: the empty band between the vehicle line and "then ● Bus 132 · arrive 6:52pm"
    (`LeaveWidgetViews.swift`, the medium view). Close it, as the leave card's layout. Needs an
    iOS build; check the preview PNGs.
 

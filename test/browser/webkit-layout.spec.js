@@ -147,11 +147,34 @@ test('ride bar: tracking and the boarding question', async ({ page }) => {
   await second.click();
   await second.getByRole('button', { name: 'Track', exact: true }).click();
   await tick(page, 1000);
-  await expect(bar(page)).toContainText('Tracking Bus 132 7:36am');
+  await expect(bar(page)).toContainText('Tracking Bus 132 7:36am toward Malden');
   await check(page, 'tracking bar');
   await tickTo(page, '07:36:30');
   await expect(bar(page)).toContainText('Did you get on the 7:36am Bus 132?');
   await check(page, 'boarding question');
+});
+
+// The bar is a text line (2026-11-21): the line in full and its headsign while tracking, which is
+// the longest the bar gets on a rail ride (it wraps at the SE's width).
+test('ride bar: tracking a rail ride', async ({ page }) => {
+  const config = structuredClone(CONFIG);
+  config.trips = [config.trips[1]]; // office to home: the Orange Line first
+  await openApp(page, { time: '07:00', config });
+  const first = page.locator('.row').first();
+  await first.locator('.row-toggle').click();
+  await first.getByRole('button', { name: 'Track', exact: true }).click();
+  await tick(page, 1000);
+  const status = bar(page).locator('.en-status');
+  // No predictions for this leg in the scenario: a headway time, marked "~" as the rows do.
+  await expect(status).toHaveText(/^Tracking Orange Line ~?\d{1,2}:\d{2}(am|pm) toward Oak Grove$/);
+  const lines = await status.evaluate(e => {
+    const r = document.createRange();
+    r.selectNodeContents(e);
+    return new Set([...r.getClientRects()].map(c => Math.round(c.top))).size;
+  });
+  // The SE (320 px) wraps it; the 17 Pro Max (440 px) keeps it on one line.
+  expect(lines).toBe(test.info().project.name.endsWith('se') ? 2 : 1);
+  await check(page, 'tracking bar, rail');
 });
 
 test('ride card phases: riding, transfer, riding, walking, arrived', async ({ page }) => {

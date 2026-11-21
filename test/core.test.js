@@ -622,6 +622,29 @@ test('tracking: boarding, live leg times, phases, Missed it re-plan', () => {
   assert.equal(replanFrom([buses, trains], 1, at('08:01'), transfers), null);
 });
 
+test('the bar and the boarding question: the line in full, the headsign only while tracking', () => {
+  const now = at('07:00');
+  const leg = extra => ({ label: 'Orange', color: 'ED8B00', tripId: 'o1', dep: at('07:40'), arr: at('07:55'), source: 'scheduled', ...extra });
+  const bar = extra => enRouteStatus({ kind: 'track', target: { legs: [leg(extra)] } }, now);
+  // The bar is a text line: `lineLabel`, then the time, then the headsign; "~" from `legTime`, as
+  // the rows (a headway leg).
+  assert.equal(bar({}), 'Tracking Orange Line 7:40am');
+  assert.equal(bar({ every: '6' }), 'Tracking Orange Line ~7:40am');
+  assert.equal(bar({ headsign: 'Oak Grove' }), 'Tracking Orange Line 7:40am toward Oak Grove');
+  // Buses, commuter rail (no track in the bar) and a Green branch, which keeps its letter.
+  assert.equal(bar({ label: 'Bus 132', headsign: 'Malden' }), 'Tracking Bus 132 7:40am toward Malden');
+  assert.equal(bar({ label: 'CR Haverhill', headsign: 'Haverhill', track: '5' }), 'Tracking Haverhill Line 7:40am toward Haverhill');
+  assert.equal(bar({ routeLabels: { 'Green-D': 'Green D' }, vehicleRoute: 'Green-D', headsign: 'Boston College' }), 'Tracking Green Line D 7:40am toward Boston College');
+  assert.equal(enRouteStatus({ kind: 'track' }, now), 'Tracking'); // the target row is gone
+  // The boarding question names the line, with no headsign and no track (the push's title too).
+  const ask = extra => boardingQuestion(leg(extra), now);
+  assert.equal(ask({}), 'Did you get on the 7:40am Orange Line?');
+  assert.equal(ask({ headsign: 'Oak Grove' }), 'Did you get on the 7:40am Orange Line?'); // the headsign is ignored
+  assert.equal(ask({ label: 'Bus 132', headsign: 'Malden' }), 'Did you get on the 7:40am Bus 132?');
+  assert.equal(ask({ label: 'CR Haverhill', headsign: 'Haverhill', track: '5' }), 'Did you get on the 7:40am Haverhill Line?');
+  assert.equal(ask({ label: '132' }), 'Did you get on the 7:40am 132?'); // the server's fixtures label by route id
+});
+
 test('The bell: pinned target, asked at departure', () => {
   const trip = homeToOffice;
   const buses = [veh('b1', '07:12', '07:26'), veh('b2', '07:40', '07:54')];
@@ -640,7 +663,7 @@ test('The bell: pinned target, asked at departure', () => {
   // At b2's departure: asked, not boarded; the question stays ASK_MINUTES.
   s = advanceEnRoute(s, rowsAt('07:40', null), at('07:40'));
   assert.deepEqual([s.ride, s.asking, s.target.key], [undefined, { dep: at('07:40') }, 'b2']);
-  assert.equal(enRouteStatus(s, at('07:41')), 'Did you get on the 7:40am 132?');
+  assert.equal(enRouteStatus(s, at('07:41')), 'Did you get on the 7:40am 132?'); // a bus label: unchanged by lineLabel
   assert.equal(advanceEnRoute(s, rowsAt('07:50', null), at('07:50')), s);
   assert.equal(enRouteActive(s, 10, at('08:09')), true);
   assert.equal(enRouteActive(s, 10, at('08:10')), false);
@@ -1012,7 +1035,7 @@ test('headway legs: "~" on their times and what depends on them (timeline, outlo
   const outlook = { leg: 1, needed: at('17:39'), margin: 6 * MIN, legs: ride.legs, missedDep: null, none: false };
   assert.match(outlookText(outlook, ride, at('17:30')).text, /^Then Orange Line at ~5:45pm/);
   assert.deepEqual(rideHeadline({ kind: 'transfer', leg: 1 }, ride, at('17:36')), { text: 'Orange in 9 min', at: '~5:45pm' });
-  assert.equal(enRouteStatus({ kind: 'track', target: { legs: row.legs } }, now), 'Tracking Orange ~5:17pm');
+  assert.equal(enRouteStatus({ kind: 'track', target: { legs: row.legs } }, now), 'Tracking Orange Line ~5:17pm'); // no headsign here, see the bar test
   assert.equal(reminderText('leave', 'Home', row, now).body, 'Orange Line at ~5:17pm');
   assert.equal(rideAlertText({ kind: 'missed', leg: 1 }, { ride, outlook: { ...outlook, missedDep: at('17:39') }, walkAfter: 10, nowMs: at('17:40') }).body,
     'Next: Orange ~5:45pm · arrive ~6:10pm');
