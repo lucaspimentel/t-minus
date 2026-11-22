@@ -50,12 +50,7 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
    `Text(.dateRange(endingAt:), format: .components(...))`, likely rounding to nearest. Verify
    with an `ios` preview run (`countTo` = now + 35m40s), then count to `countTo − 30 s` or
    equivalent. Needs an iOS build.
-2. Leg minutes and transfer spare disagree with the shown times: "6:16pm → 6:31pm · 14 min" (large
-   widget; the app said 15), "arrive 6:31pm, Walk 5 min · 2 min early, bus 6:39pm" (app and
-   widget). Durations (`formatCountdown(arr - dep)`, `core.js` ~985, ~1935) and `transferText`
-   floor the exact ms gap while the times drop seconds. Compute both from the minute-truncated
-   times; DESIGN.md "Transfers" says the spare is rounded down: decide when grilling.
-3. Medium widget (2026-11-17 screenshot, belled ride): no legs bar and an empty band between the
+2. Medium widget (2026-11-17 screenshot, belled ride): no legs bar and an empty band between the
    vehicle line and "then ● Bus 132 · arrive 6:52pm", while the large widget showed the same
    followed ride ("Next: leave 6:32pm"). The server sets `bar` and `legs` for belled entries
    (`widgetLeaveView`; tests in `core.test.js` ~3131, `server.test.js` ~1952) and `MediumHome`

@@ -7,7 +7,7 @@ import {
   filterAlerts, expandStops, childToParentMap, commuteEntities, formatCountdown, countdownLabel, statusProblem, rowAriaLabel, formatDistance, routeDistances, byDistance, trimStopsDoc, isStale,
   nextServiceWindow, fillRows, formatTime, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding, keepAwake, keepAwakeRiding, stopQueries, checkStops, stopsKey, tripLabel,
   tripToForm, formToTrip, locateLegs, distanceMeters, pickByLocation, routeLabel, routeEnds, searchRoutes, searchStops, stopsAfter, boardGroups, dropOffGroups, alightGroups, stopPairs, normalStopName, commonLabel, railConnections, servesInOrder, legRoutes, vehicleLabel, onVehicle,
-  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, transferText, widgetNextRide, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
+  railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, transferText, shownMinutes, rideMinutes, widgetNextRide, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   boardingRefetchDue, RIDE_BOARDING_REFETCH_MS, RIDE_BOARDING_REFETCH_FOR_MS,
   reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
   validAutoBell, bostonMs, autoBellNext, autoBellRow, autoBellLabel, autoBellTrips,
@@ -1714,18 +1714,34 @@ test('optionSteps: a timed option as timeline steps; untimed: no times, transfer
   assert.equal(optionSteps(rail, { walkBefore: 0, walkAfter: 0, legs })[2].text, 'Transfer · ~6 min early');
 });
 
-test('transferText: the walk and the time to spare, rounded down; short; "~" for a headway', () => {
+test('transferText: the walk and the time to spare from the shown times; short; "~" for a headway', () => {
   const M = 60_000;
-  assert.equal(transferText(6 * M, 2), 'Walk 2 min · 4 min early');
-  assert.equal(transferText(5 * M, 5), 'Walk 5 min · 0 min early');
-  assert.equal(transferText(3 * M, 5), 'Walk 5 min · 2 min short');
-  assert.equal(transferText(6 * M, 0), 'Transfer · 6 min early');
-  assert.equal(transferText(30_000, 0), 'Transfer · 0 min early');
-  assert.equal(transferText(-2 * M, 0), 'Transfer · 2 min short');
-  assert.equal(transferText(6 * M, 2, true), 'Walk 2 min · ~4 min early');
-  assert.equal(transferText(3 * M, 5, true), 'Walk 5 min · ~2 min short');
-  assert.equal(transferText(6 * M + 50_000, 2), 'Walk 2 min · 4 min early');
-  assert.equal(transferText(2 * M + 30_000, 3), 'Walk 3 min · 1 min short');
+  const T = 100 * 60 * M; // a whole minute; seconds are added to it
+  assert.equal(transferText(T, T + 6 * M, 2), 'Walk 2 min · 4 min early');
+  assert.equal(transferText(T, T + 5 * M, 5), 'Walk 5 min · 0 min early');
+  assert.equal(transferText(T, T + 3 * M, 5), 'Walk 5 min · 2 min short');
+  assert.equal(transferText(T, T + 6 * M, 0), 'Transfer · 6 min early');
+  assert.equal(transferText(T, T + 30_000, 0), 'Transfer · 0 min early');
+  assert.equal(transferText(T, T - 2 * M, 0), 'Transfer · 2 min short');
+  assert.equal(transferText(T, T + 6 * M, 2, true), 'Walk 2 min · ~4 min early');
+  assert.equal(transferText(T, T + 3 * M, 5, true), 'Walk 5 min · ~2 min short');
+  // The shown times decide: arrive 6:31:40, leave 6:39:20, walk 5 reads "3 min early" (6:31 → 6:39).
+  assert.equal(transferText(T + 40_000, T + 8 * M + 20_000, 5), 'Walk 5 min · 3 min early');
+  assert.equal(transferText(T, T + 6 * M + 50_000, 2), 'Walk 2 min · 4 min early');
+  assert.equal(transferText(T + 50_000, T + 3 * M + 20_000, 3), 'Walk 3 min · 0 min early'); // 6:xx → shown gap 3 min
+  assert.equal(transferText(T + 50_000, T + 2 * M + 20_000, 3), 'Walk 3 min · 1 min short');
+});
+
+test('shownMinutes and rideMinutes: whole minutes between the shown times', () => {
+  const M = 60_000;
+  const T = 100 * 60 * M;
+  assert.equal(shownMinutes(T + 50_000, T + 15 * M + 20_000), 15); // 6:16:50 → 6:31:20 is shown as 15 min (14 exact)
+  assert.equal(shownMinutes(T + 10_000, T + 15 * M + 5_000), 15);
+  assert.equal(shownMinutes(T, T), 0);
+  assert.equal(rideMinutes(T + 50_000, T + 15 * M + 20_000), '15 min');
+  assert.equal(rideMinutes(T, T + 65 * M), '1h 05m');
+  assert.equal(rideMinutes(T + 50_000, T + 70_000), '1 min');
+  assert.equal(rideMinutes(T, T + 30_000), '0 min');
 });
 
 test('nextWeekday: today on a weekday, else Monday', () => {

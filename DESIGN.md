@@ -68,9 +68,14 @@ expanded Dynamic Island and the medium widget (a followed ride only: the belled 
 transfer, riding, the final walk; not the leave times, not "Did you get on?"). See "Legs bar".
 
 Transfers (2026-11-17; `transferText`): the app's timelines (rows, the ride card, timed
-auto-route options) and the large widget's say the transfer's walk and the time to spare,
-rounded down: "Walk 2 min · 4 min early", "Walk 5 min · 0 min early", "Walk 5 min · 2 min
-short"; "Transfer · 6 min early" without a walk; "~4 min early" before a headway leg. The source
+auto-route options) and the large widget's say the transfer's walk and the time to spare:
+"Walk 2 min · 4 min early", "Walk 5 min · 0 min early", "Walk 5 min · 2 min short";
+"Transfer · 6 min early" without a walk; "~4 min early" before a headway leg. Durations and the
+spare follow the times as shown (2026-11-22; `shownMinutes`, `rideMinutes`): both times are cut to
+their minute, as `formatTime` drops the seconds, so "6:16pm → 6:31pm" is always "15 min" and
+arriving 6:31pm, walking 5, boarding 6:39pm is "3 min early" (they were rounded down from the exact
+gap, which gave "14 min" and "2 min early" beside the same times). The tight and missed colors and
+the connection logic keep the exact times. The source
 badge sits on a leg's "toward" line, else its ride line; the large widget tags only legs not yet
 boarded.
 
@@ -505,8 +510,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   en-route rows), each leg's stops and ride, the transfer's walk and time to spare
   (`transferText`, 2026-11-17: "Walk 5 min · 4 min early", "Transfer · 6 min early" without a
   walk, "Walk 5 min · 2 min short" when the gap is shorter than the walk, "~4 min early" before a
-  headway leg; minutes rounded down: the gap is the next departure − the previous arrival, the
-  walk the trip's transfer minutes; until 2026-11-17 "9 min to transfer", the gap alone), and
+  headway leg; minutes from the shown times (2026-11-22; before that rounded down from the exact gap):
+  the gap is the next departure − the previous arrival, the walk the trip's transfer minutes; until 2026-11-17 "9 min to transfer", the gap alone), and
   "Walk 10 min" (`timelineSteps`), then an "Arrive 8:56am" line (a gray node). No Leave node
   (2026-11-17: the row's header has the leave-by; until then a "Leave 8:04am" line came first);
   tap again to collapse. Layout

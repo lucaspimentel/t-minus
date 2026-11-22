@@ -980,12 +980,12 @@ export function optionSteps(o, { walkBefore, walkAfter, slack = 0, legs }) {
       const prev = timed ? o.deps?.[i - 1] : null;
       const t = o.transfers?.[i - 1];
       const min = t?.min ?? 0; // a station name (rail only): no walk
-      steps.push(d && prev ? { kind: 'walk', text: transferText(d.dep - prev.arr, min, !!d.every), walking: true }
+      steps.push(d && prev ? { kind: 'walk', text: transferText(prev.arr, d.dep, min, !!d.every), walking: true }
         : min > 0 ? { kind: 'walk', text: `Walk ${min} min to transfer`, walking: true } : { kind: 'walk', text: 'Transfer', walking: false });
     }
     const { label, color, from, to } = legs[i];
     steps.push({
-      kind: 'leg', from, to, minutes: d ? formatCountdown(d.arr - d.dep) : null, ...stopsOf(l.stops),
+      kind: 'leg', from, to, minutes: d ? rideMinutes(d.dep, d.arr) : null, ...stopsOf(l.stops),
       leg: { label, color, ...(d && { dep: d.dep, arr: d.arr, source: d.source, ...(d.headsign && { headsign: d.headsign }), ...(d.every && { every: d.every }) }) },
     });
   });
@@ -1934,9 +1934,9 @@ export function timelineSteps(row, trip, slackMinutes, nowMs, names = new Map(),
     if (parts.length) steps.push({ kind: 'walk', text: parts.join(' · '), walking: walkBefore > 0 });
   }
   row.legs.forEach((leg, i) => {
-    if (i > 0) steps.push({ kind: 'walk', text: transferText(leg.dep - row.legs[i - 1].arr, transfers[i - 1] ?? 0, !!leg.every), walking: true });
+    if (i > 0) steps.push({ kind: 'walk', text: transferText(row.legs[i - 1].arr, leg.dep, transfers[i - 1] ?? 0, !!leg.every), walking: true });
     steps.push({
-      kind: 'leg', leg, minutes: formatCountdown(leg.arr - leg.dep), approx: !!leg.every, ...stopsOf(stopCounts[i]),
+      kind: 'leg', leg, minutes: rideMinutes(leg.dep, leg.arr), approx: !!leg.every, ...stopsOf(stopCounts[i]),
       from: names.get(transit[i]?.stop) ?? null, to: names.get(transit[i]?.alight) ?? null,
     });
   });
@@ -2304,11 +2304,19 @@ export function stopCountTrip(leg, transitLeg, scheduleTrips) {
 export const stopCountText = n => `${n} stop${n === 1 ? '' : 's'}`;
 const stopsOf = n => (Number.isInteger(n) && n > 0 ? { stops: n } : {});
 
-// A transfer's line (2026-11-17): its walk and the time to spare, rounded down like the
-// countdowns: "Walk 2 min · 4 min early", "Transfer · 0 min early" (no walk), "Walk 5 min · 2 min
-// short" (a 30 s shortfall is "1 min short"); "~" when the next leg is a headway estimate.
-export function transferText(gapMs, walkMin, approx = false) {
-  const s = Math.floor((gapMs - walkMin * MIN) / MIN);
+// Whole minutes from `a` to `b` as the times are shown (2026-11-22): both cut to their minute, as
+// `formatTime` drops the seconds, so a duration or a spare never contradicts the times beside it.
+export const shownMinutes = (a, b) => Math.floor(b / MIN) - Math.floor(a / MIN);
+
+// A timeline ride's minutes ("15 min", "1h 05m") from its shown departure and arrival.
+export const rideMinutes = (dep, arr) => formatCountdown(Math.max(0, shownMinutes(dep, arr)) * MIN);
+
+// A transfer's line (2026-11-17; from the shown times 2026-11-22): its walk and the time to spare,
+// from the arrival and the next departure as shown: "Walk 2 min · 4 min early", "Transfer · 0 min
+// early" (no walk), "Walk 5 min · 2 min short"; "~" when the next leg is a headway estimate. The
+// tight and missed colors keep the exact times.
+export function transferText(arr, dep, walkMin, approx = false) {
+  const s = shownMinutes(arr, dep) - walkMin;
   const head = walkMin > 0 ? `Walk ${walkMin} min` : 'Transfer';
   return `${head} · ${approx ? '~' : ''}${Math.abs(s)} min ${s >= 0 ? 'early' : 'short'}`;
 }
