@@ -2,7 +2,7 @@
 // route map widget and the base map. No app state: callers pass in what varies.
 import {
   DOUBLE_TAP_MS, FOLLOW_SPANS, PIN_LABEL_X, TAP_SLOP_PX, TAP_ZOOM, areaRect, basemapLayers, basemapNames, doubleTap, easeView, fitChoice, fitTap, flagStop, formatTime, legTime, mapPoint, nextFollowLevel, panView, projector, rideFollowTarget, rideLine, routeMapModel, sameView, shownStops, sourceText, stopsToShow, toward, twoFingerTap, vehicleShown, viewAt, viewLimits, wheelZoom, wholeView, zoomView, zoomedOut,
-} from './core.js?v=c636f2199d';
+} from './core.js?v=8064cd5f64';
 
 export function el(tag, cls, text) {
   const e = document.createElement(tag);

@@ -1728,7 +1728,7 @@ test('transferText: the walk and the time to spare from the shown times; short; 
   // The shown times decide: arrive 6:31:40, leave 6:39:20, walk 5 reads "3 min early" (6:31 → 6:39).
   assert.equal(transferText(T + 40_000, T + 8 * M + 20_000, 5), 'Walk 5 min · 3 min early');
   assert.equal(transferText(T, T + 6 * M + 50_000, 2), 'Walk 2 min · 4 min early');
-  assert.equal(transferText(T + 50_000, T + 3 * M + 20_000, 3), 'Walk 3 min · 0 min early'); // 6:xx → shown gap 3 min
+  assert.equal(transferText(T + 50_000, T + 3 * M + 20_000, 3), 'Walk 3 min · 0 min early'); // x:00:50 → x:03:20 is shown as 3 min
   assert.equal(transferText(T + 50_000, T + 2 * M + 20_000, 3), 'Walk 3 min · 1 min short');
 });
 

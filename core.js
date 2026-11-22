@@ -2316,9 +2316,9 @@ export const rideMinutes = (dep, arr) => formatCountdown(Math.max(0, shownMinute
 // early" (no walk), "Walk 5 min · 2 min short"; "~" when the next leg is a headway estimate. The
 // tight and missed colors keep the exact times.
 export function transferText(arr, dep, walkMin, approx = false) {
-  const s = shownMinutes(arr, dep) - walkMin;
+  const spare = shownMinutes(arr, dep) - walkMin;
   const head = walkMin > 0 ? `Walk ${walkMin} min` : 'Transfer';
-  return `${head} · ${approx ? '~' : ''}${Math.abs(s)} min ${s >= 0 ? 'early' : 'short'}`;
+  return `${head} · ${approx ? '~' : ''}${Math.abs(spare)} min ${spare >= 0 ? 'early' : 'short'}`;
 }
 
 // A timeline ride line: "Orange Line · 13 stops · 12 min" (stops and minutes when known).
