@@ -65,6 +65,10 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
    own, so one size can get a followed answer and another a plain one. `shareFollow` already
    rebuilds a missing row from the saved legs (`fallback`); the widget could do the same. The band
    stays with the bar drawn (the medium layout puts the "then" line and the bar at the bottom).
+   May not be a bug: build 76 (both the bar and "Next:") was uploaded at 5:02pm that day, the
+   widget's requests switched from build 73 to 76 between 5:11pm and 5:24pm, and the screenshot
+   is from 5:29pm, so the medium size may have still shown a timeline from the old build. Recheck
+   on a current build with a belled ride (medium and large side by side) before changing anything.
 
 ## Ideas (2026-11-06, to grill one by one)
 
