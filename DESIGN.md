@@ -830,7 +830,9 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   the camera moves with where it is drawn, at the follow's zoom, and an ease already on its way (a
   follow tap, a zoom) tracks the same point instead of the answer it started with: it ends where the
   vehicle is drawn at that moment, so the glide's frames take the view over without a jump (one
-  writer to the view at a time), and a drag still ends the follow. A frame whose clock has not moved
+  writer to the view at a time), and a drag still ends the follow. Basemap names are reselected as
+  the follow view moves, including its final position, so names entering the view appear without
+  waiting for another answer. A frame whose clock has not moved
   draws nothing (the simulator's pause), and the glide goes on when the clock does. No new requests,
   and no change to the GPS hold, freshness or boarding rules.
 - **Your vehicle at your position (2026-11-12):** MBTA positions lag (subway: track circuits; the

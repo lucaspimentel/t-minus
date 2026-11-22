@@ -267,6 +267,15 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
   const reducedMotion = () => (motion ??= matchMedia('(prefers-reduced-motion: reduce)')).matches;
   // Marks are drawn where the glide put them (dataset.sx/sy) or at the answer's point.
   const placeMarks = () => { const s = mpp(); for (const m of w.marks) m.setAttribute('transform', `translate(${m.dataset.sx ?? m.dataset.x} ${m.dataset.sy ?? m.dataset.y}) scale(${s})`); };
+  function placeBasemapNames() {
+    if (!w.base || !w.view) return;
+    const s = mpp();
+    const shown = basemapNames(w.base.names, w.view, size());
+    w.base.marks.forEach((m, i) => {
+      if (shown.has(i)) { m.removeAttribute('display'); m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`); }
+      else m.setAttribute('display', 'none');
+    });
+  }
   let fitBtn = null, wholeBtn = null, limitsOf = null;
   // The mode the fit button's next tap goes to; null: nothing to switch to.
   const nextFit = () => (w.fits ? fitTap({ fits: w.fits, mode: w.mode, moved: w.touched }) : null);
@@ -301,13 +310,7 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     if (w.out && !out) setTimeout(() => w.onZoomIn?.());
     w.out = out;
     w.updateLocate?.();
-    if (w.base) {
-      const shown = basemapNames(w.base.names, w.view, size());
-      w.base.marks.forEach((m, i) => {
-        if (shown.has(i)) { m.removeAttribute('display'); m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`); }
-        else m.setAttribute('display', 'none');
-      });
-    }
+    placeBasemapNames();
   }
   function showCaption() {
     if (!cap) return;
@@ -392,11 +395,14 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
         m.pin.setAttribute('transform', `rotate(${h})`);
       }
     }
-    // Following the ridden vehicle, the view moves with the drawn point: only the frame changes (the
-    // follow's span, and with it the marks' scale, the stops shown and the base map's labels, does not),
-    // and an ease on its way tracks the same point, so the hand-over to these frames is continuous.
+    // Following the ridden vehicle, the view moves with the drawn point at the same scale. Basemap
+    // names depend on the view's position too, so refresh those without the rest of apply(). An ease
+    // on its way tracks the same point, so the hand-over to these frames is continuous.
     const camera = glideFollow?.() ?? false;
-    if (camera) { svg.setAttribute('viewBox', `${w.view.x} ${w.view.y} ${w.view.w} ${w.view.h}`); placeMarks(); }
+    if (camera) {
+      svg.setAttribute('viewBox', `${w.view.x} ${w.view.y} ${w.view.w} ${w.view.h}`);
+      placeMarks(); placeBasemapNames();
+    }
     else if (moved) placeMarks();
     if (live || camera) glideFrame = requestAnimationFrame(stepGlides);
   };

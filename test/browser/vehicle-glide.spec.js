@@ -274,6 +274,38 @@ test('Reduce Motion mid-glide snaps the follow camera to the ridden vehicle too'
   await expect(map(page).locator('svg.route-svg')).toHaveAttribute('viewBox', snappedView);
 });
 
+test('basemap names entering the follow view refresh during and after a glide', async ({ page }) => {
+  const nameAt = (n, k) => ({ n, lat: busStop(busStops[k]).latitude, lon: busStop(busStops[k]).longitude });
+  await page.route('**/basemap.json', route => route.fulfill({ json: {
+    v: 1, box: [-71.2, 42.3, -71, 42.6], names: [nameAt('Old', 6), nameAt('New', 8)],
+  } }));
+  await stubLocation(page);
+  const scenario = { ...commute(), vehicles: [] };
+  await openApp(page, { map: true, time: '07:00', scenario });
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await tick(page, 1000);
+  await tickTo(page, '07:08:30');
+  await expect(page.locator('.ride-head')).toBeVisible();
+  const tripId = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('t-minus:en-route')))[0].ride.legs[0].tripId);
+  scenario.vehicles = [vehicleAt('mine', 6, tripId)];
+  await tick(page, 20_000);
+  await map(page).getByRole('button', { name: 'Follow Bus 132' }).click();
+  await tick(page, 300);
+  await pauseClock(page);
+  const names = () => map(page).locator('.map-name').evaluateAll(ts => ts
+    .filter(t => t.closest('g').getAttribute('display') !== 'none').map(t => t.textContent).sort());
+  expect(await names()).toEqual(['Old']);
+  const v = map(page).locator('.map-vehicle.mine');
+  scenario.vehicles = [vehicleAt('mine', 8, tripId)];
+  expect((await nextAnswer(page, v)).at.sx).not.toBeNull();
+  await page.clock.runFor(1200);
+  expect((await mark(v)).sx).not.toBeNull(); // entering the view while the glide is still running
+  expect(await names()).toEqual(['New']);
+  await page.clock.runFor(1000);
+  expect((await mark(v)).sx).toBeNull(); // the final camera position, with no later drawing or poll
+  expect(await names()).toEqual(['New']);
+});
+
 test('closing the full map snaps the main map\'s vehicles (2026-11-21)', async ({ page }) => {
   const scenario = { ...commute(), vehicles: [vehicleAt('v1', 6)] };
   await openApp(page, { map: true, time: '07:00', scenario, init: DENIED });
