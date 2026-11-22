@@ -3,7 +3,7 @@
 // (leave-by 6 min earlier: 5-min walk + 1 min early at the stop), arriving 7:57, 8:28…
 // openApp waits 1 s after the first rows, hence "6 min" at 6:55 for a 7:02 leave-by.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, rowHeads, commute, CONFIG, cssColor } from './helpers.js';
+import { openApp, tick, tickTo, pauseClock, rowHeads, commute, CONFIG, cssColor } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -57,7 +57,7 @@ test('rows show the leave-by countdown, leg strip, arrival, and expand on tap', 
 test('one expanded row at a time; the tapped row stays where it was on screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 500 });
   await openApp(page, { time: '06:55' });
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10)); // no once-a-second redraw between the measures
+  await pauseClock(page); // no once-a-second redraw between the measures
   const row = i => page.locator('#rows .row').nth(i);
   const open = i => row(i).locator('.row-toggle');
   await row(0).click();

@@ -3,7 +3,7 @@
 // editor draw the same map inline. Shapes come from the recorded patterns (fake-mbta.js).
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { openApp, tick, tickTo, commute, riding, planOptions, expandOption, cssColor } from './helpers.js';
+import { openApp, tick, tickTo, pauseClock, commute, riding, planOptions, expandOption, cssColor } from './helpers.js';
 import { encodePolyline, areaRect, projector } from '../../core.js';
 import { series } from './fake-mbta.js';
 
@@ -132,7 +132,7 @@ test('the phone\'s location, already granted: the dot in the fit, no walk to the
   expect(fitted.y).toBeGreaterThan(0); expect(fitted.y).toBeLessThan(0.2); // in the fit, near its top
   const fitBtn = sheet(page).getByRole('button', { name: 'Show the whole trip' });
   await expect(fitBtn).toBeHidden();
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10)); // the ease runs on the page clock only
+  await pauseClock(page); // the ease runs on the page clock only
   await locateBtn(sheet(page)).click();
   await tick(page, 50);
   const moving = await inView(); // eased like ⤢ (2026-11-09): on its way
@@ -565,7 +565,7 @@ test('the whole map button: shown once the base map is in, eases all the way out
   const order = await sheet(page).locator('.map-tools:not(.start) .map-tool').evaluateAll(bs => bs.map(b => b.getAttribute('aria-label')));
   expect(order).toEqual(['Center on my location', 'Show the whole trip', 'Show the whole map']);
   await expect(whole.locator('svg path')).toHaveCount(1);
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
+  await pauseClock(page);
   await whole.click();
   await tick(page, 50);
   const b = bound(), aspect = await aspectOf(page), all = Math.max(b.w, b.h * aspect);
@@ -933,7 +933,7 @@ test('locate follows you: street first, then each tap switches area / street', a
   const btn = locateTool(sheet(page));
   await expect(btn).toHaveAttribute('aria-pressed', 'false');
   await expect(btn).toHaveAttribute('aria-label', 'Center on my location');
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
+  await pauseClock(page);
   await btn.click();
   await tick(page, 50);
   expect((await view(page))[2]).toBeGreaterThan(600); // on its way in
@@ -1221,7 +1221,7 @@ test('far from the trip: the first view is the trip alone; the fit button switch
   await expect(fit.locator('circle')).toHaveCount(3); // the route's ends and you
   await expect.poll(() => dotShown(pic)).toBe(false);
   const first = await pic.getAttribute('viewBox');
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
+  await pauseClock(page);
   await fit.click();
   await tick(page, 300);
   await expect(sheet(page)).toBeHidden(); // the button doesn't open the sheet
@@ -1535,7 +1535,7 @@ test('the main screen\'s map: a tap on a stop shows its name, a tap elsewhere cl
   const pic = mapSvg(page);
   await expect(pic.locator('.map-label')).toHaveText(['Main St @ South St', 'Oak Grove', 'State']);
   await expect(pic.locator('[role="button"], [tabindex]')).toHaveCount(0);
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
+  await pauseClock(page);
   // A drawn stop between the ends.
   const pt = await pic.evaluate(s => {
     const g = [...s.querySelectorAll('.map-stop[data-stop]')].find(x => !x.hasAttribute('display') && !x.querySelector('.map-label'));

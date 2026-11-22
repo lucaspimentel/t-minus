@@ -78,6 +78,21 @@ export async function tick(page, ms) {
   await page.waitForTimeout(100);
 }
 
+// Pauses the page clock (it runs in real time after `page.clock.install`) a moment ahead of now.
+// `pauseAt` only goes forward, and the clock keeps running between reading `Date.now()` and the
+// pause, so on a slow runner a 10 ms lead was already in the past ("Cannot fast-forward to the
+// past"): read the time again and retry with a longer lead.
+export async function pauseClock(page) {
+  for (const lead of [50, 500, 2000]) {
+    try {
+      await page.clock.pauseAt(await page.evaluate(() => Date.now()) + lead);
+      return;
+    } catch (e) {
+      if (!/fast-forward to the past/.test(e.message) || lead === 2000) throw e;
+    }
+  }
+}
+
 // Advances the page clock to a local time on the test day (timers, polls and renders run).
 export async function tickTo(page, time, date = MONDAY) {
   const now = await page.evaluate(() => Date.now());
