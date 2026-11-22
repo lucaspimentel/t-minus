@@ -3,7 +3,7 @@
 // words it every second (`shareView`). It never touches this origin's storage, the location or
 // RUM: the recipient's own T-Minus data stays out of it.
 import { shareView, mapLegs, SHARE_RESUME_MS, shapesQuery, trimShapesDoc, stopsKey, rideFollow } from './core.js?v=4426ff500e';
-import { el, renderTimeline, rideStopRows, mapWidget, replaceKeepingFocus } from './ui.js?v=fde14b13bb';
+import { el, renderTimeline, rideStopRows, mapWidget, replaceKeepingFocus } from './ui.js?v=de5375a21f';
 
 const id = location.pathname.split('/').filter(Boolean).at(-1) ?? '';
 const POLL_MS = 20_000;

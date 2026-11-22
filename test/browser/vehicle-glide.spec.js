@@ -7,7 +7,7 @@
 // easing over without a jump. Clock times are the page's (helpers.js).
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { openApp, tick, tickTo, commute } from './helpers.js';
+import { openApp, tick, tickTo, pauseClock, commute } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -235,6 +235,43 @@ test('Reduce Motion turned on mid-glide: the vehicles go to their answers at onc
   const now = await mark(v);
   expect(now.sx).toBeNull(); // at the answer: the frames check the preference before the clock
   expect([now.tx, now.ty]).toEqual([now.x, now.y]);
+});
+
+test('Reduce Motion mid-glide snaps the follow camera to the ridden vehicle too', async ({ page }) => {
+  await stubLocation(page);
+  const scenario = { ...commute(), vehicles: [] };
+  await openApp(page, { map: true, time: '07:00', scenario });
+  await page.locator('#enroute').getByRole('button', { name: 'At the stop' }).click();
+  await tick(page, 1000);
+  await tickTo(page, '07:08:30');
+  await expect(page.locator('.ride-head')).toBeVisible();
+  const tripId = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('t-minus:en-route')))[0].ride.legs[0].tripId);
+  scenario.vehicles = [vehicleAt('mine', 6, tripId)];
+  await tick(page, 20_000);
+  await map(page).getByRole('button', { name: 'Follow Bus 132' }).click();
+  await tick(page, 300);
+  await pauseClock(page);
+  const v = map(page).locator('.map-vehicle.mine');
+  scenario.vehicles = [vehicleAt('mine', 8, tripId)]; // about 800 m, larger than the street view
+  const { at } = await nextAnswer(page, v);
+  expect(at.sx).not.toBeNull();
+  const span = await viewWidth(map(page));
+  expect(span).toBeCloseTo(400, 0);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.clock.runFor(32); // snap on the next frame, without another drawing or poll
+  const snapped = await mark(v);
+  expect(snapped.sx).toBeNull();
+  expect([snapped.tx, snapped.ty]).toEqual([snapped.x, snapped.y]);
+  const view = await map(page).locator('svg.route-svg').evaluate(s => {
+    const [x, y, w, h] = s.getAttribute('viewBox').split(' ').map(Number);
+    return { x: x + w / 2, y: y + h / 2, span: w };
+  });
+  expect(view.span).toBeCloseTo(span, 5);
+  expect(gap(view, snapped)).toBeLessThan(1);
+  await expect(map(page).locator('.map-locate')).toHaveAttribute('aria-pressed', 'true');
+  const snappedView = await map(page).locator('svg.route-svg').getAttribute('viewBox');
+  await page.clock.runFor(300); // no old camera ease may pull it back after the snap
+  await expect(map(page).locator('svg.route-svg')).toHaveAttribute('viewBox', snappedView);
 });
 
 test('closing the full map snaps the main map\'s vehicles (2026-11-21)', async ({ page }) => {

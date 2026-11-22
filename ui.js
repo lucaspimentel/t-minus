@@ -405,7 +405,12 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
   w.snapVehicles = () => {
     w.vehicles.clear();
     for (const m of w.vehicleMarks) { m.glide = null; delete m.g.dataset.sx; delete m.g.dataset.sy; }
-    w.rideShown = null;
+    w.rideShown = w.rideTarget;
+    const to = drawnFollowView?.();
+    if (to) {
+      ++fitAnim; animGoal = null; // an old camera ease must not move it back after the snap
+      w.view = to; w.followAt = w.rideShown;
+    }
     glideMoment = 0; // the clock may have stepped back while none was drawn: no stale gate
     apply();
   };

@@ -817,7 +817,8 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   the first drawing and a vehicle that comes back; a move backwards along the route (the GPS hold's
   included) or more than 1 km forwards (`VEHICLE_GLIDE_MAX_METERS`); another route shape, stretch or
   origin (`pathKey`: a hash of every point, so a moved bend counts); a new leg or trip; Reduce
-  Motion, which each frame asks again too, so turning it on mid-glide snaps; back from the
+  Motion, which each frame asks again too, so turning it on mid-glide snaps the marker and its
+  active follow camera together, keeping the follow's zoom; back from the
   background and the sheet closing (`snapVehicles`: the main map stops polling vehicles while the
   sheet is open, so its vehicles can be an answer or more behind by the time it closes). A
   vehicle's state (the route it sits on, the answer it heads to, the point drawn last) is kept
