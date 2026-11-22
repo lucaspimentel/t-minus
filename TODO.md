@@ -56,16 +56,15 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
    it), or push the card when `countTo` crosses a minute boundary.
 2. Medium widget (2026-11-17 screenshot, belled ride): no legs bar and an empty band between the
    vehicle line and "then ● Bus 132 · arrive 6:52pm", while the large widget showed the same
-   followed ride ("Next: leave 6:32pm"). The server sets `bar` and `legs` for belled entries
-   (`widgetLeaveView`; tests in `core.test.js` ~3131, `server.test.js` ~1952) and `MediumHome`
-   draws `LegsBar` for `barLegs`; Railway showed build 76 getting 200s from `/api/widget`. To
-   find the cause: (a) the "Belled (legs bar)" preview on the medium size (`Render.swift` ~270);
-   (b) decode a real `widgetView` answer into `WidgetView` / `RideState.Leg` (a missing or
-   mismatched field makes `LeaveProvider.load` fall back to the saved answer, shared by the small
-   and medium sizes); (c) whether the medium size reloads when the bell is set
-   (`TMinusPlugin.swift` ~198, `BoardingLocation.swift` ~299, the widget save in `index.html`).
-   Judge the empty band only once the bar is drawn (it may be where the bar goes). May need an
-   iOS build; check the preview PNGs.
+   followed ride ("Next: leave 6:32pm"). Checked 2026-11-22: the medium view draws the bar (the
+   "Belled (legs bar)" preview, run 80); a belled `widgetView` answer decodes into `WidgetView`
+   (every required field present); the app's `syncWidget` reloads every size when the bell
+   changes. Likely cause: `widgetFollow` returns a 'bell' follow only when `followTarget` finds the
+   target's key (its first leg's `tripId`) in the server's rows, else null, and the answer falls
+   back to the plain leave times (same ride on top, no `bar`, no "Next:"). Each size fetches on its
+   own, so one size can get a followed answer and another a plain one. `shareFollow` already
+   rebuilds a missing row from the saved legs (`fallback`); the widget could do the same. The band
+   stays with the bar drawn (the medium layout puts the "then" line and the bar at the bottom).
 
 ## Ideas (2026-11-06, to grill one by one)
 
