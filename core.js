@@ -4479,6 +4479,35 @@ export function nearestOnPath(path, p, fromIndex = 0, fromT = 0) {
   return best;
 }
 
+// The point `along` meters from `path`'s start (nearestOnPath's `along`, inverted), clamped to
+// the path: { x, y } (null for an empty or absent path).
+export function pointAtAlong(path, along) {
+  if (!path?.length) return null;
+  if (path.length === 1 || !(along > 0)) return { x: path[0].x, y: path[0].y };
+  let left = along;
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i], b = path[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!len) continue; // a duplicate point: no meters of its own
+    if (left <= len) return { x: a.x + (b.x - a.x) * (left / len), y: a.y + (b.y - a.y) * (left / len) };
+    left -= len;
+  }
+  const last = path[path.length - 1];
+  return { x: last.x, y: last.y };
+}
+
+// The direction of travel at `along` meters into `path` (the vehicles' glide, 2026-11-21): degrees,
+// as pathHeading, pointing along the route 1 m on (a corner turns at the corner's point); null at
+// the path's end or with nothing to point along.
+const HEADING_LOOKAHEAD_METERS = 1;
+export function headingAtAlong(path, along) {
+  if (!(path?.length >= 2) || !Number.isFinite(along)) return null;
+  const a = pointAtAlong(path, along), b = pointAtAlong(path, along + HEADING_LOOKAHEAD_METERS);
+  if (!a || !b) return null;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  return dx || dy ? Math.atan2(dy, dx) * 180 / Math.PI : null;
+}
+
 // `path` from the point nearest `a` to the point nearest `b` after it (loops and out-and-back
 // routes pass near `b` before `a`): the sub-path with its projected ends, and the ends' `along`.
 export function trimPath(path, a, b) {
@@ -4500,7 +4529,8 @@ export function splitPath(path, a, b) {
 }
 
 // The vehicles ([{ id, tripId, lat, lon, updatedAt }], projected by `proj`) on the stretch of
-// `path` between `fromAlong` and `toAlong`, fresh and within `maxMeters` of it, with their point.
+// `path` between `fromAlong` and `toAlong`, fresh and within `maxMeters` of it, with their point,
+// heading and `along` (meters from `path`'s start).
 export const STRETCH_METERS = 150;
 export const vehicleFresh = (updatedAt, nowMs) => nowMs - updatedAt <= VEHICLE_FRESH_SECONDS * 1000;
 export function vehiclesOnStretch(vehicles, path, fromAlong, toAlong, proj, nowMs, maxMeters = STRETCH_METERS) {
@@ -4509,7 +4539,7 @@ export function vehiclesOnStretch(vehicles, path, fromAlong, toAlong, proj, nowM
     if (!vehicleFresh(v.updatedAt, nowMs)) continue;
     const n = nearestOnPath(path, proj.toXY(v));
     if (!n || n.meters > maxMeters || n.along < fromAlong - 1 || n.along > toAlong + 1) continue;
-    out.push({ ...v, point: n.point, heading: pathHeading(path, n.index) });
+    out.push({ ...v, point: n.point, heading: pathHeading(path, n.index), along: n.along });
   }
   return out;
 }
@@ -4546,9 +4576,11 @@ export function vehicleLeftBoarding(path, vehicle, nowMs) {
 }
 // path: the ridden stretch [{ x, y }]; fix: { x, y, accuracy, at } or null; vehicle: the ride's
 // MBTA position { x, y } or null (not in /vehicles: no marker); hold: { x, y, at } or null.
-// → { point, heading, hold }: point null keeps the MBTA marker.
+// → { point, heading, hold, along }: point null keeps the MBTA marker; `along` is the point's
+// meters from `path`'s start, as the projection found them (the pass it chose on a path that
+// passes a point twice), for the map model to add to the stretch's own start.
 export function rideMarker({ path, fix, vehicle, left, hold, nowMs }) {
-  const none = { point: null, heading: 0, hold: null };
+  const none = { point: null, heading: 0, hold: null, along: null };
   if (!vehicle || !path || path.length < 2) return none;
   const held = hold ? nearestOnPath(path, hold) : null;
   const usable = fix && fix.accuracy <= GPS_MAX_ACCURACY_METERS && nowMs - fix.at <= RIDE_GPS_MAX_AGE_MS
@@ -4557,10 +4589,10 @@ export function rideMarker({ path, fix, vehicle, left, hold, nowMs }) {
   const snap = usable ? nearestOnPath(path, fix) : null;
   if (snap && snap.meters <= RIDE_GPS_LINE_METERS) {
     const use = held && held.along > snap.along ? held : snap;
-    return { point: use.point, heading: pathHeading(path, use.index), hold: { x: use.point.x, y: use.point.y, at: fix.at } };
+    return { point: use.point, heading: pathHeading(path, use.index), hold: { x: use.point.x, y: use.point.y, at: fix.at }, along: use.along };
   }
   if (held && nowMs - hold.at < RIDE_GPS_HOLD_MS && nearestOnPath(path, vehicle).along < held.along) {
-    return { point: held.point, heading: pathHeading(path, held.index), hold };
+    return { point: held.point, heading: pathHeading(path, held.index), hold, along: held.along };
   }
   return none;
 }
@@ -4678,11 +4710,48 @@ export function viewAt(p, span, aspect, limits = null) {
 // How far apart two views' centers are, in pixels of a map `widthPx` wide showing view `a`.
 export const viewShiftPx = (a, b, widthPx) =>
   Math.hypot(a.x + a.w / 2 - (b.x + b.w / 2), a.y + a.h / 2 - (b.y + b.h / 2)) * (widthPx / a.w);
+// `t` (0..1) eased out (cubic, clamped): the fit button's ease and the vehicles' glide.
+export const easeOut = t => 1 - (1 - Math.min(Math.max(t, 0), 1)) ** 3;
 // A view `t` (0..1) of the way from `from` to `to`, eased out (the fit button's animation).
 export function easeView(from, to, t) {
-  const k = 1 - (1 - Math.min(Math.max(t, 0), 1)) ** 3;
+  const k = easeOut(t);
   const mix = key => from[key] + (to[key] - from[key]) * k;
   return { x: mix('x'), y: mix('y'), w: mix('w'), h: mix('h') };
+}
+// The vehicles' glide between answers (2026-11-21): each is drawn where it was last drawn, eased
+// along its own route to the answer's point, instead of stepping.
+export const VEHICLE_GLIDE_MS = 2000; // the glide's length (easeOut)
+export const VEHICLE_GLIDE_MAX_METERS = 1000; // a forward step past this snaps
+// A path's identity across answers (the vehicles' glide, 2026-11-21): its point count and a hash of
+// every point to 0.1 m (FNV-1a). The same route, stretch and origin comes back the same; a changed
+// bend (not just its ends), stretch or origin does not, and the vehicle snaps rather than sliding
+// across geometry it was not drawn on.
+export function pathKey(path) {
+  if (!(path?.length >= 2)) return '';
+  let h = 0x811c9dc5; // FNV-1a's offset basis
+  for (const p of path) {
+    for (const q of [Math.round(p.x * 10), Math.round(p.y * 10)]) { h = Math.imul(h ^ (q & 0xffffffff), 0x01000193); }
+  }
+  return `${path.length}:${(h >>> 0).toString(36)}`;
+}
+// A vehicle's glide: from the point it was drawn at last (`prev`, { x, y } or null) at `fromAlong`
+// on its route, to the answer's `along`, eased out over VEHICLE_GLIDE_MS. The progress is given
+// (`fromAlong`, kept with the drawn point) rather than projected: a loop or an out-and-back route
+// passes its points twice, and the point alone would land on the wrong pass. Null to snap: no
+// previous drawing, a path too short, a move backwards or past the maximum, no finite numbers.
+// The drawn point itself is the path's point at `fromAlong` (glideAt), so it is not kept here.
+export function vehicleGlide({ prev, fromAlong, to, along, path, nowMs = 0, maxMeters = VEHICLE_GLIDE_MAX_METERS }) {
+  if (!prev || !Number.isFinite(fromAlong) || !Number.isFinite(to?.x) || !Number.isFinite(to?.y) || !Number.isFinite(along) || (path?.length ?? 0) < 2) return null;
+  const step = along - fromAlong;
+  if (!(step > 0) || step > maxMeters) return null;
+  return { path, fromAlong, toAlong: along, to: { x: to.x, y: to.y }, startedAt: nowMs };
+}
+// The point a glide is drawn at `nowMs`: { x, y, along, done } (at or past its end: the target).
+export function glideAt(glide, nowMs) {
+  const t = (nowMs - glide.startedAt) / VEHICLE_GLIDE_MS;
+  if (!(t < 1)) return { x: glide.to.x, y: glide.to.y, along: glide.toAlong, done: true };
+  const along = glide.fromAlong + (glide.toAlong - glide.fromAlong) * easeOut(t);
+  return { ...pointAtAlong(glide.path, along), along, done: false };
 }
 function clampView(v, limits) {
   if (!limits) return v;
@@ -4771,7 +4840,10 @@ const WALK_GAP_METERS = 25;
 // `off` legs (faded) and its other stops as `off` stops; vehicles from the line's start to the
 // drop-off. The view still fits the stretches, walks and `fitAlso` only.
 // → { origin, view, legs: [{ color, path, faded, off }], stops: [{ id, name, x, y, major, label, leg, color, off }],
-//     walks: [{ from, to, kind }], vehicles: [{ id, x, y, color, label, mine, leg, gps? }], here, ride,
+//     walks: [{ from, to, kind }],
+//     vehicles: [{ id, tripId, x, y, color, label, mine, leg, gps?, along, path, pathKey }] (`path`: the
+//     drawn polyline it sits on, `along`: its meters from that path's start, `pathKey`: that polyline's
+//     identity across answers; drawn by ui.js only, never serialized), here, ride,
 //     places: [{ kind: 'start'|'end', x, y, onStop, label, side: 'left'|'right', faded }] }
 // Places (2026-11-09): a pin at each end, at a walk's place (labeled, on the side away from the
 // walk) or else on the first boarding / last drop-off stop (unlabeled: the stop's label names
@@ -4788,7 +4860,9 @@ const WALK_GAP_METERS = 25;
 // fits (2026-11-12): { trip, me } (mapFits), `view` the first of them (firstFit).
 // ride (2026-11-12): { leg, fix: { lat, lon, accuracy, at } | null, left, hold: { lat, lon, at } | null },
 // the leg being ridden (mine[leg] its trip): that vehicle at your GPS position (rideMarker), as
-// `gps: true`; out.ride: { gps, hold } (the hold in lat/lon, for the next draw), else null.
+// `gps: true`, on that leg's vehicles' `path` and `along` basis (a forward switch between the two
+// glides, a backward one snaps); out.ride: { gps, hold } (the hold in lat/lon, for the next draw),
+// else null.
 // fitFrom (2026-11-12, the main screen's map and the sheet while riding): the view fits the legs from this one
 // on (their walks, the end walk and pin, `fitAlso`), the rest of the ride; 0 fits the whole trip.
 export function routeMapModel({ legs, shapes = [], fallback = [], start = null, end = null, finished = 0, vehicles = [], mine = [], nowMs = 0, aspect = 1, width = null, fitAlso = [], fitFrom = 0, incoming = false, also = [], ride = null }) {
@@ -4852,15 +4926,20 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
       out.stops.push({ id: s.id, name: s.name, x: p.x, y: p.y, major, label: major, leg: r.i, color: r.leg.color ?? null });
     });
     (r.offAfter ?? []).forEach(offStop);
-    const place = (list, route) => {
-      for (const v of list) out.vehicles.push({ id: v.id, x: v.point.x, y: v.point.y, heading: v.heading, color, label: vehicleRouteLabel(r.leg, v.route ?? route), mine: !!mine[r.i] && v.tripId === mine[r.i], leg: r.i });
+    // The line the vehicles are measured along: the whole pattern on a bus leg (or a rail one with
+    // `incoming`), else the stretch. The ride marker uses it too, so a switch between your fix and
+    // the MBTA's position is a move on one basis, not two (2026-11-21).
+    const stretch = r.extend ? full : path;
+    const place = (list, route, vehiclePath) => {
+      const at = { path: vehiclePath, pathKey: pathKey(vehiclePath) };
+      for (const v of list) out.vehicles.push({ id: v.id, tripId: v.tripId, x: v.point.x, y: v.point.y, heading: v.heading, color, label: vehicleRouteLabel(r.leg, v.route ?? route), mine: !!mine[r.i] && v.tripId === mine[r.i], leg: r.i, along: v.along, ...at });
     };
     const own = new Set((r.others ?? []).map(a => a.route));
     const legVehicles = vehicles[r.i] ?? [];
     // A bus leg (or a rail leg with `incoming`): vehicles from the line's start to the drop-off
     // (those coming toward the stop).
     const mainVehicles = legVehicles.filter(v => !v.route || !own.has(v.route));
-    place(r.extend ? vehiclesOnStretch(mainVehicles, full, 0, split.to, proj, nowMs) : vehiclesOnStretch(mainVehicles, path, 0, length, proj, nowMs));
+    place(r.extend ? vehiclesOnStretch(mainVehicles, stretch, 0, split.to, proj, nowMs) : vehiclesOnStretch(mainVehicles, stretch, 0, length, proj, nowMs), undefined, stretch);
     for (const a of r.others ?? []) {
       const line = decodePolyline(a.picked.pattern.polyline).map(p => proj.toXY(p));
       if (line.length < 2) continue;
@@ -4873,7 +4952,7 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
       if (a.bus) ks.map(stop).filter(ok).forEach(offStop);
       else if (incoming) ks.filter(k => k < a.picked.from || k > a.picked.to).map(stop).filter(ok).forEach(offStop);
       const mineRoute = legVehicles.filter(v => v.route === a.route);
-      place(ext ? vehiclesOnStretch(mineRoute, line, 0, cut.to, proj, nowMs) : vehiclesOnStretch(mineRoute, line, cut.from, cut.to, proj, nowMs), a.route);
+      place(ext ? vehiclesOnStretch(mineRoute, line, 0, cut.to, proj, nowMs) : vehiclesOnStretch(mineRoute, line, cut.from, cut.to, proj, nowMs), a.route, line);
     }
     // The ridden vehicle at your GPS position (2026-11-12; rideMarker).
     if (ride && r.i === ride.leg && mine[r.i]) {
@@ -4882,9 +4961,13 @@ export function routeMapModel({ legs, shapes = [], fallback = [], start = null, 
       out.ride = { gps: !!m.point, hold: m.hold && { ...proj.toLatLon(m.hold), at: m.hold.at } };
       if (m.point) {
         const k = out.vehicles.findIndex(x => x.mine && x.id === v.id);
-        const at = { x: m.point.x, y: m.point.y, heading: m.heading, gps: true };
+        // The marker's progress on the same line as the leg's vehicles: rideMarker's `along` is on
+        // the stretch (`path`) and the stretch starts `split.from` meters into the whole pattern,
+        // added exactly, with no second projection of the point (2026-11-21).
+        const rideAlong = m.along + (r.extend ? split.from : 0);
+        const at = { x: m.point.x, y: m.point.y, heading: m.heading, gps: true, along: rideAlong, path: stretch, pathKey: pathKey(stretch) };
         if (k >= 0) out.vehicles[k] = { ...out.vehicles[k], ...at };
-        else out.vehicles.push({ id: v.id, ...at, color, label: vehicleRouteLabel(r.leg, v.route), mine: true, leg: r.i });
+        else out.vehicles.push({ id: v.id, tripId: v.tripId, ...at, color, label: vehicleRouteLabel(r.leg, v.route), mine: true, leg: r.i });
       }
     }
     return path;

@@ -769,7 +769,8 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
     (`aria-pressed`), with the labels "Follow Bus 132" / "Follow the Orange Line" (the tight
     vehicle form, no headsign) and then the level labels above. The target is the ride marker
     (`rideMarker` through `rideFollowTarget` on the map model): your fix snapped onto the line when it counts, else the
-    MBTA's position, recentered with each answer (eased, as locate). The first tap's level is the
+    MBTA's position, recentered on where it is drawn (eased, as locate; the glide's frames move the
+    view between answers, below). The first tap's level is the
     mode's: a bus 400 m, rail 2 km (`rideFollow().level`); later taps toggle (`nextFollowLevel`).
     **Boarding while following you** carries the follow on to the vehicle at the mode's first level
     (the map holds until the vehicle has a position); **alighting** ends it with the first view (the ride phase
@@ -790,10 +791,12 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   (2026-11-09; `insideReach`, `outsideMap`; once the base map is in): your position is left out
   of the fit and not drawn, and locate is disabled ("Center on my location (outside the map)")
   until the live position is back inside; a tap whose answer is outside doesn't move the map and
-  shows "Outside the map" in the caption line (like "Location off", only after a locate tap). Nothing else on the maps is animated (follow's recenters are locate's ease; from 2026-11-12, refits at a fit too). Denied: "Location
-  off" in the caption line, only after that tap; the button stays (the iOS app also toasts
-  "Location is off for T-Minus · Settings", "Permissions in setup"). Until 2026-11-09 the sheet
-  asked on opening and showed "Location off" whenever denied. `mapLocation` in `index.html`.
+  shows "Outside the map" in the caption line (like "Location off", only after a locate tap).
+  Vehicles glide between answers (below); nothing else on the maps is animated (follow's recenters
+  are locate's ease; from 2026-11-12, refits at a fit too). Denied: "Location off" in the caption
+  line, only after that tap; the button stays (the iOS app also toasts "Location is off for
+  T-Minus · Settings", "Permissions in setup"). Until 2026-11-09 the sheet asked on opening and
+  showed "Location off" whenever denied. `mapLocation` in `index.html`.
 - **Live while open (the sheet; the main screen's map too):** the phone's location as above, and every
   vehicle on the legs' routes and directions (`/vehicles`, `vehiclesQuery`, every 10 s), as a
   round marker in the route's color ("132", "OL"), between the boarding and drop-off stops, and
@@ -804,10 +807,37 @@ Web app only (the PWA and the iOS app's WebView); no native surface shows it.
   `bearing` (missing or stale at stops); the label stays upright (2026-11-09; a rectangular badge
   before). The belled or tracked ride's vehicle is larger and outlined. Once riding, finished
   legs fade.
+- **Vehicles glide between answers (2026-11-21):** a vehicle is drawn where it was drawn last,
+  easing along its route to the answer's point over 2 s (cubic ease-out, `vehicleGlide`, `glideAt`,
+  `VEHICLE_GLIDE_MS`), its pin turning at the route's bends (`headingAtAlong`), instead of stepping
+  there with each poll. A new answer mid-glide retargets from where it is drawn, for another 2 s;
+  an answer with the point it is already heading to (a redrawing poll, the location's fixes) leaves
+  the running glide alone. Its progress along the route is kept with the point drawn last (a loop
+  or an out-and-back route passes a point twice). It is drawn at the answer at once (a snap) for:
+  the first drawing and a vehicle that comes back; a move backwards along the route (the GPS hold's
+  included) or more than 1 km forwards (`VEHICLE_GLIDE_MAX_METERS`); another route shape, stretch or
+  origin (`pathKey`: a hash of every point, so a moved bend counts); a new leg or trip; Reduce
+  Motion, which each frame asks again too, so turning it on mid-glide snaps; back from the
+  background and the sheet closing (`snapVehicles`: the main map stops polling vehicles while the
+  sheet is open, so its vehicles can be an answer or more behind by the time it closes). A
+  vehicle's state (the route it sits on, the answer it heads to, the point drawn last) is kept
+  across answers by id, leg, trip and route shape, and dropped when it leaves the map. The ride
+  marker's fix and the MBTA's position are one vehicle on one progress basis (`routeMapModel` puts
+  both on the line the leg's vehicles sit on, the whole pattern on a bus leg: the fix is projected
+  on the stretch and the stretch's start added, no second projection), so a switch between them is a
+  plain move: forwards it glides, backwards it snaps like any other. Following the ridden vehicle,
+  the camera moves with where it is drawn, at the follow's zoom, and an ease already on its way (a
+  follow tap, a zoom) tracks the same point instead of the answer it started with: it ends where the
+  vehicle is drawn at that moment, so the glide's frames take the view over without a jump (one
+  writer to the view at a time), and a drag still ends the follow. A frame whose clock has not moved
+  draws nothing (the simulator's pause), and the glide goes on when the clock does. No new requests,
+  and no change to the GPS hold, freshness or boarding rules.
 - **Your vehicle at your position (2026-11-12):** MBTA positions lag (subway: track circuits; the
   10 s poll, the proxy's 5 s cache, up to 90 s old), so while riding the ridden leg's vehicle is
-  drawn at the phone's GPS fix, snapped onto the leg's stretch, heading along the line there
-  (`rideMarker`, `routeMapModel`'s `ride`; `rideLegStops` in `index.html`, shared with the ride card). Both maps (the main screen's, the sheet); nothing
+  drawn at the phone's GPS fix, snapped onto the leg's stretch, heading along the line there, and
+  drawn on that leg's vehicles' line at their progress (2026-11-21: the fix projected on the stretch,
+  the stretch's start on the whole pattern added; a forward switch between the two glides, a
+  backward one snaps) (`rideMarker`, `routeMapModel`'s `ride`; `rideLegStops` in `index.html`, shared with the ride card). Both maps (the main screen's, the sheet); nothing
   else uses it (stop counts, cards, widgets and alerts stay on predictions). A fix counts when its
   accuracy is 50 m or better, it's at most 10 s old, within 75 m of the line, the vehicle has left
   the boarding stop (the ride's stops, as the timeline's vehicle row; or, 2026-11-18, its MBTA

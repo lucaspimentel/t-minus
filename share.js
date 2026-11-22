@@ -2,8 +2,8 @@
 // with the link. It reads the server's answer (`GET /api/shares/:id`) every 20 s while visible and
 // words it every second (`shareView`). It never touches this origin's storage, the location or
 // RUM: the recipient's own T-Minus data stays out of it.
-import { shareView, mapLegs, SHARE_RESUME_MS, shapesQuery, trimShapesDoc, stopsKey, rideFollow } from './core.js?v=8064cd5f64';
-import { el, renderTimeline, rideStopRows, mapWidget, replaceKeepingFocus } from './ui.js?v=7d5375f1b3';
+import { shareView, mapLegs, SHARE_RESUME_MS, shapesQuery, trimShapesDoc, stopsKey, rideFollow } from './core.js?v=4426ff500e';
+import { el, renderTimeline, rideStopRows, mapWidget, replaceKeepingFocus } from './ui.js?v=fde14b13bb';
 
 const id = location.pathname.split('/').filter(Boolean).at(-1) ?? '';
 const POLL_MS = 20_000;
@@ -134,6 +134,6 @@ function announce(text) {
   $('share-status').textContent = text;
 }
 
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); else clearTimeout(timer); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { widget?.snapVehicles?.(); poll(); } else clearTimeout(timer); });
 setInterval(() => { if (answer && !ended && document.visibilityState === 'visible') render(); }, 1000);
 poll();
