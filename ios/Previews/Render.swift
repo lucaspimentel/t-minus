@@ -96,6 +96,11 @@ private let leaveSamples: [(String, RideState)] = [
         st.askDep = now - 60; return st }()),
     ("Missed (the end)", leave("gone", "Missed · left 7:48am", warn: true, right: "", emoji: "")),
     ("Ride cancelled", leave("cancelled", "Ride cancelled", right: "", note: "Open the app for the next one.", emoji: "", long: "")),
+    // Rounding check (2026-11-22): the web and the widgets round the countdown down ("35 min" at
+    // 35m40s); iOS's own minutes-only countdown showed "36 min" there, so it may round to nearest.
+    ("Rounding: 35m40s", leave("leave", "Leave in", countTo: now + 35 * 60 + 40, time: "6:05pm")),
+    ("Rounding: 35m20s", leave("leave", "Leave in", countTo: now + 35 * 60 + 20, time: "6:05pm")),
+    ("Rounding: 1h14m40s", leave("early", "Leave in", countTo: now + 74 * 60 + 40, time: "6:05pm")),
 ]
 
 // The cards on the dimmed Always-On screen: the headline's time instead of the dashed countdown.
