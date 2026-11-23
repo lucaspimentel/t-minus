@@ -76,9 +76,8 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
 
 ## Deferred
 
-- Follow the vehicle (2026-11-19): smooth interpolation of the vehicle between position updates
-  (the map steps with each answer, 10-20 s apart); following the incoming vehicle before boarding;
-  faster share polling.
+- Follow the vehicle (2026-11-19): following the incoming vehicle before boarding; faster share
+  polling.
 - Share my ride: native boarding with the page closed doesn't reach the share (the page assumes boarding
   at the departure); an Open Graph image for the link preview.
 - Share my ride (code review, 2026-11-18): the share sheet can fail on iOS after a slow POST (the

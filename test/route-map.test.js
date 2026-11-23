@@ -2,8 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
-  fitView, viewLimits, areaRect, insideReach, wholeView, easeView, nextFollowLevel, viewAt, viewShiftPx, FOLLOW_SPANS, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
+  shapesQuery, decodePolyline, trimShapesDoc, pickPattern, projector, nearestOnPath, pointAtAlong, headingAtAlong, pathKey, trimPath, splitPath, isBusRoute, vehiclesOnStretch, pathHeading, zoomedOut, vehicleShown, ZOOMED_OUT,
+  fitView, viewLimits, areaRect, insideReach, wholeView, easeView, easeOut, nextFollowLevel, viewAt,
+  VEHICLE_GLIDE_MS, VEHICLE_GLIDE_MAX_METERS, vehicleGlide, glideAt, viewShiftPx, FOLLOW_SPANS, zoomView, panView, routeMapModel, mapPoint, stopListStretch, encodePolyline, basemapLayers, basemapNames, nameBox, stopsToShow, proxyRequestError, distanceMeters,
   placeLabel, PIN_BOX, PIN_LABEL_X, vehicleRouteLabel, ME_MIN, mapFits, firstFit, fitChoice, fitTap, sameView,
   TAP_SLOP_PX, DOUBLE_TAP_MS, DOUBLE_TAP_PX, TAP_ZOOM, TWO_FINGER_TAP_MS, doubleTap, twoFingerTap, wheelZoom,
   rideMarker, GPS_MAX_ACCURACY_METERS, RIDE_GPS_MAX_AGE_MS, RIDE_GPS_LINE_METERS, RIDE_GPS_VEHICLE_METERS, RIDE_GPS_HOLD_MS,
@@ -117,6 +118,122 @@ test('nearestOnPath and trimPath: projected ends, loops searched after the start
   assert.equal(same.from, same.to);
 });
 
+test('pointAtAlong: nearestOnPath\'s along, inverted, clamped to the path', () => {
+  const L = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }];
+  assert.deepEqual(pointAtAlong(L, 0), { x: 0, y: 0 });
+  assert.deepEqual(pointAtAlong(L, 50), { x: 50, y: 0 }); // mid-segment
+  assert.deepEqual(pointAtAlong(L, 100), { x: 100, y: 0 }); // the corner, a segment's end
+  assert.deepEqual(pointAtAlong(L, 150), { x: 100, y: 50 });
+  assert.deepEqual(pointAtAlong(L, 1000), { x: 100, y: 100 }); // past the end: the last point
+  assert.deepEqual(pointAtAlong(L, -20), { x: 0, y: 0 });
+  // A duplicate point has no meters of its own.
+  assert.deepEqual(pointAtAlong([{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 100, y: 0 }], 50), { x: 50, y: 0 });
+  assert.deepEqual(pointAtAlong([{ x: 7, y: 8 }], 10), { x: 7, y: 8 });
+  assert.equal(pointAtAlong([], 0), null);
+  assert.equal(pointAtAlong(null, 0), null);
+  // The inverse of nearestOnPath's along.
+  near(pointAtAlong(L, nearestOnPath(L, { x: 110, y: 40 }).along).y, 40);
+});
+
+test('vehicleGlide: forward moves glide along the route; the rest snap (2026-11-21)', () => {
+  const path = NORTH; // x = 0, y = -2000: north, so `up` is along it
+  const to = up(300);
+  assert.equal(VEHICLE_GLIDE_MS, 2000);
+  assert.equal(VEHICLE_GLIDE_MAX_METERS, 1000);
+  const g = vehicleGlide({ prev: up(100), fromAlong: 100, to, along: 300, path, nowMs: 5000 });
+  assert.equal(g.path, path);
+  assert.deepEqual([g.fromAlong, g.toAlong], [100, 300]);
+  assert.deepEqual(glideAt(g, 5000), { x: 0, y: -100, along: 100, done: false }); // drawn where it was
+  assert.deepEqual(g.to, { x: 0, y: -300 });
+  assert.equal(g.startedAt, 5000);
+  assert.equal(vehicleGlide({ prev: up(100), fromAlong: 100, to, along: 300, path }).startedAt, 0); // 0 by default
+  // No previous drawing: a first appearance, a new widget.
+  assert.equal(vehicleGlide({ prev: null, fromAlong: 100, to, along: 300, path }), null);
+  // The progress kept with the drawing is where it glides from, not the point (which a route that
+  // passes it twice would place wrongly).
+  assert.equal(vehicleGlide({ prev: { x: 5, y: 5 }, fromAlong: 100, to, along: 300, path }).fromAlong, 100);
+  // Backwards, even 1 m; an unchanged target.
+  assert.equal(vehicleGlide({ prev: up(301), fromAlong: 301, to, along: 300, path }), null);
+  assert.equal(vehicleGlide({ prev: up(300), fromAlong: 300, to: up(300), along: 300, path }), null);
+  // The maximum: 1000 m glides, 0.01 m more snaps.
+  assert.equal(vehicleGlide({ prev: up(0), fromAlong: 0, to: up(1000), along: 1000, path }).toAlong, 1000);
+  assert.equal(vehicleGlide({ prev: up(0), fromAlong: 0, to: up(1000.01), along: 1000.01, path }), null);
+  // Nothing to glide on: a path too short, no progress, no finite point.
+  assert.equal(vehicleGlide({ prev: up(100), fromAlong: 100, to, along: 300, path: [{ x: 0, y: 0 }] }), null);
+  assert.equal(vehicleGlide({ prev: up(100), fromAlong: 100, to, along: 300, path: null }), null);
+  assert.equal(vehicleGlide({ prev: up(100), fromAlong: NaN, to, along: 300, path }), null);
+  assert.equal(vehicleGlide({ prev: up(100), fromAlong: 100, to, along: NaN, path }), null);
+  assert.equal(vehicleGlide({ prev: up(100), fromAlong: 100, to: { x: NaN, y: 0 }, along: 300, path }), null);
+  assert.equal(vehicleGlide({ prev: up(100), fromAlong: 100, to, along: 300, path, maxMeters: 10 }), null);
+});
+
+test('vehicleGlide: the drawn progress on a route that passes a point twice (a loop, out and back)', () => {
+  // Out to x = 100 and back on the same road: along 150 is 50 m from the far end, the same point
+  // the outbound passes at along 50.
+  const path = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 0 }];
+  const drawn = { x: 50, y: 0 };
+  near(nearestOnPath(path, drawn).along, 50); // the point alone: the outbound's pass
+  // Drawn at 150, returning westward: 30 m on is 180.
+  const g = vehicleGlide({ prev: drawn, fromAlong: 150, to: { x: 20, y: 0 }, along: 180, path });
+  assert.deepEqual([g.fromAlong, g.toAlong], [150, 180]);
+  near(glideAt(g, 0).x, 50); // drawn on the westward pass, x = 50 at 150 m along
+  // The answer behind it on the same road (120 is x = 80): backwards, a snap, not a glide the other way.
+  assert.equal(vehicleGlide({ prev: drawn, fromAlong: 150, to: { x: 80, y: 0 }, along: 120, path }), null);
+});
+
+test('glideAt: the from point, along the route, the target at the end', () => {
+  const path = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }]; // a bent route
+  const g = { path, fromAlong: 0, toAlong: 200, to: { x: 100, y: 100 }, startedAt: 1000 };
+  assert.deepEqual(glideAt(g, 1000), { x: 0, y: 0, along: 0, done: false });
+  assert.deepEqual(glideAt(g, 0), { x: 0, y: 0, along: 0, done: false }); // before its start: clamped
+  assert.deepEqual(glideAt(g, 1000 + VEHICLE_GLIDE_MS), { x: 100, y: 100, along: 200, done: true });
+  assert.deepEqual(glideAt(g, 1000 + VEHICLE_GLIDE_MS * 2), { x: 100, y: 100, along: 200, done: true }); // past the end: the target
+  // Halfway (eased): 175 m along the route, 75 m past the corner, not on the chord.
+  const half = glideAt(g, 1000 + VEHICLE_GLIDE_MS / 2);
+  assert.equal(half.done, false);
+  near(half.along, 175); // where the pin points from (headingAtAlong)
+  near(half.x, 100); near(half.y, 75);
+  assert.ok(nearestOnPath(path, half).meters < 1e-9);
+  // The distance from the start grows with the eased fraction.
+  const tenth = glideAt(g, 1000 + VEHICLE_GLIDE_MS / 10);
+  near(tenth.y, 0);
+  assert.ok(tenth.x > 0 && tenth.x < half.x);
+  const quarter = glideAt(g, 1000 + VEHICLE_GLIDE_MS / 4);
+  near(quarter.x, 100); near(quarter.y, 15.625); // 115.625 m: 15.625 m past the corner
+});
+
+test('headingAtAlong: the route\'s direction where the glide draws it, turning at the corner', () => {
+  const path = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }];
+  near(headingAtAlong(path, 50), 0); // east along the first segment
+  near(headingAtAlong(path, 99), 0);
+  near(headingAtAlong(path, 100), 90); // at the corner: the segment on from it
+  near(headingAtAlong(path, 150), 90);
+  near(headingAtAlong(path, 0), 0);
+  assert.equal(headingAtAlong(path, 200), null); // the end: nothing to point along, the answer's heading
+  assert.equal(headingAtAlong([{ x: 0, y: 0 }], 0), null);
+  assert.equal(headingAtAlong(null, 0), null);
+  assert.equal(headingAtAlong(path, NaN), null);
+  // A duplicate point has no direction of its own.
+  near(headingAtAlong([{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: -100 }], 0), -90);
+  // pathHeading at the segment of the point the glide passes.
+  near(headingAtAlong(path, 50), pathHeading(path, 0));
+  near(headingAtAlong(path, 150), pathHeading(path, 1));
+});
+
+test('pathKey: the whole route shape across answers; a changed bend, stretch or origin differs', () => {
+  const path = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }];
+  assert.equal(pathKey(path), pathKey(path.map(p => ({ ...p })))); // decoded again: the same
+  assert.equal(pathKey(path), pathKey(path.map(p => ({ x: p.x + 0.01, y: p.y })))); // 0.1 m: the same
+  assert.notEqual(pathKey(path), pathKey(path.slice(0, 2))); // a shorter stretch
+  assert.notEqual(pathKey(path), pathKey([...path, { x: 100, y: 200 }])); // a longer one
+  assert.notEqual(pathKey(path), pathKey(path.map(p => ({ x: p.x + 2, y: p.y })))); // another origin
+  // A moved bend: the same point count and the same ends, not the same route.
+  assert.notEqual(pathKey(path), pathKey([{ x: 0, y: 0 }, { x: 100, y: 30 }, { x: 100, y: 100 }]));
+  assert.equal(pathKey(null), '');
+  assert.equal(pathKey([]), '');
+  assert.equal(pathKey([{ x: 1, y: 2 }]), ''); // a point: no route to sit on
+});
+
 test('vehiclesOnStretch: fresh, on the path, between the stops', () => {
   const proj = projector(42.4, -71.07);
   const path = [proj.toXY({ lat: 42.4, lon: -71.07 }), proj.toXY({ lat: 42.41, lon: -71.07 })]; // ~1112 m north
@@ -130,6 +247,9 @@ test('vehiclesOnStretch: fresh, on the path, between the stops', () => {
   assert.ok(Math.abs(got[0].point.x) < 1e-6);
   assert.deepEqual(vehiclesOnStretch(undefined, path, 0, 1, proj, now), []);
   near(got[0].heading, -90); // north: up on the map
+  // Each carries its measure along the path (the vehicles' glide, 2026-11-21).
+  for (const x of got) near(x.along, nearestOnPath(path, x.point).along);
+  near(got[0].along, 556, 1); // 0.005° north of the start
 });
 
 test('pathHeading: the travel direction at a segment, skipping zero-length ones', () => {
@@ -242,6 +362,19 @@ test('viewLimits with the base map\'s area; areaRect; easeView', () => {
   const hl = viewLimits(huge, { area, aspect: 1 });
   assert.deepEqual(hl.bounds, { x: Math.min(-2e5, area.x), y: Math.min(-2e5, area.y), w: Math.max(2e5, area.x + area.w) - Math.min(-2e5, area.x), h: Math.max(2e5, area.y + area.h) - Math.min(-2e5, area.y) });
   assert.ok(hl.maxSpan >= 4e5);
+});
+
+test('easeOut: cubic out, clamped; easeView unchanged (the vehicles\' glide and the fit\'s ease)', () => {
+  assert.equal(easeOut(0), 0);
+  assert.equal(easeOut(1), 1);
+  assert.equal(easeOut(-0.5), 0);
+  assert.equal(easeOut(2), 1);
+  near(easeOut(0.5), 0.875); // 1 - 0.5 ** 3
+  const from = { x: 0, y: 0, w: 100, h: 50 }, to = { x: 50, y: -25, w: 200, h: 150 };
+  assert.deepEqual(easeView(from, to, 0), from);
+  assert.deepEqual(easeView(from, to, 1), to);
+  const mid = easeView(from, to, 0.5);
+  near(mid.x, 43.75); near(mid.y, -21.875); near(mid.w, 187.5); near(mid.h, 137.5);
 });
 
 test('wholeView: fully zoomed out, centered on the bound; insideReach', () => {
@@ -770,11 +903,12 @@ test('rideMarker: a counted fix snaps onto the line, heading along it, and becom
   assert.ok(m.point);
   assert.ok(Math.abs(m.point.x) < 1e-9 && Math.abs(m.point.y + 300) < 1e-9);
   assert.equal(m.heading, pathHeading(NORTH, 0));
+  assert.equal(m.along, 300); // the point's meters from the stretch's start (the map model's basis)
   assert.deepEqual(m.hold, { x: m.point.x, y: m.point.y, at: NOW - 1000 });
 });
 
 test('rideMarker: each gate, at its limit and just past it', () => {
-  const none = { point: null, heading: 0, hold: null };
+  const none = { point: null, heading: 0, hold: null, along: null };
   const run = (o = {}) => rideMarker({ path: NORTH, fix: gpsFix(300, o), vehicle: o.vehicle === undefined ? up(100) : o.vehicle, left: o.left ?? true, hold: o.hold ?? null, nowMs: NOW });
   assert.equal(run({ accuracy: GPS_MAX_ACCURACY_METERS }).point !== null, true);
   assert.deepEqual(run({ accuracy: GPS_MAX_ACCURACY_METERS + 1 }), none);
@@ -799,6 +933,7 @@ test('rideMarker: without a counted fix, the hold stays until the vehicle passes
   assert.ok(held.point);
   assert.deepEqual(held.point, { x: 0, y: -300 });
   assert.equal(held.hold, hold);
+  assert.equal(held.along, 300); // the hold's own progress, kept (not re-projected)
   assert.equal(run({ fix: gpsFix(320, { accuracy: 80 }) }).point !== null, true); // a fix that doesn't count
   assert.equal(run({ vehicle: 300 }).point !== null, false); // reached
   assert.equal(run({ vehicle: 450 }).hold, null);
@@ -811,6 +946,7 @@ test('rideMarker: never backwards; a fix behind the hold keeps the hold\'s point
   assert.ok(m.point);
   assert.ok(Math.abs(m.point.y + 300) < 1e-9);
   assert.equal(m.hold.at, NOW - 1000);
+  assert.equal(m.along, 300); // the hold's progress, not the fix's (250)
 });
 
 test('rideMarker: the heading of the segment it\'s snapped to', () => {
@@ -818,6 +954,7 @@ test('rideMarker: the heading of the segment it\'s snapped to', () => {
   const m = rideMarker({ path: bent, fix: { x: 300, y: -490, accuracy: 10, at: NOW }, vehicle: { x: 100, y: -500 }, left: true, hold: null, nowMs: NOW });
   assert.equal(m.heading, pathHeading(bent, 1));
   assert.equal(m.heading, 0); // east
+  near(m.along, 800); // 500 m up the first segment, 300 m along the second
 });
 
 test('routeMapModel ride: the ridden vehicle at the snapped fix, the hold in lat/lon', () => {
@@ -852,6 +989,31 @@ test('routeMapModel ride: the ridden vehicle at the snapped fix, the hold in lat
   assert.ok(routeMapModel({ ...base, ride: { leg: 1, fix, left: true, hold: null } }).vehicles.every(v => !v.gps));
 });
 
+test('routeMapModel ride: the marker\'s along is the stretch\'s own progress, the stretch\'s start added (2026-11-21)', () => {
+  // The pattern A -> B -> C -> A -> D: the boarding stop C is 200 m in, the stretch goes back over
+  // A, then on to the drop-off D. A GPS fix at A is on the stretch's second pass of A; on the whole
+  // pattern that is 400 m in (the point alone would say 0 m, before the boarding stop), so the
+  // model adds the marker's own `along` (rideMarker) to the stretch's start (`split.from`).
+  const now = 1_000;
+  const line = [0, 1, 2, 3].map(k => ({ id: `s${k}`, name: `Stop ${k}`, lat: Math.round((42.4 + k * 0.001) * 1e5) / 1e5, lon: -71.07 }));
+  const kept = trimShapesDoc(doc({ line, patterns: [{ id: 'p1', canonical: true, typicality: 1, stops: ['s0', 's1', 's2', 's0', 's3'] }] }));
+  const leg = { route: '132', stop: 's2', alight: 's3', label: 'Bus 132', color: 'FFC72C' };
+  const bus = { id: 'mine', tripId: 'mine', route: '132', lat: line[1].lat, lon: line[1].lon, updatedAt: now };
+  const m = routeMapModel({
+    legs: [leg], shapes: [kept], vehicles: [[bus]], mine: ['mine'], nowMs: now,
+    ride: { leg: 0, fix: { lat: line[0].lat, lon: line[0].lon, accuracy: 10, at: now }, left: true, hold: null },
+  });
+  const mine = m.vehicles.find(v => v.gps);
+  assert.equal(mine.gps, true);
+  const P = line.map(s => mapPoint(m, s));
+  const seg = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+  const secondPass = seg(P[0], P[1]) + seg(P[1], P[2]) + seg(P[2], P[0]); // A again, on the stretch
+  near(mine.along, secondPass, 1e-6);
+  near(mine.x, P[0].x, 1e-6); near(mine.y, P[0].y, 1e-6);
+  // What a second projection would have said: the first pass, before the boarding stop.
+  assert.ok(nearestOnPath(mine.path, mine).along < 1);
+});
+
 test('vehicleLeftBoarding: fresh, near the line and more than 50 m past the boarding stop', () => {
   const v = (p, at = NOW) => ({ ...p, at });
   assert.equal(vehicleLeftBoarding(NORTH, v(up(RIDE_LEFT_METERS)), NOW), false);
@@ -867,7 +1029,7 @@ test('vehicleLeftBoarding: fresh, near the line and more than 50 m past the boar
 });
 
 test('rideMarker: the vehicle\'s MBTA position past the boarding stop stands in for `left`', () => {
-  const none = { point: null, heading: 0, hold: null };
+  const none = { point: null, heading: 0, hold: null, along: null };
   const run = (vehicle, o = {}) => rideMarker({ path: NORTH, fix: gpsFix(300), vehicle, left: false, hold: null, nowMs: NOW, ...o });
   assert.ok(run({ ...up(100), at: NOW }).point);
   assert.deepEqual(run({ ...up(RIDE_LEFT_METERS), at: NOW }), none);
@@ -921,6 +1083,71 @@ test('routeMapModel and rideFollowTarget: vehicles carry their leg; the target i
   assert.equal(g.leg, 0);
   assert.deepEqual(rideFollowTarget(r, 0), { x: g.x, y: g.y });
   assert.notDeepEqual(rideFollowTarget(r, 0), rideFollowTarget(m, 0));
+});
+
+test('routeMapModel: each vehicle carries the route it sits on (`path`) and its `along` (2026-11-21)', () => {
+  const now = 1_000;
+  const check = (v, what) => {
+    assert.ok(Array.isArray(v.path) && v.path.length >= 2, `${what}: no path`);
+    const at = nearestOnPath(v.path, v);
+    assert.ok(at.meters < 1, `${what}: ${at.meters} m off its path`);
+    near(v.along, at.along);
+    const p = pointAtAlong(v.path, v.along);
+    near(p.x, at.point.x, 1e-6); near(p.y, at.point.y, 1e-6);
+    assert.equal(v.pathKey, pathKey(v.path), `${what}: pathKey`);
+  };
+  const kept = trimShapesDoc(doc());
+  const veh = (id, k, route = 'Orange') => ({ id, tripId: id, route, lat: LINE[k].lat, lon: -71.07, updatedAt: now });
+  // A leg's stretch.
+  const leg = { route: 'Orange', stop: 's1', alight: 's3', label: 'Orange', color: 'ED8B00' };
+  const m = routeMapModel({ legs: [leg], shapes: [kept], vehicles: [[veh('in', 2)]], nowMs: now });
+  assert.equal(m.vehicles.length, 1);
+  check(m.vehicles[0], 'leg');
+  assert.equal(m.vehicles[0].tripId, 'in'); // the trip, kept for the glide's identity (2026-11-21)
+  // The same route shape drawn again (a redrawing answer): the same key, so the glide goes on.
+  const again = routeMapModel({ legs: [leg], shapes: [kept], vehicles: [[veh('in', 2)]], nowMs: now });
+  assert.equal(again.vehicles[0].pathKey, m.vehicles[0].pathKey);
+  assert.notEqual(again.vehicles[0].path, m.vehicles[0].path); // another array, the same route
+  // A bus leg's whole line (`extend`): a bus before the boarding stop too, on the whole pattern.
+  const bus = { route: '132', stop: 's2', alight: 's3', label: 'Bus 132', color: 'FFC72C' };
+  const b = routeMapModel({ legs: [bus], shapes: [kept], vehicles: [[veh('before', 0, '132'), veh('in', 3, '132')]], nowMs: now });
+  assert.deepEqual(b.vehicles.map(x => x.id), ['before', 'in']);
+  b.vehicles.forEach(v => check(v, `bus leg ${v.id}`));
+  assert.ok(b.vehicles[1].path.length > m.vehicles[0].path.length); // the whole line, not the stretch
+  // An `also` route: its bus on its own line.
+  const main = trimShapesDoc(doc());
+  const other = trimShapesDoc(doc({ line: BOTH, patterns: [{ id: 'p117', canonical: true, typicality: 1, stops: ['c0', 'c1', 's1', 's2', 's3'] }] }));
+  const a = routeMapModel({
+    legs: [{ route: '116', stop: 's1', alight: 's3', label: 'Bus 116', color: 'FFC72C' }], shapes: [main], nowMs: now,
+    vehicles: [[
+      { id: 'b117', tripId: 'b117', route: '117', lat: BRANCH[0].lat, lon: BRANCH[0].lon + 0.0003, updatedAt: now },
+      { id: 'b116', tripId: 'b116', route: '116', lat: LINE[2].lat, lon: -71.0703, updatedAt: now },
+    ]],
+    also: [[{ route: '117', shapes: other }]],
+  });
+  assert.deepEqual(a.vehicles.map(x => x.id).sort(), ['b116', 'b117']);
+  a.vehicles.forEach(v => check(v, `also ${v.id}`));
+  // The ride marker at the GPS point, snapped onto the leg's stretch (its own path).
+  const fix = { lat: LINE[2].lat, lon: -71.0702, accuracy: 10, at: now };
+  const r = routeMapModel({ legs: [leg], shapes: [kept], vehicles: [[veh('mine', 1), veh('other', 2)]], nowMs: now, mine: ['mine'], ride: { leg: 0, fix, left: true, hold: null } });
+  assert.equal(r.vehicles.find(x => x.id === 'mine').gps, true);
+  r.vehicles.forEach(v => check(v, `ride ${v.id}`));
+  assert.equal(r.vehicles.find(x => x.id === 'mine').tripId, 'mine'); // the marker is the leg's vehicle
+  // On a bus leg the marker is on the leg's vehicles' line too (the whole pattern, not the trimmed
+  // stretch), and its `along` is meters on that line: an answer from one source is comparable with
+  // the other's, so a switch between them is a plain move (2026-11-21).
+  const bfix = { lat: LINE[2].lat, lon: -71.0702, accuracy: 10, at: now };
+  const br = routeMapModel({ legs: [bus], shapes: [kept], vehicles: [[veh('mine', 1, '132')]], mine: ['mine'], nowMs: now, ride: { leg: 0, fix: bfix, left: true, hold: null } });
+  const bmine = br.vehicles.find(x => x.gps);
+  check(bmine, 'bus ride');
+  assert.equal(bmine.tripId, 'mine');
+  assert.equal(bmine.pathKey, b.vehicles[1].pathKey); // the line the leg's vehicles sit on
+  assert.ok(bmine.path.length > m.vehicles[0].path.length); // the whole pattern, not the stretch
+  near(bmine.along, nearestOnPath(b.vehicles[1].path, { x: bmine.x, y: bmine.y }).along);
+  // An empty map: still no vehicles and no new top-level key.
+  const none = routeMapModel({ legs: [{ stop: 'x', alight: 'y' }], shapes: [], fallback: [] });
+  assert.deepEqual(none.vehicles, []);
+  assert.deepEqual(Object.keys(none).sort(), ['fits', 'here', 'legs', 'origin', 'places', 'ride', 'stops', 'vehicles', 'view', 'walks']);
 });
 
 test('followAsk: ask only while nothing is settled (2026-11-19)', () => {

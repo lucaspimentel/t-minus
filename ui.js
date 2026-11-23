@@ -1,8 +1,8 @@
 // DOM rendering shared by the app (index.html) and the share page (share.js): the timeline, the
 // route map widget and the base map. No app state: callers pass in what varies.
 import {
-  DOUBLE_TAP_MS, FOLLOW_SPANS, PIN_LABEL_X, TAP_SLOP_PX, TAP_ZOOM, areaRect, basemapLayers, basemapNames, doubleTap, easeView, fitChoice, fitTap, flagStop, formatTime, legTime, mapPoint, nextFollowLevel, panView, projector, rideFollowTarget, rideLine, routeMapModel, sameView, shownStops, sourceText, stopsToShow, toward, twoFingerTap, vehicleShown, viewAt, viewLimits, wheelZoom, wholeView, zoomView, zoomedOut,
-} from './core.js?v=8064cd5f64';
+  DOUBLE_TAP_MS, FOLLOW_SPANS, PIN_LABEL_X, TAP_SLOP_PX, TAP_ZOOM, areaRect, basemapLayers, basemapNames, doubleTap, easeView, fitChoice, fitTap, flagStop, formatTime, glideAt, headingAtAlong, legTime, mapPoint, nextFollowLevel, panView, projector, rideFollowTarget, rideLine, routeMapModel, sameView, shownStops, sourceText, stopsToShow, toward, twoFingerTap, vehicleGlide, vehicleShown, viewAt, viewLimits, wheelZoom, wholeView, zoomView, zoomedOut,
+} from './core.js?v=4426ff500e';
 
 export function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -247,6 +247,11 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     // Follow the vehicle (2026-11-19): the ridden leg's follow mode ({ leg, mode, level, name }, the
     // draw input's `follow`) and its vehicle's point.
     ride: null, rideTarget: null,
+    // The vehicles' glide (2026-11-21): each vehicle's state by id ({ key: the route it sits on,
+    // x, y, along: the answer it heads to, shown, shownAlong: the point and progress drawn last,
+    // glide }), and the point the ridden vehicle is drawn at in this draw (`rideShown`: the camera
+    // follows it, not the answer).
+    vehicles: new Map(), rideShown: null,
     // The two fits (2026-11-12): `fits` { trip, me }, the chosen `mode` ('first' | 'trip' | 'me';
     // `fit` is its view), a view state to restore on the next draw (`pending`, from the other
     // map: w.restore), the ride's phase drawn last (`finished`: a change resets the view).
@@ -256,6 +261,21 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
   loadBasemap();
   const size = () => ({ width: svg.clientWidth || 340, height: svg.clientHeight || 200 });
   const mpp = () => (w.view ? w.view.w / size().width : 1); // meters per pixel
+  // Reduce Motion, asked each time it matters (a view jump instead of an ease, a snap instead of a
+  // glide): turning it on mid-animation stops that animation too, not just the next one.
+  let motion = null;
+  const reducedMotion = () => (motion ??= matchMedia('(prefers-reduced-motion: reduce)')).matches;
+  // Marks are drawn where the glide put them (dataset.sx/sy) or at the answer's point.
+  const placeMarks = () => { const s = mpp(); for (const m of w.marks) m.setAttribute('transform', `translate(${m.dataset.sx ?? m.dataset.x} ${m.dataset.sy ?? m.dataset.y}) scale(${s})`); };
+  function placeBasemapNames() {
+    if (!w.base || !w.view) return;
+    const s = mpp();
+    const shown = basemapNames(w.base.names, w.view, size());
+    w.base.marks.forEach((m, i) => {
+      if (shown.has(i)) { m.removeAttribute('display'); m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`); }
+      else m.setAttribute('display', 'none');
+    });
+  }
   let fitBtn = null, wholeBtn = null, limitsOf = null;
   // The mode the fit button's next tap goes to; null: nothing to switch to.
   const nextFit = () => (w.fits ? fitTap({ fits: w.fits, mode: w.mode, moved: w.touched }) : null);
@@ -278,7 +298,7 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     if (!w.view) return;
     svg.setAttribute('viewBox', `${w.view.x} ${w.view.y} ${w.view.w} ${w.view.h}`);
     const s = mpp();
-    for (const m of w.marks) m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`);
+    placeMarks();
     // Intermediate stops only with room between them (a zoomed-out bus leg isn't a row of dots).
     if (w.model) {
       const shown = stopsToShow(w.model.stops, 1 / s, { keep: w.selected });
@@ -290,13 +310,7 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     if (w.out && !out) setTimeout(() => w.onZoomIn?.());
     w.out = out;
     w.updateLocate?.();
-    if (w.base) {
-      const shown = basemapNames(w.base.names, w.view, size());
-      w.base.marks.forEach((m, i) => {
-        if (shown.has(i)) { m.removeAttribute('display'); m.setAttribute('transform', `translate(${m.dataset.x} ${m.dataset.y}) scale(${s})`); }
-        else m.setAttribute('display', 'none');
-      });
-    }
+    placeBasemapNames();
   }
   function showCaption() {
     if (!cap) return;
@@ -312,13 +326,17 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
   const FIT_MS = 250;
   let fitAnim = 0;
   let animGoal = null; // the view an ease is heading to (follow and refits compare against it)
-  const animateTo = to => {
+  // `track`: a live target while the ease runs (the ridden vehicle as the glide draws it). The ease
+  // then ends where the vehicle is drawn at that moment, so the glide's frames take the view over
+  // without a jump (2026-11-21).
+  const animateTo = (to, track = null) => {
     const id = ++fitAnim;
-    if (!w.view || matchMedia('(prefers-reduced-motion: reduce)').matches) { animGoal = null; w.view = to; apply(); return; }
+    if (!w.view || reducedMotion()) { animGoal = null; w.view = to; apply(); return; }
     const from = w.view, t0 = performance.now();
     animGoal = to;
     const step = now => {
       if (id !== fitAnim) return;
+      if (track) { to = track() ?? to; animGoal = to; }
       const t = (now - t0) / FIT_MS;
       if (t >= 1) { animGoal = null; w.view = to; apply(); return; }
       w.view = easeView(from, to, t);
@@ -326,6 +344,81 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
       requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
+  };
+  // The vehicles' glide (2026-11-21): marks keep the answer's point in dataset.x/y and are drawn
+  // at dataset.sx/sy while they move, the pin pointing along the route there. The frame stops when
+  // the last one arrives and when the widget is detached; with a clock that stands still (the
+  // simulator's pause) it keeps its turn but draws nothing, so the glide goes on as soon as the
+  // clock does.
+  let glideFrame = 0, glideMoment = 0;
+  // Assigned with the follow below: the view following the drawn vehicle (`drawnFollowView`), and
+  // a glide frame's write of it (`glideFollow`).
+  let drawnFollowView = null, glideFollow = null;
+  const stepGlides = () => {
+    glideFrame = 0;
+    if (!svg.isConnected) { // gone (the page unloaded, the map replaced): no state kept
+      for (const m of w.vehicleMarks) m.glide = null;
+      w.vehicles.clear();
+      glideMoment = 0; // a clock that stepped while it was gone must not hold the next glide
+      return;
+    }
+    // Reduce Motion turned on mid-glide: to the answers at once, as the next drawing would put them.
+    if (reducedMotion()) { w.snapVehicles(); return; }
+    const now = Date.now(); // the app's clock (and the simulator's), not performance.now
+    if (now <= glideMoment) {
+      // The clock has not moved: a frame that lands in the same millisecond as the last one, or the
+      // simulator's clock standing still. Nothing to draw, but the frame stays queued while a glide
+      // is live: dropping it would hold the glide until the next drawing (10 s on the main map).
+      if (w.vehicleMarks.some(m => m.glide)) glideFrame = requestAnimationFrame(stepGlides);
+      return;
+    }
+    glideMoment = now;
+    let live = false, moved = false;
+    for (const m of w.vehicleMarks) {
+      if (!m.glide) continue;
+      const at = glideAt(m.glide, now);
+      const st = w.vehicles.get(m.v.id);
+      moved = true;
+      if (m.v.mine && w.ride && m.v.leg === w.ride.leg) w.rideShown = { x: at.x, y: at.y };
+      if (at.done) { // arrived: drawn at the answer from here on
+        if (st?.glide === m.glide) Object.assign(st, { glide: null, shown: { x: m.v.x, y: m.v.y }, shownAlong: st.along });
+        m.glide = null;
+        delete m.g.dataset.sx; delete m.g.dataset.sy;
+        continue;
+      }
+      live = true;
+      if (st?.glide === m.glide) Object.assign(st, { shown: { x: at.x, y: at.y }, shownAlong: at.along });
+      m.g.dataset.sx = at.x; m.g.dataset.sy = at.y;
+      const h = headingAtAlong(m.v.path, at.along);
+      if (h != null && m.g.dataset.heading !== `${Math.round(h)}`) {
+        m.g.dataset.heading = Math.round(h);
+        m.pin.setAttribute('transform', `rotate(${h})`);
+      }
+    }
+    // Following the ridden vehicle, the view moves with the drawn point at the same scale. Basemap
+    // names depend on the view's position too, so refresh those without the rest of apply(). An ease
+    // on its way tracks the same point, so the hand-over to these frames is continuous.
+    const camera = glideFollow?.() ?? false;
+    if (camera) {
+      svg.setAttribute('viewBox', `${w.view.x} ${w.view.y} ${w.view.w} ${w.view.h}`);
+      placeMarks(); placeBasemapNames();
+    }
+    else if (moved) placeMarks();
+    if (live || camera) glideFrame = requestAnimationFrame(stepGlides);
+  };
+  // The next drawing snaps every vehicle to its answer, and so does this one (a return to the page,
+  // the other map, a trip change): no glide is carried across those.
+  w.snapVehicles = () => {
+    w.vehicles.clear();
+    for (const m of w.vehicleMarks) { m.glide = null; delete m.g.dataset.sx; delete m.g.dataset.sy; }
+    w.rideShown = w.rideTarget;
+    const to = drawnFollowView?.();
+    if (to) {
+      ++fitAnim; animGoal = null; // an old camera ease must not move it back after the snap
+      w.view = to; w.followAt = w.rideShown;
+    }
+    glideMoment = 0; // the clock may have stepped back while none was drawn: no stale gate
+    apply();
   };
   // Off the fits (a pan, pinch, wheel, locate, the whole map): the next fit tap goes to the first view.
   const markMoved = () => { w.touched = true; w.mode = 'first'; };
@@ -344,8 +437,8 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
   w.restore = state => { w.pending = state; };
   // A ride phase change: the first view, follow off.
   const reset = () => { w.stopFollow?.(); w.mode = 'first'; w.touched = false; w.pending = null; };
-  // What follow centers on: the ridden vehicle while riding, else you (`p`).
-  const followPoint = p => (w.ride ? w.rideTarget : p);
+  // What follow centers on: the ridden vehicle while riding (where it's drawn), else you (`p`).
+  const followPoint = p => (w.ride ? (w.rideShown ?? w.rideTarget) : p);
   // A restored state at this map's size: fits and follow recomputed, a moved view at its center
   // and scale within this map's limits.
   function restoreNow(st, p, width, height) {
@@ -383,6 +476,7 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     const prevRide = w.ride;
     w.ride = rf;
     w.rideTarget = rf ? rideFollowTarget(model, rf.leg) : null;
+    w.rideShown = null; // the point the ridden vehicle is drawn at in this draw
     const focused = svg.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
     w.model = model;
     w.note = note;
@@ -399,6 +493,15 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
       if (!w.view || jump || !live) w.view = w.fit;
       else if (!sameView(animGoal ?? w.view, w.fit, width)) animateTo(w.fit);
     }
+    // The vehicles' glide (2026-11-21): each is drawn where it was drawn last, eased along its
+    // route to the answer's point; Reduce Motion, a first drawing, a new leg or trip or a changed
+    // route shape snap (vehicleGlide, pathKey). The ride marker's fix and the MBTA's position are
+    // one identity, on one progress basis (routeMapModel): a forward switch glides, a backward one
+    // snaps like any other backward move.
+    const snap = reducedMotion();
+    const now = Date.now();
+    const states = new Map();
+    const identity = v => `${v.leg}|${v.tripId ?? ''}|${v.pathKey}`;
     const mark = (x, y, cls) => { const g = svgEl('g', { class: cls }); g.dataset.x = x; g.dataset.y = y; w.marks.push(g); return g; };
     w.marks = [];
     w.stopMarks = [];
@@ -433,17 +536,39 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     }
     w.vehicleMarks = [];
     for (const v of model.vehicles) {
+      // The point it is drawn at now, and the glide getting it there. The same answer again (a
+      // redrawing poll, a 1 Hz fix stream) keeps the running glide's clock; a new one glides from
+      // where it is drawn, forward only (vehicleGlide); a new leg, trip or shape starts at the
+      // answer. A departing vehicle's state goes with it, so one that comes back snaps.
+      const prev = w.vehicles.get(v.id);
+      const key = identity(v);
+      const same = !snap && prev?.key === key;
+      let glide = null;
+      if (same) {
+        glide = prev.x === v.x && prev.y === v.y && prev.along === v.along
+          ? prev.glide
+          : vehicleGlide({ prev: prev.shown, fromAlong: prev.shownAlong, to: v, along: v.along, path: v.path, nowMs: now });
+      }
+      const at = glide ? glideAt(glide, now) : null;
+      if (at?.done) glide = null;
+      const shown = glide ? at : { x: v.x, y: v.y };
       const g = mark(v.x, v.y, `map-vehicle${v.mine ? ' mine' : ''}${v.gps ? ' gps' : ''}`);
-      // A circle with a point at `heading` (the travel direction); the label stays upright.
+      if (glide) { g.dataset.sx = shown.x; g.dataset.sy = shown.y; }
+      if (v.mine && w.ride && v.leg === w.ride.leg) w.rideShown = shown;
+      states.set(v.id, { key, x: v.x, y: v.y, along: v.along, shown, shownAlong: shown.along ?? v.along, glide });
+      // A circle with a point at `heading` (the travel direction, along the route while it glides);
+      // the label stays upright.
+      const heading = (glide && headingAtAlong(v.path, shown.along)) ?? v.heading ?? 0;
       const r = Math.max(11, v.label.length * 3 + 3) * (v.mine ? 1.25 : 1), tip = r + 7;
-      const pin = svgEl('path', { d: `M${tip} 0L${r * 0.5} ${-r * 0.866}A${r} ${r} 0 1 0 ${r * 0.5} ${r * 0.866}Z`, fill: mapColor(v.color), transform: `rotate(${v.heading ?? 0})` });
+      const pin = svgEl('path', { d: `M${tip} 0L${r * 0.5} ${-r * 0.866}A${r} ${r} 0 1 0 ${r * 0.5} ${r * 0.866}Z`, fill: mapColor(v.color), transform: `rotate(${heading})` });
       // At your GPS position (2026-11-12): a blue ring and halo, like the location dot it replaces.
       if (v.gps) g.append(svgEl('circle', { r: r + 9, class: 'halo' }));
       g.append(pin, svgEl('text', { y: v.mine ? 4 : 3.2, 'text-anchor': 'middle', fill: textOn(v.color) }, v.label));
-      Object.assign(g.dataset, { vehicle: v.id, heading: Math.round(v.heading ?? 0) });
-      w.vehicleMarks.push({ g, v });
+      Object.assign(g.dataset, { vehicle: v.id, heading: Math.round(heading) });
+      w.vehicleMarks.push({ g, v, pin, glide });
       parts.push(g);
     }
+    w.vehicles = states;
     if (p && !model.ride?.gps) { const g = mark(p.x, p.y, 'map-here'); g.append(svgEl('circle', { r: 14, class: 'halo' }), svgEl('circle', { r: 6, class: 'dot' })); parts.push(g); }
     // The base map beneath, built once per origin (a vehicle or location redraw reuses it).
     const baseKey = model.origin && basemap ? `${model.origin.lat},${model.origin.lon}` : null;
@@ -453,6 +578,7 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     }
     svg.replaceChildren(...(w.base ? [w.base.g] : []), ...parts);
     apply();
+    if (w.vehicleMarks.some(m => m.glide) && !glideFrame) glideFrame = requestAnimationFrame(stepGlides);
     // Boarding while following you: the follow goes on to the vehicle at the mode's first level
     // (2026-11-19). The ride gone with no phase change (a missed connection, a cancelled trip) ends it.
     const boarded = w.following && !restored && !prevRide && !!rf;
@@ -460,14 +586,23 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     else if (w.following && prevRide && !rf) w.stopFollow?.();
     // Following (2026-11-10): each new position recenters; none (lost, outside) leaves the map still.
     // While riding, the vehicle's point (the ride marker's: GPS or the MBTA's), not the phone's.
+    // A gliding vehicle is followed by the glide's frames instead (glideFollow), in step with where
+    // it is drawn, rather than easing to a point it has already left.
     if (w.following) {
       const fp = followPoint(p);
       if (rf || fp) w.followAt = fp; // riding without a position: held, not on your last fix
-      if (fp) w.followTo?.(fp, boarded);
+      const gliding = w.vehicleMarks.some(m => m.glide && m.v.mine && m.v.leg === w.ride?.leg);
+      // While the ridden vehicle glides, the glide's frames own the view, and an ease already on its
+      // way (a follow tap, the other zoom level) goes on to its end first: the frames keep out of an
+      // ease's way until it is done (one writer to w.view at a time; cutting it there jumped the zoom).
+      if (fp && !gliding) w.followTo?.(fp, boarded);
     }
     w.updateLocate?.();
     showCaption();
     if (focused) svg.querySelector(`[data-focus="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+    // The clock may have stepped back since the last frame (an NTP correction, the simulator): the
+    // moment just drawn must not hold this drawing's glides until it catches up.
+    glideMoment = 0;
   };
   new ResizeObserver(() => { if (!w.touched && w.redraw) w.redraw({ jump: true }); else apply(); }).observe(svg);
   // Inside an option card: a tap on the map doesn't toggle the card (a picture too).
@@ -529,7 +664,16 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
       Object.assign(w, { following: false, level: null, followSpan: null });
       w.updateLocate();
     };
+    // The view that follows the ridden vehicle where it is drawn now (null: not following it, or
+    // nothing drawn yet): the follow's span about the drawn point.
+    drawnFollowView = () => {
+      if (!w.following || !w.ride || !w.view || !w.followSpan || !w.rideShown) return null;
+      const { width, height } = size();
+      return viewAt(w.rideShown, w.followSpan, width / height, limits());
+    };
     // You (or the ridden vehicle) at the follow span, eased; skipped during a gesture or when it would move under 2 px.
+    // The ease tracks the drawn vehicle (`track`), so a glide that starts or retargets under it ends
+    // in the right place, not where the vehicle was when the ease began.
     followTo = w.followTo = (p, force = false) => {
       if (!w.following || !w.view) return;
       const { width, height } = size();
@@ -538,15 +682,27 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
         if (pointers.size) return;
         if (sameView(animGoal ?? w.view, to, width)) return;
       }
-      animateTo(to);
+      animateTo(to, drawnFollowView);
+    };
+    // While the ridden vehicle glides, the view moves with the drawn marker (not with each
+    // answer), at the follow's span. It keeps out of a gesture's or an ease's way (one writer to
+    // w.view at a time) and stops for good when the glide does.
+    glideFollow = () => {
+      if (pointers.size || animGoal != null) return false;
+      const to = drawnFollowView();
+      if (!to) return false;
+      if (sameView(w.view, to, size().width)) return false;
+      w.view = to; w.followAt = w.rideShown;
+      return true;
     };
     // A tap while riding (2026-11-19): follow the ridden vehicle at the mode's first level; with
     // no position yet the map holds until the first one.
     w.startRideFollow = () => {
       if (!w.ride || !w.fit) return;
-      Object.assign(w, { following: true, level: w.ride.level, followSpan: FOLLOW_SPANS[w.ride.level], followAt: w.rideTarget });
+      const at = w.rideShown ?? w.rideTarget;
+      Object.assign(w, { following: true, level: w.ride.level, followSpan: FOLLOW_SPANS[w.ride.level], followAt: at });
       markMoved(); // the fit button shows; a redraw keeps the view
-      if (w.rideTarget) followTo(w.rideTarget, true);
+      if (at) followTo(at, true);
       apply();
       w.updateLocate();
     };
@@ -661,7 +817,7 @@ export function mapWidget({ label, interactive = false, pan = interactive, focus
     if (!w.view) return;
     const to = zoomFollow(animGoal ?? w.view, factor, toView(client.x, client.y));
     markMoved();
-    animateTo(to);
+    animateTo(to, w.following ? drawnFollowView : null); // following: about the vehicle where it is drawn
     apply(); // the fit button now, not after the ease
   };
   svg.addEventListener('click', e => {
