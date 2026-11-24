@@ -172,6 +172,16 @@ Despite the name, a `walk` leg is any time spent getting to or from the stops (w
 ride, etc.); setup labels them "Minutes to first stop" and "Minutes from last stop" (and a
 transfer leg "Minutes to transfer").
 
+### The leave-by is a whole minute
+
+`tripRows` (and `shareFollow`'s rebuilt row) cut the leave-by to the minute the app shows
+(`toMinute`, 2026-11-24): "6:05pm" truncates seconds, so a countdown to 6:05:50 on one surface and
+6:05:10 on another read "36 min" and "35 min" beside the same "6:05pm" (2026-11-17). Every
+countdown, heads-up, phase switch, saved reminder and move check uses the cut value, so surfaces
+that lag by a poll still agree. `firstDep`, `lastChance`, `eta` and the vehicle times stay exact.
+With no slack the leave-by can now precede the last chance by up to 59 s: a short amber "Departs in"
+window before the red one.
+
 ### Timing leg
 
 The transit leg leave-by is based on (`pickTimingLeg`), recomputed whenever schedules are

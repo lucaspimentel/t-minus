@@ -2,6 +2,10 @@
 
 export const TZ = 'America/New_York';
 const MIN = 60_000;
+// The leave-by is cut to the minute the app shows ("6:05pm" truncates seconds), so every
+// countdown to it names that same minute on every surface (CLAUDE.md: "A countdown and the
+// time beside it name the same moment"). Vehicle times stay exact.
+export const toMinute = ms => Math.floor(ms / MIN) * MIN;
 export const DEFAULT_DEPARTURE_COUNT = 4;
 export const MISSED_MINUTES = 5;
 export const MAX_DEPARTURE_COUNT = 8;
@@ -1773,7 +1777,7 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
 
     const row = {
       key: v.tripId,
-      leaveBy: enRoute ? null : dep0 - (walkBefore + slackMinutes) * MIN,
+      leaveBy: enRoute ? null : toMinute(dep0 - (walkBefore + slackMinutes) * MIN),
       lastChance, // normally: arrive at the stop as it leaves
       ...(enRoute && { enRoute: true }),
       firstDep: chain[0].dep,
@@ -3184,7 +3188,6 @@ export function widgetRequest(cfg, oneOffAt, override, lastUsed, state = null) {
 // the server refreshes them by trip id, and the request (rewritten when it changes, reloading the
 // widget) shouldn't change with every poll.
 const WIDGET_LEG_KEYS = ['route', 'label', 'routeLabels', 'vehicleRoute', 'color', 'headsign', 'tripId', 'dep', 'arr', 'source', 'arrSource', 'every', 'picked', 'off', 'at'];
-const toMinute = ms => Math.floor(ms / MIN) * MIN;
 const widgetLegs = legs => legs.map(l => Object.fromEntries(WIDGET_LEG_KEYS.filter(k => l[k] != null).map(k => [k, k === 'dep' || k === 'arr' || k === 'off' ? toMinute(l[k]) : l[k]])));
 
 // The one en-route state the widget follows (2026-10-31; KEY_EN_ROUTE's { [tripRef]: state }): a
@@ -3327,7 +3330,7 @@ export function shareRequestError(b, { trip = null } = {}) {
 export function shareFollow(st, rows, walkAfter, nowMs, { walkBefore = 0, slack = 0 } = {}) {
   if (st.ride) return { kind: 'ride', ride: st.ride };
   const { row: found, legs, dep, eta } = followTarget(st, rows, walkAfter);
-  const row = found ?? { key: st.target.key, legs, firstDep: dep, eta, leaveBy: dep - (walkBefore + slack) * MIN, lastChance: dep - walkBefore * MIN };
+  const row = found ?? { key: st.target.key, legs, firstDep: dep, eta, leaveBy: toMinute(dep - (walkBefore + slack) * MIN), lastChance: dep - walkBefore * MIN };
   const boarded = unconfirmed => ({ kind: 'ride', ride: { legs, boardedAt: dep }, ...(unconfirmed && { unconfirmed: true }) });
   if (st.asking) return boarded(true);
   if (st.kind === 'track') return nowMs >= dep ? boarded(true) : { kind: 'bell', row };

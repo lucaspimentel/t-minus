@@ -44,17 +44,7 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
 
 ## Surface consistency (2026-11-17 screenshots, one by one)
 
-1. Leave card / island one minute ahead of the widgets: at 5:29 the compact island and the leave
-   card read "36 min" while both widgets read "35 min" (same screenshot). Not rounding: an `ios`
-   preview run (run 80, 2026-11-22) showed `headCountdown` / `shortCountdown` round down like
-   `formatCountdown` (35m40s and 35m20s both "35 min", 1h14m40s "1h 14m"). Likely cause: the two
-   count to different instants within the same shown minute. The card's `countTo` comes from the
-   server's reminder poll (`leaveCardState`, pushed only when the state changes), the widget's from
-   `/api/widget` (its answer was from 5:26); live predictions move the leave-by by seconds, so
-   both read "6:05pm" while one counts to e.g. 6:05:50 and the other to 6:05:10. To decide: count
-   both to the shown minute (`countTo` = the leave-by cut to its minute, as `formatTime` shows
-   it), or push the card when `countTo` crosses a minute boundary.
-2. Medium widget (2026-11-17 screenshot, belled ride): no legs bar and an empty band between the
+1. Medium widget (2026-11-17 screenshot, belled ride): no legs bar and an empty band between the
    vehicle line and "then ● Bus 132 · arrive 6:52pm", while the large widget showed the same
    followed ride ("Next: leave 6:32pm"). Checked 2026-11-22: the medium view draws the bar (the
    "Belled (legs bar)" preview, run 80); a belled `widgetView` answer decodes into `WidgetView`
@@ -69,6 +59,9 @@ planner for saved and one-off trips ("Plan a trip", 2026-10-28) are done.
    widget's requests switched from build 73 to 76 between 5:11pm and 5:24pm, and the screenshot
    is from 5:29pm, so the medium size may have still shown a timeline from the old build. Recheck
    on a current build with a belled ride (medium and large side by side) before changing anything.
+
+- Deferred (2026-11-24): the departure ("Departs in") and riding countdowns count to exact vehicle
+  times and could drift between surfaces the same way the leave-by did; revisit if it shows up.
 
 ## Ideas (2026-11-06, to grill one by one)
 

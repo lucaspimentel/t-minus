@@ -15,7 +15,7 @@ import {
   legQuery, predictionQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, vehicleArrow, withoutArrived, stopConnections, groupConnections, rowConnections,
   shownTrip, widgetRequest, widgetRequestError, scheduleTimingLeg, widgetView, widgetTimeline, widgetTimelineMarks, WIDGET_HORIZON_MIN, widgetState, widgetFollow,
-  leavePhase, leaveActivityState, modeEmoji, tripMarker, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, LEAVE_CARD_EARLY_MIN, LEAVE_CARD_MAX_MIN, leaveCardEarly, leaveStartText, firstVehicleLine,
+  toMinute, leavePhase, leaveActivityState, modeEmoji, tripMarker, leaveCancelledState, walkActivityState, leaveCardStarts, LEAVE_CARD_MIN, LEAVE_CARD_EARLY_MIN, LEAVE_CARD_MAX_MIN, leaveCardEarly, leaveStartText, firstVehicleLine,
 } from '../core.js';
 
 const MIN = 60_000;
@@ -422,6 +422,31 @@ test('averageHeadway and pickTimingLeg with hysteresis and override', () => {
   // The pinned override wins; out-of-range overrides are ignored.
   assert.equal(pickTimingLeg([30 * MIN, 5 * MIN], null, 1), 1);
   assert.equal(pickTimingLeg([30 * MIN, 5 * MIN], null, 5), 0);
+});
+
+test('tripRows: the leave-by is cut to its shown minute; the vehicle times stay exact', () => {
+  const trip = { legs: [{ kind: 'walk', minutes: 5 }, homeToOffice.legs[1], { kind: 'walk', minutes: 2 }] };
+  const dep = at('07:40') + 50_000; // 7:40:50, shown "7:40am"
+  const rows = tripRows(trip, [[{ tripId: 'b2', dep, arr: dep + 10 * 60_000, source: 'live' }]], 0, at('07:21'), 1);
+  assert.equal(rows[0].leaveBy, at('07:34')); // 7:34:50 cut to 7:34:00
+  assert.equal(rows[0].lastChance, dep - 5 * 60_000);
+  assert.equal(rows[0].firstDep, dep);
+  assert.equal(toMinute(at('07:34') + 59_999), at('07:34'));
+});
+
+test('the leave card and the widget count to the same minute for answers seconds apart', () => {
+  const trip = { legs: [{ kind: 'walk', minutes: 5 }, homeToOffice.legs[1], { kind: 'walk', minutes: 2 }] };
+  const rowAt = offset => {
+    const dep = at('18:41') + offset * 1000; // 6:41:10 and 6:41:50: both "6:41pm"
+    return tripRows(trip, [[{ tripId: 'b2', dep, arr: dep + 10 * 60_000, source: 'live' }]], 0, at('18:00'), 1)[0];
+  };
+  const [a, b] = [rowAt(10), rowAt(50)];
+  assert.equal(a.leaveBy, b.leaveBy);
+  const now = at('18:29') + 20_000;
+  const countTo = r => leaveActivityState(r, now).countTo;
+  assert.equal(countTo(a), countTo(b));
+  assert.equal(countTo(a), at('18:35') / 1000);
+  assert.equal(formatCountdown(a.leaveBy - now), formatCountdown(b.leaveBy - now));
 });
 
 test('tripStarted: leaving, at the stop or a ride; not plain tracking', () => {
@@ -3293,6 +3318,15 @@ test('validateConfig: shareName is text of up to 40 characters', () => {
   assert.equal(validateConfig({ ...WITH_IDS, shareName: 'Ana 👨‍👩‍👧 🏴󠁧󠁢󠁥󠁮󠁧󠁿' }).length, 0); // emoji joiners and tags
   assert.match(validateConfig({ ...WITH_IDS, shareName: 'a\nb' })[0], /shareName/);
   assert.match(validateConfig({ ...WITH_IDS, shareName: 'a\u202eb' })[0], /shareName/); // a bidi override
+});
+
+test('shareFollow: a row rebuilt from the saved legs has a minute-aligned leave-by', () => {
+  const bell = shareBell();
+  bell.target.legs = bell.target.legs.map((l, i) => i ? l : { ...l, dep: l.dep + 50_000 });
+  const f = shareFollow(bell, [], 10, at('07:30'), { walkBefore: 5, slack: 1 });
+  assert.equal(f.kind, 'bell');
+  assert.equal(f.row.leaveBy % 60_000, 0);
+  assert.ok(f.row.leaveBy <= f.row.lastChance && f.row.lastChance - f.row.leaveBy < 7 * 60_000);
 });
 
 test('shareFollow: the bell, the walk, assumed boarding past the departure, the ride, the end', () => {
