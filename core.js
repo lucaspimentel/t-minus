@@ -2,10 +2,11 @@
 
 export const TZ = 'America/New_York';
 const MIN = 60_000;
+export const toMinute = ms => Math.floor(ms / MIN) * MIN;
 // The leave-by is cut to the minute the app shows ("6:05pm" truncates seconds), so every
 // countdown to it names that same minute on every surface (CLAUDE.md: "A countdown and the
 // time beside it name the same moment"). Vehicle times stay exact.
-export const toMinute = ms => Math.floor(ms / MIN) * MIN;
+const leaveByAt = (dep, walkBefore, slack) => toMinute(dep - (walkBefore + slack) * MIN);
 export const DEFAULT_DEPARTURE_COUNT = 4;
 export const MISSED_MINUTES = 5;
 export const MAX_DEPARTURE_COUNT = 8;
@@ -1469,7 +1470,7 @@ function nextWindowStart(ms, trips) {
   for (const t of trips) {
     if (!t.window) continue;
     const delta = ((parseHHMM(t.window.from) - m + DAY_MIN) % DAY_MIN) || DAY_MIN;
-    best = Math.min(best, ms - (ms % MIN) + delta * MIN);
+    best = Math.min(best, toMinute(ms) + delta * MIN);
   }
   return best;
 }
@@ -1777,7 +1778,7 @@ export function tripRows(trip, vehiclesByLeg, timingIdx, nowMs, slackMinutes, co
 
     const row = {
       key: v.tripId,
-      leaveBy: enRoute ? null : toMinute(dep0 - (walkBefore + slackMinutes) * MIN),
+      leaveBy: enRoute ? null : leaveByAt(dep0, walkBefore, slackMinutes),
       lastChance, // normally: arrive at the stop as it leaves
       ...(enRoute && { enRoute: true }),
       firstDep: chain[0].dep,
@@ -3330,7 +3331,7 @@ export function shareRequestError(b, { trip = null } = {}) {
 export function shareFollow(st, rows, walkAfter, nowMs, { walkBefore = 0, slack = 0 } = {}) {
   if (st.ride) return { kind: 'ride', ride: st.ride };
   const { row: found, legs, dep, eta } = followTarget(st, rows, walkAfter);
-  const row = found ?? { key: st.target.key, legs, firstDep: dep, eta, leaveBy: toMinute(dep - (walkBefore + slack) * MIN), lastChance: dep - walkBefore * MIN };
+  const row = found ?? { key: st.target.key, legs, firstDep: dep, eta, leaveBy: leaveByAt(dep, walkBefore, slack), lastChance: dep - walkBefore * MIN };
   const boarded = unconfirmed => ({ kind: 'ride', ride: { legs, boardedAt: dep }, ...(unconfirmed && { unconfirmed: true }) });
   if (st.asking) return boarded(true);
   if (st.kind === 'track') return nowMs >= dep ? boarded(true) : { kind: 'bell', row };

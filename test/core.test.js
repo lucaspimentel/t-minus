@@ -424,29 +424,16 @@ test('averageHeadway and pickTimingLeg with hysteresis and override', () => {
   assert.equal(pickTimingLeg([30 * MIN, 5 * MIN], null, 5), 0);
 });
 
-test('tripRows: the leave-by is cut to its shown minute; the vehicle times stay exact', () => {
+test('tripRows: the leave-by is cut to its shown minute, so answers seconds apart count to the same one', () => {
   const trip = { legs: [{ kind: 'walk', minutes: 5 }, homeToOffice.legs[1], { kind: 'walk', minutes: 2 }] };
+  const rowAt = dep => tripRows(trip, [[{ tripId: 'b2', dep, arr: dep + 10 * 60_000, source: 'live' }]], 0, at('07:21'), 1)[0];
   const dep = at('07:40') + 50_000; // 7:40:50, shown "7:40am"
-  const rows = tripRows(trip, [[{ tripId: 'b2', dep, arr: dep + 10 * 60_000, source: 'live' }]], 0, at('07:21'), 1);
-  assert.equal(rows[0].leaveBy, at('07:34')); // 7:34:50 cut to 7:34:00
-  assert.equal(rows[0].lastChance, dep - 5 * 60_000);
-  assert.equal(rows[0].firstDep, dep);
-  assert.equal(toMinute(at('07:34') + 59_999), at('07:34'));
-});
-
-test('the leave card and the widget count to the same minute for answers seconds apart', () => {
-  const trip = { legs: [{ kind: 'walk', minutes: 5 }, homeToOffice.legs[1], { kind: 'walk', minutes: 2 }] };
-  const rowAt = offset => {
-    const dep = at('18:41') + offset * 1000; // 6:41:10 and 6:41:50: both "6:41pm"
-    return tripRows(trip, [[{ tripId: 'b2', dep, arr: dep + 10 * 60_000, source: 'live' }]], 0, at('18:00'), 1)[0];
-  };
-  const [a, b] = [rowAt(10), rowAt(50)];
-  assert.equal(a.leaveBy, b.leaveBy);
-  const now = at('18:29') + 20_000;
-  const countTo = r => leaveActivityState(r, now).countTo;
-  assert.equal(countTo(a), countTo(b));
-  assert.equal(countTo(a), at('18:35') / 1000);
-  assert.equal(formatCountdown(a.leaveBy - now), formatCountdown(b.leaveBy - now));
+  const [a, b] = [rowAt(dep), rowAt(dep - 40_000)]; // 7:40:50 and 7:40:10
+  assert.equal(a.leaveBy, at('07:34')); // 7:34:50 cut to 7:34:00
+  assert.equal(b.leaveBy, a.leaveBy);
+  assert.equal(a.lastChance, dep - 5 * 60_000);
+  assert.equal(a.firstDep, dep);
+  assert.equal(leaveActivityState(a, at('07:21')).countTo, at('07:34') / 1000);
 });
 
 test('tripStarted: leaving, at the stop or a ride; not plain tracking', () => {
@@ -3322,11 +3309,12 @@ test('validateConfig: shareName is text of up to 40 characters', () => {
 
 test('shareFollow: a row rebuilt from the saved legs has a minute-aligned leave-by', () => {
   const bell = shareBell();
-  bell.target.legs = bell.target.legs.map((l, i) => i ? l : { ...l, dep: l.dep + 50_000 });
+  const dep = bell.target.legs[0].dep + 50_000;
+  bell.target.legs = bell.target.legs.map((l, i) => i ? l : { ...l, dep });
   const f = shareFollow(bell, [], 10, at('07:30'), { walkBefore: 5, slack: 1 });
   assert.equal(f.kind, 'bell');
-  assert.equal(f.row.leaveBy % 60_000, 0);
-  assert.ok(f.row.leaveBy <= f.row.lastChance && f.row.lastChance - f.row.leaveBy < 7 * 60_000);
+  assert.equal(f.row.leaveBy, toMinute(dep) - 6 * 60_000);
+  assert.equal(f.row.lastChance, dep - 5 * 60_000);
 });
 
 test('shareFollow: the bell, the walk, assumed boarding past the departure, the ride, the end', () => {
