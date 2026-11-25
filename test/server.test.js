@@ -1853,9 +1853,17 @@ test('auto-bell: the lookup failing is tried again; still failing 2 h before the
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
     s.world.failing = true;
     await s.app.tick();
-    assert.deepEqual(autoRow(s).pending, { date: '2026-09-30', failed: true });
+    assert.deepEqual(autoRow(s).pending, { date: '2026-09-30', failed: 1 });
     assert.equal(autoRow(s).nextAt, at('04:10') + 20_000);
     assert.equal(autoRems(s).length, 0);
+    // Backing off: 40 s after the second failure; the count survives the app's resend.
+    s.world.clock = at('04:10') + 20_000;
+    await s.app.tick();
+    assert.deepEqual(autoRow(s).pending, { date: '2026-09-30', failed: 2 });
+    assert.equal(autoRow(s).nextAt, at('04:10') + 60_000);
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    assert.equal(autoRow(s).pending.failed, 2);
+    assert.equal(autoRow(s).nextAt, at('04:10') + 20_000); // due now: the lookup runs at once
     // Back before 6:10: an ordinary lookup.
     s.world.failing = false;
     s.world.clock = at('05:00');
@@ -1897,7 +1905,7 @@ test('auto-bell: no ride at the lookup ends the day', async () => {
   } finally { await s.close(); }
 });
 
-test('auto-bell: the day it last belled stays with the trip id, and with a row from before trip ids by name; a lookup is redone', async () => {
+test('auto-bell: the day it last belled stays with the trip id, and with a row from before trip ids by name; a lookup stays while the trip is unchanged', async () => {
   const s = await setup();
   try {
     s.world.clock = at('05:00');
@@ -1905,10 +1913,20 @@ test('auto-bell: the day it last belled stays with the trip id, and with a row f
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
     await s.app.tick();
     assert.equal(autoRow(s).pending.leaveBy, at('07:04'));
-    // Sent again: the lookup is redone (at once).
+    // Sent again unchanged (the app's daily resend): the lookup stays, no MBTA request.
+    const calls = s.world.calls.length;
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    await s.app.tick();
+    assert.deepEqual(autoRow(s).pending, { date: '2026-09-30', leaveBy: at('07:04') });
+    assert.equal(autoRow(s).nextAt, at('06:04'));
+    assert.equal(s.world.calls.length, calls);
+    // Another time, or another stop slack: redone (at once).
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:20' }));
     assert.equal(autoRow(s).pending, undefined);
     assert.equal(autoRow(s).nextAt, at('05:00'));
+    await s.app.tick();
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:20' }, { stopSlackMinutes: 2 }));
+    assert.equal(autoRow(s).pending, undefined);
     s.store.replaceAutoBells(ep, s.store.autoBellsFor(ep).map(a => ({ ...a, lastDate: '2026-09-30' })));
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
     assert.equal(s.store.autoBellsFor(ep)[0].lastDate, '2026-09-30');

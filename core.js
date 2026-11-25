@@ -3774,6 +3774,7 @@ const trainAlert = leg => leg?.alerts?.[0] ?? '';
 export const AUTO_BELL_LOOKUP_MIN = 240; // the ride is looked up this long before the target
 export const AUTO_BELL_WARN_MIN = 60; // and belled this long before its leave-by (HEADS_UP_MINS' first)
 export const AUTO_BELL_FALLBACK_MIN = 120; // the lookup still failing by then: picked and belled in one step
+export const AUTO_BELL_RETRY_MAX_MIN = 10; // the longest wait between failed lookups
 export function validAutoBell(ab) {
   if (!ab || typeof ab !== 'object' || !Array.isArray(ab.days) || !ab.days.length) return false;
   if (!ab.days.every(d => Number.isInteger(d) && d >= 0 && d <= 6) || new Set(ab.days).size !== ab.days.length) return false;
@@ -3805,7 +3806,7 @@ function autoBellLookupAt(date, target) {
 // The schedule's next step not done yet: { date, target (arrive by), phase, at, leaveBy? }, for
 // the soonest chosen date that isn't `lastDate` (done or skipped) and is still open. `pending`:
 // the schedule's state for one date, { date, leaveBy } once looked up, { date, failed }
-// while the lookup fails; none: not looked up yet.
+// while the lookup fails (`failed`: how many times); none: not looked up yet.
 // - phase 'lookup': at the lookup time (saved later than that: now).
 // - phase 'bell': AUTO_BELL_WARN_MIN before the looked-up leave-by (past: now); or, the lookup
 //   still failing AUTO_BELL_FALLBACK_MIN before the target, now (picked and belled in one step).
@@ -3826,6 +3827,14 @@ export function autoBellNext(ab, lastDate, nowMs, pending = null) {
     return { date, target, phase: 'lookup', at: Math.max(nowMs, autoBellLookupAt(date, target)) };
   }
   return null;
+}
+
+// After the lookup's `failures`-th failure in a row: the next try, `firstMs` then doubling, at
+// most AUTO_BELL_RETRY_MAX_MIN apart and not past the fallback (AUTO_BELL_FALLBACK_MIN before the
+// target), where the ride is picked and belled in one step.
+export function autoBellRetryAt(failures, nowMs, target, firstMs) {
+  const wait = Math.min(firstMs * 2 ** (failures - 1), AUTO_BELL_RETRY_MAX_MIN * MIN);
+  return Math.max(nowMs, Math.min(nowMs + wait, target - AUTO_BELL_FALLBACK_MIN * MIN));
 }
 
 // The auto-bell's heads-ups: it bells at leave-by − 60 min, so the 60-min one is kept and goes out

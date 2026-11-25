@@ -10,7 +10,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, transferText, shownMinutes, rideMinutes, widgetNextRide, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   boardingRefetchDue, RIDE_BOARDING_REFETCH_MS, RIDE_BOARDING_REFETCH_FOR_MS,
   reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
-  validAutoBell, bostonMs, autoBellNext, autoBellHeadsUps, autoBellRow, autoBellLabel, autoBellTrips,
+  validAutoBell, bostonMs, autoBellNext, autoBellHeadsUps, autoBellRetryAt, autoBellRow, autoBellLabel, autoBellTrips,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, tripStopShares, withStopShares, legAtError, stopSharesError, stopCountTrip, stopCountText, rideLine,
   legQuery, predictionQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, vehicleArrow, withoutArrived, stopConnections, groupConnections, rowConnections,
@@ -3114,6 +3114,17 @@ test('auto-bell: looked up 4 h before the target, belled 1 h before the leave-by
   // Not before 03:00 for a morning target (before then the schedules are the previous day's).
   assert.equal(autoBellNext({ days: [2], arriveBy: '06:30' }, null, Date.parse('2026-11-02T20:00:00-05:00')).at, est('03:00'));
   assert.equal(autoBellNext({ days: [2], arriveBy: '02:00' }, null, Date.parse('2026-11-02T20:00:00-05:00')).at, Date.parse('2026-11-02T22:00:00-05:00'));
+});
+
+test('auto-bell: a failing lookup backs off, 10 min at most, and not past the fallback', () => {
+  const target = Date.parse('2026-11-03T10:00:00-05:00');
+  const t = Date.parse('2026-11-03T06:00:00-05:00');
+  assert.deepEqual([1, 2, 3, 4].map(n => autoBellRetryAt(n, t, target, 20_000) - t), [20_000, 40_000, 80_000, 160_000]);
+  assert.equal(autoBellRetryAt(6, t, target, 20_000) - t, 10 * 60_000); // 640 s capped
+  assert.equal(autoBellRetryAt(20, t, target, 20_000) - t, 10 * 60_000);
+  // Near the fallback (8:00): no later than it.
+  const late = Date.parse('2026-11-03T07:55:00-05:00');
+  assert.equal(autoBellRetryAt(9, late, target, 20_000), Date.parse('2026-11-03T08:00:00-05:00'));
 });
 
 test('auto-bell: every heads-up while the leave-by is ahead (the 60-min one at the bell)', () => {

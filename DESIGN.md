@@ -2513,7 +2513,9 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
   subscription and the start token) and at least daily, at launch and on return; from setup's
   Save it may ask for notifications. Stored per phone in the `auto_bells` table; a trip sent
   again with the same id keeps the day it last belled (`lastDate`; a row from before trip ids,
-  with `index`, by its name) and redoes a lookup already done. The reply's `next: [{ tripRef,
+  with `index`, by its name), and its lookup (`pending`, done or failing) while its trip, days,
+  time and stop slack are unchanged (the daily resend costs no MBTA request); otherwise the lookup
+  is redone. The reply's `next: [{ tripRef,
   at }]` says when each schedule's next step (lookup or bell) is due; nothing reads it but the tests.
 - **When** (2026-11-24; before then 2 h before the target, which left a 74-min trip by 10:30am
   belled at 8:30am, leave by 9:16am: 46 min), in two steps (`autoBellNext`'s `phase`), Boston time:
@@ -2531,9 +2533,11 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
   hour. Then a reminder exactly as the app's bell posts it, marked `auto: { tripRef, dep, legs }`,
   with every heads-up (`autoBellHeadsUps`; the bell's own `headsUpsDue` would drop the 60-min one
   at exactly leave-by − 60): the leave card starts with "Leave in 60 min", then the other
-  heads-ups, "Leave now", "Did you get on?". The MBTA failing: tried again (`RETRY_MS`); a lookup
-  still failing `AUTO_BELL_FALLBACK_MIN` (120) before the target is picked and belled in one step,
-  tried until the target.
+  heads-ups, "Leave now", "Did you get on?". The MBTA failing at the lookup: tried again after
+  `RETRY_MS` (20 s), doubling up to `AUTO_BELL_RETRY_MAX_MIN` (10) apart (`autoBellRetryAt`;
+  `pending: { date, failed }` counts the failures); still failing `AUTO_BELL_FALLBACK_MIN` (120)
+  before the target, picked and belled in one step, then (as the bell) tried every `RETRY_MS`
+  until the target.
 - **Not belled** that day: this phone already has a bell (one at a time; a manual bell stays),
   or rides that trip (by its id), both checked at the bell; or no ride at all (at the lookup or
   the bell). Each is logged.

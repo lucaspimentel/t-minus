@@ -9,7 +9,7 @@ import {
   leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES, LIVE_SOON_MS,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
-  autoBellNext, autoBellRow, autoBellHeadsUps, AUTO_BELL_WARN_MIN, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, widgetNextRide, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText, stopSharesError, withStopShares,
+  autoBellNext, autoBellRow, autoBellHeadsUps, autoBellRetryAt, AUTO_BELL_WARN_MIN, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, widgetNextRide, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText, stopSharesError, withStopShares,
   shareTrip, shareRequestError, shareFollow, shareView, shareTitle, legsEta, SHARE_AFTER_MIN, SHARE_RESUME_MS, vehiclesQuery, vehiclePositions, legPoints, vehicleLabel,
 } from '../core.js';
 
@@ -586,8 +586,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
 
     // Auto-bell: the phone's schedules (`trips`: [{ tripRef (the trip's id), tripName, trip,
-    // autoBell }]), all of them at once (empty: none). A trip keeps the day it last belled; a
-    // lookup already done is redone (at once when past its time). The reply's `next`: when each
+    // autoBell }]), all of them at once (empty: none). A trip keeps the day it last belled, and
+    // its lookup (`pending`, done or failing) while its trip, days, time and slack are unchanged;
+    // otherwise the lookup is redone (at once when past its time). The reply's `next`: when each
     // schedule's next step (lookup or bell) is due.
     if (req.method === 'PUT' && path === '/auto-bells') {
       if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' });
@@ -606,11 +607,16 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       // Rows from before trip ids (`index`, no `tripRef`): matched by name, once.
       const legacy = new Map(mine.filter(a => !a.tripRef).map(a => [a.tripName, a]));
       const list = body.trips.map(a => {
-        const lastDate = (old.get(a.tripRef) ?? legacy.get(a.tripName))?.lastDate ?? null;
+        const prev = old.get(a.tripRef) ?? legacy.get(a.tripName);
+        const lastDate = prev?.lastDate ?? null;
+        const slack = body.stopSlackMinutes ?? 1;
+        const same = prev?.tripRef === a.tripRef && prev.stopSlackMinutes === slack
+          && JSON.stringify([prev.trip, prev.autoBell]) === JSON.stringify([a.trip, a.autoBell]);
+        const pending = same ? prev.pending ?? null : null;
         return {
           id: globalThis.crypto.randomUUID(), subscription: body.subscription, ...(body.startToken && { startToken: body.startToken }),
-          stopSlackMinutes: body.stopSlackMinutes ?? 1, tripRef: a.tripRef, tripName: a.tripName, trip: a.trip, autoBell: a.autoBell,
-          lastDate, nextAt: autoBellNext(a.autoBell, lastDate, t)?.at ?? null,
+          stopSlackMinutes: slack, tripRef: a.tripRef, tripName: a.tripName, trip: a.trip, autoBell: a.autoBell,
+          lastDate, ...(pending && { pending }), nextAt: autoBellNext(a.autoBell, lastDate, t, pending)?.at ?? null,
         };
       });
       store.replaceAutoBells(ep, list);
@@ -1659,7 +1665,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   // finds the ride that gets there by then and sets the bell an hour before its leave-by
   // (`pending`). The bell picks again from fresh rows and posts it as the app's bell does (`auto`
   // marks it for the app's POST /bells); not when this phone already has a bell, or rides this
-  // trip. The MBTA failing: tried again; the lookup still failing 2 h before the target is
+  // trip. The MBTA failing: tried again (the lookup backing off); the lookup still failing 2 h before the target is
   // picked and belled in one step, tried until the target.
   async function checkAutoBell(a) {
     const t = now();
@@ -1678,8 +1684,11 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     let docs;
     try { docs = await widgetDocs(a.trip, a.stopSlackMinutes, t, AUTO_BELL_ROWS); } catch (e) {
       log(`auto-bell ${a.id}: ${e.message}`);
-      if (next.phase === 'lookup') a.pending = { date: next.date, failed: true };
-      a.nextAt = t + RETRY_MS;
+      if (next.phase === 'lookup') {
+        const failed = (a.pending?.date === next.date ? a.pending.failed ?? 0 : 0) + 1;
+        a.pending = { date: next.date, failed };
+        a.nextAt = autoBellRetryAt(failed, t, next.target, RETRY_MS); // backing off until the fallback
+      } else a.nextAt = t + RETRY_MS;
       return store.updateAutoBell(a);
     }
     const row = autoBellRow(docs.rows, next.target);
