@@ -3767,8 +3767,12 @@ const trainAlert = leg => leg?.alerts?.[0] ?? '';
 // ---------- auto-bell ----------
 
 // A trip's `autoBell: { days: [2, 4] (0 = Sunday), arriveBy: "10:00" }`: on those days the server
-// bells the ride that gets there by `arriveBy`, AUTO_BELL_LEAD_MIN before it (Boston time).
-export const AUTO_BELL_LEAD_MIN = 120;
+// looks up the ride that gets there by `arriveBy` AUTO_BELL_LOOKUP_MIN before it (Boston time),
+// then bells it AUTO_BELL_WARN_MIN before its leave-by (2026-11-24; before then: 2 h before the
+// target, which left 46 min for a 74-min trip).
+export const AUTO_BELL_LOOKUP_MIN = 240; // the ride is looked up this long before the target
+export const AUTO_BELL_WARN_MIN = 60; // and belled this long before its leave-by
+export const AUTO_BELL_FALLBACK_MIN = 120; // the lookup still failing by then: picked and belled in one step
 export function validAutoBell(ab) {
   if (!ab || typeof ab !== 'object' || !Array.isArray(ab.days) || !ab.days.length) return false;
   if (!ab.days.every(d => Number.isInteger(d) && d >= 0 && d <= 6) || new Set(ab.days).size !== ab.days.length) return false;
@@ -3789,21 +3793,43 @@ export function bostonMs(date, minutes) {
 }
 const weekdayOf = date => new Date(`${date}T12:00:00Z`).getUTCDay();
 
-// The next auto-bell not done yet: { date, at (when to bell), target (arrive by) }, the
-// soonest whose target is still ahead and whose date isn't `lastDate` (done or skipped). Past
-// `at` but before the target (saved late, the server was down): `at` is now.
-export function autoBellNext(ab, lastDate, nowMs) {
+// The lookup's time: AUTO_BELL_LOOKUP_MIN before the target, but not before 03:00 for a target
+// from 03:00 on (before 03:00 the schedules are the previous service day's).
+function autoBellLookupAt(date, target) {
+  const lookup = target - AUTO_BELL_LOOKUP_MIN * MIN;
+  const dayStart = bostonMs(date, 180);
+  return target >= dayStart ? Math.max(lookup, dayStart) : lookup;
+}
+
+// The schedule's next step not done yet: { date, target (arrive by), phase, at, leaveBy? }, for
+// the soonest chosen date that isn't `lastDate` (done or skipped) and is still open. `pending`:
+// the schedule's state for one date, { date, leaveBy, key } once looked up, { date, failed }
+// while the lookup fails; none: not looked up yet.
+// - phase 'lookup': at the lookup time (saved later than that: now).
+// - phase 'bell': AUTO_BELL_WARN_MIN before the looked-up leave-by (past: now); or, the lookup
+//   still failing AUTO_BELL_FALLBACK_MIN before the target, now (picked and belled in one step).
+export function autoBellNext(ab, lastDate, nowMs, pending = null) {
   if (!validAutoBell(ab)) return null;
   const today = localParts(nowMs).date;
   for (let i = 0; i <= 7; i++) {
     const date = addDays(today, i);
     if (date === lastDate || !ab.days.includes(weekdayOf(date))) continue;
     const target = bostonMs(date, parseHHMM(ab.arriveBy));
+    const p = pending?.date === date ? pending : null;
+    if (p?.leaveBy != null) {
+      if (Math.max(target, p.leaveBy) <= nowMs) continue;
+      return { date, target, phase: 'bell', at: Math.max(nowMs, p.leaveBy - AUTO_BELL_WARN_MIN * MIN), leaveBy: p.leaveBy };
+    }
     if (target <= nowMs) continue;
-    return { date, at: Math.max(nowMs, target - AUTO_BELL_LEAD_MIN * MIN), target };
+    if (p?.failed && nowMs >= target - AUTO_BELL_FALLBACK_MIN * MIN) return { date, target, phase: 'bell', at: nowMs };
+    return { date, target, phase: 'lookup', at: Math.max(nowMs, autoBellLookupAt(date, target)) };
   }
   return null;
 }
+
+// The auto-bell's heads-ups: it bells at leave-by − 60 min, so the 60-min one is kept and goes out
+// on the first poll (passed ones send once); none once the leave-by has passed.
+export const autoBellHeadsUps = (leaveBy, nowMs) => (nowMs < leaveBy ? [...HEADS_UP_MINS] : []);
 
 // The row to bell: the latest arrival at or before the target, else the earliest after it
 // (late: its arrival shows red). Missed rows are left out; null when none.

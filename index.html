@@ -37,7 +37,7 @@
       <div class="t">New version available</div>
       <button id="reload-new" class="big-btn" type="button">Reload</button></div>
     <p class="status" id="status"><span id="status-text">Loading…</span><span id="retry-wrap" hidden> · <button class="link" id="retry" type="button">Retry</button></span></p>
-    <footer class="version">Version 2026-11-24 · f02b098637</footer>
+    <footer class="version">Version 2026-11-24 · 9840bf26da</footer>
   </div>
   <section id="setup" class="setup" hidden></section>
   <div id="map-sheet" class="map-sheet" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
@@ -96,9 +96,9 @@ import {
   missLeg, boardingSession, boardingWindow, boardingBase, legPoints, mapLegs, followState, shareTrip,
   simCurrentRide, simJumpTargets, simPhaseKey, dayRides, simRideLabel, nextWeekday, bostonMs,
   stopsKey, shapesQuery, trimShapesDoc, stopListStretch, routeMapModel, mapPoint, zoomedOut, vehicleShown, viewLimits, zoomView, panView, areaRect, insideReach, wholeView, easeView, FOLLOW_SPANS, nextFollowLevel, viewAt, projector, fitChoice, fitTap, sameView, TAP_SLOP_PX, DOUBLE_TAP_MS, TAP_ZOOM, doubleTap, twoFingerTap, wheelZoom, vehiclesQuery, vehiclePositions, BOARDING_POLL_MS, basemapLayers, basemapNames, stopsToShow, PIN_LABEL_X, rideFollow, followAsk,
-} from './core.js?v=5d5466abbf';
-import { el, badge, BELL_SVG, SHARE_SVG, WALK_SVG, walkStep, fullStops, renderTimeline, rideStopRows as uiRideStopRows, SVG_NS, svgEl, textOn, mapColor, basemap, loadBasemap, basemapFor, basemapGroup, basemapWidgets, toolIcon, mapToolButton, mapWidget, replaceKeepingFocus } from './ui.js?v=0f00998a6d';
-import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=cc931970de';
+} from './core.js?v=30b94f3f5a';
+import { el, badge, BELL_SVG, SHARE_SVG, WALK_SVG, walkStep, fullStops, renderTimeline, rideStopRows as uiRideStopRows, SVG_NS, svgEl, textOn, mapColor, basemap, loadBasemap, basemapFor, basemapGroup, basemapWidgets, toolIcon, mapToolButton, mapWidget, replaceKeepingFocus } from './ui.js?v=7d1374c3da';
+import { openSetup, keptCopy, keepInPlace, SAVED_TTL } from './setup.js?v=e57789bc8e';
 
 const API = 'https://api-v3.mbta.com';
 // The simulator (DESIGN.md "Simulator"; sim.js, sim-page.js): on, the app's keys are its own copies.
@@ -752,7 +752,7 @@ function serverFetch(path, init) {
   return fetch(`${SERVER_API}${path}`, init);
 }
 // The simulator, started before anything uses it (sim-page.js; null when off).
-const SIM = SIM_ON ? await import('./sim-page.js?v=fd24a3e19c').then(m => m.startSimPage(window.tminusSim, { mbtaApi })) : null;
+const SIM = SIM_ON ? await import('./sim-page.js?v=24a39684de').then(m => m.startSimPage(window.tminusSim, { mbtaApi })) : null;
 // The iOS app (IOS.md): this page in a WKWebView with Capacitor's bridge (`window.Capacitor`).
 // There, pushes come from APNs (the PushNotifications plugin; the subscription is
 // `{ endpoint: 'apns:<token>' }`), the screen stays on through the app's own plugin
@@ -1211,7 +1211,7 @@ if (native) {
 // event, or at the next open: the latest action, with Undo) and sends the setting: on while
 // Location is While Using or Always (`t-minus:boarding-location`, the toggle before 2026-11-10, is
 // ignored). Coordinates stay in the native code: nothing here logs or sends them.
-const CORE_JS = './core.js?v=5d5466abbf'; // the native code loads the same core.js (npm run stamp)
+const CORE_JS = './core.js?v=30b94f3f5a'; // the native code loads the same core.js (npm run stamp)
 let boardingOk = null; // the build has it (null: not known yet)
 let boardingSent = null; // the last session armed ('off': disarmed)
 let boardingSettingSent = null;
@@ -2352,14 +2352,14 @@ const setupSimulator = () => ({
   presets: () => import('./sim-presets.js?v=8ad9deb13b').then(m => m.PRESETS.map(p => ({ id: p.id, name: p.name }))),
   async rides(i, date) {
     const trip = savedConfig.trips[i];
-    const { dayDocs } = await import('./sim-page.js?v=fd24a3e19c');
+    const { dayDocs } = await import('./sim-page.js?v=24a39684de');
     const { docs, coverage } = await dayDocs(trip, date, mbtaApi);
     simSeed = { tripRef: trip.id, date, coverage };
     return dayRides(trip, docs, date, stopSlackMinutes(savedConfig)).filter(r => !r.missed && r.leaveBy != null)
       .map(r => ({ label: simRideLabel(r), leaveBy: r.leaveBy }));
   },
   async start({ mode, tripIdx: i, date, leaveBy, early, presetId }) {
-    const m = await import('./sim-page.js?v=fd24a3e19c');
+    const m = await import('./sim-page.js?v=24a39684de');
     if (mode === 'preset') {
       const { PRESETS } = await import('./sim-presets.js?v=8ad9deb13b');
       const preset = PRESETS.find(p => p.id === presetId);
@@ -3269,7 +3269,7 @@ if (!SIM_ON) {
   let ctl = null;
   try { ctl = JSON.parse(localStorage.getItem('t-minus-simctl')); } catch { /* none */ }
   if (ctl && !ctl.on) {
-    const purge = () => import('./sim-page.js?v=fd24a3e19c').then(m => m.purgeSim()).catch(() => {});
+    const purge = () => import('./sim-page.js?v=24a39684de').then(m => m.purgeSim()).catch(() => {});
     if (ctl.endedAt && Date.now() - ctl.endedAt < 10_000) {
       showToast('Simulator ended', 'Undo', () => {
         localStorage.setItem('t-minus-simctl', JSON.stringify({ ...ctl, on: true, endedAt: null, clock: { ...ctl.clock, keepPlaying: false } }));

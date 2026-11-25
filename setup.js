@@ -8,7 +8,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, optionToForm, optionKey, stopCountText, optionSteps, sourceText, formatTime, distanceMeters, defaultTransferMinutes, departureCount, stopSlackMinutes, wakeMinutes, wakeRiding,
   reverseTrip, sameLegsAs, newTripId, withTripIds, withoutTripIds, nearestStop, windowLabel, autoBellLabel, AUTO_BELL_DAYS, dayName, withoutArrived, lineLabel, NO_TRIPS_HELP, EXCLUDED_ROUTES,
   scheduleWindow, formatDistance, routeDistances, byDistance, NEARBY_ME_METERS, NEARBY_ME_DEGREES, trimStopsDoc, isStale,
-} from './core.js?v=5d5466abbf';
+} from './core.js?v=30b94f3f5a';
 
 const ROUTE_LIMIT = 60;
 const PLACE_MIN_CHARS = 3; // auto-route's place search: the server's minimum
@@ -1036,7 +1036,7 @@ export function openSetup({ root, config, api, onSave, onClose, timingFor = () =
         }, dayName(d))))),
       h('label', { class: 'field' }, 'Arrive by',
         h('input', { type: 'time', value: ab.arriveBy, oninput: e => { ab.arriveBy = e.target.value; } })),
-      h('div', { class: 'muted hint' }, 'Bells the last ride that gets you there by then, 2 hours ahead. No days: off.'));
+      h('div', { class: 'muted hint' }, 'Bells the last ride that gets you there by then, an hour before you need to leave. No days: off.'));
     return [
       h('div', { class: 'setup-head' },
         h('button', { type: 'button', onclick: cancelEdit }, 'Cancel'),

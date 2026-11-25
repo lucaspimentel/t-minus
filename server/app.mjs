@@ -9,7 +9,7 @@ import {
   leavePhase, leaveActivityState, leaveCancelledState, leaveCardStarts, leaveCardEarly, leaveStartText, LEAVE_CARD_EARLY_MIN, REMINDER_MISSING, askActivityState, ASK_MINUTES, LIVE_SOON_MS,
   rideAlertText, nextPush, RIDE_POLL_MS, MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey,
   transitNetwork, planTrips, pointEnds, nextWeekday, optionToForm, formToTrip, timedOptions, TIMED_WINDOW_MIN,
-  autoBellNext, autoBellRow, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, widgetNextRide, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText, stopSharesError, withStopShares,
+  autoBellNext, autoBellRow, autoBellHeadsUps, AUTO_BELL_WARN_MIN, validAutoBell, shownTrip, widgetRequestError, scheduleTimingLeg, widgetView, widgetFollow, widgetNextRide, WIDGET_ROWS, stopNames, tripStopsQuery, tripStopCount, stopCountTrip, fillRows, nextServiceWindow, EXCLUDED_ROUTES, tripAlerts, withTripAlerts, trackStep, trackText, stopSharesError, withStopShares,
   shareTrip, shareRequestError, shareFollow, shareView, shareTitle, legsEta, SHARE_AFTER_MIN, SHARE_RESUME_MS, vehiclesQuery, vehiclePositions, legPoints, vehicleLabel,
 } from '../core.js';
 
@@ -19,7 +19,8 @@ const SCHEDULE_TTL = 15 * MIN;
 const MAX_AHEAD = 12 * 60 * MIN; // how far ahead a reminder may be set
 const MAX_PER_SUBSCRIPTION = 5;
 const MAX_AUTO_BELLS = 10; // auto-bell trips per phone
-const AUTO_BELL_ROWS = 40; // rows searched for the auto-bell's ride (2 h of a 3-min headway)
+const AUTO_BELL_ROWS = 100; // rows searched for the auto-bell's ride (4 h of a 3-min headway, from the lookup)
+const AUTO_BELL_SLOP_MS = 5_000; // main.mjs's tick: a bell time within it bells at the lookup
 const RATE_LIMIT = 30; // requests per IP per minute
 const MAX_BODY = 16 * 1024;
 const RETRY_MS = 20_000; // after an MBTA error
@@ -586,7 +587,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     }
 
     // Auto-bell: the phone's schedules (`trips`: [{ tripRef (the trip's id), tripName, trip,
-    // autoBell }]), all of them at once (empty: none). A trip keeps the day it last belled.
+    // autoBell }]), all of them at once (empty: none). A trip keeps the day it last belled; a
+    // lookup already done is redone (at once when past its time). The reply's `next`: each
+    // schedule's next step, { tripRef, at, phase: 'lookup' | 'bell' | null }.
     if (req.method === 'PUT' && path === '/auto-bells') {
       if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' });
       if (body.startToken != null && !validToken(body.startToken)) return reply(res, 400, { error: 'startToken is invalid' });
@@ -605,15 +608,16 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       const legacy = new Map(mine.filter(a => !a.tripRef).map(a => [a.tripName, a]));
       const list = body.trips.map(a => {
         const lastDate = (old.get(a.tripRef) ?? legacy.get(a.tripName))?.lastDate ?? null;
+        const n = autoBellNext(a.autoBell, lastDate, t);
         return {
           id: globalThis.crypto.randomUUID(), subscription: body.subscription, ...(body.startToken && { startToken: body.startToken }),
           stopSlackMinutes: body.stopSlackMinutes ?? 1, tripRef: a.tripRef, tripName: a.tripName, trip: a.trip, autoBell: a.autoBell,
-          lastDate, nextAt: autoBellNext(a.autoBell, lastDate, t)?.at ?? null,
+          lastDate, nextAt: n?.at ?? null, phase: n?.phase ?? null,
         };
       });
-      store.replaceAutoBells(ep, list);
+      store.replaceAutoBells(ep, list.map(({ phase, ...a }) => a));
       log(`auto-bells: ${list.length} for a phone`);
-      return reply(res, 200, { next: list.map(a => ({ tripRef: a.tripRef, at: a.nextAt })) });
+      return reply(res, 200, { next: list.map(a => ({ tripRef: a.tripRef, at: a.nextAt, phase: a.phase })) });
     }
     // The bells the server set (auto-bell), for the app to show: [{ id, tripRef (null: from before
     // trip ids; the app deletes it), tripName, key, leaveBy, dep, headsUps, timingIdx, legs }].
@@ -1653,40 +1657,58 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
   // ---------- auto-bell ----------
 
-  // A schedule's next day: at its time, the ride that gets there by the target is belled, as the
-  // app's bell posts it (`auto` marks it for the app's POST /bells). Not when this phone already
-  // has a bell, or rides this trip. The MBTA failing: tried again until the target.
+  // A schedule's next day, in two steps (autoBellNext's phase). The lookup, 4 h before the target,
+  // finds the ride that gets there by then and sets the bell an hour before its leave-by
+  // (`pending`). The bell picks again from fresh rows and posts it as the app's bell does (`auto`
+  // marks it for the app's POST /bells); not when this phone already has a bell, or rides this
+  // trip. The MBTA failing: tried again; the lookup still failing 2 h before the target is
+  // picked and belled in one step, tried until the target.
   async function checkAutoBell(a) {
     const t = now();
-    const next = autoBellNext(a.autoBell, a.lastDate, t);
+    const next = autoBellNext(a.autoBell, a.lastDate, t, a.pending);
+    const save = () => {
+      a.nextAt = autoBellNext(a.autoBell, a.lastDate, t, a.pending)?.at ?? null;
+      store.updateAutoBell(a);
+    };
     const done = why => {
       if (why) log(`auto-bell ${a.id}: ${why}`);
       a.lastDate = next.date;
-      a.nextAt = autoBellNext(a.autoBell, a.lastDate, t)?.at ?? null;
-      store.updateAutoBell(a);
+      a.pending = null;
+      save();
     };
     if (!next) { a.nextAt = null; return store.updateAutoBell(a); }
     if (t < next.at) { a.nextAt = next.at; return store.updateAutoBell(a); }
-    const mine = store.forEndpoint(a.subscription.endpoint);
-    if (mine.some(e => e.kind !== 'ride')) return done('a bell is already set');
-    if (mine.some(e => e.kind === 'ride' && e.trip?.id === a.tripRef)) return done('riding this trip');
     let docs;
     try { docs = await widgetDocs(a.trip, a.stopSlackMinutes, t, AUTO_BELL_ROWS); } catch (e) {
       log(`auto-bell ${a.id}: ${e.message}`);
+      if (next.phase === 'lookup') a.pending = { date: next.date, failed: true };
       a.nextAt = t + RETRY_MS;
       return store.updateAutoBell(a);
     }
     const row = autoBellRow(docs.rows, next.target);
     if (!row) return done('no ride');
+    const iso = ms => new Date(ms).toISOString();
+    if (next.phase === 'lookup') {
+      const bellAt = row.leaveBy - AUTO_BELL_WARN_MIN * MIN;
+      if (bellAt > t + AUTO_BELL_SLOP_MS) {
+        a.pending = { date: next.date, leaveBy: row.leaveBy, key: row.key };
+        log(`auto-bell ${a.id}: looked up ${row.key}, leave by ${iso(row.leaveBy)}, bell at ${iso(bellAt)}`);
+        return save();
+      }
+    }
+    const mine = store.forEndpoint(a.subscription.endpoint);
+    if (mine.some(e => e.kind !== 'ride')) return done('a bell is already set');
+    if (mine.some(e => e.kind === 'ride' && e.trip?.id === a.tripRef)) return done('riding this trip');
     const rem = {
       id: globalThis.crypto.randomUUID(), subscription: a.subscription, trip: a.trip, tripName: a.tripName,
       stopSlackMinutes: a.stopSlackMinutes, timingIdx: docs.timing, key: row.key,
-      leaveBy: row.leaveBy, headsUps: headsUpsDue(row.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
+      leaveBy: row.leaveBy, headsUps: autoBellHeadsUps(row.leaveBy, t), missing: 0, nextPollAt: t, createdAt: t,
       auto: { tripRef: a.tripRef, dep: row.firstDep, legs: row.legs },
       ...(a.startToken && { startToken: a.startToken }), ...(row.leaveBy <= t && { late: true }),
     };
     store.add(rem);
-    log(`auto-bell ${a.id}: reminder ${rem.id} for ${rem.key}, leave by ${new Date(rem.leaveBy).toISOString()}`);
+    const was = a.pending?.key && a.pending.key !== row.key ? ` (looked up ${a.pending.key})` : '';
+    log(`auto-bell ${a.id}: reminder ${rem.id} for ${rem.key}${was}, leave by ${iso(rem.leaveBy)}`);
     done(null);
   }
 

@@ -1750,35 +1750,50 @@ test('GET /api/config serves the RUM IDs that are set, null otherwise', async ()
 
 // ---------- auto-bell ----------
 
-// 2026-09-30 is a Wednesday (3). Bus b1 7:10 → Orange o1 7:33, arriving 8:00 (10-min walk); bus
-// b2 7:20 → o2 7:40, arriving 8:06.
+// 2026-09-30 is a Wednesday (3). Bus b1 7:10 → Orange o1 7:33, arriving 8:00 (10-min walk), leave
+// by 7:04; bus b2 7:20 → o2 7:40, arriving 8:06, leave by 7:14.
 const autoBells = (autoBell, extra = {}) => ({ subscription: subscription(), stopSlackMinutes: 1, trips: [{ tripRef: 'home', tripName: 'Home to office', trip, autoBell }], ...extra });
+const withB2 = s => { s.world.orange2 = '07:40'; s.world.bus2 = ['07:20', '07:35']; };
+const autoRems = s => s.store.forEndpoint(subscription().endpoint).filter(e => e.auto);
+const autoRow = s => s.store.autoBellsFor(subscription().endpoint)[0];
 
-test('auto-bell: 2 h before the target, the server bells the last ride that arrives by it; the app reads it from /bells', async () => {
+test('auto-bell: looked up 4 h before the target, belled 1 h before its leave-by; the app reads it from /bells', async () => {
   const s = await setup();
   try {
-    s.world.clock = at('05:00');
-    s.world.orange2 = '07:40';
-    s.world.bus2 = ['07:20', '07:35'];
+    s.world.clock = at('03:30');
+    withB2(s);
     const put = await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
     assert.equal(put.status, 200);
-    assert.deepEqual((await put.json()).next, [{ tripRef: 'home', at: at('06:10') }]);
+    assert.deepEqual((await put.json()).next, [{ tripRef: 'home', at: at('04:10'), phase: 'lookup' }]);
     await s.app.tick();
     assert.deepEqual(s.store.forEndpoint(subscription().endpoint), []);
-    s.world.clock = at('06:10');
+    // The lookup: nothing sent; the bell set an hour before b2's 7:14 leave-by.
+    s.world.clock = at('04:10');
+    await s.app.tick();
+    assert.deepEqual(s.store.forEndpoint(subscription().endpoint), []);
+    assert.equal(autoRow(s).pending.leaveBy, at('07:14'));
+    assert.equal(autoRow(s).pending.date, '2026-09-30');
+    assert.equal(autoRow(s).nextAt, at('06:14'));
+    s.world.clock = at('06:13');
+    await s.app.tick();
+    assert.equal(autoRems(s).length, 0);
+    s.world.clock = at('06:14');
     await s.app.tick();
     const [rem] = s.store.forEndpoint(subscription().endpoint);
     assert.deepEqual(rem.auto.legs.map(l => l.tripId), ['b2', 'o2']); // 8:06: the later one still makes 8:10
-    assert.deepEqual(rem.headsUps, [60, 10, 5]);
+    // The 60-min heads-up goes out on the first poll, in the same tick.
+    assert.deepEqual(rem.headsUps, [10, 5]);
+    assert.deepEqual(s.sent.map(p => p.title), ['Leave in 60 min · Home to office']);
+    assert.equal(autoRow(s).pending, null);
     const { bells } = await (await s.call('POST', '/api/bells', { subscription: subscription() })).json();
     assert.deepEqual(bells.map(b => [b.id, b.tripRef, b.tripName, b.key, b.leaveBy]), [[rem.id, 'home', 'Home to office', rem.key, rem.leaveBy]]);
     // Sent again unchanged (the app's daily resend): the day stays done.
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
-    s.world.clock = at('06:11');
+    s.world.clock = at('06:15');
     await s.app.tick();
-    assert.equal(s.store.forEndpoint(subscription().endpoint).filter(e => e.auto).length, 1);
-    // Next Wednesday's.
-    assert.equal(s.store.autoBellsFor(subscription().endpoint)[0].nextAt, at('06:10') + 7 * 24 * 3600_000);
+    assert.equal(autoRems(s).length, 1);
+    // Next Wednesday's lookup.
+    assert.equal(autoRow(s).nextAt, at('04:10') + 7 * 24 * 3600_000);
     // A bell from before trip ids (`auto.index`): listed without a tripRef (the app deletes it).
     s.store.update({ ...rem, auto: { index: 0, dep: rem.auto.dep, legs: rem.auto.legs } });
     const old = (await (await s.call('POST', '/api/bells', { subscription: subscription() })).json()).bells;
@@ -1786,12 +1801,114 @@ test('auto-bell: 2 h before the target, the server bells the last ride that arri
   } finally { await s.close(); }
 });
 
-test('auto-bell: the day it last belled stays with the trip id, and with a row from before trip ids by name', async () => {
+test('auto-bell: the ride is picked again at the bell; saved late, looked up at once; past its bell time, belled at once', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('04:10');
+    withB2(s);
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    await s.app.tick();
+    assert.equal(autoRow(s).nextAt, at('06:14'));
+    // b2 is gone by the bell: b1 (leave by 7:04, under an hour now) is belled.
+    s.world.orange2 = null;
+    s.world.bus2 = null;
+    s.world.clock = at('06:14');
+    await s.app.tick();
+    const [rem] = autoRems(s);
+    assert.deepEqual(rem.auto.legs.map(l => l.tripId), ['b1', 'o1']);
+    assert.deepEqual(s.sent.map(p => p.title), ['Leave in 50 min · Home to office']);
+  } finally { await s.close(); }
+
+  const t = await setup();
+  try {
+    // Saved after the lookup time: looked up at once.
+    t.world.clock = at('05:00');
+    withB2(t);
+    const put = await t.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    assert.deepEqual((await put.json()).next, [{ tripRef: 'home', at: at('05:00'), phase: 'lookup' }]);
+    await t.app.tick();
+    assert.equal(autoRems(t).length, 0);
+    assert.equal(autoRow(t).nextAt, at('06:14'));
+  } finally { await t.close(); }
+
+  const u = await setup();
+  try {
+    // Saved after the bell time: one fetch, belled in the same tick.
+    u.world.clock = at('06:30');
+    withB2(u);
+    await u.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    const before = u.world.calls.filter(c => c === '/predictions').length;
+    await u.app.tick();
+    assert.equal(autoRems(u).length, 1);
+    assert.equal(u.world.calls.filter(c => c === '/predictions').length - before, 2); // one per leg
+    assert.equal(autoRow(u).lastDate, '2026-09-30');
+  } finally { await u.close(); }
+});
+
+test('auto-bell: the lookup failing is tried again; still failing 2 h before the target, picked and belled in one step', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('04:10');
+    withB2(s);
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    s.world.failing = true;
+    await s.app.tick();
+    assert.deepEqual(autoRow(s).pending, { date: '2026-09-30', failed: true });
+    assert.equal(autoRow(s).nextAt, at('04:10') + 20_000);
+    assert.equal(autoRems(s).length, 0);
+    // Back before 6:10: an ordinary lookup.
+    s.world.failing = false;
+    s.world.clock = at('05:00');
+    await s.app.tick();
+    assert.equal(autoRow(s).pending.leaveBy, at('07:14'));
+    assert.equal(autoRems(s).length, 0);
+  } finally { await s.close(); }
+
+  const t = await setup();
+  try {
+    t.world.clock = at('04:10');
+    withB2(t);
+    await t.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    t.world.failing = true;
+    await t.app.tick();
+    t.world.clock = at('06:10');
+    await t.app.tick();
+    assert.equal(autoRems(t).length, 0);
+    assert.equal(autoRow(t).nextAt, at('06:10') + 20_000);
+    t.world.failing = false;
+    t.world.clock = at('06:11');
+    await t.app.tick();
+    const [rem] = autoRems(t);
+    assert.deepEqual(rem.auto.legs.map(l => l.tripId), ['b2', 'o2']);
+    assert.equal(autoRow(t).lastDate, '2026-09-30');
+  } finally { await t.close(); }
+});
+
+test('auto-bell: no ride at the lookup ends the day', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('04:10');
+    s.world.cancelled = true;
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    await s.app.tick();
+    assert.equal(autoRems(s).length, 0);
+    assert.equal(autoRow(s).lastDate, '2026-09-30');
+    assert.equal(autoRow(s).pending, null);
+  } finally { await s.close(); }
+});
+
+test('auto-bell: the day it last belled stays with the trip id, and with a row from before trip ids by name; a lookup is redone', async () => {
   const s = await setup();
   try {
     s.world.clock = at('05:00');
     const ep = subscription().endpoint;
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    await s.app.tick();
+    assert.equal(autoRow(s).pending.leaveBy, at('07:04'));
+    // Sent again: the lookup is redone (at once).
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    assert.equal(autoRow(s).pending, undefined);
+    assert.equal(autoRow(s).nextAt, at('05:00'));
     s.store.replaceAutoBells(ep, s.store.autoBellsFor(ep).map(a => ({ ...a, lastDate: '2026-09-30' })));
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
     assert.equal(s.store.autoBellsFor(ep)[0].lastDate, '2026-09-30');
@@ -1806,30 +1923,53 @@ test('auto-bell: the day it last belled stays with the trip id, and with a row f
   } finally { await s.close(); }
 });
 
-test('auto-bell: not while riding the same trip (by id)', async () => {
+test('auto-bell: a schedule stored before the lookup (no pending) is looked up at its old time', async () => {
+  const s = await setup();
+  try {
+    s.world.clock = at('05:00');
+    withB2(s);
+    const ep = subscription().endpoint;
+    await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
+    s.store.replaceAutoBells(ep, s.store.autoBellsFor(ep).map(a => ({ ...a, nextAt: at('06:10') })));
+    s.world.clock = at('06:10');
+    await s.app.tick();
+    assert.equal(autoRems(s).length, 0);
+    assert.equal(autoRow(s).nextAt, at('06:14'));
+    s.world.clock = at('06:14');
+    await s.app.tick();
+    assert.equal(autoRems(s).length, 1);
+  } finally { await s.close(); }
+});
+
+test('auto-bell: not while riding the same trip (by id), checked at the bell', async () => {
   const s = await setup();
   try {
     s.world.clock = at('05:00');
     await s.call('POST', '/api/rides', followed());
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
-    s.world.clock = at('06:10');
     await s.app.tick();
-    const ep = subscription().endpoint;
-    assert.equal(s.store.forEndpoint(ep).filter(e => e.auto).length, 0);
-    assert.equal(s.store.autoBellsFor(ep)[0].lastDate, '2026-09-30');
+    assert.equal(autoRow(s).lastDate, null); // looked up, not done
+    assert.equal(autoRow(s).pending.date, '2026-09-30');
+    s.world.clock = at('06:04');
+    await s.app.tick();
+    assert.equal(autoRems(s).length, 0);
+    assert.equal(autoRow(s).lastDate, '2026-09-30');
   } finally { await s.close(); }
 });
 
 test('auto-bell: no ride by the target bells the earliest after it; a bell already set skips the day', async () => {
   const s = await setup();
   try {
-    // Saved after 5:40 (2 h before 7:40): belled at once, with the 8:00 arrival (late).
+    // By 7:40, looked up at 5:50 (saved late): b1, arriving 8:00 (late), belled at 6:04.
     s.world.clock = at('05:50');
-    s.world.orange2 = '07:40';
-    s.world.bus2 = ['07:20', '07:35'];
+    withB2(s);
     await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '07:40' }));
     await s.app.tick();
-    const [late] = s.store.forEndpoint(subscription().endpoint);
+    assert.equal(autoRems(s).length, 0);
+    assert.equal(autoRow(s).nextAt, at('06:04'));
+    s.world.clock = at('06:04');
+    await s.app.tick();
+    const [late] = autoRems(s);
     assert.deepEqual(late.auto.legs.map(l => l.tripId), ['b1', 'o1']);
 
     const t = await setup();
@@ -1837,10 +1977,12 @@ test('auto-bell: no ride by the target bells the earliest after it; a bell alrea
       t.world.clock = at('05:50');
       await t.call('POST', '/api/reminders', reminder());
       await t.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
-      t.world.clock = at('06:10');
       await t.app.tick();
-      assert.equal(t.store.forEndpoint(subscription().endpoint).filter(e => e.auto).length, 0);
-      assert.equal(t.store.autoBellsFor(subscription().endpoint)[0].lastDate, '2026-09-30');
+      assert.equal(autoRow(t).lastDate, null); // the lookup still runs
+      t.world.clock = at('06:04');
+      await t.app.tick();
+      assert.equal(autoRems(t).length, 0);
+      assert.equal(autoRow(t).lastDate, '2026-09-30');
     } finally { await t.close(); }
   } finally { await s.close(); }
 });

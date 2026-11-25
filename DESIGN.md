@@ -42,7 +42,7 @@ The infrequent leg (here the bus) constrains the trip; the app detects it automa
 | Departures shown | Next `departureCount` departures (config, 1-8, default 4) |
 | Config editing | Full-screen setup view (gear button) with route and stop pickers (no direction step); JSON only via Export/Import |
 | Extras | Service-impacting alerts; live data on every leg; schedule fallback for missing predictions; next-service-day fill |
-| Auto-bell | Per trip: days and an arrive-by time; the server bells the ride 2 h ahead (see "Auto-bell") |
+| Auto-bell | Per trip: days and an arrive-by time; the server bells the ride an hour before its leave-by (see "Auto-bell") |
 | Deferred | See `TODO.md` (default times estimated from stop coordinates, ferry, skipping an auto-bell day) |
 
 ## Surface wording (2026-10-27)
@@ -2513,17 +2513,31 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
   subscription and the start token) and at least daily, at launch and on return; from setup's
   Save it may ask for notifications. Stored per phone in the `auto_bells` table; a trip sent
   again with the same id keeps the day it last belled (`lastDate`; a row from before trip ids,
-  with `index`, by its name).
-- **When:** `AUTO_BELL_LEAD_MIN` (120) before the target on a chosen day, Boston time
-  (`autoBellNext`; saved later than that but before the target: at once). The server loop
-  checks due schedules each tick.
-- **Which ride:** today's rows (as the widget's, 40 of them) → the last arrival (`eta`, walk
-  included) at or before the target, else the earliest after it, late in red (`autoBellRow`).
-  Then a reminder exactly as the app's bell posts it, marked `auto: { tripRef, dep, legs }`: the
-  quiet leave card, the heads-ups, "Leave now", "Did you get on?". The MBTA failing: tried
-  again (`RETRY_MS`) until the target.
+  with `index`, by its name) and redoes a lookup already done. The reply's `next: [{ tripRef,
+  at, phase }]` is each schedule's next step (`lookup`, `bell`; nothing reads it but the tests).
+- **When** (2026-11-24; before then 2 h before the target, which left a 74-min trip by 10:30am
+  belled at 8:30am, leave by 9:16am: 46 min), in two steps (`autoBellNext`'s `phase`), Boston time:
+  - Lookup: `AUTO_BELL_LOOKUP_MIN` (240) before the target on a chosen day, not before 03:00 for
+    a target from 03:00 on (the schedules before then are the previous service day's). Saved
+    later than that but before the target: at once. Nothing is sent; the looked-up ride is kept
+    as `pending: { date, leaveBy, key }`.
+  - Bell: `AUTO_BELL_WARN_MIN` (60) before that leave-by; already past (or within a tick): at the
+    lookup itself.
+  - The server loop checks due schedules each tick. A row stored without `pending` is looked up
+    when it comes due.
+- **Which ride:** today's rows (as the widget's, 100 of them: 4 h of a 3-min headway; the 6-h
+  schedule window reaches 2 h past the target) → the last arrival (`eta`, walk included) at or
+  before the target, else the earliest after it, late in red (`autoBellRow`). At the bell it is
+  picked again from fresh rows (live predictions): a leave-by moved earlier can leave under an
+  hour. Then a reminder exactly as the app's bell posts it, marked `auto: { tripRef, dep, legs }`,
+  with every heads-up (`autoBellHeadsUps`; the bell's own `headsUpsDue` would drop the 60-min one
+  at exactly leave-by − 60): the leave card starts with "Leave in 60 min", then the other
+  heads-ups, "Leave now", "Did you get on?". The MBTA failing: tried again (`RETRY_MS`); a lookup
+  still failing `AUTO_BELL_FALLBACK_MIN` (120) before the target is picked and belled in one step,
+  tried until the target.
 - **Not belled** that day: this phone already has a bell (one at a time; a manual bell stays),
-  or rides that trip (by its id), or no ride at all. Each is logged.
+  or rides that trip (by its id), both checked at the bell; or no ride at all (at the lookup or
+  the bell). Each is logged.
 - **In the app:** `POST /api/bells { subscription }` lists the server's bells (`adoptBells`, at
   launch and on return; `tripRef: null` for one from before trip ids, deleted): each is pinned on its trip and kept as that trip's reminder, as if
   belled here; one already under way on that trip keeps its state and the server's bell is

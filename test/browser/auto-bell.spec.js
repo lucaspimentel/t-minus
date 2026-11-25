@@ -46,6 +46,7 @@ test('setup: Tue and Thu by 10:00am saves the auto-bell, sends it to the server,
   const setup = page.locator('#setup');
   await setup.locator('.trip-row .item').first().click();
   const card = setup.locator('.card.auto-bell');
+  await expect(card.locator('.hint')).toHaveText('Bells the last ride that gets you there by then, an hour before you need to leave. No days: off.');
   await expect(card.getByRole('button', { name: 'Tue' })).toHaveAttribute('aria-pressed', 'false');
   await card.getByRole('button', { name: 'Tue' }).click();
   await card.getByRole('button', { name: 'Thu' }).click();

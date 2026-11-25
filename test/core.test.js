@@ -10,7 +10,7 @@ import {
   railNetwork, networkStation, railStopsFrom, searchStations, reachableFrom, legBetween, trimRoutes, planRoutes, planToForm, transitNetwork, planTrips, pointEnds, timedOptions, optionSteps, transferText, shownMinutes, rideMinutes, widgetNextRide, optionKey, nextWeekday, optionToForm, defaultTransferMinutes,
   boardingRefetchDue, RIDE_BOARDING_REFETCH_MS, RIDE_BOARDING_REFETCH_FOR_MS,
   reverseTrip, returnName, nearestStop, windowLabel, shortRouteLabel, labelLegs,
-  validAutoBell, bostonMs, autoBellNext, autoBellRow, autoBellLabel, autoBellTrips,
+  validAutoBell, bostonMs, autoBellNext, autoBellHeadsUps, autoBellRow, autoBellLabel, autoBellTrips,
   MBTA_PROXY_PATHS, CACHE_CLASSES, proxyRequestError, mbtaCacheKey, rideStopsQuery, tripStopsQuery, tripStopCount, tripStopShares, withStopShares, legAtError, stopSharesError, stopCountTrip, stopCountText, rideLine,
   legQuery, predictionQuery, rowsFromDocs, reminderStep, reminderText, reminderPollMs, headsUpsDue, HEADS_UP_MINS, remHeadsUps, UPDATE_MIN, testPushText,
   lineLabel, toward, vehicleArrow, withoutArrived, stopConnections, groupConnections, rowConnections,
@@ -3076,21 +3076,52 @@ test('auto-bell: validation, labels, the form, and the trips sent to the server'
   assert.deepEqual(autoBellTrips(null), []);
 });
 
-test('auto-bell: the next one in Boston time (EST and EDT), 2 h ahead; a done day is skipped', () => {
+test('auto-bell: looked up 4 h before the target, belled 1 h before the leave-by, in Boston time; a done day is skipped', () => {
   assert.equal(new Date(bostonMs('2026-11-03', 600)).toISOString(), '2026-11-03T15:00:00.000Z');
   assert.equal(new Date(bostonMs('2026-07-01', 600)).toISOString(), '2026-07-01T14:00:00.000Z');
+  const est = hm => Date.parse(`2026-11-03T${hm}:00-05:00`);
   const ab = { days: [2, 4], arriveBy: '10:00' }; // Tue, Thu
-  const tue7 = Date.parse('2026-11-03T07:00:00-05:00');
-  assert.deepEqual(autoBellNext(ab, null, tue7), { date: '2026-11-03', at: Date.parse('2026-11-03T08:00:00-05:00'), target: Date.parse('2026-11-03T10:00:00-05:00') });
-  // Between the bell time and the target: now.
-  const tue9 = Date.parse('2026-11-03T09:00:00-05:00');
-  assert.equal(autoBellNext(ab, null, tue9).at, tue9);
+  const target = est('10:00');
+  assert.deepEqual(autoBellNext(ab, null, est('05:00')), { date: '2026-11-03', target, phase: 'lookup', at: est('06:00') });
+  // Saved after the lookup time: now.
+  assert.deepEqual(autoBellNext(ab, null, est('07:00')), { date: '2026-11-03', target, phase: 'lookup', at: est('07:00') });
+  // Looked up: an hour before its leave-by; past that: now.
+  const looked = { date: '2026-11-03', leaveBy: est('09:16'), key: 'r' };
+  assert.deepEqual(autoBellNext(ab, null, est('07:00'), looked), { date: '2026-11-03', target, phase: 'bell', at: est('08:16'), leaveBy: est('09:16') });
+  assert.equal(autoBellNext(ab, null, est('08:30'), looked).at, est('08:30'));
+  // A late ride (leave-by after the target) is still belled after the target.
+  const late = autoBellNext(ab, null, est('10:05'), { date: '2026-11-03', leaveBy: est('10:20') });
+  assert.equal(late.date, '2026-11-03');
+  assert.equal(late.phase, 'bell');
+  assert.equal(autoBellNext(ab, null, est('10:20'), { date: '2026-11-03', leaveBy: est('10:20') }).date, '2026-11-05');
+  // The lookup failing: tried again until 2 h before the target, then picked and belled at once.
+  const failed = { date: '2026-11-03', failed: true };
+  assert.deepEqual(autoBellNext(ab, null, est('07:30'), failed), { date: '2026-11-03', target, phase: 'lookup', at: est('07:30') });
+  assert.deepEqual(autoBellNext(ab, null, est('08:00'), failed), { date: '2026-11-03', target, phase: 'bell', at: est('08:00') });
+  assert.equal(autoBellNext(ab, null, est('09:00'), failed).phase, 'bell');
+  // Another date's pending state is ignored.
+  assert.equal(autoBellNext(ab, null, est('07:00'), { date: '2026-11-05', leaveBy: est('09:16') }).phase, 'lookup');
   // Done today, or past the target: Thursday.
-  assert.equal(autoBellNext(ab, '2026-11-03', tue9).date, '2026-11-05');
-  assert.equal(autoBellNext(ab, null, Date.parse('2026-11-03T10:00:00-05:00')).date, '2026-11-05');
+  const thu = autoBellNext(ab, '2026-11-03', est('09:00'));
+  assert.deepEqual([thu.date, thu.phase, thu.at], ['2026-11-05', 'lookup', Date.parse('2026-11-05T06:00:00-05:00')]);
+  assert.equal(autoBellNext(ab, null, est('10:00')).date, '2026-11-05');
   // Saturday → Tuesday.
   assert.equal(autoBellNext(ab, null, Date.parse('2026-11-07T12:00:00-05:00')).date, '2026-11-10');
-  assert.equal(autoBellNext({ days: [], arriveBy: '10:00' }, null, tue7), null);
+  assert.equal(autoBellNext({ days: [], arriveBy: '10:00' }, null, est('07:00')), null);
+  // EDT, and the day the clocks change.
+  assert.equal(autoBellNext({ days: [3], arriveBy: '10:00' }, null, Date.parse('2026-06-30T09:00:00-04:00')).at, Date.parse('2026-07-01T06:00:00-04:00'));
+  assert.equal(autoBellNext({ days: [0], arriveBy: '10:00' }, null, Date.parse('2026-03-07T12:00:00-05:00')).at, Date.parse('2026-03-08T06:00:00-04:00'));
+  // Not before 03:00 for a morning target (before then the schedules are the previous day's).
+  assert.equal(autoBellNext({ days: [2], arriveBy: '06:30' }, null, Date.parse('2026-11-02T20:00:00-05:00')).at, est('03:00'));
+  assert.equal(autoBellNext({ days: [2], arriveBy: '02:00' }, null, Date.parse('2026-11-02T20:00:00-05:00')).at, Date.parse('2026-11-02T22:00:00-05:00'));
+});
+
+test('auto-bell: every heads-up while the leave-by is ahead (the 60-min one at the bell)', () => {
+  const t = Date.parse('2026-11-03T08:16:00-05:00');
+  assert.deepEqual(autoBellHeadsUps(t + 60 * 60_000, t), [60, 10, 5]);
+  assert.deepEqual(autoBellHeadsUps(t + 45 * 60_000, t), [60, 10, 5]);
+  assert.deepEqual(autoBellHeadsUps(t, t), []);
+  assert.deepEqual(autoBellHeadsUps(t - 1, t), []);
 });
 
 test('auto-bell: the ride is the last one arriving by the target, else the earliest after it', () => {
