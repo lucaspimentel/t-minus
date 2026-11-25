@@ -20,7 +20,6 @@ const MAX_AHEAD = 12 * 60 * MIN; // how far ahead a reminder may be set
 const MAX_PER_SUBSCRIPTION = 5;
 const MAX_AUTO_BELLS = 10; // auto-bell trips per phone
 const AUTO_BELL_ROWS = 100; // rows searched for the auto-bell's ride (4 h of a 3-min headway, from the lookup)
-const AUTO_BELL_SLOP_MS = 5_000; // main.mjs's tick: a bell time within it bells at the lookup
 const RATE_LIMIT = 30; // requests per IP per minute
 const MAX_BODY = 16 * 1024;
 const RETRY_MS = 20_000; // after an MBTA error
@@ -588,8 +587,8 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
 
     // Auto-bell: the phone's schedules (`trips`: [{ tripRef (the trip's id), tripName, trip,
     // autoBell }]), all of them at once (empty: none). A trip keeps the day it last belled; a
-    // lookup already done is redone (at once when past its time). The reply's `next`: each
-    // schedule's next step, { tripRef, at, phase: 'lookup' | 'bell' | null }.
+    // lookup already done is redone (at once when past its time). The reply's `next`: when each
+    // schedule's next step (lookup or bell) is due.
     if (req.method === 'PUT' && path === '/auto-bells') {
       if (!validSubscription(body?.subscription)) return reply(res, 400, { error: 'subscription is invalid' });
       if (body.startToken != null && !validToken(body.startToken)) return reply(res, 400, { error: 'startToken is invalid' });
@@ -608,16 +607,15 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       const legacy = new Map(mine.filter(a => !a.tripRef).map(a => [a.tripName, a]));
       const list = body.trips.map(a => {
         const lastDate = (old.get(a.tripRef) ?? legacy.get(a.tripName))?.lastDate ?? null;
-        const n = autoBellNext(a.autoBell, lastDate, t);
         return {
           id: globalThis.crypto.randomUUID(), subscription: body.subscription, ...(body.startToken && { startToken: body.startToken }),
           stopSlackMinutes: body.stopSlackMinutes ?? 1, tripRef: a.tripRef, tripName: a.tripName, trip: a.trip, autoBell: a.autoBell,
-          lastDate, nextAt: n?.at ?? null, phase: n?.phase ?? null,
+          lastDate, nextAt: autoBellNext(a.autoBell, lastDate, t)?.at ?? null,
         };
       });
-      store.replaceAutoBells(ep, list.map(({ phase, ...a }) => a));
+      store.replaceAutoBells(ep, list);
       log(`auto-bells: ${list.length} for a phone`);
-      return reply(res, 200, { next: list.map(a => ({ tripRef: a.tripRef, at: a.nextAt, phase: a.phase })) });
+      return reply(res, 200, { next: list.map(a => ({ tripRef: a.tripRef, at: a.nextAt })) });
     }
     // The bells the server set (auto-bell), for the app to show: [{ id, tripRef (null: from before
     // trip ids; the app deletes it), tripName, key, leaveBy, dep, headsUps, timingIdx, legs }].
@@ -1676,8 +1674,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       a.pending = null;
       save();
     };
-    if (!next) { a.nextAt = null; return store.updateAutoBell(a); }
-    if (t < next.at) { a.nextAt = next.at; return store.updateAutoBell(a); }
+    if (!next || t < next.at) return save();
     let docs;
     try { docs = await widgetDocs(a.trip, a.stopSlackMinutes, t, AUTO_BELL_ROWS); } catch (e) {
       log(`auto-bell ${a.id}: ${e.message}`);
@@ -1688,13 +1685,11 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     const row = autoBellRow(docs.rows, next.target);
     if (!row) return done('no ride');
     const iso = ms => new Date(ms).toISOString();
-    if (next.phase === 'lookup') {
-      const bellAt = row.leaveBy - AUTO_BELL_WARN_MIN * MIN;
-      if (bellAt > t + AUTO_BELL_SLOP_MS) {
-        a.pending = { date: next.date, leaveBy: row.leaveBy, key: row.key };
-        log(`auto-bell ${a.id}: looked up ${row.key}, leave by ${iso(row.leaveBy)}, bell at ${iso(bellAt)}`);
-        return save();
-      }
+    // Looked up with the bell time still ahead: wait for it (past: belled now, with these rows).
+    if (next.phase === 'lookup' && row.leaveBy - AUTO_BELL_WARN_MIN * MIN > t) {
+      a.pending = { date: next.date, leaveBy: row.leaveBy };
+      log(`auto-bell ${a.id}: looked up ${row.key}, leave by ${iso(row.leaveBy)}`);
+      return save();
     }
     const mine = store.forEndpoint(a.subscription.endpoint);
     if (mine.some(e => e.kind !== 'ride')) return done('a bell is already set');
@@ -1707,8 +1702,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       ...(a.startToken && { startToken: a.startToken }), ...(row.leaveBy <= t && { late: true }),
     };
     store.add(rem);
-    const was = a.pending?.key && a.pending.key !== row.key ? ` (looked up ${a.pending.key})` : '';
-    log(`auto-bell ${a.id}: reminder ${rem.id} for ${rem.key}${was}, leave by ${iso(rem.leaveBy)}`);
+    log(`auto-bell ${a.id}: reminder ${rem.id} for ${rem.key}, leave by ${iso(rem.leaveBy)}`);
     done(null);
   }
 

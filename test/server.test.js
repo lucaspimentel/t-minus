@@ -1764,7 +1764,7 @@ test('auto-bell: looked up 4 h before the target, belled 1 h before its leave-by
     withB2(s);
     const put = await s.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
     assert.equal(put.status, 200);
-    assert.deepEqual((await put.json()).next, [{ tripRef: 'home', at: at('04:10'), phase: 'lookup' }]);
+    assert.deepEqual((await put.json()).next, [{ tripRef: 'home', at: at('04:10') }]);
     await s.app.tick();
     assert.deepEqual(s.store.forEndpoint(subscription().endpoint), []);
     // The lookup: nothing sent; the bell set an hour before b2's 7:14 leave-by.
@@ -1825,7 +1825,7 @@ test('auto-bell: the ride is picked again at the bell; saved late, looked up at 
     t.world.clock = at('05:00');
     withB2(t);
     const put = await t.call('PUT', '/api/auto-bells', autoBells({ days: [3], arriveBy: '08:10' }));
-    assert.deepEqual((await put.json()).next, [{ tripRef: 'home', at: at('05:00'), phase: 'lookup' }]);
+    assert.deepEqual((await put.json()).next, [{ tripRef: 'home', at: at('05:00') }]);
     await t.app.tick();
     assert.equal(autoRems(t).length, 0);
     assert.equal(autoRow(t).nextAt, at('06:14'));

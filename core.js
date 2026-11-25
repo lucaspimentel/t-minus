@@ -1426,6 +1426,7 @@ export function serviceDate(nowMs) {
 }
 
 // Service days end by 04:00 the next morning (28:00).
+const SERVICE_DAY_START = 3 * 60; // 03:00: earlier times belong to the previous service day
 const SERVICE_DAY_END = 28 * 60;
 // Windows reaching past this point are extended to the end of the service day.
 const LATE_EXTEND_FROM = 22 * 60;
@@ -3771,7 +3772,7 @@ const trainAlert = leg => leg?.alerts?.[0] ?? '';
 // then bells it AUTO_BELL_WARN_MIN before its leave-by (2026-11-24; before then: 2 h before the
 // target, which left 46 min for a 74-min trip).
 export const AUTO_BELL_LOOKUP_MIN = 240; // the ride is looked up this long before the target
-export const AUTO_BELL_WARN_MIN = 60; // and belled this long before its leave-by
+export const AUTO_BELL_WARN_MIN = 60; // and belled this long before its leave-by (HEADS_UP_MINS' first)
 export const AUTO_BELL_FALLBACK_MIN = 120; // the lookup still failing by then: picked and belled in one step
 export function validAutoBell(ab) {
   if (!ab || typeof ab !== 'object' || !Array.isArray(ab.days) || !ab.days.length) return false;
@@ -3797,13 +3798,13 @@ const weekdayOf = date => new Date(`${date}T12:00:00Z`).getUTCDay();
 // from 03:00 on (before 03:00 the schedules are the previous service day's).
 function autoBellLookupAt(date, target) {
   const lookup = target - AUTO_BELL_LOOKUP_MIN * MIN;
-  const dayStart = bostonMs(date, 180);
+  const dayStart = bostonMs(date, SERVICE_DAY_START);
   return target >= dayStart ? Math.max(lookup, dayStart) : lookup;
 }
 
 // The schedule's next step not done yet: { date, target (arrive by), phase, at, leaveBy? }, for
 // the soonest chosen date that isn't `lastDate` (done or skipped) and is still open. `pending`:
-// the schedule's state for one date, { date, leaveBy, key } once looked up, { date, failed }
+// the schedule's state for one date, { date, leaveBy } once looked up, { date, failed }
 // while the lookup fails; none: not looked up yet.
 // - phase 'lookup': at the lookup time (saved later than that: now).
 // - phase 'bell': AUTO_BELL_WARN_MIN before the looked-up leave-by (past: now); or, the lookup
@@ -5269,7 +5270,7 @@ export function simDayQuery(leg, date) {
 // builds them, from 3am on.
 export function dayRides(trip, scheduleDocs, date, slackMinutes) {
   const { transit } = tripShape(trip);
-  const start = bostonMs(date, 3 * 60);
+  const start = bostonMs(date, SERVICE_DAY_START);
   const vehicles = tripVehicles(transit, transit.map((l, i) => mergeTrips(null, scheduleDocs[i])), null, start);
   return tripRows(trip, vehicles, scheduleTimingLeg(trip, scheduleDocs) ?? 0, start, slackMinutes, Infinity);
 }

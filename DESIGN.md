@@ -2514,15 +2514,14 @@ A trip can be belled automatically on chosen weekdays: "arrive by 10:00am on Tue
   Save it may ask for notifications. Stored per phone in the `auto_bells` table; a trip sent
   again with the same id keeps the day it last belled (`lastDate`; a row from before trip ids,
   with `index`, by its name) and redoes a lookup already done. The reply's `next: [{ tripRef,
-  at, phase }]` is each schedule's next step (`lookup`, `bell`; nothing reads it but the tests).
+  at }]` says when each schedule's next step (lookup or bell) is due; nothing reads it but the tests.
 - **When** (2026-11-24; before then 2 h before the target, which left a 74-min trip by 10:30am
   belled at 8:30am, leave by 9:16am: 46 min), in two steps (`autoBellNext`'s `phase`), Boston time:
   - Lookup: `AUTO_BELL_LOOKUP_MIN` (240) before the target on a chosen day, not before 03:00 for
     a target from 03:00 on (the schedules before then are the previous service day's). Saved
     later than that but before the target: at once. Nothing is sent; the looked-up ride is kept
-    as `pending: { date, leaveBy, key }`.
-  - Bell: `AUTO_BELL_WARN_MIN` (60) before that leave-by; already past (or within a tick): at the
-    lookup itself.
+    as `pending: { date, leaveBy }`.
+  - Bell: `AUTO_BELL_WARN_MIN` (60) before that leave-by; already past: at the lookup itself.
   - The server loop checks due schedules each tick. A row stored without `pending` is looked up
     when it comes due.
 - **Which ride:** today's rows (as the widget's, 100 of them: 4 h of a 3-min headway; the 6-h
