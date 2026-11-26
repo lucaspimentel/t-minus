@@ -257,7 +257,9 @@
   .list-btn, .track-btn, .setup button:where(:not(.item, .link, .row-toggle)) { position: relative; }
   .list-btn::before, .setup button:where(:not(.item, .link, .row-toggle))::before { content: ''; position: absolute; inset: -4.2px 0; }
   .track-btn::before { content: ''; position: absolute; inset: -6.2px 0; }
-  /* The ▲ ▼ buttons are tall but 38 px wide: the area grows sideways, into the 6 px gaps. */
+  /* The ↑ ↓ buttons are tall but 38 px wide: the area grows sideways, into the 6 px gaps. The width
+     is set, not the glyph's (Figtree's arrows made them 33.8 px, 2026-11-26). */
+  .setup .leg-row > button, .setup .trip-row > button { min-width: 38px; }
   .setup .leg-row > button::before, .setup .trip-row > button::before { inset: 0 -4.2px; }
   /* The picker's and lists' items stack with a 6 px gap: each reaches 3 px past its border, to the middle. */
   .setup .field > button.item { min-height: 44px; }
