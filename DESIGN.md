@@ -489,7 +489,7 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 
 - Look (2026-11-26, from the Astryx neutral theme, applied by hand in `app.css`; no Astryx code
   runs in the app): Figtree (400/600/700, Latin, self-hosted in `fonts/`, OFL; precached by
-  `sw.js`, served immutable), Astryx's grays (`--bg` #f1f1f1/#121212, `--card` #fff/#1b1b1b,
+  `sw.js`, served immutable), Astryx's grays (`--bg` #f4f4f4/#121212: lighter than Astryx's #f1f1f1 so green and amber text on the page stay at 4.5:1, `--card` #fff/#1b1b1b,
   `--text` #1b1b1b/#fff, `--muted` #666/#9e9e9e: lighter than Astryx's #474747 in light so gone
   rows still read gray), 10 px controls and 12 px cards. Filled buttons (`--fill`, no border): the
   header's ↻ and ⚙, the en-route bar's. Text buttons (no border or background, 44 px tall): "Show
@@ -1892,7 +1892,7 @@ the setup data is small on the wire. In order, if more people use the app keyles
   (`cache: 'no-cache'`) rather than trusting the browser's HTTP cache; precaches the
   app shell. `api-v3.mbta.com` and the server's `/api/` (reminders, the MBTA proxy) are never
   cached. `basemap.json` (the route map's base map) is cached the same way, on its first fetch,
-  not precached. The cache is the fallback when the server
+  not precached. The fonts (`fonts/`, 2026-11-26) are served from the cache like `?v=` modules. The cache is the fallback when the server
   answers 5xx (4xx is shown as is), takes over 3 s (the request keeps running and still
   updates the cache), or is unreachable. The 5xx and timeout fallbacks match exactly (with the
   `?v=` query) so a new page never gets an old module; offline ignores the query. Versioned

@@ -81,8 +81,9 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return; // never cached (the proxy sends its own data age)
   if (url.pathname.startsWith('/r/')) return; // a shared ride's page: always the server's (its preview text is per ride)
-  // Versioned modules (`?v=<content hash>`) never change: a cached copy is served directly.
-  if (url.searchParams.has('v')) {
+  // Versioned modules (`?v=<content hash>`) and the fonts (a changed font gets a new name) never
+  // change: a cached copy is served directly.
+  if (url.searchParams.has('v') || url.pathname.startsWith('/fonts/')) {
     event.respondWith(caches.match(event.request).then(c => c ?? fetchAndSave(event.request))
       .catch(async () => (await caches.match(event.request, { ignoreSearch: true })) ?? Response.error()));
     return;
