@@ -606,13 +606,13 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
       const old = new Map(mine.filter(a => a.tripRef).map(a => [a.tripRef, a]));
       // Rows from before trip ids (`index`, no `tripRef`): matched by name, once.
       const legacy = new Map(mine.filter(a => !a.tripRef).map(a => [a.tripName, a]));
+      const slack = body.stopSlackMinutes ?? 1;
       const list = body.trips.map(a => {
-        const prev = old.get(a.tripRef) ?? legacy.get(a.tripName);
-        const lastDate = prev?.lastDate ?? null;
-        const slack = body.stopSlackMinutes ?? 1;
-        const same = prev?.tripRef === a.tripRef && prev.stopSlackMinutes === slack
-          && JSON.stringify([prev.trip, prev.autoBell]) === JSON.stringify([a.trip, a.autoBell]);
-        const pending = same ? prev.pending ?? null : null;
+        const kept = old.get(a.tripRef);
+        const lastDate = (kept ?? legacy.get(a.tripName))?.lastDate ?? null;
+        const unchanged = kept?.stopSlackMinutes === slack
+          && JSON.stringify([kept.trip, kept.autoBell]) === JSON.stringify([a.trip, a.autoBell]);
+        const pending = unchanged ? kept.pending ?? null : null;
         return {
           id: globalThis.crypto.randomUUID(), subscription: body.subscription, ...(body.startToken && { startToken: body.startToken }),
           stopSlackMinutes: slack, tripRef: a.tripRef, tripName: a.tripName, trip: a.trip, autoBell: a.autoBell,
@@ -1665,8 +1665,8 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   // finds the ride that gets there by then and sets the bell an hour before its leave-by
   // (`pending`). The bell picks again from fresh rows and posts it as the app's bell does (`auto`
   // marks it for the app's POST /bells); not when this phone already has a bell, or rides this
-  // trip. The MBTA failing: tried again (the lookup backing off); the lookup still failing 2 h before the target is
-  // picked and belled in one step, tried until the target.
+  // trip. The MBTA failing: tried again (the lookup backing off); the lookup still failing 2 h
+  // before the target is picked and belled in one step, tried until the target.
   async function checkAutoBell(a) {
     const t = now();
     const next = autoBellNext(a.autoBell, a.lastDate, t, a.pending);
