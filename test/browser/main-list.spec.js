@@ -4,6 +4,8 @@
 // openApp waits 1 s after the first rows, hence "6 min" at 6:55 for a 7:02 leave-by.
 import { test, expect } from '@playwright/test';
 import { openApp, tick, tickTo, pauseClock, rowHeads, commute, CONFIG, cssColor } from './helpers.js';
+// The row's state bar: a 3 px inset shadow at its left edge (app.css .row).
+const stateBar = color => `${color} 3px 0px 0px 0px inset`;
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -106,14 +108,14 @@ test('before stop names are known, the timeline keeps its shape with "—"', asy
 
 test('only the target ride is green; later rows are neutral', async ({ page }) => {
   await openApp(page, { time: '06:55' });
-  const [green, border] = [await cssColor(page, '--green'), await cssColor(page, '--border')];
+  const green = await cssColor(page, '--green');
   const [first, second] = [page.locator('.row').nth(0), page.locator('.row').nth(1)];
   await expect(first).toHaveClass(/\bgreen\b.*\bcatch\b/);
-  await expect(first).toHaveCSS('border-left-color', green);
+  await expect(first).toHaveCSS('box-shadow', stateBar(green));
   await expect(first.locator('.big')).toHaveCSS('color', green);
   await expect(second).toHaveClass(/\bgreen\b/);
   await expect(second).not.toHaveClass(/\bcatch\b/);
-  await expect(second).toHaveCSS('border-left-color', border);
+  await expect(second).toHaveCSS('box-shadow', stateBar('rgba(0, 0, 0, 0)')); // no bar on later rides
   await expect(second.locator('.big')).not.toHaveCSS('color', green);
   // The first one missed: the next becomes the target.
   await tickTo(page, '07:03:30');
@@ -184,14 +186,14 @@ test('countdown goes green → amber → hurry (amber) → missed (red, then gra
   await expect(first.locator('.big')).toContainText('7:08am');
   const amber = await cssColor(page, '--amber'), red = await cssColor(page, '--red');
   await expect(first.locator('.big')).toHaveCSS('color', amber);
-  await expect(first).toHaveCSS('border-left-color', amber);
+  await expect(first).toHaveCSS('box-shadow', stateBar(amber));
   await tickTo(page, '07:03:30');
   await expect(first).toHaveClass(/\bmissed\b/);
   await expect(first).toHaveClass(/\bdeparts\b/);
   await expect(first.locator('.big')).toContainText('Departs in 4 min');
   await expect(first.locator('.big')).toHaveCSS('font-size', '28px'); // full size while still to leave
   await expect(first.locator('.big')).toHaveCSS('color', red);
-  await expect(first).toHaveCSS('border-left-color', red);
+  await expect(first).toHaveCSS('box-shadow', stateBar(red));
   await tickTo(page, '07:10');
   await expect(first.locator('.big')).toContainText('Missed · left 2 min ago');
   await expect(first).not.toHaveClass(/\bdeparts\b/);

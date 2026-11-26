@@ -1,8 +1,9 @@
 // App-shell cache. MBTA API requests and the server's API (/api/: reminders, the MBTA proxy) always go
 // to the network.
-const CACHE = 't-minus-v3';
+const CACHE = 't-minus-v4';
 // sim.js: the simulator's clock, loaded (inert) before the app on every launch.
-const SHELL = ['./', 'index.html', 'app.css', 'ui.js', 'core.js', 'setup.js', 'sim.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
+const SHELL = ['./', 'index.html', 'app.css', 'ui.js', 'core.js', 'setup.js', 'sim.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
+  'fonts/figtree-400.woff2', 'fonts/figtree-600.woff2', 'fonts/figtree-700.woff2'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

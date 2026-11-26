@@ -145,11 +145,14 @@ const STATIC = {
   '/app.css': 'app.css', '/ui.js': 'ui.js', '/share.js': 'share.js',
   '/manifest.json': 'manifest.json', '/icons/icon.svg': 'icons/icon.svg', '/icons/icon-192.png': 'icons/icon-192.png',
   '/icons/icon-512.png': 'icons/icon-512.png', '/basemap.json': 'basemap.json',
+  // Figtree (app.css @font-face; OFL, fonts/OFL.txt).
+  '/fonts/figtree-400.woff2': 'fonts/figtree-400.woff2', '/fonts/figtree-600.woff2': 'fonts/figtree-600.woff2',
+  '/fonts/figtree-700.woff2': 'fonts/figtree-700.woff2',
   // The simulator (DESIGN.md "Simulator"): its page code, and this server and its memory store, run in the page.
   '/sim.js': 'sim.js', '/sim-mbta.js': 'sim-mbta.js', '/sim-presets.js': 'sim-presets.js', '/sim-page.js': 'sim-page.js',
   '/server/app.mjs': 'server/app.mjs', '/server/memory-store.mjs': 'server/memory-store.mjs',
 };
-const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', mjs: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png' };
+const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', mjs: 'text/javascript; charset=utf-8', json: 'application/json', svg: 'image/svg+xml', png: 'image/png', woff2: 'font/woff2' };
 
 // "Pending notifications": a stored reminder or followed ride as the phone sees it (no
 // subscription keys), with its next push.
@@ -386,6 +389,7 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
     if (env === 'staging') return 'no-store';
     if (url.searchParams.has('v') && /\.(m?js|css)$/.test(file)) return 'public, max-age=31536000, immutable';
     if (file.startsWith('icons/')) return 'public, max-age=86400';
+    if (file.startsWith('fonts/')) return 'public, max-age=31536000, immutable'; // a changed font gets a new name
     return 'no-cache';
   }
 
