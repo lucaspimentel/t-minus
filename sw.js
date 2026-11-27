@@ -1,8 +1,9 @@
 // App-shell cache. MBTA API requests and the server's API (/api/: reminders, the MBTA proxy) always go
 // to the network.
-const CACHE = 't-minus-v3';
+const CACHE = 't-minus-v4';
 // sim.js: the simulator's clock, loaded (inert) before the app on every launch.
-const SHELL = ['./', 'index.html', 'app.css', 'ui.js', 'core.js', 'setup.js', 'sim.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
+const SHELL = ['./', 'index.html', 'app.css', 'ui.js', 'core.js', 'setup.js', 'sim.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
+  'fonts/figtree-400.woff2', 'fonts/figtree-600.woff2', 'fonts/figtree-700.woff2'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -80,8 +81,9 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return; // never cached (the proxy sends its own data age)
   if (url.pathname.startsWith('/r/')) return; // a shared ride's page: always the server's (its preview text is per ride)
-  // Versioned modules (`?v=<content hash>`) never change: a cached copy is served directly.
-  if (url.searchParams.has('v')) {
+  // Versioned modules (`?v=<content hash>`) and the fonts (a changed font gets a new name) never
+  // change: a cached copy is served directly.
+  if (url.searchParams.has('v') || url.pathname.startsWith('/fonts/')) {
     event.respondWith(caches.match(event.request).then(c => c ?? fetchAndSave(event.request))
       .catch(async () => (await caches.match(event.request, { ignoreSearch: true })) ?? Response.error()));
     return;

@@ -41,8 +41,8 @@ test('first run: build a trip with the pickers, save it, and see its rows', asyn
   await expect(page.locator('.empty .secondary-btn')).toHaveText('Import trips');
   // In dark, Import trips has the card background and border, like setup's buttons.
   await page.emulateMedia({ colorScheme: 'dark' });
-  await expect(page.locator('.empty .secondary-btn')).toHaveCSS('background-color', 'rgb(28, 31, 36)');
-  await expect(page.locator('.empty .secondary-btn')).toHaveCSS('border-top-color', 'rgb(46, 51, 58)');
+  await expect(page.locator('.empty .secondary-btn')).toHaveCSS('background-color', 'rgb(27, 27, 27)'); // --card
+  await expect(page.locator('.empty .secondary-btn')).toHaveCSS('border-top-color', 'rgb(46, 46, 46)'); // --border
   await page.emulateMedia({ colorScheme: 'light' });
   // "Plan a trip" opens the planner; its Cancel goes back to the empty state.
   await page.locator('.empty .big-btn', { hasText: 'Plan a trip' }).click();

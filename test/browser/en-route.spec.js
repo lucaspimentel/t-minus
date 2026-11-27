@@ -3,7 +3,7 @@
 // Timeline used below (home to office): bus 132 7:08 → 7:22 (via Pond St 7:12), 5-min
 // transfer, Orange 7:32 → 7:47 (every 6 min), 10-min walk → arrive 7:57.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding, CONFIG, cssColor, at } from './helpers.js';
+import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding, CONFIG, cssColor, at, stateBar } from './helpers.js';
 import { series } from './fake-mbta.js';
 
 test.beforeEach(({ page }) => {
@@ -149,7 +149,7 @@ test('a bus running late: under the transfer time is tight; leaving before the a
   await expect(card(page).locator('.ride-outlook')).toHaveText('Toward Forest Hills (missed 7:32am)');
   await expect(card(page)).toHaveClass(/\bred\b/);
   await expect(card(page)).not.toHaveClass(/amber/);
-  await expect(card(page)).toHaveCSS('border-left-color', red);
+  await expect(card(page)).toHaveCSS('box-shadow', stateBar(red));
   await expect(card(page).locator('.big')).toHaveCSS('color', red);
   await expect(card(page).locator('.ride-outlook')).toHaveCSS('color', red);
 });

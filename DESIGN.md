@@ -340,7 +340,7 @@ unavailable: fallback, and the status line adds "Location off".
 
 Only the target row is green (2026-11-04, the same in every mode): the ride the app answers with,
 the first row still to catch (green, amber, hurry or en route; `targetRow`), or the belled one.
-Later rows in the green state are neutral (the plain border, the text color). Amber (amber,
+Later rows in the green state are neutral (no state bar, the text color). Amber (amber,
 hurry) and red (missed, still to leave) show on any row at their thresholds, the belled row
 included (its outline stays green).
 
@@ -487,6 +487,21 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
 
 ### Display
 
+- Look (2026-11-26, from the Astryx neutral theme, applied by hand in `app.css`; no Astryx code
+  runs in the app): Figtree (400/600/700, Latin, self-hosted in `fonts/`, OFL; precached by
+  `sw.js`, served immutable), Astryx's grays (`--bg` #f4f4f4/#121212: lighter than Astryx's #f1f1f1 so green and amber text on the page stay at 4.5:1, `--card` #fff/#1b1b1b,
+  `--text` #1b1b1b/#fff, `--muted` #666/#9e9e9e: lighter than Astryx's #474747 in light so gone
+  rows still read gray), 10 px controls and 12 px cards. Filled buttons (`--fill`, no border): the
+  header's ↻ and ⚙, the en-route bar's. Text buttons (no border or background, 44 px tall): "Show
+  map", "Show previous rides", "Show more rides". Badges are filled (`--badge`, lighter than `--fill` in light for contrast; LIVE keeps its green border).
+  The rides are one divided list (CSS only, on `#rows`' adjacent `.row`s): touching rows share a
+  1 px divider and only the run's ends are rounded; the previous rides are their own card (the
+  22 px gap starts a new run). The state is a 3 px bar at the row's left edge (an inset shadow,
+  `--bar`; until 2026-11-26 a 6 px left border): green on the target, amber (amber, hurry), red
+  (missed, still to leave; the ride card's red), gray (missed, previous); none on later rows or an
+  arrived ride card. Chosen from mockups (Astryx components, then plain HTML: dot, color only,
+  bar; one list or two), 2026-11-26. No Astryx packages remain in the repo (installed for the
+  mockups, removed the same day): the values above are the reference.
 - Pinned header (2026-11-15): the header row (trip picker, ↻, ⚙) sticks at the top while
   everything below it (the en-route bar, alerts, the map, the rows) scrolls. It is always sticky:
   turning sticky only once scrolled (tried 2026-11-16 against a header left unpainted after a load)
@@ -1877,7 +1892,7 @@ the setup data is small on the wire. In order, if more people use the app keyles
   (`cache: 'no-cache'`) rather than trusting the browser's HTTP cache; precaches the
   app shell. `api-v3.mbta.com` and the server's `/api/` (reminders, the MBTA proxy) are never
   cached. `basemap.json` (the route map's base map) is cached the same way, on its first fetch,
-  not precached. The cache is the fallback when the server
+  not precached. The fonts (`fonts/`, 2026-11-26) are served from the cache like `?v=` modules. The cache is the fallback when the server
   answers 5xx (4xx is shown as is), takes over 3 s (the request keeps running and still
   updates the cache), or is unreachable. The 5xx and timeout fallbacks match exactly (with the
   `?v=` query) so a new page never gets an old module; offline ignores the query. Versioned

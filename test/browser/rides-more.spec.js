@@ -140,3 +140,23 @@ test('Show more rides adds 4 rows per tap', async ({ page }) => {
   await page.locator('#toggle select').selectOption({ label: 'Office to home' });
   await expect(rows).toHaveCount(4);
 });
+
+test('rides read as one divided list; previous rides are their own card', async ({ page }) => {
+  await openApp(page, { time: '17:39' });
+  await listBtn(page, 'Show previous rides ▾').click();
+  await expect(prevRows(page)).toHaveCount(2);
+  // Per row: its card, its rounded corners (top-left/bottom-left), its top border, and how far
+  // below the previous row it starts (0: touching, the upper row's border the divider). The rows
+  // redraw every second, so read them in one evaluate.
+  await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('#rows > li.row')].map((li, i, all) => {
+    const cs = getComputedStyle(li);
+    const gap = i ? Math.round(li.getBoundingClientRect().top - all[i - 1].getBoundingClientRect().bottom) : null;
+    return `${li.classList.contains('prev') ? 'prev' : 'next'} ${cs.borderTopLeftRadius}/${cs.borderBottomLeftRadius} top ${cs.borderTopWidth} gap ${gap === null ? '-' : gap >= 22 ? '22+' : gap}`;
+  }))).toEqual([
+    'prev 12px/0px top 1px gap -',
+    'prev 0px/12px top 0px gap 0',
+    'next 12px/0px top 1px gap 22+', // a new card after the previous rides
+    'next 0px/0px top 0px gap 0',
+    'next 0px/12px top 0px gap 0',
+  ]);
+});

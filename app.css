@@ -1,7 +1,15 @@
   [hidden] { display: none !important; }
+  /* Figtree (OFL, fonts/OFL.txt), the Astryx neutral theme's face (2026-11-26): its Latin subset
+     (with ↑ ↓); glyphs it lacks (▾, ▴, ●) fall back to the system font. */
+  @font-face { font-family: Figtree; font-weight: 400; font-display: fallback; src: url('fonts/figtree-400.woff2') format('woff2'); }
+  @font-face { font-family: Figtree; font-weight: 600; font-display: fallback; src: url('fonts/figtree-600.woff2') format('woff2'); }
+  @font-face { font-family: Figtree; font-weight: 700; font-display: fallback; src: url('fonts/figtree-700.woff2') format('woff2'); }
+  /* Grays from the Astryx neutral theme (2026-11-26), with two light changes: --bg #f4f4f4 (its
+     #f1f1f1 left green and amber text on the page under 4.5:1) and --muted #666 (its #474747 made
+     gone rows read black); --fill: filled buttons. */
   :root {
     color-scheme: light dark; /* native controls (time pickers, checkboxes) follow the theme */
-    --bg: #f5f5f3; --card: #ffffff; --text: #1c1f24; --muted: #6b7078; --border: #dcdde0;
+    --bg: #f4f4f4; --card: #ffffff; --text: #1b1b1b; --muted: #666666; --border: #e2e2e2; --fill: #e2e2e2; --badge: #ececec; /* lighter: --muted on it is 4.8:1 */
     --green: #1b7f45; --amber: #a35f00; --red: #c62828; --accent: #ed8b00;
     --accent-text: #a85a00; /* the accent as text on white (4.5:1); fills keep --accent */
     --alert-bg: #fff4e0; --alert-border: #f0c070;
@@ -13,7 +21,7 @@
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #121417; --card: #1c1f24; --text: #eceef1; --muted: #9aa0a8; --border: #2e333a;
+      --bg: #121212; --card: #1b1b1b; --text: #ffffff; --muted: #9e9e9e; --border: #2e2e2e; --fill: #2a2a2a; --badge: #2a2a2a;
       --green: #4cc47f; --amber: #f0a830; --red: #ff6b6b; --accent: #ed8b00; --accent-text: #ed8b00;
       --alert-bg: #2e2515; --alert-border: #6b5220;
       --press: rgba(255, 255, 255, .09);
@@ -28,7 +36,7 @@
   html { touch-action: manipulation; overscroll-behavior-y: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font: 16px/1.4 Figtree, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     -webkit-tap-highlight-color: transparent; /* the :active styles below replace iOS's gray flash */
     /* iOS blurs content right under the status bar. The standalone app starts below it (no
        status-bar-style meta), so the inset is 0 there; the 22px does the work. */
@@ -39,7 +47,7 @@
      background). A button pressed inside a row doesn't also darken the row. */
   button { transition: transform 80ms; }
   button:not(:disabled):active { box-shadow: inset 0 0 0 100vmax var(--press); transform: scale(.97); }
-  .row:not(.ride):active:not(:has(button:active)) { box-shadow: inset 0 0 0 100vmax var(--press); }
+  .row:not(.ride):active:not(:has(button:active)) { box-shadow: inset 3px 0 0 var(--bar), inset 0 0 0 100vmax var(--press); }
   /* Pinned header row (2026-11-15): sticks at the top, its padding reaching under the status bar
      (the iOS app's inset), so nothing scrolls behind the clock. Its 8 + 4 px below make the old 12;
      the en-route bar's -4px top margin reaches only into the 4 px margin, not under the header's
@@ -87,9 +95,10 @@
     appearance: none; -webkit-appearance: none;
     background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center / 18px;
   }
+  /* Filled buttons (2026-11-26): the header's icons, the en-route bar's. */
   .icon-btn {
-    width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 10px;
-    background: var(--card); color: var(--text); font-size: 20px; cursor: pointer;
+    width: 44px; height: 44px; border: 0; border-radius: 10px;
+    background: var(--fill); color: var(--text); font-size: 20px; cursor: pointer;
   }
   /* Line icons (the setup gear; the map's folded outline until 2026-11-12) in the text color, like
      ↻; they replaced the 🗺 and ⚙ emoji, which iOS drew in color (2026-11-09). */
@@ -139,16 +148,25 @@
   }
   .alerts b { font-size: 12px; letter-spacing: .03em; }
   .rows { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  /* The state bar (2026-11-26, was a 6 px left border): 3 px inside the row's left edge, drawn as a
+     shadow so the text doesn't move; none on later rides. */
   .row {
-    background: var(--card); border: 1px solid var(--border); border-left: 6px solid var(--border);
-    border-radius: 12px; padding: 12px 14px;
+    --bar: transparent;
+    background: var(--card); border: 1px solid var(--border); box-shadow: inset 3px 0 0 var(--bar);
+    border-radius: 12px; padding: 14px 16px;
   }
+  /* One divided list (2026-11-26): rides next to each other in the main list read as one card,
+     their borders the dividers. Previous rides are their own card (the 22 px gap below starts a
+     new one); the map, the list buttons and en-route's ride card keep their gaps. */
+  #rows > .prev + .prev, #rows > .row:not(.prev) + .row:not(.prev) {
+    margin-top: -10px; /* the list's gap */ border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0;
+  }
+  #rows > .prev:has(+ .prev), #rows > .row:not(.prev):has(+ .row:not(.prev)) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   /* Only the target (.catch: the ride the app answers with, or the belled one) is green, in every
      mode; later reachable rows are neutral (the .row border, the text color). Amber (to the last chance)
      and red (missed, still to leave) keep their color on any row; .catch never overrides them. */
-  .row.catch.green, .row.catch.enroute { border-left-color: var(--green); }
-  .row.amber { border-left-color: var(--amber); }
-  .row.hurry { border-left-color: var(--amber); }
+  .row.catch.green, .row.catch.enroute { --bar: var(--green); }
+  .row.amber, .row.hurry { --bar: var(--amber); }
   .big {
     display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px;
     font-size: 28px; font-weight: 700;
@@ -164,19 +182,20 @@
      wide tabular "1" would gap names like "Bus 132". */
   .step .t, .big .at { font-variant-numeric: tabular-nums; }
   .catch.green .big, .catch.enroute .big { color: var(--green); }
-  .amber .big { color: var(--amber); }
-  .hurry .big { color: var(--amber); }
-  .row.missed { border-left-color: var(--muted); }
-  .row.prev { border-left-color: var(--muted); }
+  .amber .big, .hurry .big { color: var(--amber); }
+  .row.missed, .row.prev { --bar: var(--muted); }
   .row.prev + .row:not(.prev) { margin-top: 22px; } /* previous rides apart from the rest */
   .prev .big { color: var(--muted); font-size: 20px; }
+  /* Text buttons (2026-11-26): "Show map", "Show previous rides", "Show more rides". */
   .list-btn {
-    display: block; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
-    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+    display: block; width: 100%; min-height: 44px; padding: 8px 12px; border: 0; border-radius: 10px;
+    background: none; color: var(--text); font: inherit; font-size: 15px; cursor: pointer;
   }
   .list-item.pair { display: flex; gap: 8px; } /* "Show more rides" beside "Show fewer rides" */
+  /* Text buttons are 44 px tall already: half the list's gap above and below. */
+  #rows > .list-item { margin-block: -5px; }
   .missed .big { color: var(--muted); font-size: 20px; }
-  .row.missed.departs { border-left-color: var(--red); }
+  .row.missed.departs { --bar: var(--red); }
   /* Still to leave (often the ride being headed for): full size; smaller once gone. */
   .missed.departs .big { color: var(--red); font-size: 28px; }
   .none .big { color: var(--muted); font-size: 20px; }
@@ -188,9 +207,9 @@
   .tag { white-space: nowrap; }
   .badge {
     display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase;
-    padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); margin-left: 6px; vertical-align: 2px;
+    padding: 1px 6px; border-radius: 6px; border: 1px solid transparent; background: var(--badge); margin-left: 6px; vertical-align: 2px;
   }
-  .badge.live { border-color: var(--green); color: var(--green); }
+  .badge.live { border-color: var(--green); background: none; color: var(--green); }
   .row { cursor: pointer; }
   /* The row's expand button: looks like the row it sits in. */
   .row-toggle {
@@ -208,10 +227,10 @@
   .strip .seg:first-child, .strip .seg:last-child { flex-basis: 10px; }
   .strip .stop { margin-right: 6px; }
   .strip .dot { margin-right: 4px; vertical-align: -1px; }
-  .row.ride { cursor: default; border-left-color: var(--green); }
-  .row.ride.arrived { border-left-color: var(--border); }
-  .row.ride.amber { border-left-color: var(--amber); }
-  .row.ride.red { border-left-color: var(--red); }
+  .row.ride { cursor: default; --bar: var(--green); }
+  .row.ride.arrived { --bar: transparent; }
+  .row.ride.amber { --bar: var(--amber); }
+  .row.ride.red { --bar: var(--red); }
   .row.ride.red .big { color: var(--red); }
   .row.ride:not(.amber):not(.red) .big { color: var(--green); }
   .ride-head { font-size: 20px; font-weight: 700; color: var(--green); }
@@ -229,12 +248,14 @@
   .row-foot { gap: 8px; }
   /* Touch targets: 44 px minimum (test/browser/webkit-layout.spec.js). Buttons a few px short get an
      invisible hit area, like .map-tool's (inset counts from the padding box, so the 1 px border is
-     extra), no taller than the gaps around them: the list's 10 px, the row foot's 10 px above. Those
+     extra), no taller than the gaps around them: the row foot's 10 px above. Those
      with a neighbor closer (stacked items, the ride bar's 8 px wrap) are made taller instead. */
-  .list-btn, .track-btn, .setup button:where(:not(.item, .link, .row-toggle)) { position: relative; }
-  .list-btn::before, .setup button:where(:not(.item, .link, .row-toggle))::before { content: ''; position: absolute; inset: -4.2px 0; }
+  .track-btn, .setup button:where(:not(.item, .link, .row-toggle)) { position: relative; }
+  .setup button:where(:not(.item, .link, .row-toggle))::before { content: ''; position: absolute; inset: -4.2px 0; }
   .track-btn::before { content: ''; position: absolute; inset: -6.2px 0; }
-  /* The ▲ ▼ buttons are tall but 38 px wide: the area grows sideways, into the 6 px gaps. */
+  /* The ↑ ↓ buttons are tall but 38 px wide: the area grows sideways, into the 6 px gaps. The width
+     is set, not the glyph's (Figtree's arrows made them 33.8 px, 2026-11-26). */
+  .setup .leg-row > button, .setup .trip-row > button { min-width: 38px; }
   .setup .leg-row > button::before, .setup .trip-row > button::before { inset: 0 -4.2px; }
   /* The picker's and lists' items stack with a 6 px gap: each reaches 3 px past its border, to the middle. */
   .setup .field > button.item { min-height: 44px; }
@@ -276,7 +297,7 @@
   /* Share my ride (DESIGN.md "Share my ride"): Share / Sharing in the belled row's foot and the ride card's
      buttons; the sheet and the name dialog. */
   .share-btn svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .enroute-bar button.sharing { color: var(--green); border-color: var(--green); }
+  .enroute-bar button.sharing { color: var(--green); border-color: var(--green); background: var(--card); } /* outlined: green on --fill is under 4.5:1 */
   dialog.share-dlg { border: 0; padding: 0; background: transparent; color: var(--text); width: calc(100% - 16px); max-width: 480px; margin: auto auto max(16px, env(safe-area-inset-bottom)); }
   dialog.share-dlg::backdrop { background: rgba(0, 0, 0, .35); }
   .share-box { background: var(--card); border-radius: 14px; overflow: hidden; border: 1px solid var(--border); }
@@ -387,8 +408,8 @@
   .empty { color: var(--muted); padding: 16px 0; }
   .enroute-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 14px; color: var(--muted); }
   .enroute-bar button {
-    min-height: 44px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
-    background: var(--card); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+    min-height: 44px; padding: 6px 16px; border: 1px solid transparent; border-radius: 10px;
+    background: var(--fill); color: var(--text); font: inherit; font-size: 15px; cursor: pointer;
   }
   .en-status { flex: 1 1 0; min-width: 0; }
   .enroute-bar.wide .en-status { flex-basis: 100%; }
@@ -470,7 +491,7 @@
   .setup label.check { min-height: 44px; }
   .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
   .setup input, .setup textarea, .setup select {
-    width: 100%; font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text);
+    width: 100%; font: inherit; color: var(--text);
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px;
   }
   .setup input:not([type=checkbox]):not([type=radio]), .setup select, .setup textarea { min-height: 44px; }

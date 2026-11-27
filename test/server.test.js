@@ -609,6 +609,14 @@ test('the app\'s files: an allowlist from the repo root, with cache headers and 
     assert.match(mod.headers.get('content-type'), /text\/javascript/);
     assert.equal((await s.call('GET', '/sw.js', undefined, null)).headers.get('cache-control'), 'no-cache');
     assert.equal((await s.call('GET', '/icons/icon-192.png', undefined, null)).headers.get('cache-control'), 'public, max-age=86400');
+    // Figtree (app.css): a changed font gets a new name, so cached for good.
+    for (const w of [400, 600, 700]) {
+      const font = await s.call('GET', `/fonts/figtree-${w}.woff2`, undefined, null);
+      assert.equal(font.status, 200, w);
+      assert.equal(font.headers.get('content-type'), 'font/woff2');
+      assert.equal(font.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+    }
+    assert.equal((await s.call('GET', '/fonts/OFL.txt', undefined, null)).status, 404);
     // The route map's base map (built by scripts/build-basemap.mjs): revalidated, 304 when unchanged.
     const base = await s.call('GET', '/basemap.json', undefined, null);
     assert.equal(base.status, 200);
