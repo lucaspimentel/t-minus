@@ -500,8 +500,8 @@ tap, for browsers that want a gesture). Nothing happens where the API is missing
   `--bar`; until 2026-11-26 a 6 px left border): green on the target, amber (amber, hurry), red
   (missed, still to leave; the ride card's red), gray (missed, previous); none on later rows or an
   arrived ride card. Chosen from mockups (Astryx components, then plain HTML: dot, color only,
-  bar; one list or two), 2026-11-26. The `@astryxdesign/*` packages stay as dev dependencies
-  (`astryx-themes.js`, `t-minus-theme.js`: for mockups only).
+  bar; one list or two), 2026-11-26. No Astryx packages remain in the repo (installed for the
+  mockups, removed the same day): the values above are the reference.
 - Pinned header (2026-11-15): the header row (trip picker, ↻, ⚙) sticks at the top while
   everything below it (the en-route bar, alerts, the map, the rows) scrolls. It is always sticky:
   turning sticky only once scrolled (tried 2026-11-16 against a header left unpainted after a load)
