@@ -387,9 +387,9 @@ export function createApp({ fetch, send: sendRaw, store, now = Date.now, apiKey,
   // Staging (`env: 'staging'`, APP_ENV): nothing is cached, so a reload shows the last deploy.
   function cacheControl(url, file) {
     if (env === 'staging') return 'no-store';
-    if (url.searchParams.has('v') && /\.(m?js|css)$/.test(file)) return 'public, max-age=31536000, immutable';
+    // Versioned modules, and the fonts (a changed font gets a new name).
+    if ((url.searchParams.has('v') && /\.(m?js|css)$/.test(file)) || file.startsWith('fonts/')) return 'public, max-age=31536000, immutable';
     if (file.startsWith('icons/')) return 'public, max-age=86400';
-    if (file.startsWith('fonts/')) return 'public, max-age=31536000, immutable'; // a changed font gets a new name
     return 'no-cache';
   }
 

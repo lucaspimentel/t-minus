@@ -145,22 +145,18 @@ test('rides read as one divided list; previous rides are their own card', async 
   await openApp(page, { time: '17:39' });
   await listBtn(page, 'Show previous rides ▾').click();
   await expect(prevRows(page)).toHaveCount(2);
-  // Each row's box: top, bottom, top-left and bottom-left radii (the rows redraw every second).
-  const boxes = () => page.evaluate(() => [...document.querySelectorAll('#rows > li.row')].map(li => {
-    const r = li.getBoundingClientRect(), cs = getComputedStyle(li);
-    return { prev: li.classList.contains('prev'), top: r.top, bottom: r.bottom, tl: cs.borderTopLeftRadius, bl: cs.borderBottomLeftRadius, bt: cs.borderTopWidth };
-  }));
-  await expect.poll(async () => {
-    const b = await boxes();
-    const up = b.filter(x => !x.prev), pr = b.filter(x => x.prev);
-    return {
-      // Touching, with one divider (the upper row's bottom border) between them.
-      touch: [pr, up].every(card => card.slice(1).every((x, i) => Math.abs(x.top - card[i].bottom) < 0.5 && x.bt === '0px')),
-      // Rounded only at each card's ends.
-      ends: [pr[0].tl, pr.at(-1).bl, up[0].tl, up.at(-1).bl],
-      inner: [pr[0].bl, up[0].bl, up[1].tl],
-      // A new card after the previous rides.
-      split: up[0].top - pr.at(-1).bottom >= 22 && up[0].bt === '1px',
-    };
-  }).toEqual({ touch: true, ends: ['12px', '12px', '12px', '12px'], inner: ['0px', '0px', '0px'], split: true });
+  // Per row: its card, its rounded corners (top-left/bottom-left), its top border, and how far
+  // below the previous row it starts (0: touching, the upper row's border the divider). The rows
+  // redraw every second, so read them in one evaluate.
+  await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('#rows > li.row')].map((li, i, all) => {
+    const cs = getComputedStyle(li);
+    const gap = i ? Math.round(li.getBoundingClientRect().top - all[i - 1].getBoundingClientRect().bottom) : null;
+    return `${li.classList.contains('prev') ? 'prev' : 'next'} ${cs.borderTopLeftRadius}/${cs.borderBottomLeftRadius} top ${cs.borderTopWidth} gap ${gap === null ? '-' : gap >= 22 ? '22+' : gap}`;
+  }))).toEqual([
+    'prev 12px/0px top 1px gap -',
+    'prev 0px/12px top 0px gap 0',
+    'next 12px/0px top 1px gap 22+', // a new card after the previous rides
+    'next 0px/0px top 0px gap 0',
+    'next 0px/12px top 0px gap 0',
+  ]);
 });

@@ -181,3 +181,6 @@ export const cssColor = (page, v) => page.evaluate(v => {
   d.remove();
   return c;
 }, v);
+// A row's state bar as its computed box-shadow (app.css .row: a 3 px inset shadow); NO_BAR: none.
+export const stateBar = color => `${color} 3px 0px 0px 0px inset`;
+export const NO_BAR = stateBar('rgba(0, 0, 0, 0)');

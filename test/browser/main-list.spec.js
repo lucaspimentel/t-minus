@@ -3,9 +3,7 @@
 // (leave-by 6 min earlier: 5-min walk + 1 min early at the stop), arriving 7:57, 8:28…
 // openApp waits 1 s after the first rows, hence "6 min" at 6:55 for a 7:02 leave-by.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, pauseClock, rowHeads, commute, CONFIG, cssColor } from './helpers.js';
-// The row's state bar: a 3 px inset shadow at its left edge (app.css .row).
-const stateBar = color => `${color} 3px 0px 0px 0px inset`;
+import { openApp, tick, tickTo, pauseClock, rowHeads, commute, CONFIG, cssColor, stateBar, NO_BAR } from './helpers.js';
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
@@ -115,7 +113,7 @@ test('only the target ride is green; later rows are neutral', async ({ page }) =
   await expect(first.locator('.big')).toHaveCSS('color', green);
   await expect(second).toHaveClass(/\bgreen\b/);
   await expect(second).not.toHaveClass(/\bcatch\b/);
-  await expect(second).toHaveCSS('box-shadow', stateBar('rgba(0, 0, 0, 0)')); // no bar on later rides
+  await expect(second).toHaveCSS('box-shadow', NO_BAR); // no bar on later rides
   await expect(second.locator('.big')).not.toHaveCSS('color', green);
   // The first one missed: the next becomes the target.
   await tickTo(page, '07:03:30');

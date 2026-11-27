@@ -3,10 +3,8 @@
 // Timeline used below (home to office): bus 132 7:08 → 7:22 (via Pond St 7:12), 5-min
 // transfer, Orange 7:32 → 7:47 (every 6 min), 10-min walk → arrive 7:57.
 import { test, expect } from '@playwright/test';
-import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding, CONFIG, cssColor, at } from './helpers.js';
+import { openApp, tick, tickTo, rowHeads, commute, WAKE_STUB, riding, CONFIG, cssColor, at, stateBar } from './helpers.js';
 import { series } from './fake-mbta.js';
-// The row's state bar: a 3 px inset shadow at its left edge (app.css .row).
-const stateBar = color => `${color} 3px 0px 0px 0px inset`;
 
 test.beforeEach(({ page }) => {
   page.on('pageerror', e => { throw e; });
